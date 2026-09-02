@@ -115,9 +115,11 @@ This shows: position, inventory, skills, nearby NPCs/objects, and more.
 
 **Tutorial Check**: If the character is in the tutorial area, call `await bot.skipTutorial()` before running any other scripts. The tutorial blocks normal gameplay.
 
-### 2. Write Your Script
+### 2. Preview, Then Write
 
-Edit `bots/{username}/script_name.ts` with your goal. Keep scripts focused on one task. you may write multiple scripts for different tasks and switch between them.
+Tell the operator the exact file path and paste the **full script** (or a complete diff of the intended change) **before** writing. Do not create, overwrite, or run `bots/{username}/*.ts` until they approve.
+
+Keep scripts focused on one task. You may write multiple scripts for different tasks and switch between them.
 
 ### 3. Run the Script
 
@@ -311,15 +313,21 @@ if (!result.success) {
 }
 ```
 
+## Fleet (many characters)
+
+`bots/roster.json` is the only list of which bots exist and what each one runs by default. Classify with `bun .cursor/skills/wake-fleet/scripts/fleet-status.ts --pretty`. Start/stop grind jobs with `bun .cursor/skills/wake-fleet/scripts/fleet-launchd.ts`, not a Cursor-shell `bun` (task cancel kills the process group). Restart commands come from live argv, then `bots/{name}/assignment.json`, then the roster — never from guessing at grind-log text. Overnight loops belong in `bots/quests/` behind `ActivitySession` (LOG/WARN/ERROR), not a copied `thieving.ts` per character. Details: `.cursor/skills/wake-fleet/SKILL.md` and `.cursor/skills/grind-scripts/SKILL.md`.
+
 ## Project Structure
 
 ```
 
 bots/
+├── roster.json # Fleet names + default jobs (source of truth)
+├── quests/     # Shared grind/quest loops (one script + argv)
 └── {username}/
-    ├── bot.env        # Credentials (BOT_USERNAME, PASSWORD, SERVER)
-    ├── lab_log.md     # Session notes and observations
-    └── script.ts      # Current script
+ ├── bot.env # Credentials (BOT_USERNAME, PASSWORD, SERVER)
+ ├── lab_log.md # Session notes and observations
+ └── script.ts # Thin wrapper or one-off; default job is the roster
 
 sdk/
 ├── index.ts           # BotSDK (low-level)
@@ -347,7 +355,7 @@ wiki/
 
 **Script stalls** - Check for open dialogs (`state.dialog.isOpen`). Level-ups block everything.
 
-**"Can't reach"** - Path is blocked. Try walking closer first, or find a different target.
+**"Can't reach"** - Path is blocked. Try walking closer first, or find a different target. In the wilderness, do not `bot.walkTo` the closer tile either — hop with `sdk.sendWalk` (see `learnings/walking.md` / `learnings/agility.md`).
 
 **Wrong target** - Use more specific regex patterns: `/^tree$/i` not `/tree/i` (which matches "tree stump").
 
@@ -356,5 +364,9 @@ wiki/
 
 - **The client never sent anything.** The client pathfinds before every interaction, and when it can't route it returns `cant_reach` without writing a packet - so the server never replies "I can't reach that!" either. Check `reachable` on the target before using it. `find*` already prefers reachable matches; pass `{reachable: true}` to get `null` instead of an unreachable one.
 - **The server discarded the op.** A refused op (mid-action, stunned, target gone or out of view, bad option) gets `UNSET_MAP_FLAG` and nothing else - no message, no error. A blocking modal is worse: the op is accepted and the trigger never runs. Check `state.opFeedback.opRejectedCount` around a send, and gate loops on an observed effect rather than on a timer.
+
+**Overnight job "works" but XP is flat** - The bot is attempting, not finishing.
+Gate the success log on server evidence (wilderness agility: 4989 XP or "You
+reach the top."), not on movement, fail slides, or pit climb speed.
 
 Start small and build up!

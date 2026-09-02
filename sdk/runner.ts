@@ -8,6 +8,7 @@ import { formatWorldStateSummary } from './formatter';
 import type { BotWorldState } from './types';
 import { readFileSync, existsSync } from 'fs';
 import { dirname, join, resolve } from 'path';
+import { recordScriptAssignment } from './assignment';
 
 // ============ Types ============
 
@@ -345,6 +346,9 @@ export async function runScript(
         bot,
         sdk,
     };
+
+    // Persist identity so a later wake restarts this argv, not a log guess.
+    recordScriptAssignment();
 
     // Baseline XP so the summary can report what the script actually earned
     const xpBefore: Record<string, number> = {};

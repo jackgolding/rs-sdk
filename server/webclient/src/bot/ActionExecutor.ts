@@ -78,7 +78,7 @@ export class ActionExecutor {
 
                 case 'interactNpc': {
                     const result = this.wrapClientAction(
-                        this.client.interactNpc(action.npcIndex, action.optionIndex),
+                        this.client.interactNpc(action.npcIndex, action.optionIndex, action.route !== false),
                         `Interacting with NPC #${action.npcIndex}`,
                         'Failed to interact with NPC'
                     );
@@ -318,6 +318,12 @@ export class ActionExecutor {
                     return result;
                 }
 
+                case 'localChat': {
+                    const line = (action.message ?? '').replace(/\n/g, ' ').slice(0, 80);
+                    this.client.addLocalGameMessage(line);
+                    return { success: true, message: line || 'local chat', phase: 'dispatch' };
+                }
+
                 case 'say': {
                     const say = this.client.say(action.message);
                     if (!say.ok) {
@@ -522,6 +528,7 @@ export function formatAction(action: BotAction): string {
         case 'acceptCharacterDesign': return 'Accept character design';
         case 'randomizeCharacterDesign': return 'Randomize character design';
         case 'say': return `Say: ${action.message}`;
+        case 'localChat': return action.message;
         case 'privateMessage': return `PM ${action.targetName}: ${action.message}`;
         case 'togglePrayer': return `Toggle prayer ${action.prayerIndex}`;
         default: return action.type;

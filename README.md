@@ -154,6 +154,12 @@ When `SERVER` is set to a hostname (e.g. `rs-sdk-demo.fly.dev`), they connect to
 
 
 
+## Spec Kit (cross-cutting work)
+
+Agent playbooks for running a character stay in [AGENTS.md](AGENTS.md). For SDK, recovery, and fleet-protocol changes, this repo uses [GitHub Spec Kit](https://github.github.com/spec-kit/). Project rules are in [`.specify/memory/constitution.md`](.specify/memory/constitution.md). Active feature: [fleet efficiency](specs/002-fleet-efficiency/quickstart.md) (self-healing shepherd, heartbeats, rate report). Do not Spec Kit a waypoint tweak, wiki dump, or live diagnostic; do Spec Kit anything that other bots will inherit (recovery, banking/walking porcelain, trade protocol).
+
+The first feature is [specs/001-autonomous-recovery/spec.md](specs/001-autonomous-recovery/spec.md). In Cursor, skills live under `.cursor/skills/speckit-*`.
+
 ## Disclaimer
 
 This is a free, open-source, community-run project.

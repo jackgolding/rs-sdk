@@ -44,6 +44,18 @@ async function walkWaypoints(waypoints) {
 }
 ```
 
+## Wilderness: hops, not `walkTo`
+
+`bot.walkTo` / `bot.interactLoc` run the client pathfinder. In the wilderness
+that pathfinder will go through the agility fence, around lava to the wrong
+end of a pipe, west of x=2944 into unallocated void, or a 100-tile scenic
+route to a tile 8 steps east.
+
+Use `sdk.sendWalk(x, z, true)` in **2–3 tile hops** that stay on the intended
+corridor, then `sdk.sendInteractLoc`. If a trail on the minimap goes north
+around the course, the hop was too far — shorten it, do not add a second
+long `sendWalk` to "correct" it.
+
 ## Verifying Arrival
 
 Always check if you actually arrived:

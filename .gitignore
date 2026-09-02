@@ -12,9 +12,13 @@ server.json
 backups/
 .obsidian/
 
-# Bot folders (except template)
-bots/*/
-!bots/_template/
+# Bot secrets and runtime only — scripts, notes, and shared routes are tracked
+bots/**/bot.env
+!bots/_template/bot.env
+bots/**/*.env
+bots/**/*.log
+bots/**/*.pid
+bots/**/assignment.json
 
 # Daemon type checker temp file
 sdk/__exec_check.ts
@@ -37,3 +41,6 @@ server/engine/data/market.sqlite*
 
 # Dashboard state is live host data, not source.
 /dashboard-max/data/
+
+# Spec Kit: current-feature pointer is machine-local
+.specify/feature.json

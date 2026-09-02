@@ -134,4 +134,30 @@ describe('clickDialogByText()', () => {
         expect(r.success).toBe(true);
         expect(calls).toEqual([42]);
     });
+
+    test('string patterns treat ? as literal so 20 coins does not hit 5 coins', async () => {
+        const options = [
+            makeOption(1, 'How about 5 coins?'),
+            makeOption(2, 'How about 10 coins?'),
+            makeOption(3, 'How about 15 coins?'),
+            makeOption(4, 'How about 20 coins?'),
+        ];
+        const { sdk, calls } = mountSdk(makeState({ dialogOpen: true, options }));
+        const r = await sdk.clickDialogByText('How about 20 coins?');
+
+        expect(r.success).toBe(true);
+        expect(calls).toEqual([4]);
+    });
+
+    test('prefers the OK twin when CONTINUE and OK share a label', async () => {
+        const options = [
+            { index: 1, text: 'How about 20 coins?', componentId: 1, buttonType: 2 },
+            { index: 2, text: 'How about 20 coins?', componentId: 2, buttonType: 1 },
+        ];
+        const { sdk, calls } = mountSdk(makeState({ dialogOpen: true, options }));
+        const r = await sdk.clickDialogByText(/how about 20 coins/i);
+
+        expect(r.success).toBe(true);
+        expect(calls).toEqual([2]);
+    });
 });

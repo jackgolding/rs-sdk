@@ -182,6 +182,7 @@ export class BotSDK {
     private chatHistory = new ChatHistory();
     /** Cursor consumed by getNewChat(): value of chatHistory.seen at last read. */
     private chatReadCursor: number = 0;
+    private lastIntentLine: string = '';
     private pendingActions = new Map<string, PendingAction>();
     private pendingScreenshots = new Map<string, PendingScreenshot>();
     private stateListeners = new Set<(state: BotWorldState) => void>();
@@ -1128,9 +1129,9 @@ export class BotSDK {
         return this.sendAction({ type: 'interactLoc', x, z, locId, optionIndex: option, reason: 'SDK' });
     }
 
-    /** Interact with an NPC by index and option. */
-    async sendInteractNpc(npcIndex: number, option: number = 1): Promise<ActionResult> {
-        return this.sendAction({ type: 'interactNpc', npcIndex, optionIndex: option, reason: 'SDK' });
+    /** Interact with an NPC by index and option. Pass `{ route: false }` to attack without walking. */
+    async sendInteractNpc(npcIndex: number, option: number = 1, options: { route?: boolean } = {}): Promise<ActionResult> {
+        return this.sendAction({ type: 'interactNpc', npcIndex, optionIndex: option, route: options.route, reason: 'SDK' });
     }
 
     /** Interact with a player by index and option (1-5). Option 2 = Attack (wilderness), 3 = Follow, 4 = Trade. */
@@ -1261,8 +1262,16 @@ export class BotSDK {
         if (!dialog?.isOpen) {
             return { success: false, message: 'No dialog open', reason: 'no_dialog' };
         }
-        const regex = typeof pattern === 'string' ? new RegExp(pattern, 'i') : pattern;
-        const match = dialog.options.find(o => regex.test(o.text));
+        // String patterns are literal (so "How about 20 coins?" does not become
+        // a regex that can collide with cheaper offers). Prefer the OK twin
+        // when p_choice lists CONTINUE then OK with the same label.
+        const regex = typeof pattern === 'string'
+            ? new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+            : pattern;
+        const matches = dialog.options.filter(o => regex.test(o.text));
+        const match =
+            [...matches].reverse().find(o => o.buttonType === 1) ??
+            matches[matches.length - 1];
         if (!match) {
             const available = dialog.options.map(o => `"${o.text}"`).join(', ') || '(none)';
             return {
@@ -1565,6 +1574,22 @@ export class BotSDK {
      */
     async sendSay(message: string): Promise<ActionResult> {
         return this.sendAction({ type: 'say', message, reason: 'SDK' });
+    }
+
+    /**
+     * Write a line into the local game chat box (system/game style). Nothing
+     * is sent to the server or other players. Duplicate lines are skipped.
+     */
+    async showIntent(message: string): Promise<ActionResult> {
+        const line = message.replace(/\n/g, ' ').trim().slice(0, 80);
+        if (!line) {
+            return { success: true, message: 'empty intent' };
+        }
+        if (line === this.lastIntentLine) {
+            return { success: true, message: line };
+        }
+        this.lastIntentLine = line;
+        return this.sendAction({ type: 'localChat', message: line, reason: 'intent' });
     }
 
     /**
@@ -1896,11 +1921,13 @@ export class BotSDK {
         const startTick = this.state.tick;
         const targetTick = startTick + ticks;
 
-        return new Promise((resolve, reject) => {
-            // Safety timeout: ticks * 1s + 5s buffer (server tick is ~300ms, so 1s is generous)
+        return new Promise((resolve) => {
+            // Safety timeout: ticks * 1s + 5s buffer (server tick is ~300ms, so 1s is generous).
+            // Resolve with last state instead of throwing — overnight jobs used to
+            // die on a single missed tick stream (Jackpoo2 waitForTicks crash loop).
             const safetyTimeout = setTimeout(() => {
                 unsubscribe();
-                reject(new Error(`waitForTicks(${ticks}) safety timeout - no state updates received`));
+                resolve(this.state!);
             }, ticks * 1000 + 5000);
 
             const unsubscribe = this.onStateUpdate((state) => {
@@ -2093,3 +2120,21 @@ export class BotSDK {
 
 // Re-export types for convenience
 export * from './types';
+export {
+    ActivitySession,
+    RESTARTABLE_EXIT_CODE,
+    type ActivityConfig,
+    type ActivityMetrics,
+    type LogLevel,
+    type RecoveryTactic,
+    type StopReason,
+} from './activity';
+export {
+    atSeersFlax,
+    inEssenceMine,
+    inMiningGuild,
+    inMiningGuildSouth,
+    inWilderness,
+    npcHasTeleportOption,
+    shopIsNotTeleport
+} from './regions';

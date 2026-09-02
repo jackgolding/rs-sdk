@@ -212,6 +212,7 @@
 | `async launchBrowser(): Promise<void>` | Launch native browser to client URL. Uses the `open` package for cross-platform support (macOS, Windows, Linux, WSL). Falls back to printing the URL if no browser can be opened. |
 | `countInventoryItems(pattern: string \| RegExp): number` | Count total item quantity matching a name pattern. This sums stack sizes across every matching slot. Use `getInventory().filter(...)` when the number of occupied slots is needed. |
 | `async clickInterfaceOption(selector: InterfaceOptionSelector): Promise<ActionResult>` | Click exactly one interface option, selected by its state object or by visible text (substring for strings, match for regexes). This dispatches the option's `componentId` and never interprets `InterfaceOption.index` as an array position. |
+| `async showIntent(message: string): Promise<ActionResult>` | Write a line into the local game chat box (system/game style). Nothing is sent to the server or other players. Duplicate lines are skipped. |
 | `async dm(targetName: string, text: string, opts: { maxLen?: number; delayTicks?: number } = {}): Promise<ActionResult[]>` | Send a private message of any length, auto-split into chunks like {@link say}. Returns one ActionResult per chunk. |
 | `blockDoorTemporarily(level: number, x: number, z: number, ttlMs: number = 30_000): boolean` | Temporarily exclude a known door from this SDK instance's path queries. The shared collision map is never mutated beyond the synchronous query. |
 
@@ -255,7 +256,7 @@
 |---|---|
 | `async sendWalk(x: number, z: number, running: boolean = true): Promise<ActionResult>` | Send walk command to coordinates. |
 | `async sendInteractLoc(x: number, z: number, locId: number, option: number = 1): Promise<ActionResult>` | Interact with a location (tree, rock, door, etc). |
-| `async sendInteractNpc(npcIndex: number, option: number = 1): Promise<ActionResult>` | Interact with an NPC by index and option. |
+| `async sendInteractNpc(npcIndex: number, option: number = 1, options: { route?: boolean } = {}): Promise<ActionResult>` | Interact with an NPC by index and option. Pass `{ route: false }` to attack without walking. |
 | `async sendInteractPlayer(playerIndex: number, option: number = 2): Promise<ActionResult>` | Interact with a player by index and option (1-5). Option 2 = Attack (wilderness), 3 = Follow, 4 = Trade. |
 | `async sendTalkToNpc(npcIndex: number): Promise<ActionResult>` | Talk to an NPC by index. |
 | `async sendPickup(x: number, z: number, itemId: number): Promise<ActionResult>` | Pick up a ground item. |
@@ -304,6 +305,40 @@
 | Signature | Description |
 |---|---|
 | `findPath(destX: number, destZ: number, maxWaypoints: number = 500): { success: boolean; waypoints: Array<{ x: number; z: number; level: number }>; reachedDestination?: boolean; error?: string }` | Find path to destination using local collision data. |
+
+---
+
+## ActivitySession
+
+Long-running grind supervisor: stall clock, bounded recovery, sampled grind-log lines (`LOG` / `WARN` / `ERROR`).
+
+### Other
+
+| Signature | Description |
+|---|---|
+| `registerRecovery(tactics: RecoveryTactic[]): void` | Extra tactics run after the defaults (close UI, step off, re-walk). |
+| `setAnchor(x: number, z: number): void` | Phase re-walk target used by the default `rewalk` tactic. |
+| `async setPhase(phase: string): Promise<void>` | Sets the current step, shows local intent, and counts as progress. |
+| `noteProgress(kind: ProgressKind, detail?: string): void` | Records observed progress and exits an in-progress recovery. |
+| `noteFailure(code: string, message: string): void` | Records a failure; five identical codes in the window arm recovery. |
+| `needsRecovery(): boolean` | True when stalled or repeat-failed, and the session has not stopped. |
+| `async recover(): Promise<RecoveryOutcome>` | Runs remaining tactics until progress, budget, or the list ends. After exhaust, no further walk/interact/bank packets are sent. |
+| `async showIntent(message: string): Promise<void>` | Local game-chat intent; never sent to other players. |
+| `stop(code: string, message: string, opts?: { restartable?: boolean }): void` | Records a terminal stop reason and writes an error grind-log line. |
+| `stopRestartable(code: string, message: string): void` | Stop with restartable exit semantics (launchd KeepAlive will restart). |
+| `exitCode(): number` | Exit code scripts should honor before disconnect (70 = restartable, 0 = terminal). |
+| `async finalizeStop(): Promise<void>` | Safe-park, final heartbeat, and process.exitCode before disconnect. Grind routes should call this after their main loop when session.isStopped(). |
+| `async safePark(): Promise<void>` | Dismiss trade/modals and run optional park tactic before a restartable exit. |
+| `maybeHeartbeat(): void` | Emit a heartbeat if the interval has elapsed. Call from grind loops. |
+| `metrics(): ActivityMetrics` | Snapshot of phase, trips, stalls, and the current stop reason. |
+| `recordTrip(quantity: number): void` | Counts a completed bank trip and notes inventory progress. |
+| `log(level: LogLevel, message: string): void` | Writes a grind-log line. Repeated log/warn lines are sampled; error is never dropped. |
+
+### State Access
+
+| Signature | Description |
+|---|---|
+| `isStopped(): boolean` | True after {@link stop} or a recovery exhaust. |
 
 ---
 

@@ -92,14 +92,14 @@ export function talkToNpc(c: LiteClient, npcIndex: number): ClientActionResult {
     return opNpc(c, npcIndex, 1);
 }
 
-export function interactNpc(c: LiteClient, npcIndex: number, optionIndex: number): ClientActionResult {
+export function interactNpc(c: LiteClient, npcIndex: number, optionIndex: number, route: boolean = true): ClientActionResult {
     if (optionIndex < 1 || optionIndex > 5) {
         return { success: false, reason: 'invalid_option' };
     }
-    return opNpc(c, npcIndex, optionIndex);
+    return opNpc(c, npcIndex, optionIndex, route);
 }
 
-function opNpc(c: LiteClient, npcIndex: number, optionIndex: number): ClientActionResult {
+function opNpc(c: LiteClient, npcIndex: number, optionIndex: number, route: boolean = true): ClientActionResult {
     if (!c.isInGame() || !c.localPlayer) {
         return { success: false, reason: 'not_in_game' };
     }
@@ -122,7 +122,7 @@ function opNpc(c: LiteClient, npcIndex: number, optionIndex: number): ClientActi
     // lineofsight) trigger at tiles the routefinder can never reach, and the
     // server owns the reach check anyway.
     const size = n.type?.size ?? 1;
-    const routed = tryMoveTo(c, n.routeX[0], n.routeZ[0], size, size, 0, 0, 0);
+    const routed = route ? tryMoveTo(c, n.routeX[0], n.routeZ[0], size, size, 0, 0, 0) : false;
 
     c.writeOpcode([ClientProt.OPNPC1, ClientProt.OPNPC2, ClientProt.OPNPC3, ClientProt.OPNPC4, ClientProt.OPNPC5][optionIndex - 1]);
     c.out.p2(npcIndex);
@@ -485,7 +485,14 @@ export function clickDialogOption(c: LiteClient, optionIndex = 0): boolean {
         return false;
     }
 
-    const option = options[optionIndex - 1];
+    let option = options[optionIndex - 1];
+    if (option.buttonType === ButtonType.BUTTON_CONTINUE) {
+        const ok = [...options].reverse().find(
+            o => o.buttonType === ButtonType.BUTTON_OK && o.text === option.text
+        );
+        if (ok) option = ok;
+    }
+
     if (option.buttonType === ButtonType.BUTTON_CONTINUE) {
         if (c.resumedPauseButton || choicePending()) {
             return false;

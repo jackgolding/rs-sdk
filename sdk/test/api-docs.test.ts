@@ -22,7 +22,7 @@ describe('generated API reference', () => {
     test('contains every public class method and complete signatures', async () => {
         const model = await buildApiModel(sdkDir);
         const generated = await generateApiMarkdown(sdkDir);
-        const methods = [...model.botActionsMethods, ...model.sdkMethods];
+        const methods = [...model.botActionsMethods, ...model.sdkMethods, ...model.activitySessionMethods];
 
         expect(methods.length).toBeGreaterThan(100);
         for (const method of methods) {
@@ -42,7 +42,7 @@ describe('generated API reference', () => {
 
     test('preserves async markers, return types, defaults, and dotted descriptions', async () => {
         const model = await buildApiModel(sdkDir);
-        const methods = [...model.botActionsMethods, ...model.sdkMethods];
+        const methods = [...model.botActionsMethods, ...model.sdkMethods, ...model.activitySessionMethods];
 
         expect(methods.find(method => method.name === 'scanNearbyLocs')?.signature)
             .toBe('async scanNearbyLocs(radius?: number): Promise<NearbyLoc[]>');

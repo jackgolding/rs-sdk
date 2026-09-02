@@ -729,8 +729,8 @@ export class LiteClient {
     talkToNpc(npcIndex: number): ClientActionResult {
         return A.talkToNpc(this, npcIndex);
     }
-    interactNpc(npcIndex: number, optionIndex: number): ClientActionResult {
-        return A.interactNpc(this, npcIndex, optionIndex);
+    interactNpc(npcIndex: number, optionIndex: number, route: boolean = true): ClientActionResult {
+        return A.interactNpc(this, npcIndex, optionIndex, route);
     }
 
     /** Exact raw-table lookup for latency-critical, policy-gated hooks. */
@@ -863,6 +863,11 @@ export class LiteClient {
     }
     say(message: string): A.SayOutcome {
         return A.say(this, message);
+    }
+    addLocalGameMessage(text: string): void {
+        const line = text.replace(/\n/g, ' ').slice(0, 80);
+        if (!line) return;
+        this.addChat(0, line, '');
     }
     sendPrivateMessage(targetName: string, message: string): A.SayOutcome {
         return A.sendPrivateMessage(this, targetName, message);

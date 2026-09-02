@@ -3,6 +3,7 @@
 
 import { BotSDK } from './index';
 import { shortestNameMatch } from './action-quantity';
+import { isIsolatedWalkableTile, isTileWalkable, nearestWalkableTile } from './pathfinding';
 import type {
     NearbyLoc,
     NearbyNpc,
@@ -13,6 +14,13 @@ import type {
     ShopItem,
     BotWorldState,
 } from './types';
+
+/** Locs that look openable but drop the player a floor. Never auto-open these. */
+export const VERTICAL_EXIT_NAME = /trapdoor|manhole|hatch/i;
+
+export function isVerticalExitName(name: string): boolean {
+    return VERTICAL_EXIT_NAME.test(name);
+}
 
 /**
  * Server refusals that stop a PvP attack or spell before it happens, lowercased.
@@ -50,6 +58,24 @@ export const NO_RUNES_REFUSALS = [
 
 export class ActionHelpers {
     constructor(private sdk: BotSDK) {}
+
+    tileWalkable(level: number, x: number, z: number): boolean {
+        return isTileWalkable(level, x, z);
+    }
+
+    isolatedWalkable(level: number, x: number, z: number): boolean {
+        return isIsolatedWalkableTile(level, x, z);
+    }
+
+    nearestWalkable(
+        level: number,
+        x: number,
+        z: number,
+        maxR = 8,
+        excludeStart = false
+    ): { x: number; z: number } | null {
+        return nearestWalkableTile(level, x, z, maxR, excludeStart);
+    }
 
     /**
      * The first message published since a getMessageTick() cursor that contains
@@ -156,6 +182,7 @@ export class ActionHelpers {
         // Look for any loc with an "Open" option - covers doors, gates, fences, pens, etc.
         const openables = this.sdk.getNearbyLocs()
             .filter(l => l.optionsWithIndex.some(o => /^open$/i.test(o.text)))
+            .filter(l => !isVerticalExitName(l.name))
             .filter(l => l.distance <= maxDistance)
             .sort((a, b) => a.distance - b.distance);
 

@@ -42,4 +42,25 @@ describe('ActionExecutor interaction routing', () => {
 
         expect(result).toMatchObject({ success: true, phase: 'dispatch' });
     });
+
+    test('localChat writes a client-only line and does not call say', () => {
+        const said: string[] = [];
+        const local: string[] = [];
+        const client = {
+            addLocalGameMessage: (line: string) => local.push(line),
+            say: (msg: string) => {
+                said.push(msg);
+                return { ok: true, finalText: msg, truncated: false, filtered: false };
+            },
+        };
+        const executor = new ActionExecutor(client as any);
+        const result = executor.execute({
+            type: 'localChat',
+            message: 'Recovering: close UI',
+            reason: 'intent',
+        });
+        expect(result).toMatchObject({ success: true, phase: 'dispatch' });
+        expect(local).toEqual(['Recovering: close UI']);
+        expect(said).toEqual([]);
+    });
 });

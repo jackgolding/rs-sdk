@@ -76,6 +76,7 @@ const ONE_WAY_DOORS = new Set<string>([
     '0,2924,9654', // Melzar's Maze basement 'funexit' door — only opens from the maze side
     '0,2927,9649', // Melzar's Maze basement 'funexit' door — only opens from the maze side
     '0,2931,9640', // Melzar's Maze basement 'funexit' door — only opens from the maze side
+    '0,2874,9750', // Entrana dungeon Magic door — teleports to deep wilderness
 ]);
 
 function doorKey(level: number, x: number, z: number): string {
@@ -207,11 +208,65 @@ export function isTileWalkable(level: number, x: number, z: number): boolean {
     return !rsmod.isFlagged(x, z, level, CollisionFlag.WALK_BLOCKED);
 }
 
+/**
+ * Walkable in the snapshot, but every cardinal neighbour is blocked — a flax
+ * gap you can stand on that findPath cannot leave.
+ */
+export function isIsolatedWalkableTile(level: number, x: number, z: number): boolean {
+    if (!isTileWalkable(level, x, z)) return false;
+    return (
+        !isTileWalkable(level, x + 1, z) &&
+        !isTileWalkable(level, x - 1, z) &&
+        !isTileWalkable(level, x, z + 1) &&
+        !isTileWalkable(level, x, z - 1)
+    );
+}
+
+/** Nearest tile the static collision snapshot considers walkable. */
+export function nearestWalkableTile(
+    level: number,
+    x: number,
+    z: number,
+    maxR = 8,
+    excludeStart = false
+): { x: number; z: number } | null {
+    if (!excludeStart && isTileWalkable(level, x, z)) return { x, z };
+    for (let r = 1; r <= maxR; r++) {
+        for (let dx = -r; dx <= r; dx++) {
+            for (let dz = -r; dz <= r; dz++) {
+                if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue;
+                const nx = x + dx;
+                const nz = z + dz;
+                if (isTileWalkable(level, nx, nz)) return { x: nx, z: nz };
+            }
+        }
+    }
+    return null;
+}
+
 /** Check if a tile has specific collision flags set. */
 export function isFlagged(x: number, z: number, level: number, masks: number): boolean {
     if (!initialized) initPathfinding();
     return rsmod.isFlagged(x, z, level, masks);
 }
+
+/**
+ * True if a 1x1 entity at (srcX, srcZ) can see (destX, destZ) on `level`.
+ * Matches the server `lineofsight` command (stall owners catch thieves this way).
+ * Unexported until a porcelain caller exists (constitution: no unused public APIs).
+ */
+function hasLineOfSight(
+    level: number,
+    srcX: number,
+    srcZ: number,
+    destX: number,
+    destZ: number
+): boolean {
+    if (!initialized) initPathfinding();
+    return rsmod.hasLineOfSight(level, srcX, srcZ, destX, destZ, 1, 1, 1, 1, 0);
+}
+
+void hasLineOfSight;
 
 /**
  * Check if the zone containing (x, z) has any collision tiles.

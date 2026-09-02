@@ -80,6 +80,20 @@ while (true) {
 
 **COMMON MISTAKE**: Lumbridge Swamp **(3239, 3147)** has NO fishing spots _at all_ — not net, not lure/bait. Verified against map spawn data: nearest spot is 28 tiles east at (3267, 3148) across the toll gate. Do not walk here to fish.
 
+## Getting a net after death
+
+No coins / empty bank: **do not stall at Gerrant**. Walk to the free wilderness spawn.
+
+| | |
+|--|--|
+| **Tile** | **(2999, 3701)** — map square `m46_57` local (55, 53) |
+| **Area** | Wilderness ~22, west of Graveyard of Shadows |
+| **Method** | Edgeville bank (dump inventory) → **sendWalk** across the ditch at (3088, 3525) → sendWalk to the spawn → pick up → sendWalk back south of the ditch |
+
+**Never `bot.walkTo` north of z=3520** — the pathfinder routes back to Edgeville and loops the ditch.
+
+Call `getNet()` whenever inventory+bank have no small fishing net (death, lost tool). Giant spiders/rats/bear sit slightly south-west of the spawn — approach from the east via (3040, 3660) → (3008, 3690) and leave immediately.
+
 ## Handling Drift
 
 Fishing spots move. Check distance and walk back if needed:

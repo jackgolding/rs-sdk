@@ -5,7 +5,8 @@
 import { BotSDK } from './index';
 import { GEActions } from './ge-actions';
 import type { GEOfferRequest, GEActionResult } from './ge-types';
-import { ActionHelpers, ALREADY_FIGHTING_REFUSALS, NO_RUNES_REFUSALS } from './actions-helpers';
+import { ActionHelpers, ALREADY_FIGHTING_REFUSALS, NO_RUNES_REFUSALS, isVerticalExitName } from './actions-helpers';
+
 import { findDoorsAlongPath, isTileWalkable } from './pathfinding';
 import type {
     ActionResult,
@@ -292,7 +293,7 @@ export class BotActions {
 
     /** Dismiss any blocking UI like level-up dialogs. */
     async dismissBlockingUI(): Promise<void> {
-        const maxAttempts = 10;
+        const maxAttempts = 25;
         for (let i = 0; i < maxAttempts; i++) {
             const state = this.sdk.getState();
             if (!state) break;
@@ -317,7 +318,8 @@ export class BotActions {
             // input. Skip deliberate sessions (shop/bank have their own close
             // actions) and modals where auto-close is destructive — see
             // NEVER_AUTO_CLOSE. Anything else is informational or re-openable.
-            if (state.interface?.isOpen && !state.shop?.isOpen && !state.bank?.isOpen && !state.ge?.isOpen
+            const bankUi = state.bank?.isOpen || state.interface?.interfaceId === 5292;
+            if (state.interface?.isOpen && !state.shop?.isOpen && !bankUi && !state.ge?.isOpen
                 && !NEVER_AUTO_CLOSE.has(state.interface.interfaceId)) {
                 await this.sdk.sendCloseModal();
                 await this.sdk.waitForStateChange(2000).catch(() => {});
@@ -1063,6 +1065,94 @@ export class BotActions {
         }
     }
 
+    private pickableLocAt(x: number, z: number) {
+        return (this.sdk.getNearbyLocs() ?? []).find(
+            (l) =>
+                l.x === x &&
+                l.z === z &&
+                l.optionsWithIndex.some((o) => /^pick$/i.test(o.text))
+        );
+    }
+
+    /**
+     * Live flax (or similar) occupies every cardinal exit: static walkable
+     * neighbours still have a pickable loc on them, so findPath can look fine
+     * and the first step never happens.
+     */
+    private boxedInByPick(level: number, x: number, z: number): boolean {
+        const dirs = [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+        ] as const;
+        let sawPick = false;
+        for (const [dx, dz] of dirs) {
+            const nx = x + dx;
+            const nz = z + dz;
+            if (this.pickableLocAt(nx, nz)) {
+                sawPick = true;
+                continue;
+            }
+            if (this.helpers.tileWalkable(level, nx, nz)) return false;
+        }
+        return sawPick;
+    }
+
+    /**
+     * Boxed in by a pickable loc (Seers flax gap). Drop one matching item if
+     * the bag is full, pick a neighbour loc so that tile opens, then step onto
+     * it. Never pick the tile we are already standing on — that does not
+     * create an exit.
+     */
+    private async tryClearAdjacentPick(startX: number, startZ: number): Promise<boolean> {
+        const plant = (this.sdk.getNearbyLocs() ?? [])
+            .filter((l) => {
+                const manhattan = Math.abs(l.x - startX) + Math.abs(l.z - startZ);
+                return (
+                    manhattan === 1 &&
+                    l.optionsWithIndex.some((o) => /^pick$/i.test(o.text))
+                );
+            })
+            .sort(
+                (a, b) =>
+                    (a.reachable === false ? 1 : 0) - (b.reachable === false ? 1 : 0)
+            )[0];
+        if (!plant) return false;
+
+        const matching = this.sdk
+            .getInventory()
+            .find((i) => i.name.toLowerCase() === plant.name.toLowerCase());
+        if (this.sdk.getInventory().length >= 28) {
+            if (!matching) return false;
+            console.log(
+                `[walkTo] Boxed in and full — dropping 1 ${matching.name} to pick ${plant.name} at (${plant.x}, ${plant.z})`
+            );
+            const dropped = await this.dropItem(matching, 1);
+            if (!dropped.success && this.sdk.getInventory().length >= 28) return false;
+        }
+
+        const pickOp = plant.optionsWithIndex.find((o) => /^pick$/i.test(o.text));
+        if (!pickOp) return false;
+        console.log(`[walkTo] Picking adjacent ${plant.name} at (${plant.x}, ${plant.z}) to open a tile`);
+        await this.sdk.sendInteractLoc(plant.x, plant.z, plant.id, pickOp.opIndex);
+        await this.sdk
+            .waitForCondition(
+                (s) => !s.nearbyLocs?.some((l) => l.x === plant.x && l.z === plant.z && l.id === plant.id),
+                4_000
+            )
+            .catch(() => {});
+        await this.sdk.sendWalk(plant.x, plant.z, true);
+        await this.sdk
+            .waitForCondition(
+                (s) => !!s.player && (s.player.worldX !== startX || s.player.worldZ !== startZ),
+                5_000
+            )
+            .catch(() => {});
+        const p = this.sdk.getState()?.player;
+        return !!p && (p.worldX !== startX || p.worldZ !== startZ);
+    }
+
     /** Walk to coordinates using pathfinding, auto-opening doors. Aborts if the player dies en route. */
     async walkTo(x: number, z: number, tolerance: number = 3): Promise<ActionResult> {
         if (!Number.isFinite(x) || !Number.isFinite(z)) {
@@ -1109,6 +1199,10 @@ export class BotActions {
         // *closing on the destination*, not distance walked: an oscillating
         // route can move 5+ tiles every iteration while never getting closer.
         let bestRemaining = distTo(pos);
+        // Standing on a loc the snapshot still flags (picked flax, despawned
+        // rock) makes findPath return no waypoints. Step off, then re-query.
+        let steppedOffBlocked = 0;
+        let clearedPick = 0;
 
         // Try to open a blocking door. Returns true if door was opened.
         const tryOpenDoor = async (): Promise<boolean> => {
@@ -1121,7 +1215,8 @@ export class BotActions {
             // Door open failed — block the nearest openable door in pathfinding
             // so subsequent path queries route around it
             const nearest = this.sdk.getNearbyLocs()
-                .filter(l => l.optionsWithIndex.some(o => /^open$/i.test(o.text)))
+            .filter(l => l.optionsWithIndex.some(o => /^open$/i.test(o.text)))
+            .filter(l => !isVerticalExitName(l.name))
                 .filter(l => l.distance <= 15)
                 .sort((a, b) => a.distance - b.distance)[0];
             if (nearest) {
@@ -1139,9 +1234,25 @@ export class BotActions {
             return false;
         };
 
+        const tryPickClear = async (): Promise<boolean> => {
+            if (clearedPick >= 3) return false;
+            const startX = pos.x;
+            const startZ = pos.z;
+            if (!(await this.tryClearAdjacentPick(startX, startZ))) return false;
+            clearedPick++;
+            const after = this.sdk.getState()?.player;
+            if (after) pos = { x: after.worldX, z: after.worldZ };
+            return !!after && (after.worldX !== startX || after.worldZ !== startZ);
+        };
+
         for (let i = 0; i < MAX_ITERATIONS; i++) {
             const dead = diedEnRoute();
             if (dead) return dead;
+
+            const loopLevel = this.sdk.getState()?.player?.level ?? 0;
+            if (this.boxedInByPick(loopLevel, pos.x, pos.z) && (await tryPickClear())) {
+                continue;
+            }
 
             // Try pathfinding (with one retry)
             let path = await this.sdk.sendFindPath(x, z, 500);
@@ -1149,11 +1260,42 @@ export class BotActions {
                 await this.sdk.waitForTicks(1);
                 path = await this.sdk.sendFindPath(x, z, 500);
                 if (!path.success || !path.waypoints?.length) {
+                    const level = this.sdk.getState()?.player?.level ?? 0;
+                    const cur = this.sdk.getState()?.player;
+                    if (cur) pos = { x: cur.worldX, z: cur.worldZ };
+                    const trapped =
+                        !this.helpers.tileWalkable(level, pos.x, pos.z) ||
+                        this.helpers.isolatedWalkable(level, pos.x, pos.z);
+                    if (steppedOffBlocked < 3 && trapped) {
+                        steppedOffBlocked++;
+                        const startX = pos.x;
+                        const startZ = pos.z;
+                        if (await tryPickClear()) continue;
+                        const why = this.helpers.tileWalkable(level, pos.x, pos.z) ? 'isolated' : 'blocked';
+                        const step = this.helpers.nearestWalkable(level, pos.x, pos.z, 8, true);
+                        if (step && (step.x !== pos.x || step.z !== pos.z)) {
+                            console.log(`[walkTo] Start tile (${pos.x}, ${pos.z}) is ${why} — stepping to (${step.x}, ${step.z})`);
+                            const walked = await this.sdk.sendWalk(step.x, step.z, true);
+                            if (walked.success) {
+                                await this.sdk.waitForCondition(
+                                    (s) => !!s.player && (s.player.worldX !== startX || s.player.worldZ !== startZ),
+                                    5_000
+                                ).catch(() => {});
+                            }
+                        }
+                        const after = this.sdk.getState()?.player;
+                        if (after && (after.worldX !== startX || after.worldZ !== startZ)) {
+                            pos = { x: after.worldX, z: after.worldZ };
+                            continue;
+                        }
+                        if (after) pos = { x: after.worldX, z: after.worldZ };
+                        continue;
+                    }
+                    if (await tryPickClear()) continue;
                     // "no waypoints" reads as broken collision data, but the usual
                     // cause is a destination that is simply blocked — a wall, or a
                     // tile a loc stands on. Say which, so callers pick a neighbour
                     // tile instead of chasing a phantom pathfinder bug.
-                    const level = this.sdk.getState()?.player?.level ?? 0;
                     const reason = path.error
                         ?? (isTileWalkable(level, x, z) ? 'no waypoints' : 'destination tile is blocked');
                     console.error(`[walkTo] PATHFINDING FAILED: ${reason} - from (${pos.x}, ${pos.z}) to (${x}, ${z})`);
@@ -1210,6 +1352,15 @@ export class BotActions {
                                 if (this.sdk.isDoorTemporarilyBlocked(door.level, door.x, door.z)) break;
                                 const doorDist = Math.abs(door.x - wp.x) + Math.abs(door.z - wp.z);
                                 if (doorDist <= 1) {
+                                    const locHere = this.sdk.getNearbyLocs().find(
+                                        (l) => l.x === door.x && l.z === door.z && /magic door/i.test(l.name)
+                                    );
+                                    if (locHere) {
+                                        this.sdk.blockDoorTemporarily(door.level, door.x, door.z);
+                                        requiredDoorKeys.delete(dk);
+                                        console.log(`[walkTo] Skipping Magic door at (${door.x}, ${door.z}) — wilderness teleport`);
+                                        break;
+                                    }
                                     const result = await this.helpers.openDoorAt(door.x, door.z);
                                     if (result === 'opened' || result === 'already_open') {
                                         requiredDoorKeys.delete(dk);
@@ -1262,6 +1413,7 @@ export class BotActions {
                 if (distTo(result.pos) <= tolerance) return { success: true, message: 'Arrived' };
 
                 if (result.status === 'stuck') {
+                    if (await tryPickClear()) break;
                     if (++consecutiveStuck >= 3) {
                         await tryOpenDoor();
                         break; // Re-query path
@@ -1280,6 +1432,10 @@ export class BotActions {
                 bestRemaining = remaining;
                 poorProgressCount = 0;
             } else if (++poorProgressCount >= 3) {
+                if (await tryPickClear()) {
+                    poorProgressCount = 0;
+                    continue;
+                }
                 if (!await tryOpenDoor()) {
                     return { success: false, message: `Stuck at (${pos.x}, ${pos.z})` };
                 }
@@ -1336,53 +1492,98 @@ export class BotActions {
             return { success: true, message: `Shop already open: ${preState.shop.title}` };
         }
 
+        const npc = this.resolveShopNpc(target);
+        return this.helpers.withDoorRetry(
+            () => this._openShopOnce(target),
+            (r) => r.reason === 'cant_reach',
+            2,
+            npc ? { x: npc.x, z: npc.z } : undefined
+        );
+    }
+
+    private resolveShopNpc(target?: NearbyNpc | string | RegExp) {
         // Many shops are run by a named NPC (Bob's Brilliant Axes -> 'Bob'),
         // so with no explicit target, fall back from the /shop keeper/ name to
         // the nearest NPC that offers a Trade option. An explicit target that
         // doesn't match stays a failure - trading with someone else instead
         // would be worse.
-        const npc = this.helpers.resolveNpc(target ?? /shop\s*keeper/i)
+        return this.helpers.resolveNpc(target ?? /shop\s*keeper/i)
             ?? (target === undefined
                 ? this.sdk.getState()?.nearbyNpcs
                     .filter(n => n.optionsWithIndex.some(o => /trade/i.test(o.text)))
                     .sort((a, b) => a.distance - b.distance)[0]
                 : null)
             ?? null;
+    }
+
+    private async _openShopOnce(target?: NearbyNpc | string | RegExp): Promise<ActionResult> {
+        await this.dismissBlockingUI();
+
+        const npc = this.resolveShopNpc(target);
         if (!npc) {
-            return { success: false, message: target === undefined ? 'No nearby NPC with a Trade option' : `Shopkeeper not found: ${target}` };
+            return {
+                success: false,
+                message: target === undefined ? 'No nearby NPC with a Trade option' : `Shopkeeper not found: ${target}`,
+                reason: 'npc_not_found'
+            };
         }
 
         const tradeOpt = npc.optionsWithIndex.find(o => /trade/i.test(o.text));
-        if (!tradeOpt) {
-            return { success: false, message: 'No trade option on NPC' };
-        }
 
-        // Walk near NPC first - this handles doors
         if (npc.distance > 2) {
             const walkResult = await this.walkTo(npc.x, npc.z, 2);
             if (!walkResult.success) {
-                return { success: false, message: `Cannot reach ${npc.name}: ${walkResult.message}` };
+                return { success: false, message: `Cannot reach ${npc.name}: ${walkResult.message}`, reason: 'cant_reach' };
             }
         }
 
-        const result = await this.sdk.sendInteractNpc(npc.index, tradeOpt.opIndex);
-        if (!result.success) {
-            return result;
+        const npcNow = this.resolveShopNpc(target) ?? this.helpers.resolveNpc(new RegExp(`^${npc.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'));
+        if (!npcNow) {
+            return { success: false, message: `${npc.name} no longer visible`, reason: 'npc_not_found' };
+        }
+
+        const tradeNow = npcNow.optionsWithIndex.find(o => /trade/i.test(o.text)) ?? tradeOpt;
+        const msgBaseline = this.helpers.getMessageTick();
+
+        if (tradeNow) {
+            const result = await this.sdk.sendInteractNpc(npcNow.index, tradeNow.opIndex);
+            if (!result.success) return { ...result, reason: result.reason ?? 'timeout' };
+        } else {
+            const talk = await this.sdk.sendTalkToNpc(npcNow.index);
+            if (!talk.success) return { ...talk, reason: talk.reason ?? 'timeout' };
         }
 
         try {
             const finalState = await this.sdk.waitForCondition(state => {
                 if (state.shop.isOpen) return true;
+                if (this.helpers.checkCantReachMessage(msgBaseline)) return true;
+                if (state.dialog.isOpen && state.dialog.options.length > 1) return true;
                 return false;
             }, 10000);
 
             if (finalState.shop.isOpen) {
                 return { success: true, message: `Opened shop: ${this.sdk.getState()?.shop.title}` };
             }
-
-            return { success: false, message: 'Shop did not open' };
+            if (this.helpers.checkCantReachMessage(msgBaseline)) {
+                return { success: false, message: `Can't reach ${npcNow.name}`, reason: 'cant_reach' };
+            }
+            if (finalState.dialog.isOpen) {
+                const sell = finalState.dialog.options.find(o => /sell|shop|trade/i.test(o.text) && !/no thank|not right now|quest/i.test(o.text));
+                if (sell) {
+                    await this.sdk.sendClickDialog(sell.index);
+                    await this.sdk.waitForCondition(s => s.shop.isOpen, 8_000).catch(() => {});
+                    if (this.sdk.getState()?.shop.isOpen) {
+                        return { success: true, message: `Opened shop: ${this.sdk.getState()?.shop.title}` };
+                    }
+                }
+                return { success: false, message: `Talked to ${npcNow.name} but shop did not open`, reason: 'dialog' };
+            }
+            return { success: false, message: 'Shop did not open', reason: 'timeout' };
         } catch {
-            return { success: false, message: 'Timed out waiting for shop to open' };
+            if (this.helpers.checkCantReachMessage(msgBaseline)) {
+                return { success: false, message: `Can't reach ${npcNow.name}`, reason: 'cant_reach' };
+            }
+            return { success: false, message: 'Timed out waiting for shop to open', reason: 'timeout' };
         }
     }
 
@@ -1736,8 +1937,13 @@ export class BotActions {
 
     private async _openBankOnce(timeout: number): Promise<OpenBankResult> {
         const state = this.sdk.getState();
-        if (state?.interface?.isOpen) {
+        if (state?.bank?.isOpen) {
             return { success: true, message: 'Bank already open' };
+        }
+        // A spinning-wheel / level-up modal is also interface.isOpen. Treating
+        // that as the bank leaves the bot clicking Make X at the booth.
+        if (state?.interface?.isOpen && !state.shop?.isOpen) {
+            await this.closeInterface();
         }
 
         await this.dismissBlockingUI();
@@ -1795,6 +2001,7 @@ export class BotActions {
         while (Date.now() - startTime < timeout) {
             try {
                 await this.sdk.waitForCondition(s => {
+                    if (s.bank?.isOpen === true) return true;
                     if (s.interface?.isOpen === true || s.dialog?.isOpen === true) return true;
                     // Detect "can't reach" early instead of waiting for full timeout
                     if (this.helpers.checkCantReachMessage(msgBaseline)) return true;
@@ -1805,8 +2012,8 @@ export class BotActions {
 
                 // Check success before can't-reach — the interface may have opened
                 // on a retry even if a prior attempt generated a can't-reach message
-                if (currentState?.interface?.isOpen) {
-                    return { success: true, message: `Bank opened (interfaceId: ${currentState.interface.interfaceId})` };
+                if (currentState?.bank?.isOpen) {
+                    return { success: true, message: `Bank opened (interfaceId: ${currentState.interface?.interfaceId})` };
                 }
 
                 if (this.helpers.checkCantReachMessage(msgBaseline)) {
@@ -1814,8 +2021,16 @@ export class BotActions {
                 }
 
                 if (currentState?.dialog?.isOpen) {
-                    const opt = currentState.dialog.options?.[0];
-                    await this.sdk.sendClickDialog(opt?.index ?? 0);
+                    const opts = currentState.dialog.options ?? [];
+                    const skillDlg = opts.some((o) => /make \d+|make x|^wool$|^flax$/i.test(o.text));
+                    if (skillDlg) {
+                        await this.sdk.sendCloseModal();
+                        await this.sdk.waitForTicks(1);
+                        continue;
+                    }
+                    const bankish =
+                        opts.find((o) => /bank|account please|yes/i.test(o.text)) ?? opts[0];
+                    await this.sdk.sendClickDialog(bankish?.index ?? 0);
                     await this.sdk.waitForTicks(1);
                     continue;
                 }
@@ -1825,8 +2040,8 @@ export class BotActions {
         }
 
         const finalState = this.sdk.getState();
-        if (finalState?.interface?.isOpen) {
-            return { success: true, message: `Bank opened (interfaceId: ${finalState.interface.interfaceId})` };
+        if (finalState?.bank?.isOpen) {
+            return { success: true, message: `Bank opened (interfaceId: ${finalState.interface?.interfaceId})` };
         }
 
         return { success: false, message: 'Timeout waiting for bank interface to open', reason: 'timeout' };
@@ -1863,14 +2078,14 @@ export class BotActions {
         // sends) can read true for a frame after interface.isOpen drops.
         // closeInterface only looks at the latter, so a retry on that frame
         // no-op'd with "already closed" while every item send was refused.
+        const closed = (s: { interface?: { isOpen: boolean }; bank?: { isOpen: boolean } }) =>
+            !s.interface?.isOpen && !s.bank?.isOpen;
         const state = this.sdk.getState();
-        if (!state?.interface?.isOpen && !state?.bank?.isOpen) {
+        if (state && closed(state)) {
             return { success: true, message: 'Bank already closed' };
         }
 
         await this.sdk.sendCloseModal();
-        const closed = (s: { interface?: { isOpen: boolean }; bank?: { isOpen: boolean } }) =>
-            !s.interface?.isOpen && !s.bank?.isOpen;
         try {
             await this.sdk.waitForCondition(closed, timeout);
             return { success: true, message: 'Bank closed' };
@@ -2474,9 +2689,13 @@ export class BotActions {
                 }
             }
 
+            // The serving `timeout` only bounds waiting for the next request.
+            // An already-open session always gets the full per-trade budget —
+            // otherwise a request that arrives late in the window is declined
+            // while both sides are still offering items.
             const result = await this.runOpenTradeSession(
                 { give: options.give, want: options.want, accept: options.accept, rejectAfterMs: options.rejectAfterMs },
-                Date.now() + Math.min(tradeTimeout, Math.max(1, deadline - Date.now()))
+                Date.now() + tradeTimeout
             );
             trades.push(result);
             onTrade?.(result);

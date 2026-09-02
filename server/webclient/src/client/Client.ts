@@ -1116,7 +1116,7 @@ export class Client extends GameShell {
      * Option 1 is usually "Talk-to", Option 2 might be "Pickpocket", etc.
      * Use getNearbyNpcs() to see available options for each NPC
      */
-    interactNpc(npcIndex: number, optionIndex: number): ClientActionResult {
+    interactNpc(npcIndex: number, optionIndex: number, route: boolean = true): ClientActionResult {
         if (!this.ingame || !this.out || !this.localPlayer) {
             return { success: false, reason: 'not_in_game' };
         }
@@ -1138,8 +1138,11 @@ export class Client extends GameShell {
         // Real footprint, same as talkToNpc - the reach probe must agree.
         // Attempt the route, but always dispatch (see talkToNpc): apnpc ops are
         // legitimately interactable at range through walls.
+        // `route: false` skips tryMove so a safespot ranger does not walk onto the NPC.
         const size = n.type?.size ?? 1;
-        const routed = this.tryMove(this.localPlayer.routeX[0], this.localPlayer.routeZ[0], n.routeX[0], n.routeZ[0], false, size, size, 0, 0, 0, 2);
+        const routed = route
+            ? this.tryMove(this.localPlayer.routeX[0], this.localPlayer.routeZ[0], n.routeX[0], n.routeZ[0], false, size, size, 0, 0, 0, 2)
+            : false;
 
         // Send the appropriate OPNPC packet based on option index
         const opcodes = [
@@ -2061,6 +2064,13 @@ export class Client extends GameShell {
         return { ok: true, truncated, filtered, finalText: text };
     }
 
+    /** Type-0 game message in the chat box only. Does not send a public-chat packet. */
+    addLocalGameMessage(text: string): void {
+        const line = text.replace(/\n/g, ' ').slice(0, 80);
+        if (!line) return;
+        this.addChat(0, line, '');
+    }
+
     /**
      * Send a private message to another player (MESSAGE_PRIVATE). Mirrors the
      * socialInput path the friends-tab UI uses, without needing the target on
@@ -2560,7 +2570,17 @@ export class Client extends GameShell {
         if (this.chatModalId !== -1) {
             const dialogOptions = this.getDialogOptions();
             if (optionIndex > 0 && optionIndex <= dialogOptions.length) {
-                const option = dialogOptions[optionIndex - 1];
+                let option = dialogOptions[optionIndex - 1];
+
+                // p_choice2 lists CONTINUE then OK for each line. A click on
+                // the CONTINUE twin is refused while a choice is pending, so
+                // retarget the OK button with the same visible text.
+                if (option.buttonType === ButtonType.BUTTON_CONTINUE) {
+                    const ok = [...dialogOptions].reverse().find(
+                        o => o.buttonType === ButtonType.BUTTON_OK && o.text === option.text
+                    );
+                    if (ok) option = ok;
+                }
 
                 if (option.buttonType === ButtonType.BUTTON_CONTINUE) {
                     if (!this.resumedPauseButton && !choicePending()) {

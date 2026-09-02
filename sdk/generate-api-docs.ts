@@ -31,6 +31,7 @@ interface TypeDoc {
 interface ApiModel {
     botActionsMethods: MethodDoc[];
     sdkMethods: MethodDoc[];
+    activitySessionMethods: MethodDoc[];
     resultTypes: TypeDoc[];
 }
 
@@ -213,6 +214,13 @@ function renderApiMarkdown(model: ApiModel): string {
     lines.push('---', '', '## BotSDK (low-level)', '');
     renderMethodGroups(lines, model.sdkMethods, 'sdk');
 
+    lines.push('---', '', '## ActivitySession', '');
+    lines.push(
+        'Long-running grind supervisor: stall clock, bounded recovery, sampled grind-log lines (`LOG` / `WARN` / `ERROR`).',
+        ''
+    );
+    renderMethodGroups(lines, model.activitySessionMethods, 'sdk');
+
     lines.push('---', '', '## Result and state types', '');
     for (const type of model.resultTypes) {
         lines.push(`### ${type.name}`, '');
@@ -236,17 +244,20 @@ export async function buildApiModel(sdkDir = import.meta.dir): Promise<ApiModel>
     const typesPath = join(sdkDir, 'types.ts');
     const gePath = join(sdkDir, 'ge-types.d.ts');
     const marketPath = join(sdkDir, 'market.ts');
-    const [actionsSource, indexSource, typesSource, geSource, marketSource] = await Promise.all([
+    const activityPath = join(sdkDir, 'activity.ts');
+    const [actionsSource, indexSource, typesSource, geSource, marketSource, activitySource] = await Promise.all([
         readFile(actionsPath, 'utf8'),
         readFile(indexPath, 'utf8'),
         readFile(typesPath, 'utf8'),
         readFile(gePath, 'utf8'),
         readFile(marketPath, 'utf8'),
+        readFile(activityPath, 'utf8'),
     ]);
 
     return {
         botActionsMethods: extractPublicClassMethods(actionsPath, actionsSource, 'BotActions'),
         sdkMethods: extractPublicClassMethods(indexPath, indexSource, 'BotSDK'),
+        activitySessionMethods: extractPublicClassMethods(activityPath, activitySource, 'ActivitySession'),
         resultTypes: [...extractResultTypes(typesPath, typesSource), ...extractResultTypes(gePath, geSource), ...extractResultTypes(marketPath, marketSource)],
     };
 }
@@ -275,6 +286,7 @@ async function main(): Promise<void> {
 
     console.log(`  - ${model.botActionsMethods.length} BotActions methods`);
     console.log(`  - ${model.sdkMethods.length} BotSDK methods`);
+    console.log(`  - ${model.activitySessionMethods.length} ActivitySession methods`);
     console.log(`  - ${model.resultTypes.length} result/state types`);
 }
 

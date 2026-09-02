@@ -596,7 +596,7 @@ export type BotAction =
     | { type: 'none'; reason: string }
     | { type: 'wait'; reason: string; ticks?: number }
     | { type: 'talkToNpc'; npcIndex: number; reason: string }
-    | { type: 'interactNpc'; npcIndex: number; optionIndex: number; reason: string }
+    | { type: 'interactNpc'; npcIndex: number; optionIndex: number; reason: string; route?: boolean }
     | { type: 'interactPlayer'; playerIndex: number; optionIndex: number; reason: string }
     | { type: 'clickDialogOption'; optionIndex: number; reason: string }
     // clickComponent: IF_BUTTON packet - for simple buttons, spellcasting, etc.
@@ -625,6 +625,7 @@ export type BotAction =
     | { type: 'useItemOnLoc'; itemSlot: number; x: number; z: number; locId: number; reason: string }
     | { type: 'useItemOnNpc'; itemSlot: number; npcIndex: number; reason: string }
     | { type: 'say'; message: string; reason: string }
+    | { type: 'localChat'; message: string; reason: string }
     | { type: 'privateMessage'; targetName: string; message: string; reason: string }
     | { type: 'spellOnNpc'; npcIndex: number; spellComponent: number; reason: string }
     | { type: 'spellOnPlayer'; playerIndex: number; spellComponent: number; reason: string }

@@ -338,7 +338,12 @@ export class BotStateCollector implements ScanProvider {
         let options: Array<{ index: number; text: string }> = [];
         if (isOpen && typeof this.client.getDialogOptions === 'function') {
             const rawOptions = this.client.getDialogOptions();
-            options = rawOptions.map((opt: any) => ({ index: opt.index, text: opt.text }));
+            options = rawOptions.map((opt: any) => ({
+                index: opt.index,
+                text: opt.text,
+                componentId: opt.componentId,
+                buttonType: opt.buttonType
+            }));
         }
 
         return { isOpen, options, isWaiting };
