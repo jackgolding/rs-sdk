@@ -407,18 +407,10 @@ function occupiedSlots(): number {
     return sdk.getInventory().filter((i) => (i.count ?? 0) > 0).length;
 }
 
-/** Un-noted fish / jug of wine / baker goods. Noted mule fish stack (`count > 1`). */
-const BAKER_FOOD = /^(cake|2\/3 cake|slice of cake|chocolate slice|bread)$/i;
-const BAKER_STALL = { x: 2669, z: 3310 };
-
-function shopFoodCount(): number {
-    return sdk.getInventory().filter((i) => BAKER_FOOD.test(i.name)).length;
-}
-
+/** Un-noted fish / jug of wine. Noted mule fish stack (`count > 1`). */
 function foodCount(): number {
     return sdk.getInventory().filter((i) => THIEVE_FISH_RE.test(i.name) && i.count === 1).length
-        + sdk.getInventory().filter((i) => WINE.test(i.name)).length
-        + shopFoodCount();
+        + sdk.getInventory().filter((i) => WINE.test(i.name)).length;
 }
 
 function emergencySharks(): number {
@@ -440,7 +432,6 @@ function isMuleKeep(name: string): boolean {
         WINE.test(name) ||
         EMPTY_JUG.test(name) ||
         SLASH.test(name) ||
-        BAKER_FOOD.test(name) ||
         /^kebab$/i.test(name) ||
         /^shark$/i.test(name)
     );
@@ -572,7 +563,6 @@ function findEatFood(skip?: RegExp) {
             ? sdk.getInventory().find((i) => /^shark$/i.test(i.name) && i.count === 1)
             : null,
         sdk.getInventory().find((i) => /^kebab$/i.test(i.name) && i.count === 1),
-        sdk.getInventory().find((i) => BAKER_FOOD.test(i.name)),
     ].filter(Boolean) as { name: string; slot: number; optionsWithIndex: { text: string; opIndex: number }[] }[];
     return candidates.find((i) => !skip?.test(i.name)) ?? null;
 }
@@ -1055,16 +1045,6 @@ async function withdrawBankFood(): Promise<{ opened: boolean; count: number }> {
             const r = await bot.withdrawItem(WINE, take, { asNote: false });
             log(`Bank jug of wine x${take} ${r.success ? 'ok' : r.message}`);
         }
-        for (const name of ['cake', '2/3 cake', 'slice of cake', 'chocolate slice', 'bread']) {
-            const spaceLeft = 28 - occupiedSlots() - INV_KEEP_FREE;
-            if (foodCount() >= RESTOCK_FOOD_BELOW || spaceLeft <= 0) break;
-            const re = new RegExp(`^${name.replace('/', '\\/')}$`, 'i');
-            const banked = sdk.findBankItem(re)?.count ?? 0;
-            if (banked <= 0) continue;
-            const take = Math.min(banked, spaceLeft, 12);
-            const r = await bot.withdrawItem(re, take, { asNote: false });
-            log(`Bank ${name} x${take} ${r.success ? 'ok' : r.message}`);
-        }
         const sharksHeld = sdk.getInventory().filter((i) => /^shark$/i.test(i.name) && i.count === 1).length;
         const sharkSpace = 28 - occupiedSlots() - INV_KEEP_FREE;
         const sharksBank = sdk.findBankItem(/^shark$/i)?.count ?? 0;
@@ -1084,62 +1064,13 @@ async function withdrawBankFood(): Promise<{ opened: boolean; count: number }> {
     const wine = sdk.getInventory().filter((i) => WINE.test(i.name)).length;
     const shark = sdk.getInventory().filter((i) => /^shark$/i.test(i.name) && i.count === 1).length;
     log(
-        `Bank pack fish=${JSON.stringify(fishPack)} wine=${wine} shark=${shark} shopfood=${shopFoodCount()} (eat shark only below ${SHARK_EAT_BELOW_HP} hp)`
+        `Bank pack fish=${JSON.stringify(fishPack)} wine=${wine} shark=${shark} (eat shark only below ${SHARK_EAT_BELOW_HP} hp)`
     );
     return { opened: true, count: foodCount() };
 }
 
 async function unnoteFood(): Promise<number> {
     return (await withdrawBankFood()).count;
-}
-
-async function buyBakerFood(): Promise<boolean> {
-    if (hasThieveFood()) return true;
-    if (sdk.getState()?.bank?.isOpen) await bot.closeBank();
-    if (sdk.getState()?.shop?.isOpen) await bot.closeShop();
-    if (coinCount() < 50) {
-        await walkNear(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 3);
-        const banked = await bot.openBank();
-        if (banked.success || sdk.getState()?.bank?.isOpen) {
-            await bot.withdrawItem(/^coins$/i, 2_500).catch(() => {});
-            await bot.closeBank();
-        }
-    }
-    if (coinCount() < 12) {
-        session.noteFailure('baker_shop', `need gp, have ${coinCount()}`);
-        return false;
-    }
-    intent('Buying cakes from the Ardougne baker');
-    await walkNear(BAKER_STALL.x, BAKER_STALL.z, 4);
-    const baker =
-        sdk.findNearbyNpc(/^baker$/i, { reachable: true }) ?? sdk.findNearbyNpc(/^baker$/i);
-    if (!baker) {
-        session.noteFailure('baker_shop', 'Baker not visible');
-        return false;
-    }
-    const opened = await bot.openShop(baker);
-    if (!opened.success && !sdk.getState()?.shop?.isOpen) {
-        session.noteFailure('baker_shop', opened.message || 'shop open failed');
-        return false;
-    }
-    log(`Opened ${sdk.getState()?.shop?.title ?? 'baker'} via ${baker.name}`);
-    const want = 12;
-    for (const item of [/^cake$/i, /^chocolate slice$/i, /^bread$/i]) {
-        let stale = 0;
-        while (shopFoodCount() < want && occupiedSlots() < 27 && coinCount() >= 12 && stale < 4) {
-            const line = sdk.getState()?.shop?.shopItems?.find((i) => item.test(i.name));
-            if (!line || line.count <= 0 || coinCount() < line.buyPrice) break;
-            const before = shopFoodCount();
-            const take = Math.min(line.count, want - shopFoodCount(), 10);
-            await bot.buyFromShop(item, take);
-            await sdk.waitForTicks(1);
-            if (shopFoodCount() <= before) stale++;
-            else stale = 0;
-        }
-    }
-    await bot.closeShop();
-    log(`Baker pack food=${foodCount()} shopfood=${shopFoodCount()} gp=${coinCount()}`);
-    return hasThieveFood();
 }
 
 async function ensureFood(): Promise<{ opened: boolean; ok: boolean }> {
@@ -1154,7 +1085,6 @@ async function ensureFood(): Promise<{ opened: boolean; ok: boolean }> {
             if (hasThieveFood()) return { opened: again.opened, ok: true };
         }
     }
-    if (inArdougne()) await buyBakerFood();
     return { opened: bank.opened || hasThieveFood(), ok: hasThieveFood() };
 }
 
@@ -2646,7 +2576,7 @@ try {
             const food = await ensureFood();
             if (!hasThieveFood() && notedFood().length === 0) {
                 if (usesFoodMule(username)) {
-                    log(`Still no food after mule/bank/baker — waiting on ${FOOD_MULE}`);
+                    log(`Still no food after mule/bank — waiting on ${FOOD_MULE}`);
                     await sdk.waitForTicks(15);
                     continue;
                 }
