@@ -115,6 +115,14 @@ function timingLine(t?: TradeTimingsMs): string {
 
 function serveSummary(served: import('../../sdk/types').ServeTradesResult, wallMs: number, waiting: string[]): void {
     const ok = served.trades.filter((t) => t.success).length;
+    let foodSession = 0;
+    for (const t of served.trades) {
+        if (!t.success) continue;
+        for (const item of t.gave) {
+            if (FOOD.test(item.name)) foodSession += item.count ?? 0;
+        }
+    }
+    const foodPerOk = ok > 0 ? Math.round(foodSession / ok) : 0;
     const byReason = new Map<string, number>();
     for (const t of served.trades) {
         const key = t.success ? 'ok' : (t.reason ?? 'fail');
@@ -122,7 +130,7 @@ function serveSummary(served: import('../../sdk/types').ServeTradesResult, wallM
     }
     const reasons = [...byReason.entries()].map(([k, n]) => `${k}:${n}`).join(' ');
     log(
-        `Serve end reason=${served.reason ?? '?'} wall=${wallMs}ms ok=${ok}/${served.trades.length} sessions [${reasons}] customers=${waiting.length ? waiting.join(',') : 'none'}`
+        `Serve end reason=${served.reason ?? '?'} wall=${wallMs}ms ok=${ok}/${served.trades.length} food_session=${foodSession} food_per_ok=${foodPerOk} [${reasons}] customers=${waiting.length ? waiting.join(',') : 'none'}`
     );
 }
 

@@ -527,6 +527,13 @@ async function maybePackLootWhileGrinding(): Promise<void> {
     await walkNear(KNIGHTS.x, KNIGHTS.z, 4);
 }
 
+/** Spread bank arrivals so ABGARMY01 is not serving a full crowd at once. */
+function muleBankStaggerMs(): number {
+    const n = Number.parseInt(username.match(/\d+/)?.[0] ?? '', 10);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, (n - 2) % 19) * 5_000;
+}
+
 /** Walk to 01 at the Ardougne bank, give loot, take noted fish. */
 async function swapFoodWithMule(): Promise<boolean> {
     if (!usesFoodMule(username) || !inArdougne()) return false;
@@ -541,6 +548,11 @@ async function swapFoodWithMule(): Promise<boolean> {
     await leaveHouse();
     await leaveHandelmortMansion();
     mark('left house/mansion');
+    const stagger = muleBankStaggerMs();
+    if (stagger > 0) {
+        log(`Mule swap stagger ${stagger}ms`);
+        await new Promise((r) => setTimeout(r, stagger));
+    }
     intent(`Trading loot → ${FOOD_MULE} for food at bank`);
     await walkNear(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 3);
     mark(`walked to bank @ ${pos().x},${pos().z}`);
