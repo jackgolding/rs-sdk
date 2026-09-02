@@ -41,6 +41,3 @@ server/engine/data/market.sqlite*
 
 # Dashboard state is live host data, not source.
 /dashboard-max/data/
-
-# Spec Kit: current-feature pointer is machine-local
-.specify/feature.json
