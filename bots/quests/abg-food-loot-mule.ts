@@ -12,7 +12,7 @@ import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
-import type { TradeItem } from '../../sdk/types';
+import type { TradeTimingsMs } from '../../sdk/types';
 import { ARDOUGNE_BANK } from './tiles';
 import { closeUi, playerPos, walkNear } from './movement';
 import { FOOD_MULE, FOOD_MULE_FROM, FOOD_PACK_ORDER, foodPackGive } from './tree-trade-plan';
@@ -98,6 +98,31 @@ function foodSummary(): string {
         if (n > 0) parts.push(`${n} ${name}`);
     }
     return parts.join(', ') || 'none';
+}
+
+function timingLine(t?: TradeTimingsMs): string {
+    if (!t) return '';
+    const parts: string[] = [];
+    if (t.waitRequestMs != null) parts.push(`waitReq=${t.waitRequestMs}`);
+    if (t.requestMs != null) parts.push(`request=${t.requestMs}`);
+    if (t.offerMs != null) parts.push(`offer=${t.offerMs}`);
+    if (t.acceptWaitMs != null) parts.push(`accept=${t.acceptWaitMs}`);
+    if (t.confirmMs != null) parts.push(`confirm=${t.confirmMs}`);
+    if (t.sessionMs != null) parts.push(`session=${t.sessionMs}`);
+    return parts.length ? ` ${parts.join(' ')}` : '';
+}
+
+function serveSummary(served: import('../../sdk/types').ServeTradesResult, wallMs: number, waiting: string[]): void {
+    const ok = served.trades.filter((t) => t.success).length;
+    const byReason = new Map<string, number>();
+    for (const t of served.trades) {
+        const key = t.success ? 'ok' : (t.reason ?? 'fail');
+        byReason.set(key, (byReason.get(key) ?? 0) + 1);
+    }
+    const reasons = [...byReason.entries()].map(([k, n]) => `${k}:${n}`).join(' ');
+    log(
+        `Serve end reason=${served.reason ?? '?'} wall=${wallMs}ms ok=${ok}/${served.trades.length} sessions [${reasons}] customers=${waiting.length ? waiting.join(',') : 'none'}`
+    );
 }
 
 function itemsLine(items: { name: string; count?: number }[]): string {
@@ -249,8 +274,9 @@ try {
         await atBank();
         const giveLabel = offerLabel(give);
         const waiting = nearbyCustomers();
+        log(`Serve start offering ${giveLabel} food=${foodSummary()} customers=${waiting.length ? waiting.join(', ') : 'none'}`);
         session.noteProgress('location', 'serving');
-
+        const serveStart = Date.now();
         const served = await bot.serveTrades({
             from: FOOD_MULE_FROM,
             give,
@@ -260,19 +286,21 @@ try {
             maxTrades: 4,
             rejectAfterMs: 20_000,
             onTrade: (result) => {
+                const tag = timingLine(result.timingsMs);
                 if (result.success) {
                     log(
-                        `Swap ok ${result.partner ?? '?'}: gave ${itemsLine(result.gave)} got ${itemsLine(result.received)} | left ${foodSummary()}`
+                        `Swap ok ${result.partner ?? '?'}: gave ${itemsLine(result.gave)} got ${itemsLine(result.received)} | left ${foodSummary()}${tag}`
                     );
                     session.noteProgress('inventory', result.partner ?? 'swap');
                 } else {
                     session.log(
                         'warn',
-                        `Swap fail ${result.partner ?? '?'} ${result.reason ?? ''} ${result.message}`
+                        `Swap fail ${result.partner ?? '?'} ${result.reason ?? ''} ${result.message}${tag}`
                     );
                 }
             }
         });
+        serveSummary(served, Date.now() - serveStart, waiting);
         const ok = served.trades.filter((t) => t.success).length;
         if (ok === 0 && waiting.length > 0) {
             session.log(

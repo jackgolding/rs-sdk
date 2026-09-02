@@ -57,6 +57,7 @@ import type {
     TradeOptions,
     TradeResult,
     TradeState,
+    TradeTimingsMs,
     ServeTradesOptions,
     ServeTradesResult,
 } from './types';
@@ -2599,8 +2600,10 @@ export class BotActions {
     async trade(target: NearbyPlayer | string | RegExp, options: TradeOptions = {}): Promise<TradeResult> {
         const timeout = options.timeout ?? 60_000;
         const requestTimeout = options.requestTimeout ?? 30_000;
+        const tradeStart = Date.now();
 
         const opened = await this.tradeWith(target, requestTimeout, { retryOnBusy: options.retryOnBusy });
+        const requestMs = Date.now() - tradeStart;
         const deadline = Date.now() + timeout;
         if (!opened.success) {
             return {
@@ -2609,10 +2612,15 @@ export class BotActions {
                 gave: [],
                 received: [],
                 reason: (opened.reason as TradeResult['reason']) ?? 'no_response',
+                timingsMs: { requestMs, sessionMs: requestMs },
             };
         }
 
-        return this.runOpenTradeSession(options, deadline);
+        const result = await this.runOpenTradeSession(options, deadline);
+        return {
+            ...result,
+            timingsMs: { requestMs, ...result.timingsMs, sessionMs: (result.timingsMs?.sessionMs ?? 0) + requestMs },
+        };
     }
 
     /**
@@ -2664,6 +2672,7 @@ export class BotActions {
 
             // A session can already be open (e.g. a request raced the loop).
             let sessionOpen = this.sdk.getTradeState().isOpen;
+            let waitRequestMs: number | undefined;
             if (sessionOpen) {
                 const partner = this.sdk.getTradeState().partner;
                 if (partner && !fromMatches(partner)) {
@@ -2673,7 +2682,9 @@ export class BotActions {
             } else {
                 // A blocking modal makes the server answer requests with "is busy".
                 await this.dismissBlockingUI();
+                const waitStart = Date.now();
                 const requester = await this.sdk.waitForTradeRequest({ timeout: Math.min(remaining, 15_000) });
+                waitRequestMs = Date.now() - waitStart;
                 if (!requester) continue;
                 if (!fromMatches(requester)) continue;
 
@@ -2695,7 +2706,8 @@ export class BotActions {
             // while both sides are still offering items.
             const result = await this.runOpenTradeSession(
                 { give: options.give, want: options.want, accept: options.accept, rejectAfterMs: options.rejectAfterMs },
-                Date.now() + tradeTimeout
+                Date.now() + tradeTimeout,
+                { waitRequestMs }
             );
             trades.push(result);
             onTrade?.(result);
@@ -2707,7 +2719,18 @@ export class BotActions {
      * re-accept on partner offer changes, confirm-screen re-verification,
      * and inventory-delta reporting.
      */
-    private async runOpenTradeSession(options: TradeOptions, deadline: number): Promise<TradeResult> {
+    private async runOpenTradeSession(
+        options: TradeOptions,
+        deadline: number,
+        timing: { waitRequestMs?: number } = {}
+    ): Promise<TradeResult> {
+        const sessionStart = Date.now();
+        const timingsMs: TradeTimingsMs = { waitRequestMs: timing.waitRequestMs };
+        const withTimings = (result: TradeResult): TradeResult => ({
+            ...result,
+            timingsMs: { ...timingsMs, ...result.timingsMs, sessionMs: Date.now() - sessionStart },
+        });
+
         const want = options.want ?? [];
         const acceptOffer = options.accept ?? ((offer: TradeItem[]) => offerSatisfies(want, offer));
         // Evaluate the accept policy when the partner's visible offer changes,
@@ -2748,26 +2771,32 @@ export class BotActions {
                 const declined = await this.declineTrade();
                 const settled = await this.classifyClosedSession(sessionBaseline, partner, invBefore, offers);
                 if (settled.success) {
-                    return { ...settled, message: `${settled.message} (completed as the decline landed: ${message})` };
+                    return withTimings({
+                        ...settled,
+                        message: `${settled.message} (completed as the decline landed: ${message})`,
+                    });
                 }
                 if (!declined.success) {
                     message = `${message}; ${declined.message}`;
                 }
             }
-            return { success: false, message, partner, gave: [], received: [], reason };
+            return withTimings({ success: false, message, partner, gave: [], received: [], reason });
         };
 
         // 1. Put our items in.
+        const offerStart = Date.now();
         if (options.give?.length) {
             const offered = await this.offerTradeItems(options.give, Math.max(1, deadline - Date.now()));
             noteOffers(this.sdk.getTradeState());
             if (!offered.success) {
+                timingsMs.offerMs = Date.now() - offerStart;
                 if (!this.sdk.getTradeState().isOpen) {
-                    return this.classifyClosedSession(sessionBaseline, partner, invBefore, offers);
+                    return withTimings(await this.classifyClosedSession(sessionBaseline, partner, invBefore, offers));
                 }
                 return fail(offered.message, 'offer_failed', true);
             }
         }
+        timingsMs.offerMs = Date.now() - offerStart;
 
         // Accept retries are gated on tick advancement, never on "any state
         // change": every executed action publishes a snapshot with an
@@ -2787,14 +2816,17 @@ export class BotActions {
         // the policy. A partner offer change resets accepts server-side, so
         // loop until the screen advances.
         let lastAcceptTick = -1;
+        const acceptStart = Date.now();
         while (true) {
             if (Date.now() >= deadline) {
+                timingsMs.acceptWaitMs = Date.now() - acceptStart;
                 return fail('Trade timed out on the offer screen', 'timeout', true);
             }
             const trade = this.sdk.getTradeState();
             if (!trade.isOpen) {
                 if (await this.tradeClosedForGood()) {
-                    return this.classifyClosedSession(sessionBaseline, partner, invBefore, offers);
+                    timingsMs.acceptWaitMs = Date.now() - acceptStart;
+                    return withTimings(await this.classifyClosedSession(sessionBaseline, partner, invBefore, offers));
                 }
                 continue; // transition blip - the confirm screen is opening
             }
@@ -2803,6 +2835,7 @@ export class BotActions {
 
             const acceptable = offerAcceptable(trade.theirOffer);
             if (!acceptable && Date.now() >= rejectDeadline) {
+                timingsMs.acceptWaitMs = Date.now() - acceptStart;
                 return fail(
                     `Partner's offer still unacceptable after ${options.rejectAfterMs}ms - declined`,
                     'want_not_met',
@@ -2816,6 +2849,7 @@ export class BotActions {
             }
             await waitForNextTick();
         }
+        timingsMs.acceptWaitMs = Date.now() - acceptStart;
 
         // 3. Confirm screen: the offers here are final. Re-verify before the
         // irreversible accept.
@@ -2834,19 +2868,23 @@ export class BotActions {
         }
 
         lastAcceptTick = -1;
+        const confirmStart = Date.now();
         while (true) {
             if (Date.now() >= deadline) {
+                timingsMs.confirmMs = Date.now() - confirmStart;
                 return fail('Trade timed out on the confirm screen', 'timeout', true);
             }
             const trade = this.sdk.getTradeState();
             if (!trade.isOpen) {
                 if (await this.tradeClosedForGood()) {
-                    return this.classifyClosedSession(sessionBaseline, partner, invBefore, offers);
+                    timingsMs.confirmMs = Date.now() - confirmStart;
+                    return withTimings(await this.classifyClosedSession(sessionBaseline, partner, invBefore, offers));
                 }
                 continue;
             }
             noteOffers(trade);
             if (trade.screen !== 'confirm') {
+                timingsMs.confirmMs = Date.now() - confirmStart;
                 // Back on the offer screen: only possible if this session was
                 // re-entered mid-transition; let the offer-screen rules apply.
                 return fail('Trade returned to the offer screen unexpectedly', 'error', true);

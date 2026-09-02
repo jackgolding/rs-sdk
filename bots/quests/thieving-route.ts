@@ -513,13 +513,29 @@ async function packNotedLootForMule(): Promise<void> {
 /** Walk to 01 at the Ardougne bank, give loot, take noted fish. */
 async function swapFoodWithMule(): Promise<boolean> {
     if (!usesFoodMule(username) || !inArdougne()) return false;
+    const swapStart = Date.now();
+    let stepMs = swapStart;
+    const mark = (label: string) => {
+        const now = Date.now();
+        log(`Mule swap +${now - swapStart}ms ${label} (+${now - stepMs}ms)`);
+        stepMs = now;
+    };
+
     await leaveHouse();
     await leaveHandelmortMansion();
+    mark('left house/mansion');
     intent(`Trading loot → ${FOOD_MULE} for food at bank`);
     await walkNear(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 3);
+    mark(`walked to bank @ ${pos().x},${pos().z}`);
     await bot.closeInterface();
     await bot.declineTrade().catch(() => {});
-    if (muleLootGiveList().length === 0) await packNotedLootForMule();
+    const giveBeforePack = muleLootGiveList().length;
+    if (giveBeforePack === 0) {
+        await packNotedLootForMule();
+        mark(`packed loot (${muleLootGiveList().length} stacks)`);
+    } else {
+        mark(`loot ready (${giveBeforePack} stacks)`);
+    }
     const give = muleLootGiveList().slice(0, 12);
     const loot = give.length
         ? sdk
@@ -528,7 +544,8 @@ async function swapFoodWithMule(): Promise<boolean> {
               .map((i) => `${i.count} ${i.name}`)
               .join(', ')
         : 'nothing';
-    log(`Mule swap → ${FOOD_MULE} offering ${loot} @ ${pos().x},${pos().z}`);
+    log(`Mule swap → ${FOOD_MULE} offering ${loot}`);
+    const tradeStart = Date.now();
     const result = await bot.trade(FOOD_MULE, {
         give,
         want: [{ item: MULE_FOOD, amount: 1 }],
@@ -536,16 +553,25 @@ async function swapFoodWithMule(): Promise<boolean> {
         timeout: 75_000,
         retryOnBusy: true
     });
+    const t = result.timingsMs;
+    const timing =
+        t != null
+            ? ` request=${t.requestMs ?? '?'} offer=${t.offerMs ?? '?'} accept=${t.acceptWaitMs ?? '?'} confirm=${t.confirmMs ?? '?'} session=${t.sessionMs ?? '?'}`
+            : '';
+    log(`Mule swap trade +${Date.now() - tradeStart}ms${timing}`);
     const noted = notedFood()
         .map((i) => `${i.count} ${i.name}`)
         .join(', ') || 'none';
     if (result.success) {
         log(
-            `Mule swap ok got ${result.received.map((i) => `${i.count} ${i.name}`).join(', ') || 'nothing'} | eat-food=${foodCount()} notes=${noted}`
+            `Mule swap ok got ${result.received.map((i) => `${i.count} ${i.name}`).join(', ') || 'nothing'} | eat-food=${foodCount()} notes=${noted} total=${Date.now() - swapStart}ms`
         );
         session.noteProgress('inventory', 'mule food');
     } else {
-        session.log('warn', `Mule swap failed ${result.reason} ${result.message} | notes=${noted}`);
+        session.log(
+            'warn',
+            `Mule swap failed ${result.reason} ${result.message} | notes=${noted} total=${Date.now() - swapStart}ms${timing}`
+        );
     }
     return result.success;
 }

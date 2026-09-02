@@ -407,6 +407,24 @@ export interface TradeResult {
         | 'want_not_met' | 'no_space' | 'not_open' | 'timeout' | 'error';
     /** Items from the partner's final offer that did not reach the inventory (dropped on the ground on overflow). */
     possiblyDropped?: TradeItem[];
+    /** Per-phase durations when the trade layer collected them (ms). */
+    timingsMs?: TradeTimingsMs;
+}
+
+/** Millisecond breakdown for trade diagnostics (grind logs / benches). */
+export interface TradeTimingsMs {
+    /** Initiator only: trade request until offer screen opens. */
+    requestMs?: number;
+    /** Server only: idle wait for a matching trade request before this session. */
+    waitRequestMs?: number;
+    /** Placing our items on the offer screen. */
+    offerMs?: number;
+    /** Offer screen until both sides reach confirm. */
+    acceptWaitMs?: number;
+    /** Confirm screen until close. */
+    confirmMs?: number;
+    /** Whole session from open (or request) to result. */
+    sessionMs?: number;
 }
 
 export interface ServeTradesOptions {
