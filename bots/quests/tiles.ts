@@ -26,6 +26,11 @@ export const RIMMINGTON_BRONZE: Tile = { x: 2976, z: 3238 };
 export const GUILD_LADDER: Tile = { x: 3019, z: 3339 };
 export const GUILD_LADDER_DOWN: Tile = { x: 3019, z: 9739 };
 export const GUILD_COAL: Tile = { x: 3046, z: 9735 };
+/** North-room iron (same cluster as dwarven-mine stairs). */
+export const GUILD_IRON: Tile = { x: 3040, z: 9774 };
+export const DWARVEN_STAIRS_DOWN: Tile = { x: 3059, z: 3376 };
+export const DWARVEN_STAIRS_UP: Tile = { x: 3058, z: 9776 };
+export const DWARVEN_MINE_DOOR: Tile = { x: 3063, z: 3380 };
 export const DITCH_NORTH: Tile = { x: 3088, z: 3525 };
 export const DITCH_SOUTH: Tile = { x: 3088, z: 3518 };
 /** Hobgoblin / snape-grass peninsula west of the Crafting Guild. */

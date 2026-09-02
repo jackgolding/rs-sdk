@@ -1,9 +1,11 @@
 /**
- * Smithing grind: bronze to 15, Rimmington iron → Falador furnace → Doric
- * knives to 70, then smelt bank adamant / runite (rune first at 85+).
+ * Smithing grind: bronze to 15, guild/dwarven iron → Doric knives to 30,
+ * then steel bars (1 iron + 2 coal) to 70, then bank addy / runite
+ * (rune first at 85+). Iron is mined at the north guild / dwarven-stair
+ * cluster, not Rimmington.
  *
  * Iron knives unlock at 22; 15–22 smiths iron daggers. If addy is gone and
- * smithing is still under 85 with runite left, keeps making iron knives.
+ * smithing is still under 85 with runite left, keeps smelting steel.
  *
  *   bun bots/quests/doric-iron-knives.ts Jackpoo2
  */
@@ -22,12 +24,16 @@ import {
     DITCH_NORTH,
     DITCH_SOUTH,
     DORIC_ANVIL,
+    DWARVEN_MINE_DOOR,
+    DWARVEN_STAIRS_DOWN,
+    DWARVEN_STAIRS_UP,
     EDGEVILLE,
     FALADOR_EAST_BANK,
     FALADOR_FURNACE,
     FALADOR_NORTH,
     FALADOR_WEST_BANK,
     GUILD_COAL,
+    GUILD_IRON,
     GUILD_LADDER,
     GUILD_LADDER_DOWN,
     RIMMINGTON_BRONZE,
@@ -43,6 +49,7 @@ import {
 const KNIFE_TARGET = 70;
 const RUNE_SMELT = 85;
 const IRON_SMELT = 15;
+const STEEL_LEVEL = 30;
 const IRON_KNIVES = 22;
 const BRONZE_KNIVES = 7;
 
@@ -54,6 +61,8 @@ const IRON = /^iron ore$/i;
 const COAL = /^coal$/i;
 const BRONZE_BAR = /^bronze bar$/i;
 const IRON_BAR = /^iron bar$/i;
+const STEEL_BAR = /^steel bar$/i;
+const KING_SCORPION = /king scorpion/i;
 const ADDY_ORE = /^adamantite ore$/i;
 const RUNE_ORE = /^runite ore$/i;
 const KNIVES = /^(bronze|iron) kni(fe|ves)$/i;
@@ -253,7 +262,9 @@ function bankCount(pattern: RegExp): number {
 }
 
 function keepItem(name: string): boolean {
-    return PICKAXE.test(name) || HAMMER.test(name) || KNIVES.test(name);
+    if (PICKAXE.test(name)) return true;
+    if (smithing() < STEEL_LEVEL && (HAMMER.test(name) || KNIVES.test(name))) return true;
+    return false;
 }
 
 function inMine(): boolean {
@@ -263,6 +274,10 @@ function inMine(): boolean {
 
 function inGuild(): boolean {
     return inMiningGuildCoords(pos().x, pos().z);
+}
+
+function inUnderground(): boolean {
+    return pos().z >= 9600 && pos().z < 10000;
 }
 
 function nearDoric(): boolean {
@@ -402,9 +417,76 @@ async function climbGuildDown(): Promise<boolean> {
     return inGuild();
 }
 
+function findStairs(want: 'up' | 'down') {
+    const opt = want === 'up' ? /climb-up|climb.up/i : /climb-down|climb.down/i;
+    return (
+        (sdk.getNearbyLocs() ?? [])
+            .filter(
+                (l) =>
+                    /stair/i.test(l.name) &&
+                    l.optionsWithIndex.some((o) => opt.test(o.text)) &&
+                    l.reachable !== false
+            )
+            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0] ?? null
+    );
+}
+
+async function climbStairs(want: 'up' | 'down'): Promise<boolean> {
+    const stand = want === 'down' ? DWARVEN_STAIRS_DOWN : DWARVEN_STAIRS_UP;
+    const before = inUnderground();
+    if (want === 'down' && distTo(stand.x, stand.z) <= 4) {
+        await walkNear(DWARVEN_MINE_DOOR.x, DWARVEN_MINE_DOOR.z, 1);
+        await openToward(stand.x, stand.z);
+    }
+    if (distTo(stand.x, stand.z) > 4) {
+        await openToward(stand.x, stand.z);
+        await walkNear(stand.x, stand.z, 2);
+    }
+    let stairs = findStairs(want);
+    if (!stairs) {
+        await sdk.scanNearbyLocs(8).catch(() => {});
+        stairs = findStairs(want);
+    }
+    if (!stairs) {
+        session.noteFailure('climb', `No ${want} stairs @ ${pos().x},${pos().z}`);
+        return false;
+    }
+    intent(`Climb ${want} ${stairs.name} @ ${stairs.x},${stairs.z}`);
+    const opt = want === 'up' ? /climb-up|climb.up/i : /climb-down|climb.down/i;
+    await bot.interactLoc(stairs, opt);
+    await sdk.waitForCondition(() => inUnderground() !== before, 10_000).catch(() => {});
+    return inUnderground() !== before;
+}
+
+async function leaveUnderground(): Promise<boolean> {
+    if (!inUnderground()) return true;
+    intent('Leaving dwarven mine / Mining Guild');
+    const useStairs =
+        pos().z >= 9752 || distTo(DWARVEN_STAIRS_UP.x, DWARVEN_STAIRS_UP.z) <= distTo(GUILD_LADDER_DOWN.x, GUILD_LADDER_DOWN.z) + 6;
+    if (useStairs) {
+        await walkNear(DWARVEN_STAIRS_UP.x, DWARVEN_STAIRS_UP.z, 2);
+        if (await climbStairs('up')) return true;
+    }
+    if (inGuild() && (await leaveGuild())) return true;
+    await walkNear(DWARVEN_STAIRS_UP.x, DWARVEN_STAIRS_UP.z, 2);
+    const ok = await climbStairs('up');
+    if (!ok) session.noteFailure('climb', `Still underground @ ${pos().x},${pos().z}`);
+    return ok;
+}
+
+async function fleeScorpion(): Promise<boolean> {
+    const king = (sdk.getNearbyNpcs() ?? [])
+        .filter((n) => KING_SCORPION.test(n.name))
+        .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+    if (!king || (king.distance ?? 99) > 8) return false;
+    intent(`Run from king scorpion to dwarven stairs`);
+    await walkNear(DWARVEN_STAIRS_UP.x, DWARVEN_STAIRS_UP.z, 2);
+    return true;
+}
+
 async function leaveWildyOrGuild(): Promise<boolean> {
     if (inWilderness(pos().x, pos().z) && !(await leaveWildy())) return false;
-    if (inGuild() && !(await leaveGuild())) return false;
+    if (inUnderground() && !(await leaveUnderground())) return false;
     return pos().z < 6400;
 }
 
@@ -470,6 +552,35 @@ async function goToMine(): Promise<boolean> {
     return ok;
 }
 
+async function goToGuildIron(): Promise<boolean> {
+    await closeUi();
+    if (inWilderness(pos().x, pos().z) && !(await leaveWildy())) return false;
+    if (inUnderground() && distTo(GUILD_IRON.x, GUILD_IRON.z) <= 14) return true;
+    intent('Walking to dwarven / guild iron');
+    session.setAnchor(GUILD_IRON.x, GUILD_IRON.z);
+    if (!inUnderground()) {
+        if (distTo(DWARVEN_STAIRS_DOWN.x, DWARVEN_STAIRS_DOWN.z) > 10) {
+            if (nearDoric() || nearWestBank() || nearFurnace()) {
+                await walkNear(FALADOR_NORTH.x, FALADOR_NORTH.z, 4);
+            }
+            await openToward(FALADOR_EAST_BANK.x, FALADOR_EAST_BANK.z);
+            await walkNear(FALADOR_EAST_BANK.x, FALADOR_EAST_BANK.z, 6);
+            await walkNear(DWARVEN_STAIRS_DOWN.x, DWARVEN_STAIRS_DOWN.z, 3);
+        }
+        await openToward(DWARVEN_STAIRS_DOWN.x, DWARVEN_STAIRS_DOWN.z);
+        await walkNear(DWARVEN_MINE_DOOR.x, DWARVEN_MINE_DOOR.z, 1);
+        if (!(await climbStairs('down'))) {
+            if (!(await climbGuildDown())) return false;
+        }
+    }
+    await walkNear(GUILD_IRON.x, GUILD_IRON.z, 3);
+    await sdk.scanNearbyLocs(12).catch(() => {});
+    const ok = inUnderground() && distTo(GUILD_IRON.x, GUILD_IRON.z) <= 14;
+    if (ok) session.noteProgress('location', 'guild iron');
+    else session.noteFailure('mine_walk', `Still ${pos().x},${pos().z}`);
+    return ok;
+}
+
 async function goToWestBank(): Promise<boolean> {
     await closeUi();
     if (!(await leaveWildyOrGuild())) return false;
@@ -478,7 +589,9 @@ async function goToWestBank(): Promise<boolean> {
     session.setAnchor(FALADOR_WEST_BANK.x, FALADOR_WEST_BANK.z);
     if (inMine() || pos().z < 3280) await walkWaypoints(TO_FURNACE_FROM_MINE);
     else if (nearDoric()) await walkNear(FALADOR_NORTH.x, FALADOR_NORTH.z, 4);
-    else if (pos().x > 3050 && pos().z > 3460) {
+    else if (distTo(FALADOR_EAST_BANK.x, FALADOR_EAST_BANK.z) <= 30 || distTo(DWARVEN_STAIRS_DOWN.x, DWARVEN_STAIRS_DOWN.z) <= 20) {
+        await walkNear(FALADOR_NORTH.x, FALADOR_NORTH.z, 6);
+    } else if (pos().x > 3050 && pos().z > 3460) {
         await walkWaypoints(TO_DORIC_FROM_EDGE);
         await walkNear(FALADOR_NORTH.x, FALADOR_NORTH.z, 4);
     }
@@ -599,9 +712,11 @@ async function clickSmelt10(make10: RegExp): Promise<boolean> {
     return false;
 }
 
-async function smeltUntilEmpty(ore: RegExp, make10: RegExp): Promise<number> {
+async function smeltUntilEmpty(ore: RegExp, make10: RegExp, coalPerBar = 0): Promise<number> {
+    const possible = () =>
+        coalPerBar <= 0 ? count(ore) > 0 : Math.min(count(ore), Math.floor(count(COAL) / coalPerBar)) > 0;
     await closeUi();
-    if (count(ore) < 1) return 0;
+    if (!possible()) return 0;
     if (!(await goToFurnace())) return 0;
     const beforeXp = smithXp();
     const oreBefore = count(ore);
@@ -632,11 +747,11 @@ async function smeltUntilEmpty(ore: RegExp, make10: RegExp): Promise<number> {
             log(`No Smelt 10: ${(sdk.getDialog()?.options ?? []).map((o) => o.text).join(' | ')}`);
         }
     }
-    await sdk.waitForCondition(() => count(ore) < oreBefore || smithXp() > beforeXp, 20_000).catch(() => {});
+    await sdk.waitForCondition(() => count(ore) < oreBefore || smithXp() > beforeXp || !possible(), 20_000).catch(() => {});
     let last = count(ore);
-    while (count(ore) > 0) {
+    while (possible()) {
         const prev = last;
-        await sdk.waitForCondition(() => count(ore) < prev || count(ore) === 0, 10_000).catch(() => {});
+        await sdk.waitForCondition(() => count(ore) < prev || !possible(), 10_000).catch(() => {});
         last = count(ore);
         if (last >= prev) break;
     }
@@ -712,7 +827,7 @@ async function smithBars(bar: RegExp, product: 'dagger' | 'knives'): Promise<num
             break;
         }
         noteLevel();
-        if (bar === IRON_BAR && smithing() >= KNIFE_TARGET) break;
+        if (bar === IRON_BAR && smithing() >= STEEL_LEVEL) break;
     }
     return made;
 }
@@ -805,13 +920,14 @@ async function eatIfNeeded(): Promise<void> {
 }
 
 async function mineIronBag(): Promise<void> {
-    if (!(await goToMine())) return;
+    if (!(await goToGuildIron())) return;
     await session.setPhase('mine_iron');
-    while (!bagFull() && !session.isStopped() && smithing() < KNIFE_TARGET) {
+    while (!bagFull() && !session.isStopped()) {
         await closeUi();
         await eatIfNeeded();
+        await fleeScorpion();
         await lootOre(IRON);
-        if (!(await mineRock(ROCK_IRON, RIMMINGTON_IRON, IRON))) await sdk.waitForTicks(2);
+        if (!(await mineRock(ROCK_IRON, GUILD_IRON, IRON))) await sdk.waitForTicks(2);
     }
     if (count(IRON) > 0) log(`Bag iron ${count(IRON)} | Mining trip ready`);
 }
@@ -1044,7 +1160,77 @@ async function bronzeTick(): Promise<void> {
     await mineBronzeBag();
 }
 
+function steelPossible(): number {
+    return Math.min(count(IRON), Math.floor(count(COAL) / 2));
+}
+
+async function bankSteelBars(): Promise<void> {
+    if (count(STEEL_BAR) < 1) return;
+    if (!(await goToWestBank())) return;
+    if (!(await openNearbyBank())) return;
+    const n = count(STEEL_BAR);
+    const item = sdk.findInventoryItem(STEEL_BAR);
+    if (item) await bot.depositItem(item, -1);
+    log(`Banked ${n} steel bars | Smithing ${smithing()}`);
+    session.noteProgress('bank', 'steel');
+    await bot.closeBank();
+}
+
+async function restockSteel(): Promise<boolean> {
+    if (steelPossible() >= 1) return true;
+    if (!(await goToWestBank())) return false;
+    if (!(await openNearbyBank())) return false;
+    await depositJunk();
+    const ironBank = bankCount(IRON) + count(IRON);
+    const coalBank = bankCount(COAL) + count(COAL);
+    const bars = Math.min(9, ironBank, Math.floor(coalBank / 2));
+    if (bars < 1) {
+        log(`Steel restock empty: iron ${ironBank} coal ${coalBank}`);
+        await bot.closeBank();
+        return false;
+    }
+    const needIron = Math.max(0, bars - count(IRON));
+    const needCoal = Math.max(0, bars * 2 - count(COAL));
+    if (needIron > 0) await bot.withdrawItem(IRON, needIron);
+    if (needCoal > 0) await bot.withdrawItem(COAL, needCoal);
+    await bot.closeBank();
+    const ok = steelPossible() >= 1;
+    if (ok) log(`Steel trip ${steelPossible()} bars (iron ${count(IRON)} coal ${count(COAL)})`);
+    return ok;
+}
+
+async function steelTick(): Promise<void> {
+    await session.setPhase('smelt_steel');
+    if (count(STEEL_BAR) > 0 && steelPossible() < 1) {
+        await bankSteelBars();
+        return;
+    }
+    if (steelPossible() >= 1) {
+        await smeltUntilEmpty(IRON, /smelt\s+10.*steel/i, 2);
+        if (count(STEEL_BAR) > 0) await bankSteelBars();
+        return;
+    }
+    if (count(IRON) > 0 || nearAnyBank() || occupiedSlots() >= 20) {
+        if (await restockSteel()) return;
+        if (await openNearbyBank()) {
+            const ironBank = bankCount(IRON) + count(IRON);
+            const coalBank = bankCount(COAL);
+            await bot.closeBank();
+            if (ironBank > 0 && coalBank < 2) {
+                log('Need coal for steel — mining guild south coal');
+                await mineCoalFor(PREMIUM[1]!);
+                return;
+            }
+        }
+    }
+    await mineIronBag();
+}
+
 async function ironTick(): Promise<void> {
+    if (smithing() >= STEEL_LEVEL) {
+        await steelTick();
+        return;
+    }
     if (count(IRON_BAR) > 0) {
         await session.setPhase('smith_iron');
         await smithBars(IRON_BAR, ironProduct());
@@ -1080,7 +1266,7 @@ session.registerRecovery([
     },
     {
         name: 'leave_guild',
-        run: async () => inGuild() && (await leaveGuild())
+        run: async () => inUnderground() && (await leaveUnderground())
     },
     {
         name: 'tools',
@@ -1105,7 +1291,7 @@ try {
     await bot.skipTutorial();
     await closeUi();
     log(
-        `Doric iron-knives start Smithing ${lastSmith} (${smithXp()} xp) @ ${pos().x},${pos().z} ` +
+        `Doric smithing start Smithing ${lastSmith} (${smithXp()} xp) @ ${pos().x},${pos().z} ` +
             `pick=${sdk.findEquipmentItem(PICKAXE)?.name ?? 'none'} hammer=${hasHammer()}`
     );
 
@@ -1144,8 +1330,8 @@ try {
                 continue;
             }
             if (result === 'need_level') {
-                log(`Runite in bank but Smithing ${smithing()} < ${RUNE_SMELT} — iron knives until 85`);
-                await ironTick();
+                log(`Runite in bank but Smithing ${smithing()} < ${RUNE_SMELT} — steel until 85`);
+                await steelTick();
                 continue;
             }
         }
