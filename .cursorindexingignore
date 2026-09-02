@@ -1,0 +1,4 @@
+# Readable on demand, but too noisy/large to index.
+bots/**/*.log
+bots/**/stdout.log
+bots/**/grind.log

@@ -1,0 +1,17 @@
+---
+description: Show the full bot script (or a complete diff) and wait for approval before writing it
+alwaysApply: true
+---
+
+# Preview bot scripts before writing
+
+When creating or changing a character script under `bots/{username}/` (not `bots/quests/` or `bots/roster.json`):
+
+1. Check world state first (`bun sdk/cli.ts {username}`).
+2. Tell the user the exact file path and paste the **full script** you will write, or a **complete diff** of the intended change.
+3. Wait for explicit approval. Do not write, overwrite, or run the script until they say go.
+4. Do not add extra files, recovery scaffolding, or a longer duration than they asked for.
+
+This applies to per-character bot scripts only. SDK, tests, docs, `bots/quests/`, and `bots/roster.json` can be edited without a preview unless the user asked to change those too.
+
+Skip `bot.env`. Scripts are in git; only `bot.env`, `*.log`, `*.pid`, and `assignment.json` are ignored. A workspace Glob miss is a real miss, not "the folder is gitignored."

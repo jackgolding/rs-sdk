@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Waypoint map</title>
+  <style>
+    :root {
+      --bg: #12110f;
+      --panel: #1c1b18;
+      --ink: #e8e4d9;
+      --muted: #9a9488;
+      --line: #2e2c28;
+      --accent: #e6c15a;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font: 13px/1.4 ui-sans-serif, system-ui, sans-serif;
+    }
+    #app {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      height: 100%;
+    }
+    #stage {
+      position: relative;
+      min-width: 0;
+      overflow: hidden;
+      background: #0c0b0a;
+    }
+    canvas {
+      position: absolute;
+      inset: 0;
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+    }
+    #hud {
+      position: absolute;
+      left: 16px;
+      top: 16px;
+      min-width: 240px;
+      padding: 12px 14px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      pointer-events: none;
+    }
+    #hud .coords {
+      font: 600 22px/1.1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: -0.02em;
+    }
+    #hud .id {
+      margin-top: 4px;
+      font: 13px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: var(--accent);
+    }
+    #hud .meta { margin-top: 6px; color: var(--muted); }
+    #hint {
+      position: absolute;
+      left: 16px;
+      bottom: 16px;
+      color: var(--muted);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 8px 10px;
+      max-width: 380px;
+    }
+    #toast {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      background: var(--accent);
+      color: #1a1608;
+      padding: 6px 10px;
+      font-weight: 600;
+      display: none;
+    }
+    aside {
+      width: 280px;
+      min-width: 280px;
+      border-left: 1px solid var(--line);
+      background: var(--panel);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    aside header {
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    aside h1 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+    aside p { margin: 0; color: var(--muted); }
+    #list { overflow: auto; padding: 8px 0; flex: 1; }
+    .wp {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 8px;
+      padding: 8px 16px;
+      cursor: pointer;
+    }
+    .wp:hover, .wp:focus { background: #25231f; outline: none; }
+    .wp .n { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .wp .xz { font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .wp .lb { color: var(--muted); }
+    #copy {
+      width: 100%;
+      border: 0;
+      border-top: 1px solid var(--line);
+      background: #141311;
+      color: var(--ink);
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      padding: 10px 12px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="stage">
+      <canvas id="map"></canvas>
+      <div id="hud">
+        <div class="coords" id="xz">—</div>
+        <div class="id" id="tid">Hover a tile</div>
+        <div class="meta" id="meta"></div>
+      </div>
+      <div id="hint">Drag to pan · scroll to zoom · click copies { x, z } · shift-click copies tile id</div>
+      <div id="toast">Copied</div>
+    </div>
+    <aside>
+      <header>
+        <h1 id="title">Waypoints</h1>
+        <p id="sub"></p>
+      </header>
+      <div id="list"></div>
+      <input id="copy" readonly spellcheck="false" />
+    </aside>
+  </div>
+  <script type="application/json" id="payload">__PAYLOAD__</script>
+  <script>
+    const DATA = JSON.parse(document.getElementById("payload").textContent);
+    const canvas = document.getElementById("map");
+    const ctx = canvas.getContext("2d");
+    const xzEl = document.getElementById("xz");
+    const tidEl = document.getElementById("tid");
+    const metaEl = document.getElementById("meta");
+    const copyEl = document.getElementById("copy");
+    const toastEl = document.getElementById("toast");
+    const listEl = document.getElementById("list");
+
+    document.getElementById("title").textContent = DATA.title || "Waypoints";
+    document.getElementById("sub").textContent =
+      DATA.waypoints.length + " stop" + (DATA.waypoints.length === 1 ? "" : "s") +
+      " · level " + DATA.level +
+      " · hover a tile for its id";
+
+    const WALK = "#3f5a32";
+    const BLOCK = "#4a3c2e";
+    const VOID = "#161411";
+
+    let scale = 8;
+    let camX = 0;
+    let camZ = 0;
+    let hover = null;
+    let dragging = false;
+    let moved = false;
+    let lastMX = 0;
+    let lastMY = 0;
+    let toastTimer = 0;
+
+    function tileAt(x, z) {
+      if (x < DATA.originX || z < DATA.originZ) return 0;
+      if (x >= DATA.originX + DATA.width || z >= DATA.originZ + DATA.height) return 0;
+      const i = (z - DATA.originZ) * DATA.width + (x - DATA.originX);
+      return DATA.tiles.charCodeAt(i) - 48;
+    }
+
+    function tileId(x, z) {
+      return DATA.level + "_" + (x >> 6) + "_" + (z >> 6) + "_" + (x & 63) + "_" + (z & 63);
+    }
+
+    function worldToScreen(x, z) {
+      return {
+        sx: (x - DATA.originX) * scale - camX,
+        sy: (DATA.originZ + DATA.height - 1 - z) * scale - camZ
+      };
+    }
+
+    function screenToWorld(sx, sy) {
+      return {
+        x: Math.floor(DATA.originX + (sx + camX) / scale),
+        z: Math.floor(DATA.originZ + DATA.height - 1 - (sy + camZ) / scale)
+      };
+    }
+
+    function fit() {
+      const rect = canvas.getBoundingClientRect();
+      const pad = 48;
+      const sx = (rect.width - pad * 2) / DATA.width;
+      const sz = (rect.height - pad * 2) / DATA.height;
+      scale = Math.max(3, Math.min(24, Math.min(sx, sz)));
+      camX = -(rect.width - DATA.width * scale) / 2;
+      camZ = -(rect.height - DATA.height * scale) / 2;
+    }
+
+    function draw() {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const cssW = Math.max(1, rect.width);
+      const cssH = Math.max(1, rect.height);
+      if (canvas.width !== Math.floor(cssW * dpr) || canvas.height !== Math.floor(cssH * dpr)) {
+        canvas.width = Math.floor(cssW * dpr);
+        canvas.height = Math.floor(cssH * dpr);
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = VOID;
+      ctx.fillRect(0, 0, cssW, cssH);
+
+      const a = screenToWorld(0, 0);
+      const b = screenToWorld(cssW, cssH);
+      const x0 = Math.max(DATA.originX, Math.min(a.x, b.x));
+      const x1 = Math.min(DATA.originX + DATA.width - 1, Math.max(a.x, b.x));
+      const z0 = Math.max(DATA.originZ, Math.min(a.z, b.z));
+      const z1 = Math.min(DATA.originZ + DATA.height - 1, Math.max(a.z, b.z));
+
+      for (let z = z0; z <= z1; z++) {
+        for (let x = x0; x <= x1; x++) {
+          const t = tileAt(x, z);
+          if (t === 0) continue;
+          const { sx, sy } = worldToScreen(x, z);
+          ctx.fillStyle = t === 1 ? WALK : BLOCK;
+          ctx.fillRect(sx, sy, scale + 0.5, scale + 0.5);
+        }
+      }
+
+      if (scale >= 10) {
+        ctx.strokeStyle = "rgba(0,0,0,0.28)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let x = x0; x <= x1 + 1; x++) {
+          const { sx } = worldToScreen(x, z0);
+          ctx.moveTo(sx + 0.5, worldToScreen(x, z1).sy);
+          ctx.lineTo(sx + 0.5, worldToScreen(x, z0).sy + scale);
+        }
+        for (let z = z0; z <= z1 + 1; z++) {
+          const { sy } = worldToScreen(x0, z);
+          ctx.moveTo(worldToScreen(x0, z).sx, sy + 0.5);
+          ctx.lineTo(worldToScreen(x1, z).sx + scale, sy + 0.5);
+        }
+        ctx.stroke();
+      }
+
+      if (DATA.waypoints.length > 1) {
+        ctx.strokeStyle = "#e6c15a";
+        ctx.lineWidth = Math.max(2, scale * 0.18);
+        ctx.beginPath();
+        DATA.waypoints.forEach((wp, i) => {
+          const { sx, sy } = worldToScreen(wp.x + 0.5, wp.z + 0.5);
+          if (i === 0) ctx.moveTo(sx, sy);
+          else ctx.lineTo(sx, sy);
+        });
+        ctx.stroke();
+      }
+
+      for (const lm of DATA.landmarks || []) {
+        const { sx, sy } = worldToScreen(lm.x + 0.5, lm.z + 0.5);
+        ctx.fillStyle = "#cfc6b4";
+        ctx.font = "11px ui-sans-serif, system-ui";
+        ctx.fillText(lm.name, sx + 8, sy - 8);
+      }
+
+      DATA.waypoints.forEach((wp, i) => {
+        const { sx, sy } = worldToScreen(wp.x + 0.5, wp.z + 0.5);
+        const r = Math.max(6, scale * 0.45);
+        ctx.beginPath();
+        ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.fillStyle = "#1a1608";
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#e6c15a";
+        ctx.stroke();
+        ctx.fillStyle = "#e6c15a";
+        ctx.font = "600 11px ui-sans-serif, system-ui";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(i + 1), sx, sy + 0.5);
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
+        if (wp.label) {
+          ctx.fillStyle = "#e8e4d9";
+          ctx.fillText(wp.label, sx + r + 6, sy - 2);
+        }
+      });
+
+      if (DATA.player) {
+        const { sx, sy } = worldToScreen(DATA.player.x + 0.5, DATA.player.z + 0.5);
+        ctx.fillStyle = "#6ec8ff";
+        ctx.beginPath();
+        ctx.arc(sx, sy, Math.max(4, scale * 0.35), 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (hover) {
+        const { sx, sy } = worldToScreen(hover.x, hover.z);
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(sx + 1, sy + 1, scale - 2, scale - 2);
+      }
+    }
+
+    function kind(t) {
+      return t === 1 ? "walkable" : t === 2 ? "blocked" : "void";
+    }
+
+    function formatCopy(tile, asId) {
+      if (!tile) return "";
+      if (asId) return tileId(tile.x, tile.z);
+      return "{ x: " + tile.x + ", z: " + tile.z + " }";
+    }
+
+    function setHover(tile) {
+      hover = tile;
+      if (!tile) {
+        xzEl.textContent = "—";
+        tidEl.textContent = "Hover a tile";
+        metaEl.textContent = "";
+        copyEl.value = "";
+        draw();
+        return;
+      }
+      xzEl.textContent = tile.x + ", " + tile.z;
+      tidEl.textContent = tileId(tile.x, tile.z);
+      metaEl.textContent = kind(tileAt(tile.x, tile.z)) + " · click to copy";
+      copyEl.value = formatCopy(tile, false);
+      draw();
+    }
+
+    function showToast() {
+      toastEl.style.display = "block";
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { toastEl.style.display = "none"; }, 900);
+    }
+
+    async function copyTile(asId) {
+      if (!hover) return;
+      const text = formatCopy(hover, asId);
+      copyEl.value = text;
+      copyEl.select();
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        document.execCommand("copy");
+      }
+      showToast();
+    }
+
+    function eventToWorld(e) {
+      const rect = canvas.getBoundingClientRect();
+      return screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+    }
+
+    canvas.addEventListener("mousemove", (e) => {
+      if (dragging) {
+        const dx = e.clientX - lastMX;
+        const dy = e.clientY - lastMY;
+        if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
+        camX -= dx;
+        camZ -= dy;
+        lastMX = e.clientX;
+        lastMY = e.clientY;
+        draw();
+        return;
+      }
+      const w = eventToWorld(e);
+      if (!hover || hover.x !== w.x || hover.z !== w.z) setHover(w);
+    });
+    canvas.addEventListener("mouseleave", () => {
+      if (!dragging) setHover(null);
+    });
+    canvas.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      dragging = true;
+      moved = false;
+      lastMX = e.clientX;
+      lastMY = e.clientY;
+      canvas.style.cursor = "grabbing";
+    });
+    window.addEventListener("mouseup", (e) => {
+      if (!dragging) return;
+      dragging = false;
+      canvas.style.cursor = "crosshair";
+      if (!moved) copyTile(e.shiftKey);
+    });
+    canvas.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const before = screenToWorld(mx, my);
+      scale = Math.max(2, Math.min(48, e.deltaY < 0 ? scale * 1.12 : scale / 1.12));
+      camX = (before.x - DATA.originX) * scale - mx;
+      camZ = (DATA.originZ + DATA.height - 1 - before.z) * scale - my;
+      draw();
+    }, { passive: false });
+
+    DATA.waypoints.forEach((wp, i) => {
+      const row = document.createElement("div");
+      row.className = "wp";
+      row.tabIndex = 0;
+      row.innerHTML =
+        '<div class="n">' + (i + 1) + "</div>" +
+        '<div><div class="xz">' + wp.x + ", " + wp.z + "</div>" +
+        (wp.label ? '<div class="lb">' + wp.label + "</div>" : "") + "</div>";
+      row.addEventListener("click", () => {
+        const rect = canvas.getBoundingClientRect();
+        const { sx, sy } = worldToScreen(wp.x + 0.5, wp.z + 0.5);
+        camX += sx - rect.width / 2;
+        camZ += sy - rect.height / 2;
+        setHover({ x: wp.x, z: wp.z });
+      });
+      listEl.appendChild(row);
+    });
+
+    window.addEventListener("resize", draw);
+    fit();
+    draw();
+  </script>
+</body>
+</html>

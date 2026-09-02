@@ -1,0 +1,8 @@
+# Scripts are in git. Keep credentials out of AI context.
+# Un-ignore parent dirs so nested files stay traversable if a parent ignore appears.
+!bots/
+!bots/*/
+!bots/*/**
+
+bots/**/bot.env
+bots/**/*.env

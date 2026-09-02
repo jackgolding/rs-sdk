@@ -1,0 +1,1 @@
+# One bot name per line — wake-fleet will not start these.

@@ -1,0 +1,15 @@
+---
+description: Do not regress fleet-status / launchd / roster onto hardcoded lists, log-text job inference, or full grind.log reads
+globs: .cursor/skills/wake-fleet/**,bots/roster.json,bots/watch-fleet.sh,sdk/assignment.ts,sdk/grind-log.ts,sdk/activity.ts,sdk/runner.ts
+alwaysApply: false
+---
+
+# Wake-fleet scripts
+
+- Import bots from `roster.ts` (`rosterBots`, `findBot`, `resolveCommand`, `writeAssignment`). A pasted name table is a bug.
+- `fleet-status.ts` may read grind logs only for intervene heuristics (repeat lines, recovery ×20, pathfinding bursts, Musa ship). Job identity is `resolveCommand`, not regex on log text.
+- `grindTail` must stay a bounded tail read. Do not `readFileSync` the whole log.
+- On observing a live bun process or starting a launch agent, write `assignment.json`. `runScript` and `ActivitySession` (`grindLogPath` set) also write it. Do not invent a fourth command source. Do not bring back `inferCommand()`.
+- `watch-fleet.sh` panes come from `roster.ts tmux`. Do not hardcode Jackpoo / ABGARMY towers again.
+- `install` / `restart` must rewrite plists from the current roster; keep installed argv in lockstep with `roster.json`.
+- Grind appends go through `appendGrindLog` (`sdk/grind-log.ts`). `ActivitySession.log` already does. Do not switch it back to unbounded `appendFileSync`.

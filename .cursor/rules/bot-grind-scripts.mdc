@@ -1,0 +1,32 @@
+---
+description: Overnight grind scripts use ActivitySession, shared quests modules, and roster argv — never a per-character copy of a 2k-line route
+globs: bots/**/*.ts
+alwaysApply: false
+---
+
+# Bot grind scripts
+
+Long-running loops (`while (true)`, overnight, fleet jobs) MUST use `ActivitySession` with `grindLogPath` set to `bots/{name}/grind.log`. `session.log('log'|'warn'|'error', …)` is the grind writer — Ghostty color keys off those tokens. Do not add a private `GRIND_LOG` + `appendFileSync` helper.
+
+```typescript
+// ❌ BAD — copy the route, silent log, no recovery budget
+const GRIND_LOG = join(..., 'grind.log');
+function log(msg: string) { appendFileSync(GRIND_LOG, msg + '\n'); }
+while (true) { await pickpocketBest(); }
+
+// ✅ GOOD — shared route + argv, severity + bounded recover
+process.argv[2] = 'Jackpoo3';
+await import('../quests/thieving-route.ts');
+```
+
+New or extended grinds go in `bots/quests/{job}.ts`. Per-character files are two-line wrappers or roster `args`. Do not copy `thieving-route.ts` / `fishing-route.ts` into `bots/{name}/` to "fix one bot."
+
+Walk/door/eat/gangplank helpers and Kandarin tiles live in `bots/quests/movement.ts` and `tiles.ts` (or SDK porcelain). Do not paste a fifth `walkNear`.
+
+If the loop is what the bot should keep running, set `script` + `args` in `bots/roster.json` and `fleet-launchd.ts restart Name`. Preview-bot-scripts still applies to character files; shared `bots/quests/` edits do not need a per-character paste unless the user asked for a wrapper.
+
+Do not declare a grind fixed from "attempted" obstacles or faster recovery.
+Require a grind line that can only fire on the real success (XP jump / server
+message), from a bounded log tail. In the wilderness use `sendWalk` hops +
+`sendInteractLoc`; `bot.walkTo` will route through lava, fences, and void.
+Server scripts beat map-plane guesses (`learnings/agility.md`).

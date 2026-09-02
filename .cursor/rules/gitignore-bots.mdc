@@ -1,0 +1,22 @@
+---
+description: Do not re-ignore bot script folders; only secrets and runtime logs stay out of git
+globs: .gitignore,.cursorignore,.cursorindexingignore
+alwaysApply: false
+---
+
+# Bot gitignore
+
+Scripts, `bots/quests/`, `bots/roster.json`, and lab notes are tracked. Do not restore `bots/*/` — that hid 48k lines of route logic and made copies undiffable.
+
+Ignore only:
+
+```
+bots/**/bot.env
+!bots/_template/bot.env
+bots/**/*.env
+bots/**/*.log
+bots/**/*.pid
+bots/**/assignment.json
+```
+
+`.cursorignore` may keep `bot.env` out of AI context. It must not hide `bots/**/*.ts`. `.cursorindexingignore` may skip `*.log` only.
