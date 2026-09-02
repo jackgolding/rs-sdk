@@ -43,8 +43,8 @@ export const ABG_SKIPPED: string[] = ['ABGARMY06'];
  * (so a random player cannot drain the fish pile).
  */
 export const FOOD_MULE_FROM = /^(?:ABGARMY(?!01$|06$)\d+|Jackpoo3)$/i;
-/** Noted fish 01 hands over per visit — ~1.5–2h of knight eating at 50–60/hr. */
-export const FOOD_PER_TRADE = 100;
+/** Noted fish per mule handoff. Smaller = faster offer screen (experiment: 25, was 100). */
+export const FOOD_PER_TRADE = 25;
 export const FOOD_PACK_ORDER = ['swordfish', 'lobster', 'tuna', 'bass', 'cod', 'shark', 'jug of wine'] as const;
 
 export function usesFoodMule(name: string): boolean {

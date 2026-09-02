@@ -15,7 +15,7 @@ import { dirname, join } from 'path';
 import type { TradeTimingsMs } from '../../sdk/types';
 import { ARDOUGNE_BANK } from './tiles';
 import { closeUi, playerPos, walkNear } from './movement';
-import { FOOD_MULE, FOOD_MULE_FROM, FOOD_PACK_ORDER, foodPackGive } from './tree-trade-plan';
+import { FOOD_MULE, FOOD_MULE_FROM, FOOD_PACK_ORDER, FOOD_PER_TRADE, foodPackGive } from './tree-trade-plan';
 
 const FOOD = /^(cod|bass|tuna|swordfish|lobster|shark|jug of wine)$/i;
 const SLASH =
@@ -24,7 +24,8 @@ const WINE = /^jug of wine$/i;
 const BANK_WHEN_SLOTS = 20;
 const PACK_WHEN_FOOD_BELOW = 200;
 const NOTE_TOGGLE = 5386;
-const SERVE_MS = 90_000;
+const SERVE_MS = 5 * 60_000;
+const SERVE_MAX_TRADES = 20;
 
 const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-')) ?? FOOD_MULE;
@@ -236,7 +237,7 @@ async function packFood(): Promise<number> {
 }
 
 try {
-    session.log('log', `Bank 1-to-1 mule @ ${pos().x},${pos().z} food=${foodSummary()}`);
+    session.log('log', `Bank 1-to-1 mule @ ${pos().x},${pos().z} food=${foodSummary()} exp=per_trade:${FOOD_PER_TRADE} serve_ms:${SERVE_MS} max_trades:${SERVE_MAX_TRADES}`);
     await closeUi(bot, sdk);
     await bot.dismissBlockingUI();
     session.setAnchor(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z);
@@ -283,7 +284,7 @@ try {
             accept: acceptOffer,
             timeout: SERVE_MS,
             tradeTimeout: 60_000,
-            maxTrades: 4,
+            maxTrades: SERVE_MAX_TRADES,
             rejectAfterMs: 20_000,
             onTrade: (result) => {
                 const tag = timingLine(result.timingsMs);

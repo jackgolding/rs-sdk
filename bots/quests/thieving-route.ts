@@ -46,6 +46,7 @@ import { FOOD_MULE, usesFoodMule } from './tree-trade-plan';
 
 const TARGET_LEVEL = 99;
 const RESTOCK_FOOD_BELOW = 1;
+const INV_PACK_LOOT_AT = 26;
 const INV_KEEP_FREE = 3;
 const EAT_MISSING_HP = 14;
 /** Un-noted fish heals; best-heal-first for eating and bank withdraw. */
@@ -510,6 +511,22 @@ async function packNotedLootForMule(): Promise<void> {
     log(`Packed mule loot: ${packed.join(', ') || `inv ${coinCount()} gp`}`);
 }
 
+function hasUnpackagedLoot(): boolean {
+    return sdk.getInventory().some((i) => (i.count ?? 0) > 0 && !isMuleKeep(i.name));
+}
+
+/** Note loot at the bank during the grind so the mule visit is trade-only. */
+async function maybePackLootWhileGrinding(): Promise<void> {
+    if (!usesFoodMule(username) || !inArdougne()) return;
+    if (occupiedSlots() < INV_PACK_LOOT_AT) return;
+    if (muleLootGiveList().length > 0) return;
+    if (!hasUnpackagedLoot()) return;
+    intent('Inv full — noting loot at bank (off swap window)');
+    log(`Pack loot trigger inv=${occupiedSlots()}/28 @ ${pos().x},${pos().z}`);
+    await packNotedLootForMule();
+    await walkNear(KNIGHTS.x, KNIGHTS.z, 4);
+}
+
 /** Walk to 01 at the Ardougne bank, give loot, take noted fish. */
 async function swapFoodWithMule(): Promise<boolean> {
     if (!usesFoodMule(username) || !inArdougne()) return false;
@@ -529,13 +546,15 @@ async function swapFoodWithMule(): Promise<boolean> {
     mark(`walked to bank @ ${pos().x},${pos().z}`);
     await bot.closeInterface();
     await bot.declineTrade().catch(() => {});
-    const giveBeforePack = muleLootGiveList().length;
-    if (giveBeforePack === 0) {
-        await packNotedLootForMule();
-        mark(`packed loot (${muleLootGiveList().length} stacks)`);
-    } else {
-        mark(`loot ready (${giveBeforePack} stacks)`);
+    if (muleLootGiveList().length === 0) {
+        if (hasUnpackagedLoot()) {
+            session.log('warn', 'Mule swap: no noted loot — pack during grind, not at trade tile');
+            return false;
+        }
+        log('Mule swap: nothing to offer — skipping');
+        return false;
     }
+    mark(`loot ready (${muleLootGiveList().length} stacks)`);
     const give = muleLootGiveList().slice(0, 12);
     const loot = give.length
         ? sdk
@@ -1102,16 +1121,21 @@ async function unnoteFood(): Promise<number> {
 async function ensureFood(): Promise<{ opened: boolean; ok: boolean }> {
     if (hasThieveFood() && notedFood().length === 0) return { opened: true, ok: true };
     await recoverStun();
-    const bank = await withdrawBankFood();
-    if (hasThieveFood()) return { opened: bank.opened, ok: true };
     if (usesFoodMule(username) && inArdougne()) {
+        if (hasUnpackagedLoot() && muleLootGiveList().length === 0) {
+            log('ensureFood: unpackaged loot — noting at bank before mule swap');
+            await packNotedLootForMule();
+        }
         await swapFoodWithMule();
-        if (hasThieveFood() || notedFood().length > 0) {
-            const again = await withdrawBankFood();
-            if (hasThieveFood()) return { opened: again.opened, ok: true };
+        if (hasThieveFood()) return { opened: true, ok: true };
+        if (notedFood().length > 0) {
+            const unnoted = await withdrawBankFood();
+            if (hasThieveFood()) return { opened: unnoted.opened, ok: true };
         }
     }
-    return { opened: bank.opened || hasThieveFood(), ok: hasThieveFood() };
+    const bank = await withdrawBankFood();
+    if (hasThieveFood()) return { opened: bank.opened, ok: true };
+    return { opened: bank.opened, ok: hasThieveFood() };
 }
 
 function shopHeldCount(): number {
@@ -2620,6 +2644,7 @@ try {
         const result = await pickpocketBest();
         if (result === 'ok') {
             session.noteProgress('xp', 'pickpocket');
+            await maybePackLootWhileGrinding();
             continue;
         }
         if (result === 'stunned' || result === 'fail') {
