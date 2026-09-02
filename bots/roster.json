@@ -15,7 +15,7 @@
     ],
     "bots": [
         { "name": "Jackpoo1", "view": "fleet", "script": "bots/quests/magic-trees.ts", "args": ["Jackpoo1"] },
-        { "name": "Jackpoo2", "view": "fleet", "script": "bots/Jackpoo2/rune-rocks.ts" },
+        { "name": "Jackpoo2", "view": "fleet", "script": "bots/quests/doric-iron-knives.ts", "args": ["Jackpoo2"] },
         { "name": "Jackpoo3", "view": "fleet", "script": "bots/quests/thieving-route.ts", "args": ["Jackpoo3"] },
 
         { "name": "Jackpoo4", "view": "fleet", "script": "bots/quests/mining-guild.ts", "args": ["Jackpoo4", "--coal-only"] },

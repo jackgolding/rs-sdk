@@ -17,6 +17,17 @@ export function inHandelmortMansion(x: number, z: number): boolean {
 export const CATHERBY_BANK: Tile = { x: 2808, z: 3443 };
 export const DRAYNOR_BANK: Tile = { x: 3092, z: 3243 };
 export const FALADOR_EAST_BANK: Tile = { x: 3012, z: 3355 };
+export const FALADOR_WEST_BANK: Tile = { x: 2945, z: 3368 };
+export const FALADOR_FURNACE: Tile = { x: 2974, z: 3369 };
+export const FALADOR_NORTH: Tile = { x: 2964, z: 3381 };
+export const DORIC_ANVIL: Tile = { x: 2952, z: 3451 };
+export const RIMMINGTON_IRON: Tile = { x: 2969, z: 3240 };
+export const RIMMINGTON_BRONZE: Tile = { x: 2976, z: 3238 };
+export const GUILD_LADDER: Tile = { x: 3019, z: 3339 };
+export const GUILD_LADDER_DOWN: Tile = { x: 3019, z: 9739 };
+export const GUILD_COAL: Tile = { x: 3046, z: 9735 };
+export const DITCH_NORTH: Tile = { x: 3088, z: 3525 };
+export const DITCH_SOUTH: Tile = { x: 3088, z: 3518 };
 /** Hobgoblin / snape-grass peninsula west of the Crafting Guild. */
 export const CRAFTING_GUILD_HOBS: Tile = { x: 2905, z: 3295 };
 /** East bank → south of Falador (3007, 3297) → west of guild → peninsula. */
