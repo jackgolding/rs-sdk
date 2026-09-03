@@ -56,6 +56,15 @@ const MULE_FOOD = /^(tuna|swordfish|lobster|shark|cod|bass|jug of wine)$/i;
 const WINE = /^jug of wine$/i;
 const EMPTY_JUG = /^jug$/i;
 const FOOD = /kebab|cake|bread|chocolate|slice|meat|shrimp|anchov|tuna|swordfish|lobster|shark|salmon|trout|pike|bass|cod|herring|sardine|mackerel|wine/i;
+/**
+ * Non-fish edibles. The mule swap is 1-for-1 loot -> fish, so a bot that
+ * banked its whole inventory has nothing to offer and no fish to withdraw:
+ * it starves at the bank forever. Any of these heals enough to earn loot
+ * again and re-enter the swap.
+ */
+const BACKUP_FOOD =
+    /^(bread|(?:\d\/\d )?cake|slice of cake|chocolate (?:slice|bar|cake)|cooked (?:meat|chicken)|meat pie|apple pie|stew|kebab)$/i;
+const BACKUP_FOOD_TAKE = 8;
 const SWORD = /^(bronze |iron |steel )?sword$/i;
 const SLASH = /^(bronze |iron |steel |mithril |adamant |rune )?(axe|sword|scimitar|dagger|claws|battleaxe|longsword|2h sword)$|^knife$/i;
 
@@ -418,8 +427,12 @@ function emergencySharks(): number {
     return sdk.getInventory().filter((i) => /^shark$/i.test(i.name) && i.count === 1).length;
 }
 
+function backupFoodCount(): number {
+    return sdk.getInventory().filter((i) => BACKUP_FOOD.test(i.name) && i.count === 1).length;
+}
+
 function hasThieveFood(): boolean {
-    return foodCount() >= RESTOCK_FOOD_BELOW || emergencySharks() > 0;
+    return foodCount() >= RESTOCK_FOOD_BELOW || emergencySharks() > 0 || backupFoodCount() > 0;
 }
 
 function notedFood() {
@@ -434,7 +447,8 @@ function isMuleKeep(name: string): boolean {
         EMPTY_JUG.test(name) ||
         SLASH.test(name) ||
         /^kebab$/i.test(name) ||
-        /^shark$/i.test(name)
+        /^shark$/i.test(name) ||
+        BACKUP_FOOD.test(name)
     );
 }
 
@@ -620,6 +634,7 @@ function findEatFood(skip?: RegExp) {
             ? sdk.getInventory().find((i) => /^shark$/i.test(i.name) && i.count === 1)
             : null,
         sdk.getInventory().find((i) => /^kebab$/i.test(i.name) && i.count === 1),
+        sdk.getInventory().find((i) => BACKUP_FOOD.test(i.name) && i.count === 1),
     ].filter(Boolean) as { name: string; slot: number; optionsWithIndex: { text: string; opIndex: number }[] }[];
     return candidates.find((i) => !skip?.test(i.name)) ?? null;
 }
@@ -1111,6 +1126,17 @@ async function withdrawBankFood(): Promise<{ opened: boolean; count: number }> {
             log(`Bank emergency shark x${take} ${r.success ? 'ok' : r.message}`);
         }
     }
+    if (foodCount() === 0 && emergencySharks() === 0) {
+        for (const item of sdk.getBankItems().filter((i) => BACKUP_FOOD.test(i.name) && (i.count ?? 0) > 0)) {
+            const space = 28 - occupiedSlots() - INV_KEEP_FREE;
+            if (space <= 0) break;
+            const re = new RegExp(`^${item.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+            const take = Math.min(item.count ?? 0, space, BACKUP_FOOD_TAKE);
+            const r = await bot.withdrawItem(re, take, { asNote: false });
+            log(`Bank backup food ${item.name} x${take} ${r.success ? 'ok' : r.message}`);
+            if (backupFoodCount() >= BACKUP_FOOD_TAKE) break;
+        }
+    }
     await bot.closeBank();
     const fishPack = Object.fromEntries(
         THIEVE_FISH.map((name) => [
@@ -1121,7 +1147,7 @@ async function withdrawBankFood(): Promise<{ opened: boolean; count: number }> {
     const wine = sdk.getInventory().filter((i) => WINE.test(i.name)).length;
     const shark = sdk.getInventory().filter((i) => /^shark$/i.test(i.name) && i.count === 1).length;
     log(
-        `Bank pack fish=${JSON.stringify(fishPack)} wine=${wine} shark=${shark} (eat shark only below ${SHARK_EAT_BELOW_HP} hp)`
+        `Bank pack fish=${JSON.stringify(fishPack)} wine=${wine} shark=${shark} backup=${backupFoodCount()} (eat shark only below ${SHARK_EAT_BELOW_HP} hp)`
     );
     return { opened: true, count: foodCount() };
 }

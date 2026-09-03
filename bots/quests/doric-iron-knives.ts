@@ -1,11 +1,12 @@
 /**
  * Smithing grind: bronze to 15, guild/dwarven iron → Doric knives to 30,
- * then steel bars (1 iron + 2 coal) to 70, then bank addy / runite
- * (rune first at 85+). Iron is mined at the north guild / dwarven-stair
- * cluster, not Rimmington.
+ * then steel bars (1 iron + 2 coal) to 48, steel platebodies to 70, then
+ * bank addy / runite (rune first at 85+). Iron is mined at the north guild /
+ * dwarven-stair cluster, not Rimmington.
  *
- * Iron knives unlock at 22; 15–22 smiths iron daggers. If addy is gone and
- * smithing is still under 85 with runite left, keeps smelting steel.
+ * Iron knives unlock at 22; 15–22 smiths iron daggers. Steel platebodies
+ * unlock at 48. If addy is gone and smithing is still under 85 with runite
+ * left, keeps smelting steel then plating.
  *
  *   bun bots/quests/doric-iron-knives.ts Jackpoo2
  */
@@ -50,6 +51,7 @@ const KNIFE_TARGET = 70;
 const RUNE_SMELT = 85;
 const IRON_SMELT = 15;
 const STEEL_LEVEL = 30;
+const STEEL_PLATE = 48;
 const IRON_KNIVES = 22;
 const BRONZE_KNIVES = 7;
 
@@ -62,6 +64,7 @@ const COAL = /^coal$/i;
 const BRONZE_BAR = /^bronze bar$/i;
 const IRON_BAR = /^iron bar$/i;
 const STEEL_BAR = /^steel bar$/i;
+const STEEL_PLATEBODY = /^steel platebody$/i;
 const KING_SCORPION = /king scorpion/i;
 const ADDY_ORE = /^adamantite ore$/i;
 const RUNE_ORE = /^runite ore$/i;
@@ -76,7 +79,8 @@ const ROCK_COAL = /rocks coal ore/i;
 
 const SMITH_UI = {
     dagger: { component: 1119, slot: 0 },
-    knives: { component: 1123, slot: 2 }
+    knives: { component: 1123, slot: 2 },
+    platebody: { component: 1121, slot: 3 }
 } as const;
 
 const TO_MINE = [
@@ -263,7 +267,9 @@ function bankCount(pattern: RegExp): number {
 
 function keepItem(name: string): boolean {
     if (PICKAXE.test(name)) return true;
-    if (smithing() < STEEL_LEVEL && (HAMMER.test(name) || KNIVES.test(name))) return true;
+    if (smithing() < KNIFE_TARGET && HAMMER.test(name)) return true;
+    if (smithing() < STEEL_LEVEL && KNIVES.test(name)) return true;
+    if (smithing() < KNIFE_TARGET && STEEL_BAR.test(name) && smithing() >= STEEL_PLATE) return true;
     return false;
 }
 
@@ -765,9 +771,10 @@ async function smeltUntilEmpty(ore: RegExp, make10: RegExp, coalPerBar = 0): Pro
     return used;
 }
 
-async function smithBars(bar: RegExp, product: 'dagger' | 'knives'): Promise<number> {
+async function smithBars(bar: RegExp, product: 'dagger' | 'knives' | 'platebody'): Promise<number> {
+    const barsEach = product === 'platebody' ? 5 : 1;
     let made = 0;
-    while (count(bar) > 0 && !session.isStopped()) {
+    while (count(bar) >= barsEach && !session.isStopped()) {
         if (!hasHammer()) {
             await ensureTools();
             if (!hasHammer()) break;
@@ -775,10 +782,12 @@ async function smithBars(bar: RegExp, product: 'dagger' | 'knives'): Promise<num
         if (!(await goToDoric())) break;
         const before = count(bar);
         const beforeXp = smithXp();
-        const n = before;
-        const option = n >= 10 ? 3 : n >= 5 ? 2 : 1;
+        const items = Math.floor(before / barsEach);
+        const option = items >= 10 ? 3 : items >= 5 ? 2 : 1;
+        const batchItems = option === 3 ? 10 : option === 2 ? 5 : 1;
+        const expect = Math.min(batchItems * barsEach, items * barsEach);
         const spec = SMITH_UI[product];
-        intent(`Smith ${n} ${product} at Doric`);
+        intent(`Smith ${product} (${before} bars) at Doric`);
         const barItem = sdk.findInventoryItem(bar);
         let anvil = sdk.findNearbyLoc(/anvil/i);
         if (!anvil) {
@@ -794,7 +803,7 @@ async function smithBars(bar: RegExp, product: 'dagger' | 'knives'): Promise<num
                 await sdk.sendClickComponentWithOption(spec.component, option, spec.slot);
             }
         } else {
-            const r = await bot.smithAtAnvil(product, { barPattern: bar, timeout: 20_000 });
+            const r = await bot.smithAtAnvil(product, { barPattern: bar, timeout: 25_000 });
             if (!r.success) {
                 session.noteFailure('smith', r.message);
                 break;
@@ -802,17 +811,16 @@ async function smithBars(bar: RegExp, product: 'dagger' | 'knives'): Promise<num
         }
         await sdk.waitForCondition(() => count(bar) < before || smithXp() > beforeXp, 18_000).catch(() => {});
         let last = count(bar);
-        const expect = option === 3 ? 10 : option === 2 ? 5 : 1;
-        const deadline = Date.now() + 50_000;
-        while (Date.now() < deadline && count(bar) > Math.max(0, before - expect)) {
+        const deadline = Date.now() + 90_000;
+        while (Date.now() < deadline && count(bar) > Math.max(before - expect, before % barsEach)) {
             const prev = last;
-            await sdk.waitForCondition(() => count(bar) < prev, 8_000).catch(() => {});
+            await sdk.waitForCondition(() => count(bar) < prev, 12_000).catch(() => {});
             if (count(bar) >= prev) break;
             last = count(bar);
         }
         await closeUi();
         if (count(bar) >= before && smithXp() <= beforeXp) {
-            const r = await bot.smithAtAnvil(product, { barPattern: bar, timeout: 20_000 });
+            const r = await bot.smithAtAnvil(product, { barPattern: bar, timeout: 25_000 });
             if (!r.success) {
                 session.noteFailure('smith', r.message);
                 break;
@@ -822,12 +830,13 @@ async function smithBars(bar: RegExp, product: 'dagger' | 'knives'): Promise<num
         if (used > 0) {
             made += used;
             session.noteProgress('xp', product);
-            log(`Smithed ${used} ${product} | Smithing ${smithing()} (${smithXp()} xp)`);
+            log(`Smithed ${used} bars → ${product} | Smithing ${smithing()} (${smithXp()} xp)`);
         } else {
             break;
         }
         noteLevel();
         if (bar === IRON_BAR && smithing() >= STEEL_LEVEL) break;
+        if (product === 'platebody' && smithing() >= KNIFE_TARGET) break;
     }
     return made;
 }
@@ -926,6 +935,9 @@ async function mineIronBag(): Promise<void> {
         await closeUi();
         await eatIfNeeded();
         await fleeScorpion();
+        if (!inUnderground()) {
+            if (!(await goToGuildIron())) return;
+        }
         await lootOre(IRON);
         if (!(await mineRock(ROCK_IRON, GUILD_IRON, IRON))) await sdk.waitForTicks(2);
     }
@@ -1200,14 +1212,50 @@ async function restockSteel(): Promise<boolean> {
 }
 
 async function steelTick(): Promise<void> {
+    const canPlate = smithing() >= STEEL_PLATE && smithing() < KNIFE_TARGET;
+    if (canPlate) {
+        await session.setPhase('smith_steel_plate');
+        if (count(STEEL_BAR) >= 5) {
+            await smithBars(STEEL_BAR, 'platebody');
+            if (count(STEEL_PLATEBODY) > 0 || occupiedSlots() >= 20) {
+                if (await goToWestBank() && (await openNearbyBank())) {
+                    await depositJunk();
+                    await withdrawOne(HAMMER);
+                    const left = bankCount(STEEL_BAR);
+                    if (left >= 5 && count(STEEL_BAR) < 5) {
+                        const item = sdk.findBankItem(STEEL_BAR);
+                        if (item) await bot.withdrawItem(item, Math.min(25, item.count ?? 25));
+                    }
+                    await bot.closeBank();
+                }
+            }
+            return;
+        }
+        if (await goToWestBank()) {
+            if (await openNearbyBank()) {
+                await depositJunk();
+                await withdrawOne(HAMMER);
+                const item = sdk.findBankItem(STEEL_BAR);
+                const n = item?.count ?? 0;
+                if (n >= 5) {
+                    await bot.withdrawItem(item!, Math.min(25, n));
+                    log(`Withdraw ${Math.min(25, n)} steel bars for platebodies`);
+                    await bot.closeBank();
+                    return;
+                }
+                await bot.closeBank();
+            }
+        }
+    }
+
     await session.setPhase('smelt_steel');
-    if (count(STEEL_BAR) > 0 && steelPossible() < 1) {
+    if (count(STEEL_BAR) > 0 && steelPossible() < 1 && !canPlate) {
         await bankSteelBars();
         return;
     }
     if (steelPossible() >= 1) {
         await smeltUntilEmpty(IRON, /smelt\s+10.*steel/i, 2);
-        if (count(STEEL_BAR) > 0) await bankSteelBars();
+        if (count(STEEL_BAR) > 0 && !canPlate) await bankSteelBars();
         return;
     }
     if (count(IRON) > 0 || nearAnyBank() || occupiedSlots() >= 20) {

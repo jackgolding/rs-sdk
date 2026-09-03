@@ -298,7 +298,12 @@ function cookRawPattern(): RegExp {
 }
 
 function hasFishingTool(): boolean {
-    return BIG_NET ? hasBigNet() : hasHarpoon() || hasLobsterPot();
+    if (BIG_NET) return hasBigNet();
+    // Shark spots only publish a Harpoon option, so a lobster pot is not a
+    // tool here. Accepting one made setup return early and skip Harry's
+    // harpoon, leaving the bot on shark tiles with nothing to fish with.
+    if (SHARK) return hasHarpoon();
+    return hasHarpoon() || hasLobsterPot();
 }
 
 function occupiedSlots(): number {
@@ -1488,6 +1493,10 @@ async function setupFishingGear(): Promise<boolean> {
         return true;
     }
 
+    if (SHARK) {
+        log(`No harpoon after ${HARRY_HARPOON_SPAWNS} Harry spawns — a lobster pot cannot fish shark, retrying`);
+        return false;
+    }
     log('No harpoon after 5 Harry spawns — buying a lobster pot');
     if (await ensureCoins(LOBSTER_POT_GP)) {
         await buyHarryItem(/^lobster pot$/i, hasLobsterPot, 8, 'lobster pot');
@@ -2151,7 +2160,7 @@ try {
     }
 
     if (!(await setupFishingGear())) {
-        const missing = BIG_NET ? 'big fishing net' : 'harpoon or lobster pot';
+        const missing = BIG_NET ? 'big fishing net' : SHARK ? 'harpoon' : 'harpoon or lobster pot';
         session.noteFailure('setup_gear', `no ${missing} @ ${pos().x},${pos().z} gp=${coins()}`);
         log(`Could not get a ${missing} @ ${pos().x},${pos().z} gp=${coins()} — will keep trying`);
     }
@@ -2171,7 +2180,7 @@ try {
         }
         if (!hasFishingTool()) {
             if (!(await setupFishingGear())) {
-                const missing = BIG_NET ? 'big fishing net' : 'harpoon or lobster pot';
+                const missing = BIG_NET ? 'big fishing net' : SHARK ? 'harpoon' : 'harpoon or lobster pot';
                 session.noteFailure('setup_gear', `Cannot restock ${missing}`);
                 log(`Cannot restock ${missing} — waiting on Harry`);
                 await sdk.waitForTicks(10);
