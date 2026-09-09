@@ -1,3 +1,4 @@
+import type { ActivitySession } from '../../sdk/activity';
 import type { BotActions } from '../../sdk/actions';
 import type { BotSDK } from '../../sdk/index';
 import type { Tile } from './tiles';
@@ -160,4 +161,26 @@ export async function recoverLeverOscillation(bot: BotActions, sdk: BotSDK): Pro
     await bot.walkTo(EDGEVILLE.x, EDGEVILLE.z, 4);
     leverHistory.length = 0;
     return true;
+}
+
+const WAIT_TICKS_NO_STATE_BACKOFF_MS = 2_000;
+
+/** Swallowing `waitForTicks` with no backoff busy-loops grind logs (jacklove12/15). */
+export function installWaitForTicksGuard(sdk: BotSDK, session: ActivitySession): void {
+    const origWait = sdk.waitForTicks.bind(sdk);
+    sdk.waitForTicks = (async (ticks: number = 1) => {
+        try {
+            return await origWait(ticks);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            session.log('warn', `waitForTicks(${ticks}): ${message}`);
+            await new Promise((r) => setTimeout(r, WAIT_TICKS_NO_STATE_BACKOFF_MS));
+            const state = sdk.getState();
+            if (!state) {
+                session.stopRestartable('script_error', message);
+                throw err;
+            }
+            return state;
+        }
+    }) as typeof sdk.waitForTicks;
 }

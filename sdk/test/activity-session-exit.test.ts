@@ -38,6 +38,14 @@ describe('ActivitySession exit semantics', () => {
         expect(session.metrics().stopReason?.restartable).toBe(true);
     });
 
+    test('script_error is restartable by default so KeepAlive revives overnight jobs', () => {
+        const { sdk, bot } = mockPair();
+        const session = new ActivitySession(sdk, bot, { name: 'test', writeLog: () => {} });
+        session.stop('script_error', 'waitForConnection timed out');
+        expect(session.exitCode()).toBe(RESTARTABLE_EXIT_CODE);
+        expect(session.metrics().stopReason?.restartable).toBe(true);
+    });
+
     test('cannot_regear is terminal with exit code 0', () => {
         const { sdk, bot } = mockPair();
         const session = new ActivitySession(sdk, bot, { name: 'test', writeLog: () => {} });

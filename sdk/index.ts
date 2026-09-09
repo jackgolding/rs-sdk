@@ -1084,6 +1084,9 @@ export class BotSDK {
         }
 
         if (!this.isConnected()) {
+            if (this.connectionState === 'connected') {
+                this.setConnectionState('disconnected');
+            }
             throw new Error(`Not connected (state: ${this.connectionState})`);
         }
 
@@ -1705,6 +1708,9 @@ export class BotSDK {
         }
 
         if (!this.isConnected()) {
+            if (this.connectionState === 'connected') {
+                this.setConnectionState('disconnected');
+            }
             throw new Error(`Not connected (state: ${this.connectionState})`);
         }
 
@@ -1911,7 +1917,13 @@ export class BotSDK {
      */
     async waitForTicks(ticks: number = 1): Promise<BotWorldState> {
         if (!this.state) {
-            throw new Error('waitForTicks: no state available');
+            const deadline = Date.now() + 15_000;
+            while (!this.state && Date.now() < deadline) {
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            if (!this.state) {
+                throw new Error('waitForTicks: no state available');
+            }
         }
 
         if (ticks <= 0) {

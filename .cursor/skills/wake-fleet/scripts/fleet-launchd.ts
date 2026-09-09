@@ -115,6 +115,13 @@ function isLoaded(name: string): boolean {
     return run(['launchctl', 'print', `${DOMAIN}/${label(name)}`], true).ok;
 }
 
+function agentPid(name: string): number | null {
+    const result = run(['launchctl', 'print', `${DOMAIN}/${label(name)}`], true);
+    if (!result.ok) return null;
+    const pid = result.output.match(/\bpid = (\d+)/)?.[1];
+    return pid ? Number(pid) : null;
+}
+
 function selected(rawName?: string): string[] {
     if (!rawName) return botNames();
     const match = findBot(rawName);
@@ -279,8 +286,15 @@ function uninstallRotator(): void {
 function start(name: string): boolean {
     if (!existsSync(plistPath(name))) writeAgent(name);
     if (isLoaded(name)) {
-        console.log(`${name}: already supervised`);
-        return true;
+        if (agentPid(name) != null) {
+            console.log(`${name}: already running`);
+            return true;
+        }
+        // Loaded after exit 0 (KeepAlive SuccessfulExit=false) — bootstrap is a no-op.
+        const result = run(['launchctl', 'kickstart', '-k', `${DOMAIN}/${label(name)}`], true);
+        if (result.ok) recordAssignment(name);
+        console.log(`${name}: ${result.ok ? 'kickstarted' : `failed to start — ${result.output}`}`);
+        return result.ok;
     }
     const result = run(['launchctl', 'bootstrap', DOMAIN, plistPath(name)], true);
     if (result.ok) recordAssignment(name);

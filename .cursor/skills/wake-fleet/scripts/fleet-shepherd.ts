@@ -15,6 +15,20 @@ export const LOCK_STALE_MS = 5 * 60 * 1000;
 const LOG_DIR = join(homedir(), 'Library', 'Logs', 'rs-sdk-fleet');
 export const STATE_PATH = join(LOG_DIR, 'shepherd-state.json');
 const LOCK_PATH = join(LOG_DIR, 'shepherd.lock');
+const HUB_LOCK_PATH = join(LOG_DIR, 'abg-food-hub.lock');
+
+function isHubLocked(): boolean {
+    if (!existsSync(HUB_LOCK_PATH)) return false;
+    try {
+        const lines = readFileSync(HUB_LOCK_PATH, 'utf-8').trim().split('\n');
+        const pid = Number(lines[0]);
+        if (!Number.isFinite(pid) || pid <= 0) return false;
+        const proc = spawnSync('kill', ['-0', String(pid)]);
+        return proc.status === 0;
+    } catch {
+        return false;
+    }
+}
 
 export interface ShepherdBotState {
     restarts: number[];
@@ -70,6 +84,19 @@ export function recordRestart(state: ShepherdState, name: string, now: number): 
     bot.restarts = pruneRestarts([...bot.restarts, now], now);
     bots[name] = bot;
     return { ...state, bots };
+}
+
+export type LaunchdStartResult = 'started' | 'already-running' | 'failed';
+
+/** Shepherd must not count a no-op `start` (loaded, already has a pid) toward the hourly cap. */
+export function parseLaunchdStartOutput(output: string, status: number | null): LaunchdStartResult {
+    if (/: already running\b/.test(output)) return 'already-running';
+    if (status === 0) return 'started';
+    return 'failed';
+}
+
+export function shouldRecordWake(result: LaunchdStartResult): boolean {
+    return result === 'started';
 }
 
 /** `start` is a no-op while a controller is attached — bounce the job instead. */
@@ -193,13 +220,15 @@ function launchdRestart(name: string): boolean {
     return proc.status === 0;
 }
 
-function launchdStart(name: string): boolean {
+function launchdStart(name: string): LaunchdStartResult {
     const proc = spawnSync(
         'bun',
         [join(ROOT, '.cursor/skills/wake-fleet/scripts/fleet-launchd.ts'), 'start', name],
         { cwd: ROOT, encoding: 'utf-8' }
     );
-    return proc.status === 0;
+    const output = `${proc.stdout ?? ''}${proc.stderr ?? ''}`;
+    if (output.trim()) console.log(output.trim());
+    return parseLaunchdStartOutput(output, proc.status);
 }
 
 function launchdStop(name: string): boolean {
@@ -216,6 +245,11 @@ export async function runShepherdCycle(now = Date.now()): Promise<{
     capped: string[];
     notified: string[];
 }> {
+    if (isHubLocked()) {
+        console.log('shepherd: abg-food-hub lock active — skip cycle');
+        return { woke: [], capped: [], notified: [] };
+    }
+
     if (!acquireLock(now)) {
         console.log('shepherd: previous cycle still running — skip');
         return { woke: [], capped: [], notified: [] };
@@ -238,6 +272,10 @@ export async function runShepherdCycle(now = Date.now()): Promise<{
             // Detect restart: new bun pid when we had none before in last cycle is handled by wake path
             state = expireCap(state, row.name, now);
 
+            if (row.kind === 'paused') {
+                continue;
+            }
+
             if (row.kind === 'running' && row.bunPid) {
                 if (prev?.capped || state.bots[row.name]?.capped) {
                     state = clearCappedOnStart(state, row.name, false, true);
@@ -249,7 +287,8 @@ export async function runShepherdCycle(now = Date.now()): Promise<{
                 if (botState?.capped || shouldCap(state, row.name, now)) {
                     continue;
                 }
-                if (launchdStart(row.name)) {
+                const started = launchdStart(row.name);
+                if (shouldRecordWake(started)) {
                     woke.push(row.name);
                     state = recordRestart(state, row.name, now);
                 }

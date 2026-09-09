@@ -27,7 +27,7 @@ import {
     LUMBRIDGE_MEN,
     PORT_SARIM_DOCK
 } from './tiles';
-import { recoverGangplank, walkNear as walkNearShared } from './movement';
+import { installWaitForTicksGuard, recoverGangplank, walkNear as walkNearShared } from './movement';
 
 const TARGET_FISHING_HARPOON = 50;
 const TARGET_FISHING_SHARK = 76;
@@ -202,17 +202,7 @@ async function tickSession(): Promise<boolean> {
     return true;
 }
 
-{
-    const origWait = sdk.waitForTicks.bind(sdk);
-    sdk.waitForTicks = (async (ticks: number = 1) => {
-        try {
-            return await origWait(ticks);
-        } catch (err) {
-            log(`waitForTicks(${ticks}): ${(err as Error).message}`);
-            return sdk.getState()!;
-        }
-    }) as typeof sdk.waitForTicks;
-}
+installWaitForTicksGuard(sdk, session);
 
 let lastIntent = '';
 let lastLoggedFishing = 0;
@@ -2208,7 +2198,7 @@ try {
         trip++;
     }
 } catch (err) {
-    session.stop('script_error', err instanceof Error ? err.message : String(err));
+    session.stopRestartable('script_error', err instanceof Error ? err.message : String(err));
     console.error('Script error:', err);
 } finally {
     await session.finalizeStop();

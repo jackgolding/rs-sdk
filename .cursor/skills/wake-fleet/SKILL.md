@@ -3,7 +3,8 @@ name: wake-fleet
 description: >-
   Wake idle rs-sdk fleet scripts and report bots that need a human or a
   different fix. Use when bots are idle, offline, AFK, unattended, have no
-  controller, scripts were aborted, the fleet is down, or the user asks to
+  controller, scripts were aborted, the fleet is down, gateway state is stale,
+  fleet-scale login conflicts (lite vs Chrome vs SDK), or the user asks to
   wake, restart, or shepherd Jackpoo/jacklove/fatpig/jackthief/ABGARMY.
 ---
 
@@ -20,6 +21,25 @@ and `bots/watch-fleet.sh` all read it. Inspect it with
 is a one-file edit there — never hardcode a bot list in a script.
 
 Temporary opt-outs: names in `.cursor/skills/wake-fleet/skip-bots.txt` classify as `paused` — never wake them.
+
+## Gateway & fleet scale
+
+Full reference: [`learnings/gateway-fleet.md`](../../learnings/gateway-fleet.md).
+
+Per account: **one game client** (lite or Chrome) + **at most one SDK controller**. Last controller wins. `fleet-status` coords come from the game client's gateway snapshot — not from a Chrome tab if a zombie script holds stale state.
+
+Before reporting position, login, or routing a bot:
+
+1. **Trust the operator** if they see the account in-game.
+2. Check lite **out.log** for `'name' logged into` and `lite-launchd.ts status`.
+3. Check `stateAge` in `fleet-status` (stale if >8s; hours-old = frozen lie). `inGame: true` alone is not enough.
+4. Confirm with `bun sdk/cli.ts Name --observe` — tick should advance, not stay at ~6.
+
+Fleet bring-up at Yanille: see [`learnings/gateway-fleet.md`](../../learnings/gateway-fleet.md) § Fleet bring-up playbook.
+
+**Manual Chrome accounts:** `lite-launchd.ts stop Name`, kill any converge/controller on that bot, add to `skip-bots.txt` or script `--except`. Do not `to-lite` them.
+
+**Do not run multiple `converge-and-accept-trade.ts` processes** without disjoint `--except` lists — they preempt each other and orphan controllers. Prefer one accept-only loop for the Yanille stack.
 
 ## Do this every time
 
@@ -107,7 +127,7 @@ One notification; pack multiple bots into the body if needed. Still print the fu
 bun .cursor/skills/wake-fleet/scripts/fleet-shepherd.ts   # one cycle manually
 ```
 
-The shepherd classifies via `fleet-status.ts`, starts `wake` bots through `fleet-launchd start`, **`fleet-launchd restart`s `zero_rate` grinders** (any roster job except `bursty` mules — they already have a controller, so `start` is a no-op), **expires `capped` once the rolling hour no longer exceeds 4 restarts** (otherwise Jackpoo miners stay dead forever), caps restarts at **4/hour** per bot (then stops the agent and notifies), and fires one macOS banner per cycle for other `intervene` bots. Restartable script stops exit with code **70** so per-bot launchd `KeepAlive` restarts within ~30s.
+The shepherd classifies via `fleet-status.ts`, starts `wake` bots through `fleet-launchd start` (**kickstarts** agents that are loaded but have no pid after exit 0 — a no-op `already running` is not counted toward the hourly cap), **`fleet-launchd restart`s `zero_rate` grinders** (any roster job except `bursty` mules — they already have a controller, so `start` is a no-op), **expires `capped` once the rolling hour no longer exceeds 4 restarts** (otherwise Jackpoo miners stay dead forever), caps restarts at **4/hour** per bot (then stops the agent and notifies), and fires one macOS banner per cycle for other `intervene` bots. Restartable script stops (`script_error`, `recovery_exhausted`) exit with code **70** so per-bot launchd `KeepAlive` restarts within ~30s.
 
 ## Production rates (`fleet-report.ts`)
 
@@ -152,6 +172,7 @@ These already bit this fleet. Do not reintroduce them:
 - A second bot list (`FLEET`, `DEFAULT_CMD`, a name table in the skill, hardcoded `add_tower` in `watch-fleet.sh`). Edit `bots/roster.json` instead.
 - `inferCommand()` / matching grind-log phrases to pick a script. Log text is a lie when the bot last ran something else; `commandSource` exists so you can see `live` vs `assignment` vs `roster`.
 - Starting grind jobs as children of a Cursor shell (`bun bots/...`, `nohup`, `&`). Launchd only.
+- Counting `fleet-launchd start` as a restart when the agent was already loaded with a live pid (or loaded-dead without `kickstart`). That filled the 4/hour cap and `stop`ped the fleet.
 - `readFileSync` on `bots/*/grind.log` (jacklove1's file has exceeded 1 GB). `grindTail` is a bounded seek; keep it that way. Caps: `sdk/grind-log.ts` on write, plus `bun .cursor/skills/wake-fleet/scripts/fleet-launchd.ts rotate` (6-hour launchd job).
 - Copying a shared route into `bots/{name}/` to "fix one bot." Change `bots/quests/` and point the roster at it. Overnight loops use `ActivitySession` (`LOG`/`WARN`/`ERROR`); see `.cursor/skills/grind-scripts/SKILL.md`.
 - Restoring `.gitignore` `bots/*/`. Track scripts; ignore only `bot.env`, `*.log`, `*.pid`, `assignment.json`.

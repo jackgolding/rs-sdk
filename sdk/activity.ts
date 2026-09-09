@@ -260,7 +260,7 @@ export class ActivitySession {
     stop(code: string, message: string, opts?: { restartable?: boolean }): void {
         if (this.stopReasonValue) return;
         const p = this.sdk.getState()?.player;
-        const restartable = opts?.restartable ?? false;
+        const restartable = opts?.restartable ?? code === 'script_error';
         this.stopReasonValue = {
             code,
             phase: this.phaseName,

@@ -29,6 +29,7 @@ import {
 import {
     closeUi as closeUiShared,
     distTo as distToShared,
+    installWaitForTicksGuard,
     walkNear as walkNearShared,
     walkWaypoints as walkWaypointsShared
 } from './movement';
@@ -195,17 +196,7 @@ const session = new ActivitySession(sdk, bot, {
     maxRecoveryTactics: 8
 });
 
-{
-    const origWait = sdk.waitForTicks.bind(sdk);
-    sdk.waitForTicks = (async (ticks: number = 1) => {
-        try {
-            return await origWait(ticks);
-        } catch (err) {
-            log(`waitForTicks(${ticks}): ${(err as Error).message}`);
-            return sdk.getState()!;
-        }
-    }) as typeof sdk.waitForTicks;
-}
+installWaitForTicksGuard(sdk, session);
 
 let lastLoggedWc = 0;
 let lastLoggedFm = 0;
@@ -915,10 +906,10 @@ try {
     const stop = session.metrics().stopReason;
     if (stop) log(`stopped ${stop.code} @ ${stop.location.x},${stop.location.z}`);
 } catch (err) {
-    session.stop('script_error', err instanceof Error ? err.message : String(err));
+    session.stopRestartable('script_error', err instanceof Error ? err.message : String(err));
     console.error('Script error:', err);
-    throw err;
 } finally {
+    await session.finalizeStop();
     console.log('Disconnecting SDK; browser client can stay open.');
     await sdk.disconnect();
 }

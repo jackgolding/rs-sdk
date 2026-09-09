@@ -10,6 +10,8 @@ import {
     shouldRestartZeroRate,
     expireCap,
     markNotified,
+    parseLaunchdStartOutput,
+    shouldRecordWake,
     ROLLING_WINDOW_MS,
 } from '../../.cursor/skills/wake-fleet/scripts/fleet-shepherd';
 
@@ -65,6 +67,15 @@ describe('fleet-shepherd decisions', () => {
                 { script: 'bots/quests/thieving-route.ts', bursty: false }
             )
         ).toBe(false);
+    });
+
+    test('no-op start (already running) is not a counted wake', () => {
+        expect(parseLaunchdStartOutput('Jackpoo5: already running', 0)).toBe('already-running');
+        expect(shouldRecordWake('already-running')).toBe(false);
+        expect(parseLaunchdStartOutput('Jackpoo5: kickstarted', 0)).toBe('started');
+        expect(shouldRecordWake('started')).toBe(true);
+        expect(parseLaunchdStartOutput('Jackpoo5: failed to start — boom', 1)).toBe('failed');
+        expect(shouldRecordWake('failed')).toBe(false);
     });
 
     test('capped flag expires when the rolling window drops under the limit', () => {
