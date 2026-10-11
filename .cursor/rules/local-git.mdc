@@ -5,7 +5,11 @@ alwaysApply: true
 
 # Local git
 
-This working copy is **not** a GitHub fork. `upstream` is MaxBittker/rs-sdk (fetch only; push is disabled). There is no `origin`. Do not `git push`, do not add a public remote, and do not restore a push URL to Max's repo.
+This working copy is **not** a GitHub fork. `upstream` is MaxBittker/rs-sdk (fetch only; push is disabled). Do not push to `upstream`, do not add a public remote, and do not restore a push URL to Max's repo.
+
+`origin` is the public GitHub repo `jackgolding/rs-sdk`. Do not push `private/fleet` there.
+
+`private` is the private GitHub repo for this fleet branch. Push `private/fleet` there only when the user asks. Never force-push. `bot.env` stays untracked.
 
 Daily branch: `private/fleet`. SDK/client patches live on `sdk/local`. To pick up upstream:
 

@@ -1,0 +1,14 @@
+---
+description: Keep live fleet control off cloud agents and out of SDK chats
+alwaysApply: true
+---
+
+# Agent lanes
+
+Live fleet control stays in an interactive local chat on this Mac: `fleet-launchd`, `lite-launchd`, trades, unstuck, and the gateway.
+
+SDK, spec, and harness edits belong in a different chat. If this conversation has already restarted bots or driven the gateway, do not start an SDK or spec change here. If this conversation is an SDK or spec change, do not run `fleet-launchd`, `lite-launchd`, or a bot script.
+
+Cloud agents and headless `cursor-agent` run only in the offline worktree from `.cursor/scripts/offline-worktree.ts`. That checkout has no `bot.env` and refuses fleet start, stop, restart, and install. They may edit tests, quest data, and specs.
+
+The unattended fleet check is `fleet-verify-report.ts` on launchd (read-only snapshot, every 30 minutes). Do not schedule a coding agent to repair the fleet. Shepherd remains the only unattended restarter.

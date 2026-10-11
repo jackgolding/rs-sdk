@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": ".cursor/hooks/session-note.py"
+      }
+    ],
+    "stop": [
+      {
+        "command": ".cursor/hooks/session-note.py",
+        "loop_limit": 1,
+        "timeout": 10
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/commit-session.py",
+        "matcher": "git( .+)? (commit|add)",
+        "timeout": 10
+      }
+    ]
+  }
+}

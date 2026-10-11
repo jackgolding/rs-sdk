@@ -1,0 +1,16 @@
+---
+description: Put the chat id in every commit body
+alwaysApply: true
+---
+
+# Commit session
+
+When you create a git commit, the body must include:
+
+```text
+Session: <conversation_id>
+```
+
+`<conversation_id>` is the id from the stop-hook payload, the agent transcript directory name, or a line already written under `.cursor/session-notes/`. If you do not know it, say so and stop. Do not invent one.
+
+Do not `git add` `bots/**/bot.env` or any other credential file.

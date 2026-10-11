@@ -41,3 +41,7 @@ server/engine/data/market.sqlite*
 
 # Dashboard state is live host data, not source.
 /dashboard-max/data/
+
+# Agent session scratch. Monthly notes under .cursor/session-notes/*.md are tracked.
+.cursor/session-notes/pending/
+.cursor/offline-worktree
