@@ -10,6 +10,7 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join, resolve } from 'path';
+import { assertOnlineWorktree } from '../../../scripts/offline-worktree';
 
 const ROOT = resolve(dirname(import.meta.path), '../../../..');
 const WEBCLIENT = join(ROOT, 'server/webclient');
@@ -310,6 +311,7 @@ const commands: Command[] = [
 if (!commands.includes(command)) {
     throw new Error(`Unknown command "${command}". Expected: ${commands.join(', ')}`);
 }
+assertOnlineWorktree(ROOT, command);
 
 mkdirSync(AGENTS_DIR, { recursive: true });
 mkdirSync(LOG_DIR, { recursive: true });

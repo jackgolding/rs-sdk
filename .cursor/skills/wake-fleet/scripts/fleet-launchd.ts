@@ -19,6 +19,8 @@ import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { ROOT, botNames, findBot, writeAssignment, type RosterBot } from './roster';
+import { installVerifyReport, uninstallVerifyReport } from './fleet-verify-report';
+import { assertOnlineWorktree } from '../../../scripts/offline-worktree';
 
 const USER_ID = process.getuid?.() ?? Number(Bun.spawnSync(['id', '-u']).stdout.toString().trim());
 const DOMAIN = `gui/${USER_ID}`;
@@ -349,6 +351,7 @@ const command = (process.argv[2] ?? 'status') as Command;
 if (!['install', 'start', 'stop', 'restart', 'status', 'uninstall', 'rotate', 'caffeinate'].includes(command)) {
     throw new Error(`Unknown command "${command}"`);
 }
+assertOnlineWorktree(ROOT, command);
 
 const names = selected(process.argv[3]);
 mkdirSync(AGENTS_DIR, { recursive: true });
@@ -358,6 +361,7 @@ let failed = false;
 if (command === 'install') {
     installRotator();
     installShepherd();
+    installVerifyReport();
     installCaffeinate();
     for (let i = 0; i < names.length; i++) {
         const name = names[i]!;
@@ -383,6 +387,7 @@ if (command === 'install') {
         uninstallRotator();
         uninstallShepherd();
         uninstallCaffeinate();
+        uninstallVerifyReport();
     }
     for (const name of names) {
         if (!stop(name)) failed = true;
