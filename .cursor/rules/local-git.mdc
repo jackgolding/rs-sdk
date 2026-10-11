@@ -9,7 +9,7 @@ This working copy is **not** a GitHub fork. `upstream` is MaxBittker/rs-sdk (fet
 
 `origin` is the public GitHub repo `jackgolding/rs-sdk`. Do not push `private/fleet` there.
 
-`private` is the private GitHub repo for this fleet branch. Push `private/fleet` there only when the user asks. Never force-push. `bot.env` stays untracked.
+`private` is the private GitHub repo https://github.com/jackgolding/rs-sdk-fleet. Push `private/fleet` there only when the user asks. Never force-push. `bot.env` stays untracked.
 
 Daily branch: `private/fleet`. SDK/client patches live on `sdk/local`. To pick up upstream:
 
