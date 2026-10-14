@@ -26,5 +26,9 @@ COPY sdk /opt/fleet/sdk
 COPY server/webclient /opt/fleet/server/webclient
 COPY server/vendor /opt/fleet/server/vendor
 COPY bots/quests /opt/fleet/bots/quests
+# Quest support code: handoff.ts imports tools/fleet-desk/roster-edit, which
+# in turn imports .cursor/skills/wake-fleet/scripts/{roster,launchd-info}.
+COPY tools/fleet-desk /opt/fleet/tools/fleet-desk
+COPY .cursor/skills/wake-fleet/scripts /opt/fleet/.cursor/skills/wake-fleet/scripts
 # NOTE: bots/<name>/ (bot.env, park.json, roster.json) is bind-mounted
 # from /srv/fleet/bots on the host — see compose.yml.
