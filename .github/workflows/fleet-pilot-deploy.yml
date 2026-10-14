@@ -1,0 +1,33 @@
+name: fleet-pilot-deploy
+
+# Push-to-deploy for the VPS pilot. No container registry: the box builds
+# from git (build on deploy keeps the pilot to SSH + Compose fundamentals;
+# ghcr.io push/pull is the phase-2 upgrade — see infra/pilot/README.md).
+on:
+  push:
+    branches: [infra/vps-pilot]
+    paths:
+      - "bots/quests/**"
+      - "sdk/**"
+      - "server/webclient/**"
+      - "infra/pilot/**"
+      - ".github/workflows/fleet-pilot-deploy.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }} # root
+          key: ${{ secrets.VPS_SSH_KEY }} # private key matching the Terraform deployer key
+          script: |
+            set -e
+            cd /srv/fleet/repo
+            git fetch origin
+            git checkout infra/vps-pilot
+            git pull --ff-only origin infra/vps-pilot
+            docker compose -f infra/pilot/compose.yml up -d --build --remove-orphans
+            docker compose -f infra/pilot/compose.yml ps

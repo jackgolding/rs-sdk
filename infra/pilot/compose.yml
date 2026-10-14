@@ -1,0 +1,46 @@
+name: fleet-pilot
+# One bot, two processes — mirrors the two launchd agents per bot on the Mac:
+#   com.rs-sdk.lite.<name>  ->  lite service  (bun src/lite/runner.ts <NAME>)
+#   com.rs-sdk.bot.<name>   ->  quest service (bun bots/quests/<script> <ARGS>)
+# Run from the repo root on the server:
+#   docker compose -f infra/pilot/compose.yml up -d --build
+
+services:
+  lite-abgarmy18:
+    build:
+      context: ../..
+      dockerfile: infra/pilot/Dockerfile
+    image: fleet-pilot:latest
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY18"]
+    volumes:
+      # Host dir seeded once via rsync (bot.env, park.json, assignment) —
+      # runtime logs (grind.log) persist here too.
+      - /srv/fleet/bots:/opt/fleet/bots
+    restart: unless-stopped # = launchd KeepAlive (SuccessfulExit=false)
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  quest-abgarmy18:
+    build:
+      context: ../..
+      dockerfile: infra/pilot/Dockerfile
+    image: fleet-pilot:latest
+    working_dir: /opt/fleet
+    # Mirrors roster args for ABGARMY18: ["ABGARMY18", "--bignet"].
+    # Generalizing later: drive this from an env var, not a new compose file.
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY18", "--bignet"]
+    volumes:
+      - /srv/fleet/bots:/opt/fleet/bots
+    restart: unless-stopped
+    # = launchd ExitTimeOut 700: quests drain to a bank on SIGTERM
+    # (up to ~11 min for a temple return) — do not shorten.
+    stop_grace_period: 700s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
