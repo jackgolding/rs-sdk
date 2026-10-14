@@ -15,8 +15,12 @@ import type {
     BotWorldState,
 } from './types';
 
-/** Locs that look openable but drop the player a floor. Never auto-open these. */
-export const VERTICAL_EXIT_NAME = /trapdoor|manhole|hatch/i;
+/**
+ * Locs that look openable but move the player elsewhere: a floor down, or a
+ * teleport (the Entrana dungeon Magic door drops you in level-32 wilderness).
+ * Never auto-open these.
+ */
+export const VERTICAL_EXIT_NAME = /trapdoor|manhole|hatch|magic door/i;
 
 export function isVerticalExitName(name: string): boolean {
     return VERTICAL_EXIT_NAME.test(name);

@@ -20,6 +20,7 @@ import { ARDOUGNE_BANK, ARDOUGNE_MARKET, BRIMHAVEN_CUSTOMS, type Tile } from './
 import { foodHeal } from './food-heal';
 import { GnomeCourse, GNOME_START } from './gnome-course';
 import { WildyCourse } from './wildy-course';
+import { installGracefulShutdown } from '../../sdk/runner';
 
 const TARGET_LEVEL = 99;
 const GNOME_UNTIL = 52;
@@ -184,6 +185,8 @@ const session = new ActivitySession(sdk, bot, {
     maxRecoveryTactics: 8
 });
 
+installGracefulShutdown();
+
 let laps = 0;
 let obstacleStreak = 0;
 let lastXp = 0;
@@ -328,7 +331,9 @@ function onGnomeCourse(): boolean {
 
 function pastGnomeGate(): boolean {
     const p = pos();
-    return p.z >= 3410 && distTo(GNOME_START.x, GNOME_START.z) < 60;
+    // x<=2490: the course fence (server-side) strands walkers east of it at
+    // x>2490 — those are outside the course even when close to the start.
+    return p.z >= 3410 && p.x <= 2490 && distTo(GNOME_START.x, GNOME_START.z) < 60;
 }
 
 function inArdougne(): boolean {
@@ -1298,7 +1303,29 @@ async function ensureGnomeEntrance(): Promise<void> {
     await walkNear(GNOME_GATE.x, GNOME_GATE.z, 3);
     await openGnomeGate();
     await walkWaypoints(GNOME_ENTRANCE);
-    log(`Inside stronghold @ ${pos().x},${pos().z}`);
+    if (distTo(GNOME_START.x, GNOME_START.z) <= 12 || pos().x <= 2490) {
+        log(`Inside stronghold @ ${pos().x},${pos().z}`);
+        return;
+    }
+    // Stranded east of the course fence: drop south below it on open ground,
+    // cross west, and re-enter through the proven south corridor. Every leg
+    // is verified — a silent failed leg is what stranded us here before.
+    log(`East of course fence @ ${pos().x},${pos().z} — detouring south around it`);
+    await session.setPhase('gnome_entrance_detour');
+    const detourX0 = pos().x;
+    const southOk = await walkNear(detourX0, 3405, 4);
+    log(`Detour south leg → ${pos().x},${pos().z} ok=${southOk}`);
+    for (const z of [3405, 3398, 3390]) {
+        const westOk = await walkNear(2465, z, 4);
+        log(`Detour west leg z=${z} → ${pos().x},${pos().z} ok=${westOk}`);
+        if (westOk || pos().x <= 2480) break;
+    }
+    await walkWaypoints(GNOME_ENTRANCE);
+    if (distTo(GNOME_START.x, GNOME_START.z) <= 12) {
+        log(`Inside stronghold @ ${pos().x},${pos().z}`);
+    } else {
+        log(`Detour failed, still @ ${pos().x},${pos().z} — will retry via gate`);
+    }
 }
 
 async function travelToGnome(): Promise<void> {

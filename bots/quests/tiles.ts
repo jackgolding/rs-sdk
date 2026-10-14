@@ -7,8 +7,8 @@ export const HOUSE_DOOR: Tile = { x: 2672, z: 3311 };
 export const HOUSE_DOOR_SOUTH: Tile = { x: 2672, z: 3305 };
 export const HOUSE_STAND: Tile = { x: 2674, z: 3311 };
 export const HOUSE_OUTSIDE: Tile = { x: 2669, z: 3311 };
-/** East of Handelmort mansion yard — guard dogs at ~(2624,3319). */
-export const HANDELMORT_SAFE_EAST: Tile = { x: 2656, z: 3305 };
+/** East of Handelmort mansion yard — guard dogs at ~(2624,3319). 2656,3305 is a wall; the road on z=3307 is open. */
+export const HANDELMORT_SAFE_EAST: Tile = { x: 2658, z: 3307 };
 
 /** Handelmort mansion yard + interior (west of the east fence ~2650). */
 export function inHandelmortMansion(x: number, z: number): boolean {
@@ -49,6 +49,26 @@ export const MUSA_SHIP: Tile = { x: 2951, z: 3142 };
 /** Edgeville wilderness lever (south of bank). */
 export const EDGEVILLE_LEVER: Tile = { x: 3090, z: 3475 };
 export const DESERTED_KEEP_LEVER: Tile = { x: 3154, z: 3924 };
+/** East Ardougne castle hut — pulls to the deserted keep. Door is (2564, 3310). */
+export const ARDOUGNE_WILDY_LEVER: Tile = { x: 2561, z: 3311 };
+export const ARDOUGNE_LEVER_DOOR: Tile = { x: 2564, z: 3310 };
+/** North keep web is a wall tile — never sendWalk onto it. */
+export const KEEP_WEB: Tile = { x: 3158, z: 3951 };
+export const KEEP_WEB_NORTH: Tile = { x: 3158, z: 3953 };
+export const KEEP_WEB_SOUTH: Tile = { x: 3158, z: 3949 };
+/** North-south road west of the keep fence. Stay on x=3135 past z 3895–3905. */
+export const KEEP_ROAD_X = 3135;
+export const YANILLE_BANK: Tile = { x: 2613, z: 3091 };
+/** Stay z=3283 (south of Handelmort) until west of the mansion, then north to the hut. */
+export const YANILLE_TO_ARDY_LEVER: Tile[] = [
+    { x: 2615, z: 3110 },
+    { x: 2630, z: 3170 },
+    { x: 2640, z: 3220 },
+    { x: 2662, z: 3283 },
+    { x: 2580, z: 3283 },
+    { x: 2565, z: 3308 },
+    { x: 2561, z: 3311 }
+];
 export const LUMBRIDGE_MEN: Tile = { x: 3222, z: 3218 };
 export const PORT_SARIM_DOCK: Tile = { x: 3029, z: 3217 };
 export const BRIMHAVEN_CUSTOMS: Tile = { x: 2772, z: 3225 };
@@ -66,6 +86,75 @@ export const ARDY_TO_CATHERBY: Tile[] = [
     { x: 2758, z: 3477 },
     { x: 2788, z: 3460 },
     { x: 2808, z: 3443 },
+];
+
+/** Current HP above this uses White Wolf instead of the wilderness lever. */
+export const WHITE_WOLF_MIN_HP = 30;
+
+/**
+ * Moss-giant road (3135, 3806) south to the ditch, staying east of the green
+ * dragons at 3078, 3810. Collision path; do not sendWalk toward 3088, 3525
+ * from up here — that line goes through the dragons.
+ */
+export const WILDY_SOUTH_TO_DITCH: Tile[] = [
+    { x: 3135, z: 3792 },
+    { x: 3135, z: 3778 },
+    { x: 3135, z: 3764 },
+    { x: 3135, z: 3750 },
+    { x: 3135, z: 3736 },
+    { x: 3135, z: 3722 },
+    { x: 3135, z: 3708 },
+    { x: 3135, z: 3694 },
+    { x: 3135, z: 3680 },
+    { x: 3135, z: 3666 },
+    { x: 3135, z: 3652 },
+    { x: 3135, z: 3638 },
+    { x: 3135, z: 3624 },
+    { x: 3135, z: 3610 },
+    { x: 3135, z: 3596 },
+    { x: 3125, z: 3582 },
+    { x: 3111, z: 3568 },
+    { x: 3100, z: 3554 },
+    { x: 3100, z: 3540 },
+    { x: 3098, z: 3526 },
+    { x: 3092, z: 3516 }
+];
+
+/** South of the Edgeville ditch, over White Wolf, to the Catherby bank street. */
+export const WHITE_WOLF_TO_CATHERBY: Tile[] = [
+    { x: 3088, z: 3512 },
+    { x: 3074, z: 3518 },
+    { x: 3060, z: 3532 },
+    { x: 3046, z: 3532 },
+    { x: 3032, z: 3538 },
+    { x: 3018, z: 3546 },
+    { x: 3004, z: 3543 },
+    { x: 2993, z: 3529 },
+    { x: 2980, z: 3515 },
+    { x: 2979, z: 3501 },
+    { x: 2973, z: 3487 },
+    { x: 2968, z: 3473 },
+    { x: 2957, z: 3459 },
+    { x: 2944, z: 3455 },
+    { x: 2930, z: 3451 },
+    { x: 2916, z: 3453 },
+    { x: 2902, z: 3447 },
+    { x: 2888, z: 3433 },
+    { x: 2874, z: 3430 },
+    { x: 2867, z: 3444 },
+    { x: 2866, z: 3458 },
+    { x: 2855, z: 3472 },
+    { x: 2857, z: 3486 },
+    { x: 2861, z: 3500 },
+    { x: 2849, z: 3508 },
+    { x: 2841, z: 3496 },
+    { x: 2849, z: 3482 },
+    { x: 2844, z: 3468 },
+    { x: 2846, z: 3454 },
+    { x: 2855, z: 3440 },
+    { x: 2841, z: 3438 },
+    { x: 2827, z: 3439 },
+    { x: 2816, z: 3439 }
 ];
 
 export const CATHERBY_TO_ARDY: Tile[] = [
@@ -103,10 +192,49 @@ export const SEERS_OAKS: Tile = { x: 2712, z: 3500 };
 /** Open road south of the bank — firemaking line walks south from here. */
 export const SEERS_FIRE_START: Tile = { x: 2724, z: 3478 };
 export const ARHEIN_SHOP: Tile = { x: 2803, z: 3430 };
+/** Fishing Guild door (Master fisher). Jackthief 99 Fishing can enter. */
+export const FISHING_GUILD_DOOR: Tile = { x: 2611, z: 3393 };
+/** Roachey — Fishing Guild Shop (feathers). */
+export const FISHING_GUILD_SHOP: Tile = { x: 2596, z: 3400 };
+/** Catherby bank → guild along the south coast (avoid White Wolf). */
+export const CATHERBY_TO_FISHING_GUILD: Tile[] = [
+    { x: 2808, z: 3443 },
+    { x: 2774, z: 3436 },
+    { x: 2728, z: 3428 },
+    { x: 2672, z: 3416 },
+    { x: 2612, z: 3394 }
+];
 /** Jiminua's Jungle Store hut (west of Tai Bwo Wannai). Not the jungle at 2805,3114. */
 export const JIMINUA_SHOP: Tile = { x: 2767, z: 3122 };
+/** East Ardougne south docks — Captain Barnaby to Brimhaven (30gp). */
+export const CAPTAIN_BARNABY: Tile = { x: 2679, z: 3275 };
+/** Customs hut south along the west coast to Jiminua. */
+export const BRIMHAVEN_TO_JIMINUA: Tile[] = [
+    BRIMHAVEN_CUSTOMS,
+    { x: 2769, z: 3190 },
+    { x: 2766, z: 3155 },
+    JIMINUA_SHOP
+];
+/** Musa Point west to Jiminua (avoid the east jungle). */
+export const MUSA_TO_JIMINUA: Tile[] = [
+    { x: 2912, z: 3160 },
+    { x: 2864, z: 3154 },
+    { x: 2812, z: 3150 },
+    { x: 2774, z: 3130 },
+    JIMINUA_SHOP
+];
+/** Yanille bank → east Ardougne docks. */
+export const YANILLE_TO_BARNABY: Tile[] = [
+    { x: 2615, z: 3110 },
+    { x: 2630, z: 3170 },
+    { x: 2640, z: 3220 },
+    { x: 2662, z: 3283 },
+    CAPTAIN_BARNABY
+];
 /** Stand SW of the 3x3 mysterious ruins at (2869, 3019). */
 export const NATURE_RUINS: Tile = { x: 2867, z: 3017 };
+/** One tile off the runner stack so jackthief can target them. */
+export const NATURE_CRAFTER_STAND: Tile = { x: 2864, z: 3016 };
 /** Nature altar interior (enter spawn / crafting shrine). */
 export const NATURE_ALTAR: Tile = { x: 2400, z: 4835 };
 /** Jungle click-path: leave Jiminua east of the hut plants, south around TBW. */
@@ -130,3 +258,48 @@ export const JIMINUA_TO_NATURE: Tile[] = [
     { x: 2867, z: 3017 },
 ];
 export const NATURE_TO_JIMINUA: Tile[] = [...JIMINUA_TO_NATURE].reverse();
+
+/** Varrock west bank (booths south of the GE table). */
+export const VARROCK_WEST_BANK: Tile = { x: 3186, z: 3436 };
+export const VARROCK_EAST_BANK: Tile = { x: 3253, z: 3420 };
+export const AL_KHARID_BANK: Tile = { x: 3269, z: 3167 };
+/** Lumbridge castle bank. */
+export const LUMBRIDGE_BANK: Tile = { x: 3208, z: 3220 };
+
+export type NamedBank = Tile & { name: string };
+
+/** Banks used to snapshot / return from a grind. Closest-by-tile, not path length. */
+export const FLEET_BANKS: NamedBank[] = [
+    { name: 'Yanille', ...YANILLE_BANK },
+    { name: 'Ardougne', ...ARDOUGNE_BANK },
+    { name: 'Catherby', ...CATHERBY_BANK },
+    { name: 'Seers', ...SEERS_BANK },
+    { name: 'Falador east', ...FALADOR_EAST_BANK },
+    { name: 'Falador west', ...FALADOR_WEST_BANK },
+    { name: 'Draynor', ...DRAYNOR_BANK },
+    { name: 'Edgeville', ...EDGEVILLE },
+    { name: 'Varrock west', ...VARROCK_WEST_BANK },
+    { name: 'Varrock east', ...VARROCK_EAST_BANK },
+    { name: 'Al Kharid', ...AL_KHARID_BANK },
+    { name: 'Lumbridge', ...LUMBRIDGE_BANK }
+];
+
+/** Mining guild basement uses z ≈ surface + 6400 (ladder 3019,3339 ↔ 3019,9739). */
+export function toSurfaceTile(x: number, z: number): Tile {
+    if (x >= 3005 && x <= 3068 && z >= 9700 && z <= 9820) return { x, z: z - 6400 };
+    return { x, z };
+}
+
+export function closestFleetBank(x: number, z: number): { bank: NamedBank; distance: number } {
+    const at = toSurfaceTile(x, z);
+    let best = FLEET_BANKS[0]!;
+    let distance = Infinity;
+    for (const bank of FLEET_BANKS) {
+        const d = Math.hypot(at.x - bank.x, at.z - bank.z);
+        if (d < distance) {
+            best = bank;
+            distance = d;
+        }
+    }
+    return { bank: best, distance };
+}

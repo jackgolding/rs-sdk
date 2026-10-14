@@ -4,9 +4,16 @@
  *
  * Default: harpoon tuna/swordfish (lobster cage fallback if Harry is dry), cook, bank.
  * `--shark`: harpoon sharks on Catherby Net/Harpoon spots (not cage spots).
- * `--bignet`: buy a big fishing net from Harry, net the Catherby Net/Harpoon spots.
- *   Drop seaweed / mackerel / boots / gloves. Open caskets and bank the loot.
- *   Cook cod and bass. Bank oysters (the "clams") unopened.
+ * `--smallnet`: buy a small fishing net from Harry, net Catherby Net/Bait spots
+ *   (shrimp / anchovies) until Fishing 35, then harpoon tuna/swordfish.
+ * `--thieve-supply N`: cook N tuna/swordfish (net under Fishing 35, or while
+ *   Cooking is under 30), then restore this bot's roster job to thieving-route.
+ * `--bignet`: small-net Catherby until Fishing 16, then buy a big fishing net
+ *   from Harry and net the Catherby Net/Harpoon spots. Drop seaweed / mackerel /
+ *   boots / gloves / cod / oysters. Open caskets. Keep and bank bass, gems,
+ *   and loop / tooth key halves. Before each fishing trip, cook every raw
+ *   food in the bank that Cooking can handle. Cook bass from the net when
+ *   Cooking is high enough.
  *
  *   bun bots/quests/fishing-route.ts jacklove1
  *   bun bots/quests/fishing-route.ts jacklove6 --shark
@@ -14,8 +21,9 @@
  */
 import { ActivitySession, BotSDK, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
-import { initPathfinding } from '../../sdk/pathfinding';
-import { existsSync, readFileSync } from 'fs';
+import { initPathfinding, isTileWalkable } from '../../sdk/pathfinding';
+import { spawn } from 'child_process';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import {
     ARDOUGNE_MARKET,
@@ -23,15 +31,19 @@ import {
     CATHERBY_BANK,
     DRAYNOR_BANK,
     EDGEVILLE,
+    HANDELMORT_SAFE_EAST,
     HOUSE_OUTSIDE,
     LUMBRIDGE_MEN,
-    PORT_SARIM_DOCK
+    PORT_SARIM_DOCK,
+    inHandelmortMansion
 } from './tiles';
 import { installWaitForTicksGuard, recoverGangplank, walkNear as walkNearShared } from './movement';
+import { installGracefulShutdown } from '../../sdk/runner';
 
 const TARGET_FISHING_HARPOON = 50;
 const TARGET_FISHING_SHARK = 76;
 const TARGET_FISHING_NET = 16;
+const TARGET_FISHING_SMALLNET = 35;
 const TARGET_COMBAT = 15;
 const COD_COOK = 18;
 const BASS_COOK = 43;
@@ -67,12 +79,20 @@ const KARAMJA_MEN = { x: 2889, z: 3173 };
 const BRIMHAVEN_BOAT_GP = 30;
 const HARRY = { x: 2834, z: 3445 };
 const HARPOON_GP = 5;
+const SMALL_NET_GP = 5;
 const LOBSTER_POT_GP = 20;
 const BIG_NET_GP = 20;
 const HARRY_HARPOON_SPAWNS = 5;
 const HARRY_BIG_NET_SPAWNS = 5;
+const HARRY_SMALL_NET_SPAWNS = 20;
+/** Catherby Net/Bait beach (shrimp / anchovies), west of the cage pier. */
+const CATHERBY_NET_BAIT = [
+    { x: 2838, z: 3433 },
+    { x: 2845, z: 3429 },
+    { x: 2853, z: 3426 }
+];
 const RANGE_OUTSIDE = { x: 2816, z: 3439 };
-const RANGE_STAND = { x: 2816, z: 3442 };
+const RANGE_STAND = { x: 2816, z: 3443 };
 
 const MUSA_TO_BRIMHAVEN = [
     { x: 2864, z: 3154 },
@@ -93,7 +113,8 @@ const BANKS = [
     { name: 'Falador East', x: 3013, z: 3355 },
     { name: 'Catherby', x: 2808, z: 3443 },
     { name: 'Seers', x: 2727, z: 3493 },
-    { name: 'Ardougne East', x: 2655, z: 3283 }
+    { name: 'Ardougne East', x: 2655, z: 3283 },
+    { name: 'Yanille', x: 2613, z: 3091 }
 ];
 
 const NET_KEEP = /^(coins|small fishing net|cake|2\/3 cake|chocolate slice|bread)$/i;
@@ -101,21 +122,40 @@ const TOOL_KEEP = /^(harpoon|lobster pot)$/i;
 const BIG_NET_KEEP = /^(big|large) fishing net$/i;
 /** Never bank the fishing tool on dump — restarts were depositing the net then failing to withdraw it. */
 const DUMP_KEEP = /^(big|large) fishing net|small fishing net|harpoon|lobster pot$/i;
-const RAW_SMALL = /^raw (shrimps?|anchovies)$/i;
-const RAW = /^raw (tuna|swordfish|lobster|shark|shrimps?|anchovies)$/i;
-const RAW_NET = /^raw (cod|bass)$/i;
+const RAW_SMALL = /^raw (shrimps?|anchovies|sardine|herring)$/i;
+const RAW = /^raw (tuna|swordfish|lobster|shark|shrimps?|anchovies|sardine|herring)$/i;
+const RAW_NET = /^raw bass$/i;
 const RAW_ANY = /^raw /i;
-const COOKED = /^(tuna|swordfish|lobster|shark|shrimps?|anchovies|cod|bass)$/i;
+const COOKED = /^(tuna|swordfish|lobster|shark|shrimps?|anchovies|sardine|herring|cod|bass)$/i;
 const BURNT = /^burnt (lobster|fish|swordfish|tuna|shrimp|shark|cod|bass)/i;
-const BIG_NET_DROP = /^(seaweed|edible seaweed|raw mackerel|mackerel|leather boots|leather gloves|boots)$/i;
+const BIG_NET_DROP =
+    /^(seaweed|edible seaweed|raw mackerel|mackerel|leather boots|leather gloves|boots|raw cod|cod|burnt cod|oyster|oysters|clam|clams)$/i;
+/** Bank these. Never drop them, even if a junk pattern grows. */
+const BIG_NET_TREASURE =
+    /^(raw |burnt )?bass$|^(uncut )?(sapphire|emerald|ruby|diamond|dragonstone)$|loop half of a key|tooth half of a key/i;
 const CASKET = /^casket$/i;
 const OYSTER = /^(oyster|clam)s?$/i;
 
 const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-'));
 const BIG_NET = argv.includes('--bignet');
+const SMALL_NET = argv.includes('--smallnet');
 const SHARK = argv.includes('--shark');
-const TARGET_FISHING = SHARK ? TARGET_FISHING_SHARK : BIG_NET ? TARGET_FISHING_NET : TARGET_FISHING_HARPOON;
+const COOK_ALL = argv.includes('--cook-all');
+const NO_COOK = argv.includes('--no-cook');
+const THIEVE_SUPPLY = (() => {
+    const i = argv.indexOf('--thieve-supply');
+    if (i < 0) return 0;
+    const n = Number(argv[i + 1]);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 500;
+})();
+const TARGET_FISHING = SHARK
+    ? TARGET_FISHING_SHARK
+    : BIG_NET
+      ? TARGET_FISHING_NET
+      : SMALL_NET
+        ? TARGET_FISHING_SMALLNET
+        : TARGET_FISHING_HARPOON;
 
 function loadBotEnv(): void {
     const envPath = botArg
@@ -166,6 +206,42 @@ async function snapshotBank(): Promise<void> {
         .waitForCondition((s) => s.bank?.isOpen === true && (s.bank.items?.length ?? 0) > 0, 5_000)
         .catch(() => {});
     logBank();
+    session.captureBankStock();
+}
+
+const YIELD_FISH =
+    /^(raw )?(shark|tuna|swordfish|lobster|shrimps?|anchovies|sardine|herring|cod|bass)$|oyster|casket/i;
+
+function fishStacks(): Map<string, number> {
+    const totals = new Map<string, number>();
+    for (const item of sdk.getInventory()) {
+        const name = item.name?.trim();
+        if (!name || !YIELD_FISH.test(name)) continue;
+        totals.set(name, (totals.get(name) ?? 0) + (item.count ?? 0));
+    }
+    return totals;
+}
+
+/** Positive inventory deltas since `before`, minus raw that was only converted. */
+function recordFishDeltas(before: Map<string, number>): void {
+    const after = fishStacks();
+    let rawConsumed = 0;
+    const gains: { name: string; count: number }[] = [];
+    for (const name of new Set([...before.keys(), ...after.keys()])) {
+        const delta = (after.get(name) ?? 0) - (before.get(name) ?? 0);
+        if (/^raw /i.test(name) && delta < 0) rawConsumed += -delta;
+        else if (delta > 0) gains.push({ name, count: delta });
+    }
+    let shrink = rawConsumed;
+    for (const gain of gains) {
+        if (/^raw /i.test(gain.name)) continue;
+        const cut = Math.min(gain.count, shrink);
+        gain.count -= cut;
+        shrink -= cut;
+    }
+    for (const gain of gains) {
+        if (gain.count > 0) session.recordGain(gain.name, gain.count);
+    }
 }
 
 initPathfinding();
@@ -188,16 +264,30 @@ session = new ActivitySession(sdk, bot, {
     grindLogPath: GRIND_LOG,
     maxRecoveryTactics: 8
 });
+installGracefulShutdown({ graceMs: 30_000 });
 
 async function enterPhase(name: string): Promise<void> {
     if (session.metrics().phase === name) return;
     await session.setPhase(name);
 }
 
+/** After a stuck net or bank lap, fish the pier instead of the same spot. */
+let simpleFishUntil = 0;
+
 async function tickSession(): Promise<boolean> {
     if (session.isStopped()) return false;
     if (session.needsRecovery()) {
-        return (await session.recover()) === 'resumed';
+        await session.recover();
+        if (session.isStopped()) return false;
+        if (session.consumeFallback()) {
+            if (hasHarpoon() || hasLobsterPot()) {
+                simpleFishUntil = Date.now() + 10 * 60_000;
+                session.log('warn', 'Spot stuck — harpoon or cage on the pier for 10 min');
+            } else {
+                session.log('warn', 'Spot stuck — leaving it and fishing the net again');
+            }
+        }
+        return true;
     }
     return true;
 }
@@ -210,10 +300,110 @@ let lastLoggedCombat = 0;
 let lastLoggedCooking = 0;
 let pierHunt = 0;
 
+/** Spread bots across booth-adjacent tiles so 20 accounts do not stack on 2809,3441. */
+const CATHERBY_BANK_STAND = [
+    { x: 2807, z: 3442 },
+    { x: 2808, z: 3441 },
+    { x: 2809, z: 3440 },
+    { x: 2810, z: 3442 },
+    { x: 2811, z: 3438 },
+    { x: 2806, z: 3442 },
+    { x: 2812, z: 3441 }
+];
+
+function bankStandTile(): { x: number; z: number } {
+    let h = 0;
+    for (const c of username) h = (Math.imul(31, h) + c.charCodeAt(0)) | 0;
+    return CATHERBY_BANK_STAND[Math.abs(h) % CATHERBY_BANK_STAND.length]!;
+}
+
+function onCatherbyBankStreet(): boolean {
+    const p = pos();
+    return inCatherby() && p.x >= 2804 && p.x <= 2814 && p.z >= 3438 && p.z <= 3446;
+}
+
+function inCatherbyRangeHouse(): boolean {
+    const p = pos();
+    return inCatherby() && p.x >= 2813 && p.x <= 2821 && p.z >= 3440 && p.z <= 3446;
+}
+
+function northOfCatherbyBank(): boolean {
+    const p = pos();
+    return inCatherby() && p.z >= 3444;
+}
+
+async function openNearbyDoor(): Promise<boolean> {
+    const door =
+        sdk.findNearbyLoc(/^door$/i, { withOption: /open/i }) ??
+        sdk.findNearbyLoc(/^door$/i, { withOption: /close/i });
+    if (!door || (door.distance ?? 99) > 6) return false;
+    const r = await bot.openDoor(door);
+    await sdk.waitForTicks(1);
+    return r.success;
+}
+
+async function exitCatherbyNorthBuildings(): Promise<void> {
+    if (!inCatherby()) return;
+    if (!northOfCatherbyBank() && !inCatherbyRangeHouse()) return;
+
+    await dismissCookDialog();
+    log(`Exit north/range @ ${pos().x},${pos().z}`);
+
+    if (inCatherbyRangeHouse()) {
+        await hopSendWalk(2816, 3440, 2, 10_000);
+        await openRangeDoor();
+        await openNearbyDoor();
+        await hopSendWalk(RANGE_OUTSIDE.x, RANGE_OUTSIDE.z, 2, 12_000);
+    }
+
+    const deadline = Date.now() + 50_000;
+    while ((northOfCatherbyBank() || inCatherbyRangeHouse()) && Date.now() < deadline) {
+        await dismissCookDialog();
+        await openNearbyDoor();
+        const p = pos();
+        const southZ = Math.max(3436, p.z - 3);
+        if (southZ === p.z) {
+            await hopSendWalk(p.x - 1, p.z, 2, 4_000);
+        } else {
+            await hopSendWalk(p.x, southZ, 2, 8_000);
+        }
+        if (!northOfCatherbyBank() && !inCatherbyRangeHouse()) break;
+    }
+
+    if (northOfCatherbyBank() || inCatherbyRangeHouse()) {
+        log(`Still north @ ${pos().x},${pos().z} — pathfind to pier road`);
+        for (const hop of [
+            { x: 2815, z: 3444 },
+            { x: 2815, z: 3440 },
+            { x: 2818, z: 3438 },
+            { x: 2824, z: 3436 },
+            { x: 2832, z: 3434 }
+        ]) {
+            if (!northOfCatherbyBank() && !inCatherbyRangeHouse()) break;
+            await openNearbyDoor();
+            await hopSendWalk(hop.x, hop.z, 2, 10_000);
+        }
+        await walkNear(2832, 3434, 5);
+    }
+    await closeBankHard();
+}
+
+async function stepOffCatherbyBank(): Promise<void> {
+    await closeBankHard();
+    const spread = bankStandTile();
+    log(`Step off bank cluster → ${spread.x},${spread.z} from ${pos().x},${pos().z}`);
+    await hopSendWalk(spread.x, spread.z, 2, 12_000);
+    if (onCatherbyBankStreet()) {
+        await hopSendWalk(2820, 3436, 3, 15_000);
+    }
+}
+
 function intent(msg: string): void {
     if (msg === lastIntent) return;
     lastIntent = msg;
-    void session.showIntent(msg);
+    if (sdk.isConnected()) {
+        void session.showIntent(msg);
+    }
 }
 
 function pos() {
@@ -279,16 +469,71 @@ function hasBigNet(): boolean {
     return !!sdk.findInventoryItem(BIG_NET_KEEP);
 }
 
+function smallNetPhase(): boolean {
+    return SMALL_NET && fishingLevel() < TARGET_FISHING_SMALLNET;
+}
+
+/** Big net is Fishing 16. Shrimp at Catherby until then. */
+function bigNetRamp(): boolean {
+    return BIG_NET && fishingLevel() < TARGET_FISHING_NET;
+}
+
+function sharkRampPhase(): boolean {
+    return SHARK && fishingLevel() < TARGET_FISHING_SHARK;
+}
+
+/** Cage/harpoon pier — Net/Bait spots are west (~2838+). */
+function onCatherbyCagePier(): boolean {
+    const p = pos();
+    return inCatherby() && p.x >= 2814 && p.x <= 2833 && p.z >= 3424 && p.z <= 3442;
+}
+
+async function ensureSmallNetBeach(): Promise<void> {
+    if (findSmallNetSpot() && (findSmallNetSpot()?.distance ?? 99) <= 8) return;
+    const dest = CATHERBY_NET_BAIT[pierHunt % CATHERBY_NET_BAIT.length]!;
+    if (onCatherbyCagePier() || distTo(dest.x, dest.z) > 10) {
+        log(`Walking to Net/Bait beach from ${pos().x},${pos().z}`);
+        await leaveCatherbyBankToPier(dest);
+    }
+}
+
+async function cookSmallNetIfNeeded(): Promise<void> {
+    if (NO_COOK || cookingLevel() >= 99) return;
+    if (!hasRawSmallFish() && !cookableRaw(RAW_SMALL)) return;
+    await cookInventory(RAW_SMALL);
+}
+
+function hasRawSmallFish(): boolean {
+    return sdk.getInventory().some((i) => RAW_SMALL.test(i.name) && (i.count ?? 0) > 0);
+}
+
 function toolKeep(): RegExp {
-    return BIG_NET ? BIG_NET_KEEP : TOOL_KEEP;
+    if (BIG_NET && !bigNetRamp()) return BIG_NET_KEEP;
+    if (smallNetPhase() || sharkNetRamp() || thieveSupplyNet() || bigNetRamp()) {
+        return /small fishing net|harpoon|lobster pot/i;
+    }
+    return TOOL_KEEP;
+}
+
+/** Shark roster below 35 cannot harpoon. Net shrimp until the harpoon ramp. */
+function sharkNetRamp(): boolean {
+    return SHARK && fishingLevel() < TARGET_FISHING_SMALLNET;
+}
+
+/** Supply runs net until they can harpoon and cook tuna. */
+function thieveSupplyNet(): boolean {
+    return THIEVE_SUPPLY > 0 && (fishingLevel() < TARGET_FISHING_SMALLNET || cookingLevel() < TUNA_COOK);
 }
 
 function cookRawPattern(): RegExp {
-    return BIG_NET ? RAW_NET : RAW;
+    if (BIG_NET && !bigNetRamp()) return RAW_NET;
+    if (smallNetPhase() || bigNetRamp()) return RAW_SMALL;
+    return RAW;
 }
 
 function hasFishingTool(): boolean {
-    if (BIG_NET) return hasBigNet();
+    if (BIG_NET) return bigNetRamp() ? hasNet() : hasBigNet();
+    if (smallNetPhase()) return hasNet();
     // Shark spots only publish a Harpoon option, so a lobster pot is not a
     // tool here. Accepting one made setup return early and skip Harry's
     // harpoon, leaving the bot on shark tiles with nothing to fish with.
@@ -318,6 +563,8 @@ function invSummary(pattern: RegExp = /./): string {
 function cookLevelFor(name: string): number {
     const n = name.toLowerCase();
     if (/shrimps?/.test(n)) return 1;
+    if (/sardine/.test(n)) return 1;
+    if (/herring/.test(n)) return 5;
     if (/anchov/.test(n)) return 15;
     if (/mackerel/.test(n)) return MACKEREL_COOK;
     if (/cod/.test(n)) return COD_COOK;
@@ -326,16 +573,28 @@ function cookLevelFor(name: string): number {
     if (/swordfish/.test(n)) return SWORD_COOK;
     if (/lobster/.test(n)) return 40;
     if (/shark/.test(n)) return 80;
+    if (/sea turtle/.test(n)) return 82;
+    if (/manta ray/.test(n)) return 91;
+    if (/trout/.test(n)) return 15;
+    if (/pike/.test(n)) return 20;
+    if (/salmon/.test(n)) return 25;
+    if (/chompy/.test(n)) return 30;
+    if (/beef|chicken|rat meat|bear meat|meat/.test(n)) return 1;
     return 99;
 }
 
-function canCookItem(name: string): boolean {
-    if (BIG_NET && /mackerel/i.test(name)) return false;
+/** Big-net junk stays dropped on the catch. Bank stock is still food. */
+function canCookItem(name: string, bankStock = false): boolean {
+    if (!bankStock && BIG_NET && /mackerel|cod/i.test(name)) return false;
     return cookingLevel() >= cookLevelFor(name);
 }
 
-function cookableRaw(pattern: RegExp = RAW) {
-    return sdk.getInventory().find((i) => pattern.test(i.name) && canCookItem(i.name)) ?? null;
+function cookableRaw(pattern: RegExp = RAW, bankStock = false) {
+    return sdk.getInventory().find((i) => pattern.test(i.name) && canCookItem(i.name, bankStock)) ?? null;
+}
+
+function bankHasCookableRaw(): boolean {
+    return (sdk.getBankItems() ?? []).some((i) => RAW_ANY.test(i.name) && (i.count ?? 0) > 0 && canCookItem(i.name, true));
 }
 
 function inArdougne(): boolean {
@@ -375,6 +634,16 @@ function inHouse(): boolean {
     return p.x >= 2673 && p.x <= 2676 && p.z >= 3307 && p.z <= 3311;
 }
 
+/**
+ * Cabinet house and Cromperty, north-east of the East Ardougne market.
+ * The south door is (2669, 3316). walkTo from in here paths through the walls
+ * and never reaches the Catherby road.
+ */
+function inNorthEastArdy(): boolean {
+    const p = pos();
+    return p.x >= 2668 && p.x <= 2696 && p.z >= 3316 && p.z <= 3340;
+}
+
 function inKeepLeFaye(): boolean {
     const p = pos();
     return p.x >= 2746 && p.x <= 2772 && p.z >= 3390 && p.z <= 3422 && p.z < 6400;
@@ -396,6 +665,64 @@ function onDockedShip(): boolean {
 function inWilderness(): boolean {
     const p = pos();
     return p.z >= 3520 && p.z < 6400 && p.x >= 2944 && p.x < 3392;
+}
+
+/** Red-dragon isle exit, then the south corridor to the Edgeville ditch. Short hops only. */
+const DRAGON_WILDY_EXIT = [
+    { x: 3158, z: 3900 },
+    { x: 3124, z: 3851 },
+    { x: 3110, z: 3700 },
+    { x: 3102, z: 3610 },
+    { x: 3088, z: 3550 },
+    { x: 3088, z: 3525 }
+];
+
+async function hopTowardWildy(x: number, z: number, tolerance = 5): Promise<void> {
+    for (let i = 0; i < 40 && !pos().isDead && inWilderness(); i++) {
+        const d = distTo(x, z);
+        if (d <= tolerance) return;
+        await eatIfNeeded();
+        const step = Math.min(8, Math.max(1, d));
+        const tx = Math.round(pos().x + ((x - pos().x) / d) * step);
+        const tz = Math.round(pos().z + ((z - pos().z) / d) * step);
+        const sx = pos().x;
+        const sz = pos().z;
+        await sdk.sendWalk(tx, tz, true);
+        await sdk
+            .waitForCondition((s) => {
+                if (s.player?.isDead) return true;
+                const px = s.player?.worldX ?? 0;
+                const pz = s.player?.worldZ ?? 0;
+                return Math.hypot(px - tx, pz - tz) <= 3 || Math.hypot(px - x, pz - z) <= tolerance || pz < 3520;
+            }, 8_000)
+            .catch(() => {});
+        if (pos().x === sx && pos().z === sz) {
+            await sdk.sendWalk(sx + (i % 2 === 0 ? 2 : -2), sz - 1, true);
+            await sdk.waitForTicks(2);
+        }
+    }
+}
+
+async function leaveDragonWilderness(): Promise<void> {
+    if (!inWilderness()) return;
+    log(`Leaving wilderness @ ${pos().x},${pos().z}`);
+    const onIsle = pos().x >= 3176 && pos().x <= 3230 && pos().z >= 3800 && pos().z <= 3856;
+    if (onIsle) {
+        await hopTowardWildy(3201, 3852, 4);
+        const gate = sdk.findNearbyLoc(/gate/i, { withOption: /open/i });
+        if (gate) await bot.openDoor(gate);
+        await hopTowardWildy(3202, 3862, 3);
+    }
+    for (const hop of DRAGON_WILDY_EXIT) {
+        if (!inWilderness() || pos().isDead) break;
+        if (hop.z > pos().z + 12 && pos().x < 3160) continue;
+        await hopTowardWildy(hop.x, hop.z, 6);
+    }
+    if (inWilderness()) {
+        await sdk.sendWalk(3088, 3516, true);
+        await sdk.waitForCondition((s) => (s.player?.worldZ ?? 9999) < 3520 || s.player?.isDead === true, 12_000).catch(() => {});
+    }
+    log(`Wilderness exit @ ${pos().x},${pos().z}`);
 }
 
 function closestBank(): { name: string; x: number; z: number } {
@@ -470,7 +797,8 @@ async function closeBankHard(): Promise<void> {
     if (!(bankIsOpen() || sdk.getState()?.interface?.isOpen)) return;
     log('Bank UI stuck — stepping off booth');
     const p = pos();
-    void sdk.sendWalk(p.x, Math.max(3438, p.z - 3), true).catch(() => {});
+    const hopZ = inCatherby() ? Math.min(p.z, 3438) : p.z - 2;
+    void sdk.sendWalk(p.x, hopZ, true).catch(() => {});
     await new Promise((r) => setTimeout(r, 800));
     void sdk.sendCloseModal().catch(() => {});
 }
@@ -524,7 +852,7 @@ async function eatIfNeeded(): Promise<void> {
     if (hp >= maxHp) return;
     const eatBelow = Math.min(maxHp - 1, Math.max(7, Math.floor(maxHp * 0.65)));
     if (hp > eatBelow) return;
-    const food = sdk.findInventoryItem(/cake|chocolate|slice|bread|shrimp|anchov|tuna|swordfish|cod|bass/i);
+    const food = sdk.findInventoryItem(/cake|chocolate|slice|bread|shrimp|anchov|tuna|swordfish|bass/i);
     if (!food) return;
     log(`Eating ${food.name} at ${hp} hp`);
     await bot.eatFood(food);
@@ -566,25 +894,31 @@ async function openBankAt(x: number, z: number): Promise<boolean> {
     // Street south of the booths. sendWalk out of the north house (walkTo the
     // booth tile routes back inside). From the pier, walkNear the street —
     // do not walkTo(2807, 3441). Then click a reachable booth.
-    const catherby =
-        inCatherby() || (Math.abs(x - CATHERBY_BANK.x) <= 4 && Math.abs(z - CATHERBY_BANK.z) <= 4);
+    // Requesting Catherby coords from Ardougne used to skip the walk and click
+    // the local (Ardy) booth — only use this path once we are actually there.
+    const wantCatherby = Math.abs(x - CATHERBY_BANK.x) <= 4 && Math.abs(z - CATHERBY_BANK.z) <= 4;
+    if (wantCatherby && !inCatherby()) {
+        log(`Walking to Catherby bank street @ ${pos().x},${pos().z}`);
+        await walkToCatherby();
+    }
+    const catherby = inCatherby() && wantCatherby;
     if (catherby) {
+        const stand = bankStandTile();
         const already = sdk.findNearbyLoc(/bank booth/i, { reachable: true });
-        if (!already) {
-            log(`Walking to Catherby bank street @ ${pos().x},${pos().z}`);
-            if (pos().z >= 3444) {
-                log('Leaving north of Catherby bank via sendWalk');
-                const deadline = Date.now() + 90_000;
-                while (distTo(2801, 3441) > 2 && Date.now() < deadline) {
-                    await sdk.sendWalk(2801, 3441, true);
-                    await sdk.waitForTicks(3);
-                }
-            } else if (distTo(2809, 3441) > 4) {
-                await walkNear(2809, 3441, 3);
+        if (!already || distTo(stand.x, stand.z) > 3) {
+            log(`Walking to Catherby bank stand ${stand.x},${stand.z} @ ${pos().x},${pos().z}`);
+            if (northOfCatherbyBank() || inCatherbyRangeHouse()) {
+                await exitCatherbyNorthBuildings();
             }
+            await hopSendWalk(stand.x, stand.z, 2, 20_000);
         }
         log(`At Catherby street ${pos().x},${pos().z}`);
-        const booth = sdk.findNearbyLoc(/bank booth/i, { reachable: true });
+        let booth = sdk.findNearbyLoc(/bank booth/i, { reachable: true });
+        if (!booth) {
+            booth = (sdk.getNearbyLocs() ?? [])
+                .filter((l) => /bank booth/i.test(l.name) && (l.optionsWithIndex?.length ?? 0) > 0)
+                .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+        }
         if (booth) {
             const opt =
                 booth.optionsWithIndex.find((o) => /use.quickly/i.test(o.text)) ??
@@ -599,7 +933,8 @@ async function openBankAt(x: number, z: number): Promise<boolean> {
             await ensureBankItemMode();
             return true;
         }
-        log(`Catherby booth missed @ ${pos().x},${pos().z} — openBank`);
+        log(`Catherby booth missed @ ${pos().x},${pos().z} — step off`);
+        await stepOffCatherbyBank();
     } else {
         await walkNear(x, z, 4);
     }
@@ -1171,8 +1506,32 @@ async function sendWalkNear(x: number, z: number, tolerance = 6, ms = 40_000): P
     }
 }
 
+/**
+ * South of the Musa road (Tai Bwo / Kharazi fringe) the east hop at 2864,3154
+ * is jungle. Collision from 2801,3112 reaches the Brimhaven cart track via this
+ * northwest line, then the customs boat.
+ */
+async function walkSouthKaramjaToBrimhaven(): Promise<boolean> {
+    const p = pos();
+    if (!onKaramja() || p.z >= 3160 || p.x >= 2860) return false;
+    log(`Walking south Karamja → Brimhaven @ ${p.x},${p.z}`);
+    for (const hop of [
+        { x: 2790, z: 3124 },
+        { x: 2778, z: 3136 },
+        { x: 2768, z: 3148 },
+        { x: 2765, z: 3160 },
+        { x: 2765, z: 3176 }
+    ]) {
+        if (distTo(BRIMHAVEN_CUSTOMS.x, BRIMHAVEN_CUSTOMS.z) <= 8) return true;
+        if (distTo(hop.x, hop.z) <= 3) continue;
+        await hopSendWalk(hop.x, hop.z, 3, 30_000);
+    }
+    return distTo(2765, 3176) <= 8;
+}
+
 async function musaToBrimhaven(): Promise<void> {
     await leaveDockedShip();
+    if (await walkSouthKaramjaToBrimhaven()) return;
     if (!onMusa()) return;
     log('Walking Musa Point → Brimhaven');
     for (const wp of MUSA_TO_BRIMHAVEN) {
@@ -1186,6 +1545,7 @@ async function brimhavenToArdougne(): Promise<void> {
     if (inArdougne()) return;
     if (!onKaramja() || onMusa()) return;
     await leaveDockedShip();
+    await walkSouthKaramjaToBrimhaven();
     intent('Brimhaven customs → Ardougne (30gp)');
     for (const wp of [
         { x: 2810, z: 3154 },
@@ -1273,6 +1633,22 @@ async function leaveHouse(): Promise<void> {
     await sdk.waitForTicks(4);
 }
 
+/** Step south onto the market. The Catherby road is north of these houses, but the door is south. */
+async function leaveNorthEastArdy(): Promise<void> {
+    if (!inNorthEastArdy()) return;
+    log(`Leaving NE Ardougne @ ${pos().x},${pos().z}`);
+    for (let i = 0; i < 10 && inNorthEastArdy(); i++) {
+        const door = sdk.findNearbyLoc(/door/i, { withOption: /open/i });
+        if (door && (door.distance ?? 99) <= 4) await bot.openDoor(door);
+        const p = pos();
+        if (!inNorthEastArdy()) return;
+        const hop = p.z >= 3316 ? { x: p.x, z: p.z - 2 } : { x: p.x - 2, z: p.z };
+        await sdk.sendWalk(hop.x, hop.z, true);
+        await sdk.waitForTicks(4);
+    }
+    if (inNorthEastArdy()) log(`Still in NE Ardougne @ ${pos().x},${pos().z}`);
+}
+
 async function dismissLegendsGuard(): Promise<void> {
     for (let i = 0; i < 12; i++) {
         const dialog = sdk.getDialog();
@@ -1321,9 +1697,42 @@ async function walkWaypoints(wps: { x: number; z: number }[]): Promise<void> {
     if (distTo(dest.x, dest.z) > 6) await walkNear(dest.x, dest.z, 6);
 }
 
+async function leaveHandelmortMansion(): Promise<void> {
+    const p = pos();
+    if (!inHandelmortMansion(p.x, p.z)) return;
+    log(`Leaving mansion yard @ ${p.x},${p.z}`);
+    const dest = HANDELMORT_SAFE_EAST;
+    const hops = [
+        { x: Math.min(p.x + 5, dest.x), z: p.z },
+        { x: dest.x, z: p.z },
+        dest
+    ];
+    for (const hop of hops) {
+        if (!inHandelmortMansion(pos().x, pos().z)) return;
+        await hopSendWalk(hop.x, hop.z, 2, 12_000);
+    }
+}
+
 async function walkToCatherby(): Promise<void> {
     if (inCatherby()) return;
+    await leaveHandelmortMansion();
     await leaveHouse();
+    await leaveNorthEastArdy();
+    const p = pos();
+    if (p.x < 2662 && p.z >= 3320 && p.z <= 3380) {
+        log(`Hopping east of Ardougne houses @ ${p.x},${p.z}`);
+        await hopSendWalk(2662, 3336, 3, 25_000);
+    }
+    // The north road tile is walkable, but walkTo from the house mouth reports
+    // no waypoints and the whole fleet stacks on 2662,3335. Step north first.
+    const mouth = pos();
+    if (mouth.x >= 2648 && mouth.x <= 2672 && mouth.z >= 3328 && mouth.z < 3370) {
+        log(`Hopping north out of Ardougne @ ${mouth.x},${mouth.z}`);
+        await hopSendWalk(2662, 3375, 4, 45_000);
+    }
+    if (!inArdougne() && !onArdyCatherbyRoad() && !inKeepLeFaye() && !inLegendsGuild()) {
+        await goToArdy();
+    }
     intent('Walking Ardougne → Catherby');
     await walkWaypoints(ARDY_TO_CATHERBY);
 }
@@ -1332,18 +1741,58 @@ function harryCount(item: RegExp): number {
     return sdk.getState()?.shop?.shopItems.find((i) => item.test(i.name))?.count ?? 0;
 }
 
+async function walkToHarry(): Promise<void> {
+    if (distTo(HARRY.x, HARRY.z) <= 3) return;
+    if (sdk.getState()?.bank?.isOpen) await bot.closeBank();
+    if (sdk.getState()?.shop?.isOpen) await bot.closeShop();
+    if (!inCatherby()) {
+        await walkToCatherby();
+        if (!inCatherby()) return;
+    }
+    log(`Hopping to Harry @ ${pos().x},${pos().z} → ${HARRY.x},${HARRY.z}`);
+    // Straight east from the bank runs into the range house. This is the walkable
+    // corridor: south of the booth, then along the north road to Harry.
+    await walkCatherbyHops(
+        [
+            { x: 2814, z: 3440 },
+            { x: 2816, z: 3440 },
+            { x: 2816, z: 3443 },
+            { x: 2821, z: 3445 },
+            { x: 2824, z: 3444 },
+            { x: 2832, z: 3445 },
+            { x: 2833, z: 3445 }
+        ],
+        { x: 2833, z: 3445 }
+    );
+}
+
 async function openHarry(): Promise<boolean> {
-    await walkNear(HARRY.x, HARRY.z, 3);
+    await walkToHarry();
+    if (distTo(HARRY.x, HARRY.z) > 5) {
+        if (!inCatherby()) {
+            log(`Harry still ${Math.round(distTo(HARRY.x, HARRY.z))} tiles — not in Catherby @ ${pos().x},${pos().z}`);
+            return false;
+        }
+        log(`Harry still ${Math.round(distTo(HARRY.x, HARRY.z))} tiles @ ${pos().x},${pos().z}`);
+        await hopSendWalk(HARRY.x, HARRY.z, 3, 20_000);
+    }
     if (sdk.getState()?.shop?.isOpen) return true;
     const opened = await bot.openShop(/harry/i);
     if (opened.success || sdk.getState()?.shop?.isOpen) return true;
-    log(`Harry shop failed: ${opened.message}`);
+    log(`Harry shop failed: ${opened.message} @ ${pos().x},${pos().z}`);
     return false;
 }
 
 async function pickpocketCatherbyUntil(need: number): Promise<void> {
     if (sdk.getState()?.shop?.isOpen) await bot.closeShop();
     if (sdk.getState()?.bank?.isOpen) await bot.closeBank();
+    if (!inCatherby()) {
+        await walkToCatherby();
+    }
+    if (inCatherby() && distTo(CATHERBY_MEN.x, CATHERBY_MEN.z) > 4) {
+        if (pos().z < 3444 && pos().x <= 2814) await hopSendWalk(2809, 3441, 2, 10_000);
+        await hopSendWalk(CATHERBY_MEN.x, CATHERBY_MEN.z, 3, 20_000);
+    }
     const started = Date.now();
     while (coins() < need && Date.now() - started < 240_000) {
         if (sdk.getState()?.bank?.isOpen) await bot.closeBank();
@@ -1377,7 +1826,8 @@ async function withdrawBankCoins(need: number): Promise<boolean> {
     if (coins() >= need) return true;
     if (sdk.getState()?.shop?.isOpen) await bot.closeShop();
     if (!sdk.getState()?.bank?.isOpen) {
-        if (!(await openBankAt(CATHERBY_BANK.x, CATHERBY_BANK.z))) return coins() >= need;
+        const bank = inCatherby() ? CATHERBY_BANK : closestBank();
+        if (!(await openBankAt(bank.x, bank.z))) return coins() >= need;
     }
     await ensureBankItemMode();
     const r = await bot.withdrawItem(/^coins$/i, Math.max(need, COIN_WITHDRAW), { asNote: false });
@@ -1433,39 +1883,39 @@ async function buyHarryItem(item: RegExp, have: () => boolean, minSpawns: number
     return have();
 }
 
+async function withdrawHarpoonAt(x: number, z: number, label: string): Promise<boolean> {
+    intent(`${label} bank for harpoon`);
+    if (!(await openBankAt(x, z))) return false;
+    await ensureBankItemMode();
+    if (!hasHarpoon()) {
+        const r = await bot.withdrawItem(/^harpoon$/i, 1, { asNote: false });
+        if (!hasHarpoon()) {
+            log(`Withdraw harpoon: ${r.message}`);
+            logBank();
+            await ensureBankItemMode();
+            const retry = await bot.withdrawItem(/^harpoon$/i, 1, { asNote: false });
+            if (!hasHarpoon()) log(`Withdraw harpoon retry: ${retry.message}`);
+        }
+    }
+    await bot.closeBank();
+    return hasHarpoon();
+}
+
 async function setupFishingGear(): Promise<boolean> {
-    if (BIG_NET) return setupBigNet();
+    if (BIG_NET) return bigNetRamp() ? setupSmallNet() : setupBigNet();
+    if (smallNetPhase()) return setupSmallNet();
     if (hasHarpoon()) {
         log(`Harpoon setup harpoon=true gp=${coins()} inv=${invSummary()}`);
         return true;
     }
-    intent('Catherby bank for harpoon');
-    if (await openBankAt(CATHERBY_BANK.x, CATHERBY_BANK.z)) {
-        await ensureBankItemMode();
-        if (!hasHarpoon()) {
-            const r = await bot.withdrawItem(/^harpoon$/i, 1, { asNote: false });
-            if (!hasHarpoon()) {
-                log(`Withdraw harpoon: ${r.message}`);
-                logBank();
-                await ensureBankItemMode();
-                const retry = await bot.withdrawItem(/^harpoon$/i, 1, { asNote: false });
-                if (!hasHarpoon()) log(`Withdraw harpoon retry: ${retry.message}`);
-            }
-        }
-        if (!hasHarpoon() && !hasLobsterPot()) {
-            const r = await bot.withdrawItem(/^lobster pot$/i, 1, { asNote: false });
-            if (!hasLobsterPot()) log(`Withdraw lobster pot: ${r.message}`);
-        }
-        await depositAllExcept(toolKeep());
-        if (!hasHarpoon()) await bot.withdrawItem(/^harpoon$/i, 1, { asNote: false });
-        if (!hasHarpoon() && !hasLobsterPot()) await bot.withdrawItem(/^lobster pot$/i, 1, { asNote: false });
-        if (!hasFishingTool() && coins() < HARPOON_GP) {
-            const r = await bot.withdrawItem(/^coins$/i, COIN_WITHDRAW, { asNote: false });
-            if (coins() < HARPOON_GP) log(`Withdraw coins: ${r.message} have=${coins()}`);
-        }
-        await bot.closeBank();
-        if (hasFishingTool()) {
-            log(`Harpoon setup harpoon=${hasHarpoon()} pot=${hasLobsterPot()} gp=${coins()} inv=${invSummary()}`);
+    const nearest = closestBank();
+    if (await withdrawHarpoonAt(nearest.x, nearest.z, nearest.name)) {
+        log(`Harpoon setup harpoon=true gp=${coins()} inv=${invSummary()} worn=${sdk.getEquipment().length}`);
+        return true;
+    }
+    if (distTo(CATHERBY_BANK.x, CATHERBY_BANK.z) > 8) {
+        if (await withdrawHarpoonAt(CATHERBY_BANK.x, CATHERBY_BANK.z, 'Catherby')) {
+            log(`Harpoon setup harpoon=true gp=${coins()} inv=${invSummary()}`);
             return true;
         }
     }
@@ -1500,6 +1950,7 @@ async function setupFishingGear(): Promise<boolean> {
 }
 
 async function setupBigNet(): Promise<boolean> {
+    await dropBigNetJunk();
     if (hasBigNet()) {
         log(`Big net setup net=true gp=${coins()} inv=${invSummary()}`);
         return true;
@@ -1537,6 +1988,29 @@ async function setupBigNet(): Promise<boolean> {
     return hasBigNet();
 }
 
+async function setupSmallNet(): Promise<boolean> {
+    if (hasNet()) {
+        log(`Small net setup net=true gp=${coins()} inv=${invSummary()}`);
+        return true;
+    }
+    await closeBankHard();
+    if (!inCatherby()) {
+        if (!inArdougne() && !onArdyCatherbyRoad() && !inKeepLeFaye() && !inLegendsGuild()) {
+            await goToArdy();
+        }
+        await walkToCatherby();
+    }
+    if (coins() < SMALL_NET_GP) {
+        log(`Need ${SMALL_NET_GP}gp for a small net — pickpocketing (skip jammed bank)`);
+        await pickpocketCatherbyUntil(SMALL_NET_GP);
+    }
+    if (coins() >= SMALL_NET_GP) {
+        await buyHarryItem(/small fishing net/i, hasNet, HARRY_SMALL_NET_SPAWNS, 'small fishing net');
+    }
+    log(`Small net setup net=${hasNet()} gp=${coins()} inv=${invSummary()}`);
+    return hasNet();
+}
+
 async function tryHarpoonBetweenRuns(): Promise<void> {
     if (hasHarpoon()) return;
     intent('Looking for a harpoon between lobster runs');
@@ -1555,7 +2029,18 @@ async function tryHarpoonBetweenRuns(): Promise<void> {
 
 async function withdrawFishingTool(): Promise<void> {
     if (BIG_NET) {
+        if (bigNetRamp()) {
+            if (!hasNet()) await bot.withdrawItem(/small fishing net/i, 1).catch(() => {});
+            return;
+        }
         if (!hasBigNet()) await bot.withdrawItem(BIG_NET_KEEP, 1).catch(() => {});
+        return;
+    }
+    if (smallNetPhase() || sharkNetRamp() || thieveSupplyNet()) {
+        if (!hasNet()) await bot.withdrawItem(/small fishing net/i, 1).catch(() => {});
+        if ((sharkNetRamp() || THIEVE_SUPPLY > 0) && !hasHarpoon()) {
+            await bot.withdrawItem(/^harpoon$/i, 1).catch(() => {});
+        }
         return;
     }
     if (!hasHarpoon()) await bot.withdrawItem(/^harpoon$/i, 1).catch(() => {});
@@ -1573,43 +2058,112 @@ function findTunaSwordSpot() {
     return tuna.sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0] ?? null;
 }
 
-/** Booth street / range house / north of bank: walkTo is a no-op. Hop with sendWalk. */
+/** Nearest static-walkable tile. Fishing spots themselves sit on water. */
+function standNear(x: number, z: number): { x: number; z: number } {
+    if (isTileWalkable(0, x, z)) return { x, z };
+    for (let r = 1; r <= 4; r++) {
+        for (let dx = -r; dx <= r; dx++) {
+            for (let dz = -r; dz <= r; dz++) {
+                if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue;
+                if (isTileWalkable(0, x + dx, z + dz)) return { x: x + dx, z: z + dz };
+            }
+        }
+    }
+    return { x, z };
+}
+
+/**
+ * One step, then wait until the tile actually changes. Re-issuing sendWalk
+ * every 450ms cancelled the step before the player left the tile, so the
+ * bank-to-pier hop sat on 2821,3436 forever.
+ */
 async function hopSendWalk(x: number, z: number, tolerance: number, ms: number): Promise<void> {
     const deadline = Date.now() + ms;
+    let stalls = 0;
     while (distTo(x, z) > tolerance && Date.now() < deadline) {
-        void sdk.sendWalk(x, z, true).catch(() => {});
-        await new Promise((r) => setTimeout(r, 500));
+        const p = pos();
+        let stepX = p.x + Math.sign(x - p.x) * Math.min(2, Math.abs(x - p.x));
+        let stepZ = p.z + Math.sign(z - p.z) * Math.min(2, Math.abs(z - p.z));
+        if (stalls > 0 || !isTileWalkable(0, stepX, stepZ)) {
+            const options: { x: number; z: number; score: number }[] = [];
+            for (const [dx, dz] of [
+                [0, -1],
+                [0, 1],
+                [-1, 0],
+                [1, 0],
+                [0, -2],
+                [0, 2],
+                [-2, 0],
+                [2, 0],
+                [1, -1],
+                [-1, -1],
+                [1, 1],
+                [-1, 1]
+            ]) {
+                const nx = p.x + dx;
+                const nz = p.z + dz;
+                if (!isTileWalkable(0, nx, nz)) continue;
+                options.push({ x: nx, z: nz, score: Math.hypot(nx - x, nz - z) });
+            }
+            options.sort((a, b) => a.score - b.score);
+            const pick = options[Math.min(stalls, Math.max(0, options.length - 1))];
+            if (!pick) {
+                await openNearbyDoor();
+                stalls++;
+                await sdk.waitForTicks(1);
+                continue;
+            }
+            stepX = pick.x;
+            stepZ = pick.z;
+        }
+        const beforeX = p.x;
+        const beforeZ = p.z;
+        await sdk.sendWalk(stepX, stepZ, true);
+        const moved = await sdk
+            .waitForCondition((s) => {
+                const px = s.player?.worldX ?? beforeX;
+                const pz = s.player?.worldZ ?? beforeZ;
+                return px !== beforeX || pz !== beforeZ;
+            }, 2_000)
+            .then(() => true)
+            .catch(() => false);
+        if (moved) stalls = 0;
+        else {
+            await openNearbyDoor();
+            stalls++;
+        }
+    }
+}
+
+/** Skip hops that are behind us. `dest` is a walkable stand, not a water spot. */
+async function walkCatherbyHops(hops: { x: number; z: number }[], dest: { x: number; z: number }): Promise<void> {
+    for (const hop of hops) {
+        if (distTo(dest.x, dest.z) <= 3) return;
+        const via = Math.hypot(hop.x - dest.x, hop.z - dest.z);
+        if (via > distTo(dest.x, dest.z) + 2) continue;
+        if (distTo(hop.x, hop.z) <= 2) continue;
+        await hopSendWalk(hop.x, hop.z, 2, 15_000);
     }
 }
 
 async function leaveCatherbyBankToPier(dest: { x: number; z: number }): Promise<void> {
     await closeBankHard();
     await dismissCookDialog();
-    const start = pos();
-    if (start.x >= 2814 && start.x <= 2820 && start.z >= 3441 && start.z <= 3446) {
-        await openRangeDoor();
-        log(`Leaving Catherby range @ ${start.x},${start.z}`);
-        await hopSendWalk(RANGE_OUTSIDE.x, RANGE_OUTSIDE.z, 2, 15_000);
-    }
-    if (pos().z >= 3444 && pos().x <= 2825) {
-        log(`Leaving north of Catherby bank @ ${pos().x},${pos().z}`);
-        await hopSendWalk(2809, 3441, 2, 25_000);
-    }
-    if (pos().x <= 2814 && pos().z >= 3436 && pos().z <= 3446) {
-        log(`Leaving Catherby bank street @ ${pos().x},${pos().z}`);
-        await hopSendWalk(2816, 3438, 3, 15_000);
-    }
-    const hops = [
-        { x: 2824, z: 3436 },
-        { x: 2832, z: 3432 },
-        { x: 2837, z: 3431 },
-        dest
-    ];
-    for (const hop of hops) {
-        if (distTo(dest.x, dest.z) <= 4) break;
-        await hopSendWalk(hop.x, hop.z, 3, 12_000);
-    }
-    await hopSendWalk(dest.x, dest.z, 4, 15_000);
+    await exitCatherbyNorthBuildings();
+    const stand = standNear(dest.x, dest.z);
+    if (onCatherbyBankStreet()) log(`Leaving Catherby bank street @ ${pos().x},${pos().z}`);
+    // 2837,3431 is water. The road is 2836,3436 then south onto 2838,3432.
+    await walkCatherbyHops(
+        [
+            { x: 2814, z: 3440 },
+            { x: 2816, z: 3438 },
+            { x: 2836, z: 3436 },
+            { x: 2836, z: 3434 },
+            { x: 2838, z: 3432 },
+            stand
+        ],
+        stand
+    );
 }
 
 async function huntHarpoonSpot() {
@@ -1638,11 +2192,30 @@ async function huntBigNetSpot() {
     return findBigNetSpot();
 }
 
+function findSmallNetSpot() {
+    const spots = (sdk.getNearbyNpcs() ?? []).filter((n) => /fishing spot/i.test(n.name));
+    const net = spots.filter(
+        (s) => spotHas(s, /^net$/i) && spotHas(s, /^bait$/i) && !spotHas(s, /^harpoon$/i)
+    );
+    return net.sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0] ?? null;
+}
+
+async function huntSmallNetSpot() {
+    let spot = findSmallNetSpot();
+    if (spot && (spot.distance ?? 99) <= 8) return spot;
+    const dest = spot ? { x: spot.x, z: spot.z } : CATHERBY_NET_BAIT[pierHunt++ % CATHERBY_NET_BAIT.length]!;
+    log(`Small-net hunt ${dest.x},${dest.z} @ ${pos().x},${pos().z}`);
+    await leaveCatherbyBankToPier(dest);
+    return findSmallNetSpot();
+}
+
 async function dropBigNetJunk(): Promise<number> {
     await closeBankHard();
     let n = 0;
     for (let i = 0; i < 28; i++) {
-        const item = sdk.getInventory().find((it) => BIG_NET_DROP.test(it.name) && (it.count ?? 0) > 0);
+        const item = sdk.getInventory().find(
+            (it) => BIG_NET_DROP.test(it.name) && !BIG_NET_TREASURE.test(it.name) && (it.count ?? 0) > 0
+        );
         if (!item) break;
         const r = await bot.dropItem(item, 1);
         if (!r.success) {
@@ -1689,42 +2262,120 @@ function findRange() {
 }
 
 async function goToRange(): Promise<boolean> {
-    if (distTo(RANGE_STAND.x, RANGE_STAND.z) > 3) {
-        await walkNear(RANGE_OUTSIDE.x, RANGE_OUTSIDE.z, 2);
+    if (distTo(RANGE_STAND.x, RANGE_STAND.z) > 1) {
+        if (distTo(RANGE_OUTSIDE.x, RANGE_OUTSIDE.z) > 2) {
+            await hopSendWalk(RANGE_OUTSIDE.x, RANGE_OUTSIDE.z, 2, 8_000);
+        }
         await openRangeDoor();
-        await walkNear(RANGE_STAND.x, RANGE_STAND.z, 1);
+        await hopSendWalk(RANGE_STAND.x, RANGE_STAND.z, 1, 8_000);
     }
     await openRangeDoor();
     return !!findRange();
 }
 
 async function dismissCookDialog(): Promise<void> {
-    await bot.dismissBlockingUI();
-    const dialog = sdk.getDialog();
-    if (!dialog?.isOpen) return;
-    const cook = dialog.options.find((o) => /^(cook|make)\b/i.test(o.text));
-    if (cook) {
-        await sdk.sendClickDialog(cook.index);
-        return;
-    }
-    await sdk.clickDialogByText(/continue|click here/i).catch(async () => {
+    for (let i = 0; i < 8; i++) {
+        await bot.dismissBlockingUI();
+        const dialog = sdk.getDialog();
+        if (!dialog?.isOpen) return;
+        const cook = dialog.options.find((o) => /^(cook|make)\b/i.test(o.text));
+        if (cook) {
+            await sdk.sendClickDialog(cook.index);
+            await sdk.waitForTicks(2);
+            continue;
+        }
+        const cont = dialog.options.find((o) => /continue|click here/i.test(o.text));
+        if (cont) {
+            await sdk.sendClickDialog(cont.index);
+            await sdk.waitForTicks(2);
+            continue;
+        }
         await sdk.sendClickDialog(dialog.options[0]?.index ?? 0);
-    });
+        await sdk.waitForTicks(2);
+    }
 }
 
-async function cookInventory(rawPat: RegExp = RAW): Promise<{ cooked: number; burnt: number; xp: number; leftover: number }> {
-    if (!cookableRaw(rawPat)) {
+function invTunaSword(): number {
+    return countItems(/^tuna$/i) + countItems(/^swordfish$/i);
+}
+
+const THIEVE_SUPPLY_PATH = () => join(process.cwd(), 'bots', username, 'thieve-supply.json');
+let thieveSupplyCooked = 0;
+
+function loadThieveSupply(): void {
+    if (THIEVE_SUPPLY <= 0) return;
+    try {
+        const saved = JSON.parse(readFileSync(THIEVE_SUPPLY_PATH(), 'utf-8')) as { cooked?: number };
+        thieveSupplyCooked = Math.max(0, Number(saved.cooked) || 0);
+    } catch {
+        thieveSupplyCooked = 0;
+    }
+}
+
+function noteThieveSupply(gained: number): void {
+    if (THIEVE_SUPPLY <= 0 || gained <= 0) return;
+    thieveSupplyCooked += gained;
+    writeFileSync(THIEVE_SUPPLY_PATH(), JSON.stringify({ cooked: thieveSupplyCooked, target: THIEVE_SUPPLY }));
+    log(`Thieve supply ${thieveSupplyCooked}/${THIEVE_SUPPLY} cooked tuna/swordfish`);
+    session.noteProgress('inventory', `thieve supply ${thieveSupplyCooked}/${THIEVE_SUPPLY}`);
+}
+
+function returnToThieving(): void {
+    try {
+        unlinkSync(THIEVE_SUPPLY_PATH());
+    } catch {
+        /* already gone */
+    }
+    const rosterPath = join(process.cwd(), 'bots', 'roster.json');
+    const raw = readFileSync(rosterPath, 'utf-8');
+    const nameAt = raw.search(new RegExp(`"name": "${username}"`, 'i'));
+    if (nameAt < 0) {
+        session.stop('script_error', 'thieve supply done but roster name missing');
+        return;
+    }
+    const rest = raw.slice(nameAt + 10);
+    const nextName = rest.search(/"name":/);
+    const end = nextName < 0 ? raw.length : nameAt + 10 + nextName;
+    let block = raw.slice(nameAt, end);
+    const rosterName = block.match(/"name": "([^"]+)"/)?.[1] ?? username;
+    const argsBody = `\n                "${rosterName}"\n            `;
+    block = block.replace(/"script": "[^"]+"/, '"script": "bots/quests/thieving-route.ts"');
+    block = block.replace(/"args": \[[\s\S]*?\]/, `"args": [${argsBody}]`);
+    writeFileSync(rosterPath, raw.slice(0, nameAt) + block + raw.slice(end));
+    log(`Cooked ${thieveSupplyCooked} tuna/swordfish — roster job is thieving again`);
+    const launchd = join(process.cwd(), '.cursor/skills/wake-fleet/scripts/fleet-launchd.ts');
+    const child = spawn('bun', [launchd, 'restart', rosterName], {
+        cwd: process.cwd(),
+        detached: true,
+        stdio: 'ignore'
+    });
+    child.unref();
+    session.stop('thieve_supply_done', 'cooked tuna/swordfish quota — back to thieving');
+}
+
+async function bankSupplyAndMaybeReturn(): Promise<boolean> {
+    if (THIEVE_SUPPLY <= 0 || thieveSupplyCooked < THIEVE_SUPPLY) return false;
+    if (invTunaSword() > 0 || countItems(/^raw (tuna|swordfish)$/i) > 0) await bankCatherbyCatch();
+    returnToThieving();
+    return true;
+}
+
+async function cookInventory(
+    rawPat: RegExp = RAW,
+    bankStock = false
+): Promise<{ cooked: number; burnt: number; xp: number; leftover: number }> {
+    if (!cookableRaw(rawPat, bankStock)) {
         return { cooked: 0, burnt: 0, xp: 0, leftover: countItems(rawPat) };
     }
     if (!(await goToRange())) return { cooked: 0, burnt: 0, xp: 0, leftover: countItems(rawPat) };
 
-    intent(`Cook fish (cooking ${cookingLevel()})`);
+    const supplyBefore = invTunaSword();
     const startXp = cookingXp();
     const startBurnt = countItems(BURNT);
     const startCooked = countItems(COOKED);
     let idleCasts = 0;
 
-    while (cookableRaw(rawPat) && idleCasts < 80) {
+    while (cookableRaw(rawPat, bankStock) && idleCasts < 80) {
         await dismissCookDialog();
         const dialog = sdk.getDialog();
         if (dialog?.isOpen) {
@@ -1732,11 +2383,11 @@ async function cookInventory(rawPat: RegExp = RAW): Promise<{ cooked: number; bu
             idleCasts++;
             continue;
         }
-        if (distTo(RANGE_STAND.x, RANGE_STAND.z) > 2) {
-            await walkNear(RANGE_STAND.x, RANGE_STAND.z, 1);
+        if (distTo(RANGE_STAND.x, RANGE_STAND.z) > 1) {
+            await hopSendWalk(RANGE_STAND.x, RANGE_STAND.z, 1, 6_000);
             await openRangeDoor();
         }
-        const raw = cookableRaw(rawPat);
+        const raw = cookableRaw(rawPat, bankStock);
         const range = findRange();
         if (!raw || !range) {
             idleCasts++;
@@ -1745,24 +2396,27 @@ async function cookInventory(rawPat: RegExp = RAW): Promise<{ cooked: number; bu
         }
         const xpBefore = cookingXp();
         const rawBefore = countItems(new RegExp(`^${raw.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'));
-        const r = await bot.useItemOnLoc(raw, range, { timeout: 12_000 });
-        if (!r.success) log(`useItemOnLoc: ${r.message}`);
         try {
+            await sdk.sendUseItemOnLoc(raw.slot, range.x, range.z, range.id);
             await sdk.waitForCondition((s) => {
                 if (s.dialog.isOpen) return true;
                 const xp = s.skills.find((sk) => sk.name === 'Cooking')?.experience ?? 0;
                 if (xp > xpBefore) return true;
                 const rawNow = s.inventory.filter((i) => i.name === raw.name).reduce((n, i) => n + i.count, 0);
                 return rawNow < rawBefore;
-            }, 8_000);
+            }, 4_000);
         } catch {
-            /* recast */
+            if (!sdk.isConnected()) {
+                await sdk.waitForConnection().catch(() => {});
+            }
         }
         const rawAfter = countItems(new RegExp(`^${raw.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'));
         if (cookingXp() === xpBefore && rawAfter === rawBefore) idleCasts++;
         else idleCasts = 0;
     }
 
+    await exitCatherbyNorthBuildings();
+    noteThieveSupply(invTunaSword() - supplyBefore);
     return {
         cooked: countItems(COOKED) - startCooked,
         burnt: countItems(BURNT) - startBurnt,
@@ -1771,9 +2425,9 @@ async function cookInventory(rawPat: RegExp = RAW): Promise<{ cooked: number; bu
     };
 }
 
-async function withdrawCookableRaw(): Promise<number> {
+async function withdrawCookableRaw(bankStock = false): Promise<number> {
     while (occupiedSlots() < 28) {
-        const items = (sdk.getBankItems() ?? []).filter((i) => RAW_ANY.test(i.name) && canCookItem(i.name));
+        const items = (sdk.getBankItems() ?? []).filter((i) => RAW_ANY.test(i.name) && canCookItem(i.name, bankStock));
         const item = items.find((i) => RAW_SMALL.test(i.name)) ?? items[0];
         if (!item) break;
         const before = occupiedSlots();
@@ -1781,30 +2435,45 @@ async function withdrawCookableRaw(): Promise<number> {
         if (!r.success && !r.partial) break;
         if ((r.amountWithdrawn ?? 0) <= 0 && occupiedSlots() === before) break;
     }
-    return sdk.getInventory().filter((i) => RAW_ANY.test(i.name) && canCookItem(i.name)).length;
+    return sdk.getInventory().filter((i) => RAW_ANY.test(i.name) && canCookItem(i.name, bankStock)).length;
 }
 
-async function cookBankedUntilReady(): Promise<void> {
-    intent(`Cooking banked raw (cooking ${cookingLevel()})`);
-    for (let loads = 0; loads < 80; loads++) {
-        if (cookableRaw(RAW_ANY)) {
-            await cookInventory(RAW_ANY);
+async function cookBankedUntilReady(all = false): Promise<void> {
+    const limit = all || COOK_ALL ? 8000 : 80;
+    let bankMisses = 0;
+    if (all) await enterPhase('cook_bank');
+    for (let loads = 0; loads < limit; loads++) {
+        if (cookableRaw(RAW_ANY, all)) {
+            const cooked = await cookInventory(RAW_ANY, all);
+            if (all || COOK_ALL) session.noteProgress(cooked.xp > 0 ? 'xp' : 'inventory', `cook load ${loads + 1}`);
         }
+        session.maybeHeartbeat();
         if (!(await openBankAt(CATHERBY_BANK.x, CATHERBY_BANK.z))) {
             log('Cook skip — bank closed');
+            await exitCatherbyNorthBuildings();
+            if (COOK_ALL || (all && bankMisses < 5)) {
+                bankMisses++;
+                await sdk.waitForTicks(8);
+                continue;
+            }
             return;
         }
+        bankMisses = 0;
         await depositAllExcept(toolKeep());
         await withdrawFishingTool();
-        const more = await withdrawCookableRaw();
+        const more = await withdrawCookableRaw(all);
         if (more <= 0) {
             await snapshotBank();
             await bot.closeBank();
             if (loads === 0) log('Cook skip — no banked raw');
+            else if (all) log(`Cooked bank raw across ${loads} loads`);
+            await exitCatherbyNorthBuildings();
             return;
         }
+        log(`Withdrawn ${more} raw to cook (bank load ${loads + 1})`);
         await bot.closeBank();
     }
+    await exitCatherbyNorthBuildings();
 }
 
 async function fishPierInventory(mode: 'harpoon' | 'cage') {
@@ -1867,17 +2536,21 @@ async function bankCatherbyCatch(): Promise<boolean> {
     await depositAllExcept(toolKeep());
     await withdrawFishingTool();
     await snapshotBank();
+    const moreRaw = !NO_COOK && bankHasCookableRaw();
     await bot.closeBank();
+    if (moreRaw) await cookBankedUntilReady(true);
     return true;
 }
 
 async function fishTrip(n: number, mode: 'harpoon' | 'cage'): Promise<void> {
     intent(`${mode === 'harpoon' ? 'Harpoon' : 'Cage lobster'} trip ${n} (fish ${fishingLevel()} cook ${cookingLevel()})`);
+    const beforeFish = fishStacks();
     await dismissCookDialog();
     if (sdk.getState()?.bank?.isOpen || sdk.getState()?.interface?.isOpen) await closeBankHard();
     if (!findTunaSwordSpot()) await huntHarpoonSpot();
     await fishPierInventory(mode);
     const cooked = await cookInventory(RAW);
+    recordFishDeltas(beforeFish);
     const banked = await bankCatherbyCatch();
     if (cooked.leftover > 0 && cookingLevel() < 99) await cookBankedUntilReady();
     const qty = cooked.cooked + cooked.burnt;
@@ -1887,6 +2560,84 @@ async function fishTrip(n: number, mode: 'harpoon' | 'cage'): Promise<void> {
         return;
     }
     log(`Empty ${mode} trip ${n} banked=${banked} cooked=${qty} @ ${pos().x},${pos().z} inv=${invSummary()}`);
+    await sdk.waitForTicks(8);
+}
+
+async function fishSmallNetInventory(): Promise<{ shrimp: number; anchovy: number; xp: number }> {
+    const startXp = fishingXp();
+    const startShrimp = countItems(/^raw shrimps?$/i);
+    const startAnchovy = countItems(/^raw anchovies$/i);
+    let noSpot = 0;
+
+    while (!inventoryIsFull()) {
+        await bot.dismissBlockingUI();
+        if (pos().isDead) break;
+        let spot = findSmallNetSpot();
+        if (!spot || (spot.distance ?? 99) > 8) spot = await huntSmallNetSpot();
+        if (!spot) {
+            noSpot++;
+            if (noSpot === 1 || noSpot % 5 === 0) log(`No net/bait spot (${noSpot}) @ ${pos().x},${pos().z}`);
+            await sdk.waitForTicks(1);
+            continue;
+        }
+        noSpot = 0;
+        const match = spot.optionsWithIndex.find((o) => /^net$/i.test(o.text));
+        if (!match) {
+            await sdk.waitForTicks(1);
+            continue;
+        }
+        const invBefore = occupiedSlots();
+        const xpBefore = fishingXp();
+        const started = Date.now();
+        await sdk.sendInteractNpc(spot.index, match.opIndex);
+        try {
+            await sdk.waitForCondition((s) => {
+                if (s.dialog.isOpen) return true;
+                if (s.inventory.filter((i) => (i.count ?? 0) > 0).length >= 28) return true;
+                const xp = s.skills.find((sk) => sk.name === 'Fishing')?.experience ?? 0;
+                const gained = xp > xpBefore || s.inventory.length > invBefore;
+                const idle = (s.player?.animId ?? -1) === -1;
+                if (gained && idle) return true;
+                if (!gained && idle && Date.now() - started > 2500) return true;
+                return false;
+            }, 8_000);
+        } catch {
+            /* recast */
+        }
+    }
+
+    return {
+        shrimp: countItems(/^raw shrimps?$/i) - startShrimp,
+        anchovy: countItems(/^raw anchovies$/i) - startAnchovy,
+        xp: fishingXp() - startXp
+    };
+}
+
+async function fishSmallNetTrip(n: number): Promise<void> {
+    intent(`Small-net trip ${n} (fish ${fishingLevel()} cook ${cookingLevel()})`);
+    const beforeFish = fishStacks();
+    await dismissCookDialog();
+    if (sdk.getState()?.bank?.isOpen || sdk.getState()?.interface?.isOpen) await closeBankHard();
+    await ensureSmallNetBeach();
+    if (!findSmallNetSpot()) await huntSmallNetSpot();
+    const caught = await fishSmallNetInventory();
+    const cooked = await cookInventory(RAW_SMALL);
+    recordFishDeltas(beforeFish);
+    const banked = await bankCatherbyCatch();
+    if (cooked.leftover > 0) await cookSmallNetIfNeeded();
+    const qty = cooked.cooked + cooked.burnt;
+    if ((qty > 0 || caught.xp > 0) && banked) {
+        session.recordTrip(Math.max(qty, caught.shrimp + caught.anchovy));
+        // Only stamp 'xp' when XP was actually measured; cooked-with-no-XP
+        // otherwise advances lastEffectAt on zero-effect trips and the fleet
+        // reads a stuck bot as producing.
+        session.noteProgress(caught.xp > 0 ? 'xp' : 'inventory', `smallnet trip ${n}`);
+        log(
+            `Small-net trip ${n} shrimp +${caught.shrimp} anchovy +${caught.anchovy} cooked=${qty} xp +${caught.xp} fish ${fishingLevel()}`
+        );
+        return;
+    }
+    log(`Empty small-net trip ${n} banked=${banked} cooked=${qty} @ ${pos().x},${pos().z} inv=${invSummary()}`);
     await sdk.waitForTicks(8);
 }
 
@@ -2009,11 +2760,33 @@ async function fishSharkInventory(): Promise<{ shark: number; xp: number }> {
 
 async function fishSharkTrip(n: number): Promise<void> {
     intent(`Shark harpoon trip ${n} (fish ${fishingLevel()} cook ${cookingLevel()})`);
+    let beforeFish = fishStacks();
     await dismissCookDialog();
     if (sdk.getState()?.bank?.isOpen || sdk.getState()?.interface?.isOpen) await closeBankHard();
+
+    if (inventoryIsFull() || occupiedSlots() >= 26) {
+        log(`Shark trip ${n} — full inv (${occupiedSlots()} slots) @ ${pos().x},${pos().z}`);
+        const precook = cookingLevel() < 99 ? await cookInventory(RAW) : { cooked: 0, burnt: 0, xp: 0, leftover: 0 };
+        recordFishDeltas(beforeFish);
+        const banked = await bankCatherbyCatch();
+        beforeFish = fishStacks();
+        if (inventoryIsFull() && !banked) {
+            log(`Full inv, bank failed — stepping off booth @ ${pos().x},${pos().z}`);
+            await stepOffCatherbyBank();
+            await sdk.waitForTicks(5);
+            return;
+        }
+        if (banked) {
+            session.recordTrip(Math.max(1, precook.cooked));
+            session.noteProgress('inventory', `shark bank-only ${n}`);
+            log(`Banked full inv before fish ${n} | cook=${precook.cooked}`);
+        }
+    }
+
     if (!findSharkSpot()) await huntSharkSpot();
     const caught = await fishSharkInventory();
     const cooked = await cookInventory(RAW);
+    recordFishDeltas(beforeFish);
     const banked = await bankCatherbyCatch();
     if (cooked.leftover > 0 && cookingLevel() < 99) await cookBankedUntilReady();
     const qty = caught.shark + cooked.cooked + cooked.burnt;
@@ -2023,15 +2796,19 @@ async function fishSharkTrip(n: number): Promise<void> {
         log(`Banked shark trip ${n} | raw ${caught.shark} cook ${cooked.cooked} xp ${caught.xp}`);
         return;
     }
+    if (!banked && (caught.shark > 0 || cooked.cooked > 0)) await stepOffCatherbyBank();
     log(`Empty shark trip ${n} banked=${banked} cooked=${cooked.cooked} @ ${pos().x},${pos().z} inv=${invSummary()}`);
     await sdk.waitForTicks(8);
 }
 
 async function fishBigNetTrip(n: number): Promise<void> {
     intent(`Big net trip ${n} (fish ${fishingLevel()} cook ${cookingLevel()})`);
+    const beforeFish = fishStacks();
     if (!findBigNetSpot()) await huntBigNetSpot();
     const caught = await fishBigNetInventory();
     const cooked = await cookInventory(cookRawPattern());
+    await dropBigNetJunk();
+    recordFishDeltas(beforeFish);
     const banked = await bankCatherbyCatch();
     if (cooked.leftover > 0 && cookingLevel() < 99) await cookBankedUntilReady();
     const qty = caught.cod + caught.bass + caught.oyster + cooked.cooked;
@@ -2071,6 +2848,20 @@ function logLevels(): void {
 
 session.registerRecovery([
     {
+        name: 'exit_north_buildings',
+        run: async () => {
+            await exitCatherbyNorthBuildings();
+            return !northOfCatherbyBank() && !inCatherbyRangeHouse();
+        }
+    },
+    {
+        name: 'step_off_bank',
+        run: async () => {
+            await stepOffCatherbyBank();
+            return !onCatherbyBankStreet();
+        }
+    },
+    {
         name: 'walk_catherby',
         run: async () => {
             await walkToCatherby();
@@ -2098,31 +2889,53 @@ session.registerRecovery([
 try {
     await bot.skipTutorial();
     await bot.dismissBlockingUI();
+    await dismissCookDialog();
     lastLoggedFishing = fishingLevel();
     lastLoggedCombat = combatLevel();
     lastLoggedCooking = cookingLevel();
     session.log('log', `Fishing ${lastLoggedFishing} combat ${lastLoggedCombat} cook ${lastLoggedCooking} @ ${pos().x},${pos().z}`);
+    if (inWilderness()) await leaveDragonWilderness();
+    loadThieveSupply();
+    if (THIEVE_SUPPLY > 0) {
+        log(`Thieve supply ${thieveSupplyCooked}/${THIEVE_SUPPLY} cooked tuna/swordfish`);
+    }
     await closeBankHard();
+    if (inCatherby() && (northOfCatherbyBank() || inCatherbyRangeHouse())) {
+        await exitCatherbyNorthBuildings();
+    }
 
     // Buy/withdraw the tool before dump. Dump used to bank the net, then stall
     // on a jammed Catherby booth and never walk to Harry.
-    if (!hasFishingTool()) {
+    // --smallnet: skip the dump entirely — 99 thieves pickpocket 5gp and buy from Harry.
+    if (SMALL_NET) {
+        log('Small-net — skip dump, get a net');
+        await closeBankHard();
+        if (smallNetPhase()) {
+            await setupSmallNet();
+        }
+    } else if (!hasFishingTool()) {
         log('Need fishing tool before dump');
         await setupFishingGear();
     }
-    if (hasFishingTool() && inCatherby()) {
+    if (SMALL_NET) {
+        await closeBankHard();
+    } else if (hasFishingTool() && inCatherby()) {
         log(
-            `${SHARK ? 'Shark harpoon' : BIG_NET ? 'Big net' : hasHarpoon() ? 'Harpoon' : 'Lobster pot'} ready — skip dump, go fish`
+            `${SHARK ? 'Shark harpoon' : bigNetRamp() ? 'Small net' : BIG_NET ? 'Big net' : smallNetPhase() ? 'Small net' : hasHarpoon() ? 'Harpoon' : 'Lobster pot'} ready — skip dump, go fish`
         );
         await closeBankHard();
         await dropBigNetJunk();
+    } else if (sdk.getEquipment().length > 0) {
+        log(`Skip dump — leaving worn gear (${sdk.getEquipment().map((e) => e.name).join(', ')})`);
+        await closeBankHard();
     } else {
         await enterPhase('dump_gear');
         await dumpAllGear();
     }
     await closeBankHard();
 
-    if (fishingLevel() < TARGET_FISHING && !inCatherby() && !inArdougne() && !onKaramja()) {
+    // --smallnet, --bignet, and --shark (which net at Catherby first) skip Lumbridge/Draynor.
+    if (!SMALL_NET && !SHARK && !BIG_NET && fishingLevel() < TARGET_FISHING && !inCatherby() && !inArdougne() && !onKaramja()) {
         await setupClosestBankAndNet();
         await enterPhase('chickens');
         while (combatLevel() < TARGET_COMBAT) {
@@ -2149,53 +2962,142 @@ try {
         await walkToCatherby();
     }
 
-    if (!(await setupFishingGear())) {
-        const missing = BIG_NET ? 'big fishing net' : SHARK ? 'harpoon' : 'harpoon or lobster pot';
+    const gearReady =
+        SMALL_NET && smallNetPhase()
+            ? await setupSmallNet()
+            : await setupFishingGear();
+    if (!gearReady) {
+        const missing = bigNetRamp()
+            ? 'small fishing net'
+            : BIG_NET
+              ? 'big fishing net'
+              : SHARK
+                ? 'harpoon'
+                : smallNetPhase()
+                  ? 'small fishing net'
+                  : 'harpoon or lobster pot';
         session.noteFailure('setup_gear', `no ${missing} @ ${pos().x},${pos().z} gp=${coins()}`);
         log(`Could not get a ${missing} @ ${pos().x},${pos().z} gp=${coins()} — will keep trying`);
     }
     await closeBankHard();
-    if (cookingLevel() < 99) await cookBankedUntilReady();
-
-    let trip = 1;
-    while (true) {
-        if (!(await tickSession())) break;
-        session.maybeHeartbeat();
-        await bot.dismissBlockingUI();
-        logLevels();
-        await waitRespawn();
-        if (!inCatherby()) {
-            await enterPhase('travel_catherby');
-            await walkToCatherby();
-        }
-        if (!hasFishingTool()) {
-            if (!(await setupFishingGear())) {
-                const missing = BIG_NET ? 'big fishing net' : SHARK ? 'harpoon' : 'harpoon or lobster pot';
-                session.noteFailure('setup_gear', `Cannot restock ${missing}`);
-                log(`Cannot restock ${missing} — waiting on Harry`);
-                await sdk.waitForTicks(10);
-                continue;
-            }
-        }
-        if (SHARK) {
-            await enterPhase('shark');
-            if (cookingLevel() < 99) await cookBankedUntilReady();
-            await fishSharkTrip(trip);
-        } else if (BIG_NET) {
-            await enterPhase('bignet');
-            if (cookingLevel() < 99) await cookBankedUntilReady();
-            await fishBigNetTrip(trip);
+    if (!NO_COOK) {
+        log('Cooking all raw food in the bank before fishing');
+        await cookBankedUntilReady(true);
+        log('Bank raw cooked — starting the fishing loop');
+    }
+    if (await bankSupplyAndMaybeReturn()) {
+            /* quota already met from banked raw */
         } else {
-            await enterPhase(hasHarpoon() ? 'harpoon' : 'cage');
-            if (cookingLevel() < 99) await cookBankedUntilReady();
-            if (hasHarpoon()) {
-                await fishTrip(trip, 'harpoon');
-            } else {
-                await fishTrip(trip, 'cage');
-                await tryHarpoonBetweenRuns();
+        let trip = 1;
+        while (true) {
+            if (!(await tickSession())) break;
+            if (await bankSupplyAndMaybeReturn()) break;
+            session.maybeHeartbeat();
+            await bot.dismissBlockingUI();
+            logLevels();
+            await waitRespawn();
+            if (!inCatherby()) {
+                await enterPhase('travel_catherby');
+                await walkToCatherby();
             }
+            if (inCatherby() && (northOfCatherbyBank() || inCatherbyRangeHouse())) {
+                await exitCatherbyNorthBuildings();
+            }
+            if (!hasFishingTool()) {
+                if (!(SMALL_NET && smallNetPhase() ? await setupSmallNet() : await setupFishingGear())) {
+                    const missing = bigNetRamp()
+                        ? 'small fishing net'
+                        : BIG_NET
+                          ? 'big fishing net'
+                          : SHARK
+                            ? 'harpoon'
+                            : smallNetPhase()
+                              ? 'small fishing net'
+                              : 'harpoon or lobster pot';
+                    session.noteFailure('missing_supplies', `Cannot restock ${missing}`);
+                    log(`Cannot restock ${missing} — waiting on Harry`);
+                    await sdk.waitForTicks(10);
+                    continue;
+                }
+            }
+            if (SHARK) {
+                if (sharkNetRamp()) {
+                    await enterPhase('shark-ramp');
+                    if (!hasNet()) {
+                        if (await openBankAt(CATHERBY_BANK.x, CATHERBY_BANK.z)) {
+                            await bot.withdrawItem(/small fishing net/i, 1).catch(() => {});
+                            await bot.closeBank();
+                        }
+                    }
+                    if (!hasNet() && !(await setupSmallNet())) {
+                        session.noteFailure('missing_supplies', 'Cannot restock small fishing net');
+                        log('Cannot restock small fishing net — waiting on Harry');
+                        await sdk.waitForTicks(10);
+                        continue;
+                    }
+                    await cookSmallNetIfNeeded();
+                    await fishSmallNetTrip(trip);
+                } else if (sharkRampPhase()) {
+                    await enterPhase('shark-ramp');
+                    if (hasHarpoon()) {
+                        await fishTrip(trip, 'harpoon');
+                    } else {
+                        await fishTrip(trip, 'cage');
+                        await tryHarpoonBetweenRuns();
+                    }
+                } else {
+                    await enterPhase('shark');
+                    await fishSharkTrip(trip);
+                }
+            } else if (BIG_NET && Date.now() >= simpleFishUntil) {
+                if (bigNetRamp()) {
+                    await enterPhase('bignet-ramp');
+                    if (!hasNet()) {
+                        if (await openBankAt(CATHERBY_BANK.x, CATHERBY_BANK.z)) {
+                            await bot.withdrawItem(/small fishing net/i, 1).catch(() => {});
+                            await bot.closeBank();
+                        }
+                    }
+                    if (!hasNet() && !(await setupSmallNet())) {
+                        session.noteFailure('missing_supplies', 'Cannot restock small fishing net');
+                        log('Cannot restock small fishing net — waiting on Harry');
+                        await sdk.waitForTicks(10);
+                        continue;
+                    }
+                    await cookSmallNetIfNeeded();
+                    await fishSmallNetTrip(trip);
+                } else {
+                    await enterPhase('bignet');
+                    await fishBigNetTrip(trip);
+                }
+            } else if (smallNetPhase() || thieveSupplyNet()) {
+                await enterPhase('smallnet');
+                if (!hasNet()) {
+                    if (await openBankAt(CATHERBY_BANK.x, CATHERBY_BANK.z)) {
+                        await bot.withdrawItem(/small fishing net/i, 1).catch(() => {});
+                        await bot.closeBank();
+                    }
+                }
+                if (!hasNet() && !(await setupSmallNet())) {
+                    session.noteFailure('missing_supplies', 'Cannot restock small fishing net');
+                    log('Cannot restock small fishing net — waiting on Harry');
+                    await sdk.waitForTicks(10);
+                    continue;
+                }
+                await cookSmallNetIfNeeded();
+                await fishSmallNetTrip(trip);
+            } else {
+                await enterPhase(hasHarpoon() ? 'harpoon' : 'cage');
+                if (hasHarpoon()) {
+                    await fishTrip(trip, 'harpoon');
+                } else {
+                    await fishTrip(trip, 'cage');
+                    await tryHarpoonBetweenRuns();
+                }
+            }
+            if (await bankSupplyAndMaybeReturn()) break;
+            trip++;
         }
-        trip++;
     }
 } catch (err) {
     session.stopRestartable('script_error', err instanceof Error ? err.message : String(err));
