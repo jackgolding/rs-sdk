@@ -24,6 +24,7 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 WORKDIR /opt/fleet
 COPY sdk /opt/fleet/sdk
 COPY server/webclient /opt/fleet/server/webclient
+COPY server/vendor /opt/fleet/server/vendor
 COPY bots/quests /opt/fleet/bots/quests
 # NOTE: bots/<name>/ (bot.env, park.json, roster.json) is bind-mounted
 # from /srv/fleet/bots on the host — see compose.yml.
