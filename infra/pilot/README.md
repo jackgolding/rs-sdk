@@ -60,6 +60,15 @@ python3 infra/pilot/gen-compose.py > infra/pilot/compose.fleet.yml
 Re-run + commit whenever roster scripts/args change. The old single-bot
 `compose.yml` is retired (ABGARMY18 now lives in the fleet file).
 
+Sync bot code+state to the box (secrets travel over SSH, never git —
+bot.env files are gitignored by design):
+
+```
+rsync -a --exclude='*.log' --exclude='*.md' --exclude='*.pid' --exclude='.DS_Store' bots/ root@IP:/srv/fleet/bots/
+scp bots/roster.json root@IP:/srv/fleet/bots/roster.json
+ssh root@IP "chmod 600 \$(find /srv/fleet/bots -name bot.env)"
+```
+
 Verify on the box: `docker compose -f infra/pilot/compose.fleet.yml ps` plus
 `tail -f /srv/fleet/bots/ABGARMY18/grind.log`. Note: the Mac fleet-desk
 does NOT track VPS bots — server logs + game-side effects are the source

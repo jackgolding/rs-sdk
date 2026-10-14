@@ -26,7 +26,11 @@ SVC = """  {svc}:
     working_dir: {workdir}
     command: {cmd}
     volumes:
-      - /srv/fleet/bots/{name}:/opt/fleet/bots/{name}
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
 {extra}    restart: unless-stopped
 """
 
