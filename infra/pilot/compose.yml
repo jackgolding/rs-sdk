@@ -16,7 +16,7 @@ services:
     volumes:
       # Host dir seeded once via rsync (bot.env, park.json, assignment) —
       # runtime logs (grind.log) persist here too.
-      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/ABGARMY18:/opt/fleet/bots/ABGARMY18
     restart: unless-stopped # = launchd KeepAlive (SuccessfulExit=false)
     logging:
       driver: json-file
@@ -34,7 +34,7 @@ services:
     # Generalizing later: drive this from an env var, not a new compose file.
     command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY18", "--bignet"]
     volumes:
-      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/ABGARMY18:/opt/fleet/bots/ABGARMY18
     restart: unless-stopped
     # = launchd ExitTimeOut 700: quests drain to a bank on SIGTERM
     # (up to ~11 min for a temple return) — do not shorten.
