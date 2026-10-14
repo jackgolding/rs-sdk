@@ -1,0 +1,1363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fleet desk</title>
+<style>
+  :root {
+    --bg: #12110e;
+    --panel: #1c1915;
+    --panel-2: #26221c;
+    --line: #3c362e;
+    --text: #f3ecdf;
+    --muted: #a89b8a;
+    --brass: #e2a85a;
+    --good: #8fce7a;
+    --bad: #e07a5f;
+    --warn: #e6c36a;
+    --paused: #9a9286;
+    --focus: #f0d7a8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
+  body {
+    font: 13px/1.4 "Avenir Next", "Segoe UI", sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  button, select, input { font: inherit; color: inherit; }
+  button {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--brass); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  #refresh {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 96px;
+  }
+  #refresh .spin {
+    display: none;
+    width: 12px;
+    height: 12px;
+    border: 2px solid #4a4338;
+    border-top-color: var(--brass);
+    border-radius: 50%;
+    animation: refresh-spin 0.7s linear infinite;
+    flex: none;
+  }
+  #refresh.busy,
+  #refresh:disabled.busy {
+    opacity: 1;
+    background: #100e0b;
+    color: var(--muted);
+    border-color: #2a261f;
+    cursor: progress;
+    pointer-events: none;
+  }
+  #refresh.busy .spin { display: inline-block; }
+  @keyframes refresh-spin { to { transform: rotate(360deg); } }
+  button.primary { background: #3d311f; border-color: #8a6733; color: var(--focus); }
+  button.danger { border-color: #6e3d32; }
+  select, input[type="search"], input[type="text"] {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 4px 8px;
+  }
+  header.top {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
+    padding: 8px 12px;
+    background: rgba(18, 17, 14, 0.94);
+    border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(8px);
+  }
+  h1 { font-size: 18px; font-weight: 600; margin: 0; letter-spacing: 0.01em; }
+  .headline { color: var(--brass); font-weight: 600; }
+  .headline.bad { color: var(--bad); }
+  .muted { color: var(--muted); }
+  .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-left: auto; }
+  .tabs { display: flex; gap: 4px; }
+  .tabs button[aria-pressed="true"] { border-color: var(--brass); color: var(--focus); }
+  main { padding: 0 0 80px; }
+  .wrap { overflow: auto; max-height: calc(100vh - 64px); }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; }
+  #fleet { min-width: 1080px; }
+  th, td { padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; text-align: left; white-space: nowrap; }
+  th {
+    position: sticky;
+    top: 0;
+    background: #191712;
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    z-index: 2;
+  }
+  tr.producing td:first-child { box-shadow: inset 3px 0 0 var(--good); }
+  tr.bad td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+  tr.paused td:first-child { box-shadow: inset 3px 0 0 var(--paused); }
+  td.account { position: sticky; left: 0; background: #16140f; z-index: 1; }
+  th.account { left: 0; z-index: 3; }
+  .name { font-weight: 650; display: flex; align-items: center; gap: 6px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--bad); }
+  .dot.producing { background: var(--good); }
+  .dot.paused { background: var(--paused); }
+  .dot.warn { background: var(--warn); }
+  .pill {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 1px 7px;
+    border: 1px solid var(--line);
+    font-size: 11px;
+  }
+  .pill.producing { color: var(--good); border-color: #355c32; }
+  .pill.paused { color: var(--paused); }
+  .pill.bad { color: var(--bad); border-color: #6e3d32; }
+  .pill.warn { color: var(--warn); border-color: #6d5a28; }
+  .pos a { color: var(--focus); text-decoration: none; }
+  .pos.stale { color: var(--warn); }
+  .pos.stale a { color: var(--warn); }
+  #gateway-banner {
+    padding: 8px 12px;
+    background: #2a1a12;
+    border-bottom: 1px solid #6e3d32;
+    color: var(--bad);
+    font-weight: 600;
+  }
+  #gateway-banner[hidden] { display: none; }
+  .badge {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 0 6px;
+    margin-left: 6px;
+    border: 1px solid var(--line);
+    font-size: 10px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .badge.hub { color: var(--warn); border-color: #6d5a28; }
+  .sub-line { color: var(--muted); font-size: 11px; margin-top: 1px; }
+  .sub-line.hot { color: var(--warn); }
+  .script-cell { display: flex; gap: 4px; align-items: center; }
+  .script-cell select { width: 148px; }
+  .script-cell input { width: 64px; padding: 2px 4px; }
+  .script-cell button, .actions button { padding: 2px 5px; font-size: 11px; }
+  .actions { display: flex; flex-wrap: nowrap; gap: 3px; }
+  .actions button.icon {
+    width: 26px;
+    height: 24px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .actions button.icon svg { width: 15px; height: 15px; display: block; }
+  .actions button.icon .emoji { font-size: 14px; line-height: 1; }
+  .skills { display: flex; gap: 1px; align-items: center; cursor: pointer; }
+  .skill { display: inline-flex; align-items: center; gap: 1px; padding: 0 1px; border-radius: 3px; }
+  .skill.hot { outline: 1px solid var(--brass); background: #2a2418; }
+  .skill.extra { margin-left: 4px; }
+  .skill b { font-size: 11px; font-weight: 650; min-width: 1.15em; }
+  .skill.max b { color: var(--focus); }
+  .si {
+    width: 16px; height: 16px; display: block; flex: none;
+    background: url(/icons/skills.png) no-repeat;
+    background-size: 96px 48px;
+    image-rendering: pixelated;
+  }
+  .si.rc { background-image: url(/icons/runecraft.png); background-size: 16px 16px; background-position: 0 0; }
+  #skill-pop {
+    position: fixed; z-index: 30; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+  }
+  #skill-pop[hidden] { display: none; }
+  .pop-skill { display: flex; align-items: center; gap: 6px; }
+  .pop-skill span { flex: 1; color: var(--muted); }
+  #skill-pop h3 { grid-column: 1 / -1; margin: 0 0 4px; font-size: 13px; font-weight: 650; }
+  .lvl99 { font-weight: 700; color: var(--focus); }
+  .lvl1 { color: #6d675e; }
+  .num { text-align: right; }
+  #toast {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    width: min(420px, calc(100vw - 32px));
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 20;
+  }
+  .toast {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 8px 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  }
+  .toast pre {
+    margin: 6px 0 0;
+    max-height: 140px;
+    overflow: auto;
+    white-space: pre-wrap;
+    color: var(--muted);
+    font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  #panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    height: 100vh;
+    width: min(480px, 100vw);
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    z-index: 15;
+    display: flex;
+    flex-direction: column;
+  }
+  #panel[hidden] { display: none; }
+  #panel header, .panel-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  #panel h2 { margin: 0; font-size: 16px; flex: 1; }
+  #panel-body { overflow: auto; padding: 12px 14px 28px; flex: 1; }
+  #panel-body pre {
+    margin: 0;
+    white-space: pre;
+    font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .bank-table { width: 100%; }
+  .bank-table td:last-child, .bank-table th:last-child { text-align: right; }
+  .bank-table td.icon-cell, .bank-table th:first-child { width: 30px; }
+  .item-icon {
+    width: 24px; height: 24px; display: block;
+    image-rendering: pixelated; object-fit: contain;
+  }
+  .item-icon.none { width: 24px; height: 24px; }
+  .note { color: var(--muted); margin: 0 0 10px; }
+  .who { margin: 0 0 6px; white-space: normal; }
+  .scene-line { padding: 3px 0; border-bottom: 1px solid var(--line); white-space: normal; }
+  .scene-line span { color: var(--muted); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; align-items: start; }
+  .block h3 { margin: 8px 0 4px; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
+  .live-skills { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 0 8px; }
+  details.raw { margin-top: 12px; }
+  details.raw summary { cursor: pointer; color: var(--muted); }
+  details.raw pre { margin-top: 8px; white-space: pre-wrap; }
+  .name-btn {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    font-weight: 650;
+    color: inherit;
+    cursor: pointer;
+  }
+  .name-btn:hover, .pos a:hover { color: var(--focus); }
+  #map-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: #000;
+  }
+  #map-modal[hidden] { display: none; }
+  #map-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  #map-card {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    width: min(400px, calc(100vw - 24px));
+    max-height: calc(100vh - 24px);
+    overflow: auto;
+    background: rgba(18, 17, 14, 0.94);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    z-index: 1;
+  }
+  #map-card header {
+    position: sticky;
+    top: 0;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    background: rgba(18, 17, 14, 0.98);
+    border-bottom: 1px solid var(--line);
+  }
+  #map-search { position: relative; flex: 1; min-width: 0; }
+  #map-account { width: 100%; font-weight: 650; color: inherit; }
+  #map-hits {
+    position: absolute;
+    z-index: 2;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 240px;
+    overflow: auto;
+    background: rgba(18, 17, 14, 0.98);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  #map-hits[hidden] { display: none; }
+  #map-hits button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: 0;
+    border-radius: 0;
+  }
+  #map-hits button.on, #map-hits button:hover { background: var(--panel-2); }
+  #map-hits .note { margin: 6px 8px; }
+  #map-card header a { color: var(--focus); }
+  #map-body { padding: 10px 12px 16px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Fleet desk</h1>
+  <div>
+    <div id="headline" class="headline">Loading…</div>
+    <div id="sub" class="muted"></div>
+  </div>
+  <div class="tools">
+    <div class="tabs">
+      <button type="button" id="tab-fleet" aria-pressed="true">Fleet</button>
+      <button type="button" id="tab-stats" aria-pressed="false">Stats</button>
+    </div>
+    <input id="q" type="search" placeholder="Search accounts" />
+    <select id="view"></select>
+    <select id="kind">
+      <option value="all">All kinds</option>
+      <option value="not">Not producing</option>
+      <option value="producing">Producing</option>
+      <option value="paused">Paused</option>
+    </select>
+    <button type="button" id="banks" title="Stop running grinds, log in accounts with no live client, open every roster bank, then start the grinds again. skip-bots are not force-logged in.">Check banks</button>
+    <button type="button" id="refresh" aria-busy="false">
+      <span class="spin" aria-hidden="true"></span>
+      <span class="lbl">Refresh</span>
+    </button>
+  </div>
+</header>
+<div id="gateway-banner" hidden></div>
+<main>
+  <div class="wrap">
+    <table id="fleet">
+      <thead>
+        <tr>
+          <th class="account">Account</th>
+          <th>Where</th>
+          <th>Skills</th>
+          <th>Script</th>
+          <th></th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <table id="stats" hidden>
+      <thead><tr id="stats-head"></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</main>
+<div id="toast"></div>
+<div id="skill-pop" hidden></div>
+<div id="map-modal" hidden>
+  <iframe id="map-frame" title="World map" allow="cross-origin-isolated" credentialless></iframe>
+  <aside id="map-card">
+    <header>
+      <div id="map-search">
+        <input id="map-account" type="search" placeholder="Account" aria-label="Account" autocomplete="off" spellcheck="false" />
+        <div id="map-hits" hidden></div>
+      </div>
+      <a id="map-tab" target="_blank" rel="noopener">Tab</a>
+      <button type="button" id="map-refresh">Refresh</button>
+      <button type="button" id="map-close">Close</button>
+    </header>
+    <div id="map-body"></div>
+  </aside>
+</div>
+<aside id="panel" hidden>
+  <header>
+    <h2 id="panel-title"></h2>
+    <button type="button" id="panel-close">Close</button>
+  </header>
+  <div class="panel-tools" id="panel-tools"></div>
+  <div id="panel-body"></div>
+</aside>
+<script>
+const SKILLS = [
+  ['Attack', 'Atk'], ['Strength', 'Str'], ['Defence', 'Def'], ['Hitpoints', 'HP'],
+  ['Ranged', 'Rng'], ['Prayer', 'Pry'], ['Magic', 'Mag'], ['Cooking', 'Cook'],
+  ['Woodcutting', 'WC'], ['Fletching', 'Flet'], ['Fishing', 'Fish'], ['Firemaking', 'FM'],
+  ['Crafting', 'Craft'], ['Smithing', 'Smith'], ['Mining', 'Mine'], ['Herblore', 'Herb'],
+  ['Agility', 'Agil'], ['Thieving', 'Thiev'], ['Runecraft', 'RC'],
+];
+const COMBAT = ['Attack', 'Strength', 'Defence', 'Hitpoints', 'Ranged', 'Prayer', 'Magic'];
+const ICON = {
+  Attack: 0, Strength: 1, Defence: 2, Ranged: 3, Prayer: 4, Magic: 5, Hitpoints: 6,
+  Agility: 7, Herblore: 8, Thieving: 9, Crafting: 10, Fletching: 11, Mining: 12,
+  Smithing: 13, Fishing: 14, Cooking: 15, Firemaking: 16, Woodcutting: 17,
+};
+const SCRIPT_SKILLS = {
+  'thieving-route.ts': ['Thieving'],
+  'fishing-route.ts': ['Fishing'],
+  'mining-guild.ts': ['Mining'],
+  'rune-rocks.ts': ['Mining'],
+  'rimmington-iron.ts': ['Mining', 'Smithing'],
+  'seers-wc-fm.ts': ['Woodcutting', 'Firemaking'],
+  'magic-trees.ts': ['Woodcutting'],
+  'agility-route.ts': ['Agility'],
+  'wildy-course.ts': ['Agility'],
+  'gnome-course.ts': ['Agility'],
+  'herblore.ts': ['Herblore'],
+  'catherby-cook-bank.ts': ['Cooking'],
+  'bank-fletch.ts': ['Fletching'],
+  'high-alch.ts': ['Magic'],
+  'essence.ts': ['Runecraft'],
+  'nature-essence-run.ts': ['Runecraft'],
+  'green-dragons.ts': ['Ranged', 'Hitpoints'],
+  'red-dragons.ts': ['Ranged', 'Hitpoints'],
+  'kbd-range.ts': ['Ranged', 'Hitpoints'],
+  'wildy-range.ts': ['Ranged'],
+  'edgeville-range-druids.ts': ['Ranged'],
+  'edgeville-dungeon-melee.ts': ['Attack', 'Strength', 'Defence'],
+  'hobgoblins.ts': ['Attack', 'Strength'],
+  'smith-knives.ts': ['Smithing'],
+  'smelt-falador.ts': ['Smithing'],
+};
+const state = { fleet: null, tab: 'fleet', edits: new Map(), jobs: new Map() };
+
+const $ = (id) => document.getElementById(id);
+
+function mapUrl(name) {
+  return `https://maxbittker.github.io/rs-world/?follow=${encodeURIComponent(name)}&v=1`;
+}
+
+let mapFollow = null;
+let mapTimer = null;
+
+function mapAnchor(name, label) {
+  const link = el('a', { href: mapUrl(name), text: label, title: 'Open the map' });
+  link.addEventListener('click', (event) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    event.preventDefault();
+    openMap(name);
+  });
+  return link;
+}
+
+function closeMap() {
+  $('map-modal').hidden = true;
+  if (mapTimer) clearInterval(mapTimer);
+  mapTimer = null;
+  mapFollow = null;
+  $('map-frame').src = 'about:blank';
+}
+
+async function loadMapCard(name) {
+  const res = await fetch(`/api/bots/${encodeURIComponent(name)}/state`);
+  const payload = await res.json();
+  if (mapFollow !== name) return;
+  $('map-body').replaceChildren(...renderChrome(payload));
+}
+
+let mapHit = 0;
+
+function mapNames() {
+  const names = (state.fleet?.bots || []).map((bot) => bot.name);
+  if (mapFollow && !names.includes(mapFollow)) names.unshift(mapFollow);
+  return names;
+}
+
+function mapQueryHits() {
+  const q = $('map-account').value.trim().toLowerCase();
+  return mapNames().filter((name) => name.toLowerCase().includes(q));
+}
+
+function hideMapHits() {
+  mapHit = 0;
+  $('map-hits').hidden = true;
+  $('map-hits').replaceChildren();
+}
+
+function renderMapHits() {
+  const box = $('map-hits');
+  if ($('map-account').value.trim() === (mapFollow || '')) {
+    hideMapHits();
+    return;
+  }
+  const hits = mapQueryHits().slice(0, 12);
+  if (!hits.length) {
+    box.hidden = false;
+    box.replaceChildren(el('p', { class: 'note', text: 'No account' }));
+    return;
+  }
+  mapHit = Math.max(0, Math.min(mapHit, hits.length - 1));
+  box.hidden = false;
+  box.replaceChildren(...hits.map((name, i) => el('button', {
+    type: 'button',
+    class: i === mapHit ? 'on' : '',
+    text: name,
+    onmousedown: (event) => {
+      event.preventDefault();
+      openMap(name);
+    },
+  })));
+}
+
+function pickMapHit() {
+  const q = $('map-account').value.trim().toLowerCase();
+  const exact = mapNames().find((name) => name.toLowerCase() === q);
+  const hits = mapQueryHits();
+  const choice = exact || (hits.length === 1 ? hits[0] : hits[mapHit]);
+  if (choice) openMap(choice);
+  else $('map-account').value = mapFollow || '';
+}
+
+function openMap(name) {
+  const same = mapFollow === name && !$('map-modal').hidden;
+  mapFollow = name;
+  $('map-modal').hidden = false;
+  hideMapHits();
+  $('map-account').value = name;
+  $('map-tab').href = mapUrl(name);
+  if (!same) $('map-frame').src = mapUrl(name);
+  $('map-body').replaceChildren(el('p', { class: 'note', text: 'Loading…' }));
+  loadMapCard(name).catch((err) => {
+    if (mapFollow === name) $('map-body').replaceChildren(el('p', { text: err.message }));
+  });
+  if (mapTimer) clearInterval(mapTimer);
+  mapTimer = setInterval(() => {
+    if ($('map-modal').hidden || !mapFollow) return;
+    loadMapCard(mapFollow).catch(() => undefined);
+  }, 8000);
+}
+
+function skillLevel(levels, name) {
+  if (!levels) return null;
+  if (levels[name] != null) return levels[name];
+  const aliases = name === 'Runecraft' ? ['runecraft', 'runecrafting'] : [name.toLowerCase()];
+  for (const [key, value] of Object.entries(levels)) {
+    if (aliases.includes(key.toLowerCase())) return value;
+  }
+  return null;
+}
+
+function age(ms) {
+  if (ms == null || Number.isNaN(ms)) return '';
+  if (ms < 1500) return 'now';
+  const s = Math.round(ms / 1000);
+  if (s < 90) return `${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 90) return `${m}m`;
+  return `${Math.round(m / 60)}h`;
+}
+
+function kindClass(kind) {
+  if (kind === 'producing') return 'producing';
+  if (kind === 'paused') return 'paused';
+  if (kind === 'restartable' || kind === 'finished') return 'warn';
+  return 'bad';
+}
+
+function rates(bot) {
+  const xp = Object.entries(bot.xpPerHour || {})
+    .filter(([, value]) => value > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([name, value]) => `${name.slice(0, 4)} ${Math.round(value).toLocaleString()}/h`);
+  if (bot.gpPerHour) xp.push(`${Math.round(bot.gpPerHour).toLocaleString()} gp/h`);
+  return xp.join(' · ');
+}
+
+function rateLabel(bot) {
+  const top = Object.entries(bot.xpPerHour || {})
+    .filter(([, value]) => value > 0)
+    .sort((a, b) => b[1] - a[1])[0];
+  if (top) return `${shortNum(top[1])}/h`;
+  if (bot.gpPerHour) return `${shortNum(bot.gpPerHour)} gp`;
+  return '';
+}
+
+function canonSkill(name) {
+  const want = String(name).toLowerCase();
+  for (const [full] of SKILLS) if (full.toLowerCase() === want) return full;
+  if (want.startsWith('runecraft')) return 'Runecraft';
+  return null;
+}
+
+function skillIcon(name) {
+  const icon = el('i', { class: name === 'Runecraft' ? 'si rc' : 'si', 'aria-hidden': 'true' });
+  const index = ICON[name];
+  if (index != null) {
+    icon.style.backgroundPosition = `${-(index % 6) * 16}px ${-Math.floor(index / 6) * 16}px`;
+  }
+  return icon;
+}
+
+function hotSkills(bot) {
+  const hot = new Set();
+  for (const [name, value] of Object.entries(bot.xpPerHour || {})) {
+    if (value > 0) {
+      const canon = canonSkill(name);
+      if (canon) hot.add(canon);
+    }
+  }
+  const file = (bot.script || '').split('/').pop();
+  for (const name of SCRIPT_SKILLS[file] || []) hot.add(name);
+  return hot;
+}
+
+function skillStrip(bot) {
+  const hot = hotSkills(bot);
+  const extra = [...hot].filter((name) => !COMBAT.includes(name));
+  const wrap = el('div', {
+    class: 'skills',
+    title: bot.levels ? 'Combat and the skill this account is training. Click for every skill.' : 'No client levels on the latest heartbeat',
+  });
+  const add = (name, extraClass) => {
+    const level = skillLevel(bot.levels, name);
+    const chip = el('span', {
+      class: `skill${hot.has(name) ? ' hot' : ''}${level === 99 ? ' max' : ''}${extraClass ? ' ' + extraClass : ''}`,
+      title: `${name} ${level ?? '—'}`,
+    });
+    chip.append(skillIcon(name), el('b', { text: level == null ? '–' : String(level) }));
+    wrap.append(chip);
+  };
+  for (const name of COMBAT) add(name);
+  for (const name of extra) add(name, 'extra');
+  wrap.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openSkillPop(bot, wrap);
+  });
+  return wrap;
+}
+
+function openSkillPop(bot, anchor) {
+  const pop = $('skill-pop');
+  if (pop.dataset.name === bot.name && !pop.hidden) {
+    pop.hidden = true;
+    return;
+  }
+  pop.dataset.name = bot.name;
+  const items = SKILLS.map(([name]) => {
+    const level = skillLevel(bot.levels, name);
+    return el('div', { class: 'pop-skill' }, [
+      skillIcon(name),
+      el('span', { text: name }),
+      el('b', { class: level === 99 ? 'lvl99' : level === 1 ? 'lvl1' : '', text: level == null ? '—' : String(level) }),
+    ]);
+  });
+  pop.replaceChildren(el('h3', { text: bot.levels ? `${bot.name} skills` : `${bot.name} — no client levels yet` }), ...items);
+  pop.hidden = false;
+  const rect = anchor.getBoundingClientRect();
+  pop.style.left = '0px';
+  pop.style.top = '0px';
+  let left = Math.min(rect.left, window.innerWidth - pop.offsetWidth - 8);
+  let top = rect.bottom + 4;
+  if (top + pop.offsetHeight > window.innerHeight - 8) top = Math.max(8, rect.top - pop.offsetHeight - 4);
+  pop.style.left = `${Math.max(8, left)}px`;
+  pop.style.top = `${top}px`;
+}
+
+function shortNum(value) {
+  const n = Math.round(value);
+  if (Math.abs(n) >= 10000) return `${Math.round(n / 1000)}k`;
+  if (Math.abs(n) >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+function el(tag, attrs, children) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs || {})) {
+    if (key === 'class') node.className = value;
+    else if (key === 'text') node.textContent = value;
+    else if (key.startsWith('on') && typeof value === 'function') node.addEventListener(key.slice(2), value);
+    else if (value != null) node.setAttribute(key, value);
+  }
+  for (const child of children || []) node.append(child);
+  return node;
+}
+
+function visibleBots() {
+  const q = $('q').value.trim().toLowerCase();
+  const view = $('view').value;
+  const kind = $('kind').value;
+  return (state.fleet?.bots || []).filter((bot) => {
+    if (view !== 'all' && bot.view !== view) return false;
+    if (kind === 'not' && (bot.kind === 'producing' || bot.kind === 'paused')) return false;
+    if (kind === 'producing' && bot.kind !== 'producing') return false;
+    if (kind === 'paused' && bot.kind !== 'paused') return false;
+    if (!q) return true;
+    return [bot.name, bot.view, bot.kind, bot.reason, bot.script, bot.extra, bot.area].join(' ').toLowerCase().includes(q);
+  });
+}
+
+function scriptSelect(bot) {
+  const edit = state.edits.get(bot.name);
+  const select = el('select', { 'aria-label': `${bot.name} script`, title: edit?.script || bot.script });
+  const scripts = state.fleet.scripts.slice();
+  if (bot.script && !scripts.includes(bot.script)) scripts.push(bot.script);
+  for (const script of scripts) {
+    const option = el('option', { value: script, text: script.replace('bots/quests/', '').replace(/\.ts$/, '') });
+    if (script === (edit?.script || bot.script)) option.selected = true;
+    select.append(option);
+  }
+  select.addEventListener('change', () => rememberEdit(bot));
+  return select;
+}
+
+function rememberEdit(bot) {
+  const row = document.querySelector(`tr[data-name="${CSS.escape(bot.name)}"]`);
+  if (!row) return;
+  state.edits.set(bot.name, {
+    script: row.querySelector('select').value,
+    extra: row.querySelector('input.extra').value,
+  });
+}
+
+function actionButton(label, className, onClick) {
+  return el('button', { type: 'button', class: className, text: label, onclick: onClick });
+}
+
+const ICONS = {
+  chrome: `<svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="22" fill="#fff"/><path fill="#DB4437" d="M24 4a22 22 0 0 1 15.4 6.4H24l-5.2 9L9.2 11.2A22 22 0 0 1 24 4z"/><path fill="#0F9D58" d="M9.2 11.2A22 22 0 0 0 24 46l5.2-9L24 24 9.2 11.2z"/><path fill="#F4B400" d="M39.4 10.4A22 22 0 0 1 24 46l5.2-9H24l5.2-9h10.2z"/><circle cx="24" cy="24" r="8" fill="#4285F4"/><circle cx="24" cy="24" r="4.6" fill="#fff"/><circle cx="24" cy="24" r="3" fill="#4285F4"/></svg>`,
+  lite: `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3.2 2.4L7 14M12.2 15H17"/></svg>`,
+  stop: `<span class="emoji" aria-hidden="true">🛑</span>`,
+  reset: `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4.5V10h-5.5"/></svg>`,
+  pause: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="4.5" width="4" height="15" rx="1" fill="currentColor"/><rect x="14" y="4.5" width="4" height="15" rx="1" fill="currentColor"/></svg>`,
+  play: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2l11 6.8-11 6.8V5.2z" fill="currentColor"/></svg>`,
+  bank: `<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="17.2" rx="7" ry="2.5" fill="#a67c2d"/><ellipse cx="12" cy="14.6" rx="7" ry="2.5" fill="#c4923a"/><ellipse cx="12" cy="12" rx="7" ry="2.5" fill="#e2a85a"/><ellipse cx="12" cy="9.4" rx="7" ry="2.5" fill="#f3d7a1"/><ellipse cx="12" cy="9.4" rx="3.4" ry="1.15" fill="none" stroke="#8a6230" stroke-width="0.7"/></svg>`,
+  live: `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 8.5h3.2L9.4 6h5.2l2.2 2.5H20v9.5H4V8.5z"/><circle cx="12" cy="13" r="2.7"/></svg>`,
+  log: `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"><path d="M7 3.5h8.2L19 7.2V20.5H7V3.5z"/><path d="M15 3.5V7.4H19M9.2 12h5.6M9.2 15.5h5.6"/></svg>`,
+};
+
+function iconButton(icon, title, className, onClick) {
+  const button = el('button', {
+    type: 'button',
+    class: className ? `icon ${className}` : 'icon',
+    title,
+    'aria-label': title,
+    onclick: onClick,
+  });
+  button.innerHTML = icon;
+  return button;
+}
+
+function renderFleet(opts) {
+  const typing = !opts?.force && document.activeElement && document.activeElement.closest('#fleet');
+  if (typing) return;
+  $('skill-pop').hidden = true;
+  const body = document.querySelector('#fleet tbody');
+  body.replaceChildren();
+  for (const bot of visibleBots()) {
+    const edit = state.edits.get(bot.name);
+    // Stale rule matches the classifier: stateAge > 8s means the coords may be
+    // a frozen gateway snapshot (the Catherby-while-at-Yanille case), so the
+    // cell says STALE instead of posing as a position.
+    const FRESH_MS = 8000;
+    const stale = bot.stateAge == null || bot.stateAge > FRESH_MS;
+    const where = bot.stateAge == null
+      ? 'no state'
+      : stale
+        ? `STALE ${age(bot.stateAge)}`
+        : (bot.area || (bot.x == null ? 'Map' : `${bot.x}, ${bot.z}`));
+    const ageNote = bot.stateAge == null ? 'no state yet' : age(bot.stateAge);
+    const coordNote = bot.x == null ? '' : `${bot.x}, ${bot.z}`;
+    const rowClass = bot.kind === 'producing' ? 'producing' : bot.kind === 'paused' ? 'paused' : 'bad';
+    const select = scriptSelect(bot);
+    const extra = el('input', {
+      class: 'extra',
+      type: 'text',
+      value: edit?.extra ?? bot.extra,
+      placeholder: 'args',
+      'aria-label': `${bot.name} args`,
+    });
+    extra.addEventListener('input', () => rememberEdit(bot));
+    const apply = actionButton('Set', 'primary', () => applyScript(bot.name));
+    apply.title = 'Save this script and switch the launch agent (drains to a bank first)';
+    const maxR = state.fleet.maxRestarts ?? 4;
+    const capped = bot.shepherdCapped || (bot.relaunches1h != null && bot.relaunches1h >= maxR);
+    const pos = mapAnchor(bot.name, where);
+    pos.title = [coordNote, ageNote ? `state ${ageNote}` : '', `${bot.kind}: ${bot.reason}`, 'Open the map'].filter(Boolean).join(' · ');
+    const resetBtn = iconButton(ICONS.reset, capped ? `Restart budget spent (${bot.relaunches1h ?? maxR}/${maxR}) — wait for the hour to roll` : 'Restart the roster script', '', () => run(bot.name, 'restart', `Restart ${bot.name} on its roster script?`));
+    if (capped) resetBtn.disabled = true;
+    const actions = el('div', { class: 'actions' }, [
+      iconButton(ICONS.chrome, 'Open Chrome', '', () => run(bot.name, 'chrome', `Open Chrome for ${bot.name}? Lite stops, then the grind restarts once the window is in game.`)),
+      iconButton(ICONS.lite, 'Back to lite', '', () => run(bot.name, 'lite', `Move ${bot.name} back to the headless client?`)),
+      iconButton(ICONS.stop, 'Stop the script (drains to a bank first)', 'danger', () => run(bot.name, 'stop', `Stop ${bot.name}? It banks first, then launchd leaves it stopped.`)),
+      resetBtn,
+      iconButton(bot.paused ? ICONS.play : ICONS.pause, bot.paused ? 'Unpause' : 'Pause', '', () => togglePause(bot)),
+      iconButton(ICONS.bank, 'Bank', '', () => openBank(bot.name)),
+      iconButton(ICONS.live, 'Inventory, worn gear, nearby, and chat', '', () => openState(bot.name)),
+      iconButton(ICONS.log, 'Log tail', '', () => openLog(bot.name)),
+    ]);
+    const nameBits = [
+      el('span', { class: `dot ${kindClass(bot.kind)}` }),
+      el('button', {
+        type: 'button',
+        class: 'name-btn',
+        text: bot.name,
+        title: `Open map · ${bot.kind}: ${bot.reason}`,
+        onclick: () => openMap(bot.name),
+      }),
+    ];
+    if (bot.pauseSource === 'food-hub') {
+      nameBits.push(el('span', { class: 'badge hub', text: 'hub', title: 'Paused by the food-hub lock. skip-bots will not release it.' }));
+    }
+    const account = el('td', { class: 'account' }, [
+      el('div', { class: 'name', title: `${bot.kind}: ${bot.reason}` }, nameBits),
+    ]);
+    const rate = rates(bot);
+    const effectNote = bot.minutesSinceEffect == null ? 'no effect yet' : `effect ${bot.minutesSinceEffect}m ago`;
+    const rateTitle = [rate, effectNote, bot.lastExit ? `last exit ${bot.lastExit}` : '', `${bot.kind}: ${bot.reason}`].filter(Boolean).join(' · ');
+    const rateCell = el('td', { title: rateTitle });
+    rateCell.append(el('div', { text: rateLabel(bot) }));
+    const subBits = [];
+    if (bot.minutesSinceEffect != null || bot.kind !== 'producing') subBits.push(bot.minutesSinceEffect == null ? 'no effect yet' : `effect ${bot.minutesSinceEffect}m ago`);
+    if (bot.relaunches1h != null && bot.relaunches1h >= Math.max(1, maxR - 1)) subBits.push(`↻ ${bot.relaunches1h}/${maxR}`);
+    if (subBits.length) {
+      const hot = bot.kind !== 'producing' || (bot.relaunches1h != null && bot.relaunches1h >= maxR - 1);
+      rateCell.append(el('div', { class: hot ? 'sub-line hot' : 'sub-line', text: subBits.join(' · ') }));
+    }
+    const posCell = el('td', { class: stale ? 'pos stale' : 'pos' }, [pos]);
+    const tr = el('tr', { class: rowClass, 'data-name': bot.name }, [
+      account,
+      posCell,
+      el('td', {}, [skillStrip(bot)]),
+      el('td', {}, [el('div', { class: 'script-cell' }, [select, extra, apply])]),
+      rateCell,
+      el('td', {}, [actions]),
+    ]);
+    body.append(tr);
+  }
+}
+
+function renderStats() {
+  const head = $('stats-head');
+  head.replaceChildren(
+    el('th', { class: 'account', text: 'Account' }),
+    el('th', { class: 'num', text: 'Tot' }),
+    ...SKILLS.map(([name]) => {
+      const th = el('th', { class: 'num', title: name });
+      th.append(skillIcon(name));
+      return th;
+    })
+  );
+  const body = document.querySelector('#stats tbody');
+  body.replaceChildren();
+  for (const bot of visibleBots()) {
+    const cells = SKILLS.map(([name]) => {
+      const value = skillLevel(bot.levels, name);
+      const cls = value === 99 ? 'num lvl99' : value === 1 ? 'num lvl1' : 'num';
+      return el('td', { class: cls, text: value == null ? '' : String(value) });
+    });
+    const total = bot.levels
+      ? SKILLS.reduce((sum, [name]) => sum + (skillLevel(bot.levels, name) || 0), 0)
+      : null;
+    body.append(el('tr', {}, [
+      el('td', { class: 'account' }, [
+        el('button', {
+          type: 'button',
+          class: 'name-btn',
+          text: bot.name,
+          title: 'Open map',
+          onclick: () => openMap(bot.name),
+        }),
+        el('div', { class: 'muted', text: bot.levels ? bot.view : 'no client levels on the latest heartbeat' }),
+      ]),
+      el('td', { class: 'num', text: total == null ? '—' : String(total) }),
+      ...cells,
+    ]));
+  }
+}
+
+function render(opts) {
+  const fleet = state.fleet;
+  if (!fleet) return;
+  const wrap = document.querySelector('.wrap');
+  const scrollTop = wrap.scrollTop;
+  const scrollLeft = wrap.scrollLeft;
+  const headline = $('headline');
+  headline.textContent = fleet.headline;
+  headline.className = fleet.notProducing.length || fleet.gatewayDown ? 'headline bad' : 'headline';
+  const banner = $('gateway-banner');
+  if (fleet.gatewayDown) {
+    banner.hidden = false;
+    banner.textContent = `Gateway unreachable — positions and states are frozen, not live. Don't restart the fleet for this; fix the gateway connection first.${fleet.gatewayError ? ` (${fleet.gatewayError})` : ''}`;
+  } else {
+    banner.hidden = true;
+    banner.textContent = '';
+  }
+  const when = new Date(fleet.generatedAt).toLocaleTimeString();
+  const dataAgeMs = Date.now() - new Date(fleet.generatedAt).getTime();
+  const dataAge = dataAgeMs > 10000 ? ` · data ${age(dataAgeMs)} old` : '';
+  const skipped = fleet.paused ? `${fleet.paused} paused` : 'none paused';
+  const listed = fleet.notProducing.slice(0, 8);
+  const extra = fleet.notProducing.length - listed.length;
+  const names = fleet.notProducing.length
+    ? `${listed.join(', ')}${extra > 0 ? ` +${extra}` : ''}`
+    : 'the rest are producing or paused';
+  $('sub').textContent = `${skipped} · snapshot ${when}${dataAge} · ${names}`;
+  const view = $('view');
+  const current = view.value || 'all';
+  view.replaceChildren(el('option', { value: 'all', text: 'All views' }));
+  for (const name of fleet.views) view.append(el('option', { value: name, text: name }));
+  view.value = [...view.options].some((option) => option.value === current) ? current : 'all';
+  $('fleet').hidden = state.tab !== 'fleet';
+  $('stats').hidden = state.tab !== 'stats';
+  if (state.tab === 'fleet') renderFleet(opts);
+  else renderStats();
+  wrap.scrollTop = scrollTop;
+  wrap.scrollLeft = scrollLeft;
+}
+
+let loadSeq = 0;
+let refreshing = false;
+
+async function loadFleet(fresh = false) {
+  const seq = ++loadSeq;
+  const res = await fetch(fresh ? '/api/fleet?fresh=1' : '/api/fleet');
+  const body = await res.json();
+  if (seq !== loadSeq) return;
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  state.fleet = body;
+  render(fresh ? { force: true } : undefined);
+}
+
+function setRefreshing(on) {
+  refreshing = on;
+  const btn = $('refresh');
+  btn.disabled = on;
+  btn.classList.toggle('busy', on);
+  btn.setAttribute('aria-busy', String(on));
+}
+
+async function refreshNow() {
+  if (refreshing) return;
+  setRefreshing(true);
+  try {
+    await loadFleet(true);
+  } catch (err) {
+    showToast('Refresh failed', err.message, 'bad');
+  } finally {
+    setRefreshing(false);
+  }
+}
+
+function showToast(title, detail, tone) {
+  const box = el('div', { class: 'toast' }, [
+    el('strong', { text: title }),
+    el('pre', { text: detail || '' }),
+  ]);
+  if (tone === 'bad') box.style.borderColor = 'var(--bad)';
+  $('toast').prepend(box);
+  while ($('toast').children.length > 4) $('toast').lastChild.remove();
+  return box;
+}
+
+function track(job) {
+  if (!job?.id) return Promise.resolve();
+  state.jobs.set(job.id, job);
+  const card = showToast(`${job.name} ${job.action}`, 'Running…');
+  return new Promise((resolve) => {
+    const tick = async () => {
+      const res = await fetch(`/api/jobs/${job.id}`);
+      const next = await res.json();
+      if (!res.ok) {
+        resolve();
+        return;
+      }
+      state.jobs.set(job.id, next);
+      const title = card.querySelector('strong');
+      const pre = card.querySelector('pre');
+      if (title) title.textContent = `${next.name} ${next.action} ${next.status === 'running' ? '' : next.status}`.trim();
+      if (pre) pre.textContent = (next.output || next.status).trim();
+      if (next.status === 'failed') card.style.borderColor = 'var(--bad)';
+      if (next.status === 'running') {
+        setTimeout(tick, 1000);
+        return;
+      }
+      resolve();
+      loadFleet().catch((err) => showToast('Refresh failed', err.message, 'bad'));
+    };
+    setTimeout(tick, 800);
+  });
+}
+
+async function checkBanks() {
+  const btn = $('banks');
+  if (btn.disabled) return;
+  if (!confirm('Stop every running grind, log in accounts that have no live client, open every roster bank, then start those grinds again?\n\nskip-bots are not force-logged in. Paused accounts are checked and left stopped.')) return;
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/fleet/banks', { method: 'POST' });
+    const body = await res.json();
+    if (!res.ok) {
+      showToast('Check banks', body.error || res.statusText, 'bad');
+      return;
+    }
+    await track(body);
+  } catch (err) {
+    showToast('Check banks', err.message, 'bad');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function run(name, action, confirmText) {
+  if (confirmText && !confirm(confirmText)) return;
+  const res = await fetch(`/api/bots/${encodeURIComponent(name)}/${action}`, { method: 'POST' });
+  const body = await res.json();
+  if (!res.ok) {
+    showToast(`${name} ${action}`, body.error || res.statusText, 'bad');
+    return;
+  }
+  track(body);
+}
+
+async function applyScript(name) {
+  const row = document.querySelector(`tr[data-name="${CSS.escape(name)}"]`);
+  const script = row.querySelector('select').value;
+  const extra = row.querySelector('input.extra').value.trim();
+  const label = script.replace('bots/quests/', '');
+  if (!confirm(`Switch ${name} to ${label}${extra ? ' ' + extra : ''}? It banks first, then starts the new job from a bank.`)) return;
+  const res = await fetch(`/api/bots/${encodeURIComponent(name)}/script`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ script, extra }),
+  });
+  const body = await res.json();
+  if (!res.ok) {
+    showToast(`${name} script`, body.error || res.statusText, 'bad');
+    return;
+  }
+  state.edits.delete(name);
+  if (body.paused) showToast(name, 'Saved. Still paused, so the script was not started.');
+  else track(body.job);
+}
+
+async function togglePause(bot) {
+  const pausing = !bot.paused;
+  const text = pausing
+    ? `Pause ${bot.name}? They go on skip-bots and the script stops.`
+    : `Unpause ${bot.name}? They stay stopped until you hit Restart.`;
+  if (!confirm(text)) return;
+  const res = await fetch(`/api/bots/${encodeURIComponent(bot.name)}/pause`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ paused: pausing }),
+  });
+  const body = await res.json();
+  if (!res.ok) {
+    showToast(bot.name, body.error || res.statusText, 'bad');
+    return;
+  }
+  if (body.job) track(body.job);
+  else {
+    showToast(bot.name, pausing ? 'Paused' : 'Unpaused');
+    loadFleet().catch((err) => showToast('Refresh failed', err.message, 'bad'));
+  }
+}
+
+function openPanel(title, tools) {
+  $('panel').hidden = false;
+  $('panel-title').textContent = title;
+  $('panel-tools').replaceChildren(...(tools || []));
+  $('panel-body').replaceChildren(el('p', { class: 'note', text: 'Loading…' }));
+}
+
+async function openBank(name) {
+  openPanel(`${name} bank`, [
+    mapAnchor(name, 'Map'),
+  ]);
+  const res = await fetch(`/api/bots/${encodeURIComponent(name)}/bank`);
+  const body = await res.json();
+  if (!res.ok) {
+    $('panel-body').replaceChildren(el('p', { text: body.error || 'Bank failed' }));
+    return;
+  }
+  const note = body.source === 'live'
+    ? 'Bank is open on the live client.'
+    : body.source === 'snapshot'
+      ? `Last snapshot ${new Date(body.capturedAt).toLocaleString()}${body.stale ? ' · older than a day' : ''}. The bank is closed right now, so this is the saved copy.`
+      : 'No bank snapshot yet. This page does not walk the account to a bank.';
+  const filter = el('input', { type: 'search', placeholder: 'Filter items', style: 'margin-bottom:8px;width:100%' });
+  const table = el('table', { class: 'bank-table' });
+  const renderItems = () => {
+    const q = filter.value.trim().toLowerCase();
+    const items = body.items
+      .filter((item) => item.name.toLowerCase().includes(q))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    table.replaceChildren(
+      el('thead', {}, [el('tr', {}, [el('th', { text: 'Item' }), el('th', { text: 'Count' })])]),
+      el('tbody', {}, items.map((item) => el('tr', {}, [
+        el('td', { text: item.name }),
+        el('td', { text: item.count.toLocaleString() }),
+      ])))
+    );
+  };
+  filter.addEventListener('input', renderItems);
+  renderItems();
+  $('panel-body').replaceChildren(el('p', { class: 'note', text: note }), filter, table);
+}
+
+function itemIcon(item) {
+  if (item == null || item.id == null) return el('span', { class: 'item-icon none' });
+  const img = el('img', {
+    class: 'item-icon',
+    src: `/api/item-icon/${item.id}.png`,
+    alt: '',
+    loading: 'lazy',
+    title: `${item.name} (#${item.id})`,
+  });
+  img.addEventListener('error', () => img.remove());
+  return img;
+}
+
+function itemTable(items) {
+  const table = el('table', { class: 'bank-table' });
+  table.append(
+    el('thead', {}, [el('tr', {}, [el('th', { text: '' }), el('th', { text: 'Item' }), el('th', { text: 'Count' })])]),
+    el('tbody', {}, (items || []).map((item) => el('tr', {}, [
+      el('td', { class: 'icon-cell' }, [itemIcon(item)]),
+      el('td', { text: item.name }),
+      el('td', { text: Number(item.count || 0).toLocaleString() }),
+    ])))
+  );
+  return table;
+}
+
+function sceneRows(rows) {
+  return el('div', {}, rows.map((row) => el('div', { class: 'scene-line', text: row })));
+}
+
+function block(title, node) {
+  return el('section', { class: 'block' }, [
+    el('h3', { text: title }),
+    node,
+  ]);
+}
+
+function liveSkills(skills) {
+  const order = SKILLS.map(([name]) => name);
+  const byName = new Map((skills || []).map((entry) => [entry.name, entry]));
+  const row = el('div', { class: 'live-skills' });
+  const add = (name) => {
+    const skill = byName.get(name);
+    if (!skill) return;
+    const boosted = skill.level !== skill.baseLevel;
+    const chip = el('span', {
+      class: `skill${skill.baseLevel === 99 ? ' max' : ''}`,
+      title: `${name} ${skill.level}/${skill.baseLevel}  ${Number(skill.xp || 0).toLocaleString()} xp`,
+    });
+    chip.append(...(ICON[name] != null || name === 'Runecraft' ? [skillIcon(name)] : []), el('b', { text: boosted ? `${skill.level}/${skill.baseLevel}` : String(skill.baseLevel) }));
+    row.append(chip);
+  };
+  for (const name of order) add(name);
+  for (const entry of skills || []) {
+    if (!order.includes(entry.name)) add(entry.name);
+  }
+  return row;
+}
+
+function moreRows(rows, total) {
+  if (total > rows.length) rows.push(`+${total - rows.length} more`);
+  return rows.length ? sceneRows(rows) : el('p', { class: 'note', text: 'None' });
+}
+
+function renderChrome(body) {
+  if (body.error) return [el('p', { text: body.error })];
+  const view = body.view;
+  if (!view) return [el('pre', { text: body.text || 'No state' })];
+  const player = view.player;
+  const place = body.area ? `${body.area}  ` : '';
+  const where = player ? `${player.name}  Cb ${player.combatLevel}  ${place}(${player.x}, ${player.z})  run ${player.runEnergy}%  ${player.runWeight}kg` : 'Not in game';
+  const flags = [
+    view.inGame ? '' : 'Not in game',
+    player?.dead ? 'Dead' : '',
+    view.bankOpen ? 'Bank open' : '',
+    view.shop ? `Shop: ${view.shop}` : '',
+    view.trade ? `Trade: ${view.trade}` : '',
+    body.stateAge > 8000 ? 'Stale snapshot' : '',
+  ].filter(Boolean);
+  const inventory = [...(view.inventory || [])].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  const npcRows = view.npcs.map((npc) => {
+    const lvl = npc.combatLevel > 0 ? `Lv${npc.combatLevel}` : '';
+    const hp = npc.hp != null && npc.maxHp != null ? `${npc.hp}/${npc.maxHp}` : '';
+    const opts = npc.options ? `[${npc.options}]` : '';
+    return `${npc.name}  ${lvl}  ${hp}  ${npc.distance}t  ${opts}`.replace(/ +/g, ' ').trim();
+  });
+  const playerRows = view.players.map((other) => `${other.name}  Cb ${other.combatLevel}  ${other.distance}t`);
+  const objectRows = view.objects.map((loc) => `${loc.name}  (${loc.x}, ${loc.z})  ${loc.distance}t${loc.options ? `  [${loc.options}]` : ''}`);
+  const groundRows = view.ground.map((item) => `${item.name}  x${item.count}  ${item.distance}t`);
+  const chat = [...(view.dialogOpen.length ? [`Dialog: ${view.dialogOpen.join(' · ')}`] : []), ...(view.messages || [])];
+  const raw = el('details', { class: 'raw' }, [
+    el('summary', { text: 'Raw text' }),
+    el('pre', { text: body.text || '' }),
+  ]);
+  return [
+    el('p', { class: 'who', text: where }),
+    flags.length ? el('p', { class: 'note', text: flags.join(' · ') }) : el('span'),
+    liveSkills(view.skills),
+    el('div', { class: 'split' }, [
+      block(`Inventory ${inventory.length}`, inventory.length ? itemTable(inventory) : el('p', { class: 'note', text: 'Empty' })),
+      block(`Worn ${view.worn.length}`, view.worn.length ? itemTable(view.worn) : el('p', { class: 'note', text: 'Nothing worn' })),
+    ]),
+    block(`NPCs ${view.npcCount}`, moreRows(npcRows.slice(0, 6), view.npcCount)),
+    block(`Players ${view.playerCount}`, moreRows(playerRows.slice(0, 5), view.playerCount)),
+    block(`Objects ${view.objectCount}`, moreRows(objectRows.slice(0, 6), view.objectCount)),
+    block(`Ground ${view.groundCount}`, moreRows(groundRows.slice(0, 5), view.groundCount)),
+    block('Chat', chat.length ? sceneRows(chat) : el('p', { class: 'note', text: 'None' })),
+    block('Dialogs', view.dialogs.length ? sceneRows(view.dialogs) : el('p', { class: 'note', text: 'None' })),
+    raw,
+  ];
+}
+
+async function openState(name) {
+  const paint = (payload) => {
+    $('panel-body').replaceChildren(...renderChrome(payload));
+  };
+  const load = async () => {
+    $('panel-body').replaceChildren(el('p', { class: 'note', text: 'Loading…' }));
+    const res = await fetch(`/api/bots/${encodeURIComponent(name)}/state`);
+    const payload = await res.json();
+    paint(payload);
+    return payload;
+  };
+  let payload = null;
+  openPanel(name, [
+    mapAnchor(name, 'Map'),
+    actionButton('Refresh', '', async () => { payload = await load(); }),
+    actionButton('Copy', '', async () => {
+      await navigator.clipboard.writeText(payload?.text || $('panel-body').innerText);
+      showToast(name, 'State copied');
+    }),
+  ]);
+  payload = await load();
+}
+
+async function openLog(name, which) {
+  const kinds = [
+    ['grind', 'Grind'],
+    ['out', 'Out'],
+    ['err', 'Err'],
+    ['lite', 'Lite'],
+    ['lite-err', 'Lite err'],
+  ];
+  const current = which || 'grind';
+  const tools = kinds.map(([id, label]) => {
+    const button = actionButton(label, id === current ? 'primary' : '', () => openLog(name, id));
+    return button;
+  });
+  openPanel(`${name} log`, tools);
+  const res = await fetch(`/api/bots/${encodeURIComponent(name)}/log?which=${current}&lines=180`);
+  const body = await res.json();
+  const text = !res.ok ? (body.error || 'Log failed') : body.missing ? 'No log file yet.' : (body.lines || []).join('\n');
+  const pre = el('pre', { text });
+  $('panel-body').replaceChildren(pre);
+  pre.scrollTop = pre.scrollHeight;
+}
+
+function setTab(tab) {
+  state.tab = tab;
+  $('tab-fleet').setAttribute('aria-pressed', String(tab === 'fleet'));
+  $('tab-stats').setAttribute('aria-pressed', String(tab === 'stats'));
+  render();
+}
+
+$('tab-fleet').onclick = () => setTab('fleet');
+$('tab-stats').onclick = () => setTab('stats');
+$('q').addEventListener('input', render);
+$('view').addEventListener('change', render);
+$('kind').addEventListener('change', render);
+$('refresh').onclick = () => { refreshNow(); };
+$('panel-close').onclick = () => { $('panel').hidden = true; };
+$('map-close').onclick = () => closeMap();
+$('map-account').addEventListener('focus', () => $('map-account').select());
+$('map-account').addEventListener('input', () => { mapHit = 0; renderMapHits(); });
+$('map-account').addEventListener('keydown', (event) => {
+  const hits = mapQueryHits();
+  if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    mapHit = $('map-hits').hidden ? 0 : Math.min(mapHit + 1, Math.max(hits.length - 1, 0));
+    renderMapHits();
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    mapHit = Math.max(mapHit - 1, 0);
+    renderMapHits();
+  } else if (event.key === 'Enter') {
+    event.preventDefault();
+    pickMapHit();
+  } else if (event.key === 'Escape' && (!$('map-hits').hidden || $('map-account').value !== mapFollow)) {
+    event.stopPropagation();
+    $('map-account').value = mapFollow || '';
+    hideMapHits();
+  }
+});
+$('map-account').addEventListener('blur', () => {
+  setTimeout(() => {
+    if (document.activeElement === $('map-account')) return;
+    if (mapFollow) $('map-account').value = mapFollow;
+    hideMapHits();
+  }, 0);
+});
+$('map-refresh').onclick = () => { if (mapFollow) loadMapCard(mapFollow).catch((err) => showToast(mapFollow, err.message, 'bad')); };
+$('skill-pop').addEventListener('click', (event) => event.stopPropagation());
+document.addEventListener('click', (event) => {
+  $('skill-pop').hidden = true;
+  if (!$('map-search').contains(event.target)) hideMapHits();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    if (!$('map-modal').hidden) closeMap();
+    $('panel').hidden = true;
+    $('skill-pop').hidden = true;
+  }
+  if (event.key === '/' && document.activeElement === document.body) {
+    event.preventDefault();
+    $('q').focus();
+  }
+});
+
+$('banks').onclick = () => { checkBanks(); };
+loadFleet().catch((err) => {
+  $('headline').textContent = 'Fleet desk could not load';
+  $('sub').textContent = err.message;
+});
+fetch('/api/jobs').then((res) => res.json()).then((jobs) => {
+  const bank = (jobs || []).find((job) => job.action === 'banks' && job.status === 'running');
+  if (!bank) return;
+  $('banks').disabled = true;
+  track(bank).finally(() => { $('banks').disabled = false; });
+}).catch(() => undefined);
+setInterval(() => {
+  if (document.hidden || refreshing) return;
+  loadFleet().catch(() => undefined);
+}, 20000);
+</script>
+</body>
+</html>
