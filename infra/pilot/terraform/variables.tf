@@ -17,9 +17,9 @@ variable "location" {
 }
 
 variable "server_type" {
-  description = "CPX22 (2 vCPU / 4 GB, ~6.50 EUR) fits the 1-bot pilot easily; the full 48-bot fleet measured ~3.1 GB, so step up to cpx32/cpx42 when migrating en masse. Resizing needs no rebuild."
+  description = "CPX32 (4 vCPU / 8 GB) holds the full 48-bot fleet (~3.1 GB measured) with headroom; cpx22 fits single-bot pilots. Resizing needs no rebuild."
   type        = string
-  default     = "cpx22"
+  default     = "cpx32"
 }
 
 variable "allowed_ssh_cidr" {

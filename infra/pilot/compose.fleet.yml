@@ -1,0 +1,1260 @@
+# GENERATED from bots/roster.json — do not edit by hand.
+# Regenerate: python3 infra/pilot/gen-compose.py > infra/pilot/compose.fleet.yml
+# Mirrors launchd per-bot pairs: restart ≈ KeepAlive, 700s quest drain ≈ ExitTimeOut.
+name: fleet
+
+x-runner: &runner
+  build:
+    context: ../..
+    dockerfile: infra/pilot/Dockerfile
+  image: fleet-pilot:latest
+
+services:
+  lite-abgarmy01:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY01"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY01:/opt/fleet/bots/ABGARMY01
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy01:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY01", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY01:/opt/fleet/bots/ABGARMY01
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy02:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY02"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY02:/opt/fleet/bots/ABGARMY02
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy02:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/druidic-ritual.ts", "ABGARMY02"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY02:/opt/fleet/bots/ABGARMY02
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy03:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY03"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY03:/opt/fleet/bots/ABGARMY03
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy03:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY03", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY03:/opt/fleet/bots/ABGARMY03
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy04:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY04"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY04:/opt/fleet/bots/ABGARMY04
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy04:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/druidic-ritual.ts", "ABGARMY04"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY04:/opt/fleet/bots/ABGARMY04
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy05:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY05"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY05:/opt/fleet/bots/ABGARMY05
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy05:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/druidic-ritual.ts", "ABGARMY05"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY05:/opt/fleet/bots/ABGARMY05
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy06:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY06"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY06:/opt/fleet/bots/ABGARMY06
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy06:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY06", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY06:/opt/fleet/bots/ABGARMY06
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy07:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY07"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY07:/opt/fleet/bots/ABGARMY07
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy07:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY07", "--tank=jacklove5", "--lead=jacklove5"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY07:/opt/fleet/bots/ABGARMY07
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy08:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY08"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY08:/opt/fleet/bots/ABGARMY08
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy08:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/druidic-ritual.ts", "ABGARMY08"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY08:/opt/fleet/bots/ABGARMY08
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy09:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY09"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY09:/opt/fleet/bots/ABGARMY09
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy09:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY09", "--tank=jacklove5", "--lead=jacklove5"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY09:/opt/fleet/bots/ABGARMY09
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy10:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY10"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY10:/opt/fleet/bots/ABGARMY10
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy10:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY10", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY10:/opt/fleet/bots/ABGARMY10
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy11:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY11"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY11:/opt/fleet/bots/ABGARMY11
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy11:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY11", "--tank=jacklove5", "--lead=jacklove5"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY11:/opt/fleet/bots/ABGARMY11
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy12:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY12"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY12:/opt/fleet/bots/ABGARMY12
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy12:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY12", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY12:/opt/fleet/bots/ABGARMY12
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy13:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY13"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY13:/opt/fleet/bots/ABGARMY13
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy13:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY13", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY13:/opt/fleet/bots/ABGARMY13
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy14:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY14"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY14:/opt/fleet/bots/ABGARMY14
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy14:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY14", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY14:/opt/fleet/bots/ABGARMY14
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy15:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY15"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY15:/opt/fleet/bots/ABGARMY15
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy15:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY15", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY15:/opt/fleet/bots/ABGARMY15
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy16:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY16"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY16:/opt/fleet/bots/ABGARMY16
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy16:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY16", "--tank=jacklove5", "--lead=jacklove5"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY16:/opt/fleet/bots/ABGARMY16
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy17:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY17"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY17:/opt/fleet/bots/ABGARMY17
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy17:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY17", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY17:/opt/fleet/bots/ABGARMY17
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy18:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY18"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY18:/opt/fleet/bots/ABGARMY18
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy18:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY18", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY18:/opt/fleet/bots/ABGARMY18
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy19:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY19"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY19:/opt/fleet/bots/ABGARMY19
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy19:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY19", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY19:/opt/fleet/bots/ABGARMY19
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy20:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY20"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY20:/opt/fleet/bots/ABGARMY20
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy20:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY20", "--tank=jacklove5", "--lead=jacklove5"]
+    volumes:
+      - /srv/fleet/bots/ABGARMY20:/opt/fleet/bots/ABGARMY20
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-fatpig:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "fatpig"]
+    volumes:
+      - /srv/fleet/bots/fatpig:/opt/fleet/bots/fatpig
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-fatpig:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/bowstrings.ts", "fatpig"]
+    volumes:
+      - /srv/fleet/bots/fatpig:/opt/fleet/bots/fatpig
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove1:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove1"]
+    volumes:
+      - /srv/fleet/bots/jacklove1:/opt/fleet/bots/jacklove1
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove1:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/druidic-ritual.ts", "jacklove1"]
+    volumes:
+      - /srv/fleet/bots/jacklove1:/opt/fleet/bots/jacklove1
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove10:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove10"]
+    volumes:
+      - /srv/fleet/bots/jacklove10:/opt/fleet/bots/jacklove10
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove10:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove10", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/jacklove10:/opt/fleet/bots/jacklove10
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove11:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove11"]
+    volumes:
+      - /srv/fleet/bots/jacklove11:/opt/fleet/bots/jacklove11
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove11:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove11", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/jacklove11:/opt/fleet/bots/jacklove11
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove12:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove12"]
+    volumes:
+      - /srv/fleet/bots/jacklove12:/opt/fleet/bots/jacklove12
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove12:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove12", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/jacklove12:/opt/fleet/bots/jacklove12
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove13:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove13"]
+    volumes:
+      - /srv/fleet/bots/jacklove13:/opt/fleet/bots/jacklove13
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove13:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove13", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/jacklove13:/opt/fleet/bots/jacklove13
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove14:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove14"]
+    volumes:
+      - /srv/fleet/bots/jacklove14:/opt/fleet/bots/jacklove14
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove14:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove14", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/jacklove14:/opt/fleet/bots/jacklove14
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove15:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove15"]
+    volumes:
+      - /srv/fleet/bots/jacklove15:/opt/fleet/bots/jacklove15
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove15:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove15", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/jacklove15:/opt/fleet/bots/jacklove15
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove16:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove16"]
+    volumes:
+      - /srv/fleet/bots/jacklove16:/opt/fleet/bots/jacklove16
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove16:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove16", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/jacklove16:/opt/fleet/bots/jacklove16
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove17:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove17"]
+    volumes:
+      - /srv/fleet/bots/jacklove17:/opt/fleet/bots/jacklove17
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove17:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove17", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/jacklove17:/opt/fleet/bots/jacklove17
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove18:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove18"]
+    volumes:
+      - /srv/fleet/bots/jacklove18:/opt/fleet/bots/jacklove18
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove18:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove18", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/jacklove18:/opt/fleet/bots/jacklove18
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove19:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove19"]
+    volumes:
+      - /srv/fleet/bots/jacklove19:/opt/fleet/bots/jacklove19
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove19:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove19", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/jacklove19:/opt/fleet/bots/jacklove19
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove2:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove2"]
+    volumes:
+      - /srv/fleet/bots/jacklove2:/opt/fleet/bots/jacklove2
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove2:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/red-dragons.ts", "jacklove2", "--tank=jacklove5", "--lead=jacklove5"]
+    volumes:
+      - /srv/fleet/bots/jacklove2:/opt/fleet/bots/jacklove2
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove20:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove20"]
+    volumes:
+      - /srv/fleet/bots/jacklove20:/opt/fleet/bots/jacklove20
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove20:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove20", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/jacklove20:/opt/fleet/bots/jacklove20
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove3:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove3"]
+    volumes:
+      - /srv/fleet/bots/jacklove3:/opt/fleet/bots/jacklove3
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove3:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/red-dragons.ts", "jacklove3", "--tank=jacklove5", "--lead=jacklove5"]
+    volumes:
+      - /srv/fleet/bots/jacklove3:/opt/fleet/bots/jacklove3
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove4:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove4"]
+    volumes:
+      - /srv/fleet/bots/jacklove4:/opt/fleet/bots/jacklove4
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove4:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/lost-city.ts", "jacklove4"]
+    volumes:
+      - /srv/fleet/bots/jacklove4:/opt/fleet/bots/jacklove4
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove5:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove5"]
+    volumes:
+      - /srv/fleet/bots/jacklove5:/opt/fleet/bots/jacklove5
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove5:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/red-dragons.ts", "jacklove5", "--tank=jacklove5", "--lead=jacklove5"]
+    volumes:
+      - /srv/fleet/bots/jacklove5:/opt/fleet/bots/jacklove5
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove6:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove6"]
+    volumes:
+      - /srv/fleet/bots/jacklove6:/opt/fleet/bots/jacklove6
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove6:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove6", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/jacklove6:/opt/fleet/bots/jacklove6
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove7:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove7"]
+    volumes:
+      - /srv/fleet/bots/jacklove7:/opt/fleet/bots/jacklove7
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove7:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove7", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/jacklove7:/opt/fleet/bots/jacklove7
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove8:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove8"]
+    volumes:
+      - /srv/fleet/bots/jacklove8:/opt/fleet/bots/jacklove8
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove8:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove8", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/jacklove8:/opt/fleet/bots/jacklove8
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove9:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove9"]
+    volumes:
+      - /srv/fleet/bots/jacklove9:/opt/fleet/bots/jacklove9
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove9:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove9", "--bignet"]
+    volumes:
+      - /srv/fleet/bots/jacklove9:/opt/fleet/bots/jacklove9
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jackpoo1:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "Jackpoo1"]
+    volumes:
+      - /srv/fleet/bots/Jackpoo1:/opt/fleet/bots/Jackpoo1
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jackpoo1:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/agility-route.ts", "Jackpoo1"]
+    volumes:
+      - /srv/fleet/bots/Jackpoo1:/opt/fleet/bots/Jackpoo1
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jackpoo2:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "Jackpoo2"]
+    volumes:
+      - /srv/fleet/bots/Jackpoo2:/opt/fleet/bots/Jackpoo2
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jackpoo2:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/agility-route.ts", "Jackpoo2"]
+    volumes:
+      - /srv/fleet/bots/Jackpoo2:/opt/fleet/bots/Jackpoo2
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jackpoo3:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "Jackpoo3"]
+    volumes:
+      - /srv/fleet/bots/Jackpoo3:/opt/fleet/bots/Jackpoo3
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jackpoo3:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/agility-route.ts", "Jackpoo3"]
+    volumes:
+      - /srv/fleet/bots/Jackpoo3:/opt/fleet/bots/Jackpoo3
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jackpoo4:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "Jackpoo4"]
+    volumes:
+      - /srv/fleet/bots/Jackpoo4:/opt/fleet/bots/Jackpoo4
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jackpoo4:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/agility-route.ts", "Jackpoo4"]
+    volumes:
+      - /srv/fleet/bots/Jackpoo4:/opt/fleet/bots/Jackpoo4
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jackpoo5:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "Jackpoo5"]
+    volumes:
+      - /srv/fleet/bots/Jackpoo5:/opt/fleet/bots/Jackpoo5
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jackpoo5:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/agility-route.ts", "Jackpoo5"]
+    volumes:
+      - /srv/fleet/bots/Jackpoo5:/opt/fleet/bots/Jackpoo5
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jackthief:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jackthief"]
+    volumes:
+      - /srv/fleet/bots/jackthief:/opt/fleet/bots/jackthief
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jackthief:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/dorics-quest.ts", "jackthief"]
+    volumes:
+      - /srv/fleet/bots/jackthief:/opt/fleet/bots/jackthief
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-pigfat:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "pigfat"]
+    volumes:
+      - /srv/fleet/bots/pigfat:/opt/fleet/bots/pigfat
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-pigfat:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/quest-mule.ts", "pigfat", "--stock"]
+    volumes:
+      - /srv/fleet/bots/pigfat:/opt/fleet/bots/pigfat
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped

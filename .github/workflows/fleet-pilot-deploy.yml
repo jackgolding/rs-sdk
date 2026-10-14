@@ -29,5 +29,5 @@ jobs:
             git fetch origin
             git checkout infra/vps-pilot
             git pull --ff-only origin infra/vps-pilot
-            docker compose -f infra/pilot/compose.yml up -d --build --remove-orphans
-            docker compose -f infra/pilot/compose.yml ps
+            docker compose -f infra/pilot/compose.fleet.yml up -d --build --remove-orphans
+            docker compose -f infra/pilot/compose.fleet.yml ps

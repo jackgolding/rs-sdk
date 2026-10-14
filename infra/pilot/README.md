@@ -49,7 +49,18 @@ launchctl bootout gui/$(id -u)/com.rs-sdk.lite.abgarmy18
 git push private infra/vps-pilot
 ```
 
-Verify on the box: `docker compose -f infra/pilot/compose.yml ps` plus
+## Fleet compose (all 48 bots)
+
+`compose.fleet.yml` is GENERATED from `bots/roster.json` — never edit it:
+
+```
+python3 infra/pilot/gen-compose.py > infra/pilot/compose.fleet.yml
+```
+
+Re-run + commit whenever roster scripts/args change. The old single-bot
+`compose.yml` is retired (ABGARMY18 now lives in the fleet file).
+
+Verify on the box: `docker compose -f infra/pilot/compose.fleet.yml ps` plus
 `tail -f /srv/fleet/bots/ABGARMY18/grind.log`. Note: the Mac fleet-desk
 does NOT track VPS bots — server logs + game-side effects are the source
 of truth for the pilot.
