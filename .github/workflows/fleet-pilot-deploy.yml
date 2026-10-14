@@ -29,5 +29,10 @@ jobs:
             git fetch origin
             git checkout infra/vps-pilot
             git pull --ff-only origin infra/vps-pilot
-            docker compose -f infra/pilot/compose.fleet.yml up -d --build --remove-orphans
+            cd infra/pilot
+            # One build, not 96: every service shares the same image, and a
+            # per-service build fans out 96 concurrent buildx jobs that
+            # cancel each other on a small box.
+            docker build -t fleet-pilot:latest -f Dockerfile ../..
+            docker compose -f infra/pilot/compose.fleet.yml up -d --remove-orphans
             docker compose -f infra/pilot/compose.fleet.yml ps
