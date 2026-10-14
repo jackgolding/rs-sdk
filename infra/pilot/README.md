@@ -60,6 +60,21 @@ of truth for the pilot.
 `start ABGARMY18` + lite kickstart. Mac remains the fleet home until the
 pilot graduates.
 
+## Build lessons (paid for in debugging time)
+
+- The image must contain every runtime import: `sdk/` imports
+  `../server/vendor/rsmod-pathfinder`, so `server/vendor` is COPYed even
+  though nothing in `server/` otherwise runs in the quest container.
+  When a container crash-loops with `Cannot find module`, audit with
+  `grep -rh "from '\.\." sdk/*.ts` and add the missing tree.
+- Mount per-bot state (`/srv/fleet/bots/ABGARMY18:/opt/fleet/bots/ABGARMY18`),
+  never the whole `bots/` dir — a wide mount shadows the image-baked
+  `bots/quests/` and every quest crashes with `Module not found`.
+- The box pulls git over SSH as root with the repo deploy key; after adding
+  the key on GitHub, persist it with
+  `git config core.sshCommand "ssh -i ~/.ssh/fleet-deploy ..."`
+  or every `git pull` after the first fails.
+
 ## Phase 2 (not this pilot)
 
 ghcr.io push/pull instead of build-on-box, Tailscale for fleet-desk,
