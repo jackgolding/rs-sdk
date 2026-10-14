@@ -1,6 +1,18 @@
 #cloud-config
 # Installs Docker Engine on first boot. Rebuilt servers converge identically —
 # nothing on the box is hand-installed (see README: snowflake rule).
+# The deployer pubkey is baked in as well as attached via Terraform: public
+# keys are public, so committing this is safe — and it makes SSH work even if
+# the provider's key injection misbehaves. NOTE: cloud-init's top-level
+# ssh_authorized_keys targets the *default* user (ubuntu), and Hetzner's
+# Ubuntu image has no such user, so the key must ALSO be pinned to root here
+# or root logins silently get nothing.
+ssh_authorized_keys:
+  - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAg9nnI2ZVMxG/DZz+8SBCpQgq4E+jpkXdjAPFd/ma5x jackgolding@github.com
+users:
+  - name: root
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAg9nnI2ZVMxG/DZz+8SBCpQgq4E+jpkXdjAPFd/ma5x jackgolding@github.com
 packages:
   - ca-certificates
   - curl
