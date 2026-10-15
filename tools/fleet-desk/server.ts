@@ -119,7 +119,12 @@ function canonicalName(raw: string): string {
 }
 
 function readBotEnv(name: string): { username: string; password: string; server?: string; gatewayUrl?: string } {
-    const envPath = join(ROOT, 'bots', name, 'bot.env');
+    // Live per-bot files live under FLEET_BOTS_DIR on the VPS host.
+    const envPath = join(
+        process.env.FLEET_BOTS_DIR ? resolve(process.env.FLEET_BOTS_DIR) : join(ROOT, 'bots'),
+        name,
+        'bot.env'
+    );
     if (!existsSync(envPath)) throw new HttpError(404, `${name} has no bot.env`);
     const env: Record<string, string> = {};
     for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
@@ -595,7 +600,10 @@ async function handle(req: Request): Promise<Response> {
     }
     if (req.method === 'POST' && url.pathname === '/api/fleet/banks') {
         assertDeskFree();
-        return json(startJob('fleet', 'banks', [BANK_CHECK]));
+        const args = [BANK_CHECK];
+        const except = (url.searchParams.get('except') ?? '').split(/[\s,]+/).filter(Boolean);
+        if (except.length > 0) args.push('--except', ...except);
+        return json(startJob('fleet', 'banks', args));
     }
 
     const jobMatch = url.pathname.match(/^\/api\/jobs\/([^/]+)$/);

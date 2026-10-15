@@ -14,14 +14,14 @@
  *   bun bots/quests/snapshot-nearest-banks.ts --yanille-only Bot1
  *   bun bots/quests/snapshot-nearest-banks.ts --force Bot1
  */
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { BotSDK, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
 import { appendHourlyBankStock } from '../../sdk/bank-stock';
 import type { BankItem } from '../../sdk/types';
-import { findBot, rosterBots, ROOT } from '../../.cursor/skills/wake-fleet/scripts/roster';
+import { botsDir, findBot, rosterBots, ROOT } from '../../.cursor/skills/wake-fleet/scripts/roster';
 import { formatStateAge, LIVE_STATE_MS } from '../../sdk/gateway-state';
 import { inEdgevilleDungeon, inMiningGuild, planBankWalk, type BankPlan } from './job-bank';
 import { leaveAdjacentClosedDoor, walkNear } from './movement';
@@ -63,6 +63,7 @@ function rememberBank(name: string, items: BankItem[]): void {
     const capturedAt = new Date().toISOString();
     saveChain = saveChain.then(() => {
         const path = snapshotStorePath();
+        mkdirSync(join(path, '..'), { recursive: true });
         let store: { version: 1; accounts: Record<string, { name: string; view: string; capturedAt: string; items: BankItem[] }> } =
             { version: 1, accounts: {} };
         if (existsSync(path)) {
@@ -86,7 +87,9 @@ const HOLD_TICKS = flagNumber('--hold-ticks', DEFAULT_HOLD_TICKS);
 const BATCH = Math.max(1, Math.floor(flagNumber('--batch', DEFAULT_BATCH)));
 
 function loadEnv(name: string): Record<string, string> {
-    const path = join(ROOT, 'bots', name, 'bot.env');
+    // Per-bot live files (bot.env) live under FLEET_BOTS_DIR on the VPS
+    // host (/srv/fleet/bots), not in the repo checkout.
+    const path = join(botsDir(), name, 'bot.env');
     if (!existsSync(path)) throw new Error(`Missing bot.env for ${name}`);
     const env: Record<string, string> = {};
     for (const line of readFileSync(path, 'utf8').split('\n')) {
@@ -99,7 +102,7 @@ function loadEnv(name: string): Record<string, string> {
 }
 
 function skipNames(): Set<string> {
-    const path = join(ROOT, '.cursor/skills/wake-fleet/skip-bots.txt');
+    const path = process.env.FLEET_SKIP_FILE ?? join(ROOT, '.cursor/skills/wake-fleet/skip-bots.txt');
     if (!existsSync(path)) return new Set();
     return new Set(
         readFileSync(path, 'utf8')
