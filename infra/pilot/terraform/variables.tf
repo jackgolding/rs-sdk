@@ -19,7 +19,7 @@ variable "location" {
 variable "server_type" {
   description = "CPX32 (4 vCPU / 8 GB) holds the full 48-bot fleet (~3.1 GB measured) with headroom; cpx22 fits single-bot pilots. Resizing needs no rebuild."
   type        = string
-  default     = "cpx32"
+  default     = "cpx42"
 }
 
 variable "allowed_ssh_cidr" {
