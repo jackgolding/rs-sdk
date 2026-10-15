@@ -27,6 +27,11 @@ runcmd:
   - apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   - docker --version
   - mkdir -p /srv/fleet/bots
+  # Host-side observability: fleet-status runs on the box with
+  # FLEET_SUPERVISOR=docker (see infra/pilot/observability/README.md).
+  - curl -fsSL https://bun.sh/install | bash
+  - ln -sf /root/.bun/bin/bun /usr/local/bin/bun
+  - bun --version
   # 96 cold-starting Bun processes spike past RAM (OOM kills); a 4G swapfile
   # turns spikes into slowness. Also applied live on fleet-pilot-1.
   - fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile

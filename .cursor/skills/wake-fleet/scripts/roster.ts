@@ -28,6 +28,16 @@ export type { OwnershipRecord, ResolvedOwner };
 
 export const ROOT = resolve(dirname(import.meta.path), '../../../..');
 const ROSTER_PATH = join(ROOT, 'bots', 'roster.json');
+
+/**
+ * Live per-bot directory. On the VPS host the code checkout and the bot
+ * state (grind.log, heartbeat.log, assignment.json, bot.env) live in
+ * different trees, so FLEET_BOTS_DIR points at the state (/srv/fleet/bots).
+ * Defaults to the repo's bots/ on the Mac.
+ */
+export function botsDir(): string {
+    return process.env.FLEET_BOTS_DIR ? resolve(process.env.FLEET_BOTS_DIR) : join(ROOT, 'bots');
+}
 const SKIP_PATH = join(ROOT, '.cursor/skills/wake-fleet/skip-bots.txt');
 const HUB_LOCK_PATH = join(homedir(), 'Library', 'Logs', 'rs-sdk-fleet', 'abg-food-hub.lock');
 

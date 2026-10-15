@@ -12,9 +12,9 @@ import { join } from 'path';
 import { readJsonlTail } from '../../../../sdk/grind-log';
 import { readOwnership, resolveOwner } from '../../../../sdk/assignment';
 import { formatCompactLevels, type ActivityEvent, type HeartbeatRecord } from './fleet-rates';
-import { launchdInfo } from './launchd-info';
+import { ROOT, botsDir, rosterBots } from './roster';
 import { loadState } from './fleet-shepherd';
-import { ROOT, rosterBots } from './roster';
+import { assignmentRoot, resolveSupervisorOwner, supervisorInfo, supervisorKind } from './supervisor';
 import {
     classify,
     formatHeadline,
@@ -39,7 +39,7 @@ interface BunProc {
 }
 
 function loadServer(name: string): string | undefined {
-    const envPath = join(ROOT, 'bots', name, 'bot.env');
+    const envPath = join(botsDir(), name, 'bot.env');
     if (!existsSync(envPath)) return undefined;
     for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
         const trimmed = line.trim();
@@ -127,16 +127,23 @@ export async function collectFleet(now = Date.now()): Promise<{
     const fleet = rosterBots();
     const shepherd = loadState();
     const procs = bunProcesses();
+    const kind = supervisorKind();
+    const liveBots = botsDir();
+    const assignRoot = assignmentRoot();
+    const assignDeps = assignRoot ? { root: assignRoot } : undefined;
     const fetched = await Promise.all(fleet.map((bot) => fetchStatus(bot.name)));
     const ownerPids = new Set<number>();
     const rows = fleet.map((bot, index) => {
         const { gw, err } = fetched[index]!;
-        const launchd = launchdInfo(bot.name);
-        const owner = resolveOwner(bot.name, launchd);
+        const info = supervisorInfo(bot.name);
+        const owner =
+            kind === 'docker'
+                ? resolveSupervisorOwner(bot.name, info, { root: assignRoot, expectedCommand: bot.command })
+                : resolveOwner(bot.name, info, assignDeps);
         if (owner) ownerPids.add(owner.pid);
-        const recorded = readOwnership(bot.name);
-        const heartbeatPath = join(ROOT, 'bots', bot.name, 'heartbeat.log');
-        const eventsPath = join(ROOT, 'bots', bot.name, 'events.log');
+        const recorded = readOwnership(bot.name, assignDeps);
+        const heartbeatPath = join(liveBots, bot.name, 'heartbeat.log');
+        const eventsPath = join(liveBots, bot.name, 'events.log');
         const botState = shepherd.bots[bot.name];
         const fresh = !!gw && gw.inGame === true && gw.status !== 'dead' && (gw.stateAge ?? Infinity) <= 8_000;
         return classify({
@@ -154,11 +161,11 @@ export async function collectFleet(now = Date.now()): Promise<{
             },
             owner,
             recordedCommand: recorded?.command ?? null,
-            launchd,
+            launchd: info,
             runsSamples: botState?.runsSamples ?? [],
             snapshots: readJsonlTail<HeartbeatRecord>(heartbeatPath),
             events: existsSync(eventsPath) ? readJsonlTail<ActivityEvent>(eventsPath) : null,
-            grindTail: tailLines(join(ROOT, 'bots', bot.name, 'grind.log'), 40),
+            grindTail: tailLines(join(liveBots, bot.name, 'grind.log'), 40),
             shepherd: {
                 capped: botState?.capped ?? false,
                 cappedAt: botState?.cappedAt ?? null,
@@ -181,6 +188,8 @@ async function main(): Promise<void> {
     const headline = formatHeadline(summary.producing.length, summary.notProducing);
     const payload = {
         root: ROOT,
+        supervisor: supervisorKind(),
+        botsDir: botsDir(),
         generatedAt: new Date(now).toISOString(),
         headline,
         summary,

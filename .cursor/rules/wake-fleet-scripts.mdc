@@ -7,6 +7,7 @@ alwaysApply: false
 # Wake-fleet scripts
 
 - Import bots from `roster.ts` (`rosterBots`, `findBot`, `resolveOwner`, `readOwnership`). A pasted name table is a bug.
+- `fleet-status.ts` reads its supervisor through `supervisor.ts` (`FLEET_SUPERVISOR=docker` on the VPS host, launchd default on the Mac). Do not call `launchdInfo` directly from status/desk paths again.
 - `fleet-status.ts` may read grind logs and `events.log` only for supply, repeat, recovery, and pathfinding detectors. Job identity is the roster command. Ownership is written by `BotSDK.connect`, not by matching a name in argv.
 - `grindTail` must stay a bounded tail read. Do not `readFileSync` the whole log.
 - Do not write `assignment.json` from fleet-status or fleet-launchd. `BotSDK.connect` (control mode) records ownership. Do not bring back `inferCommand()`, `resolveCommand()`, or `writeAssignment()`.
