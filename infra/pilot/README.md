@@ -11,7 +11,11 @@ file here reuses on your next project.
 2. `brew install terraform` (one-off; validates + applies `terraform/`).
 3. GitHub repo `rs-sdk-fleet` → Settings → Secrets → Actions:
    `VPS_HOST` (terraform output `pilot_ipv4`), `VPS_USER` (`root`),
-   `VPS_SSH_KEY` (contents of `~/.ssh/id_ed25519` — the private half).
+   `VPS_SSH_KEY` (contents of a DEDICATED passwordless key
+   `~/.ssh/fleet-actions` — `ssh-keygen -t ed25519 -f ~/.ssh/fleet-actions -N ""`.
+   Never the personal `~/.ssh/id_ed25519`: it is passphrase-protected and
+   Actions cannot unlock it, so every deploy fails at SSH auth. Append the
+   new pubkey to the box's `/root/.ssh/authorized_keys`).
 
 ## Bring-up (in order)
 
@@ -29,12 +33,15 @@ rsync -av --exclude='*.log' bots/ABGARMY18/ root@$IP:/srv/fleet/bots/ABGARMY18/
 scp bots/roster.json root@$IP:/srv/fleet/bots/roster.json
 ```
 
-On the box (once): read-only deploy key for the private repo, then clone:
+On the box (once): read-only deploy key for the private repo, then clone
+(without this every deploy fails at `git fetch`, and GitHub auto-disables
+the workflow after repeated failures):
 
 ```
 ssh root@$IP
 ssh-keygen -t ed25519 -f ~/.ssh/fleet-deploy -N ""   # add pub as repo deploy key (read)
 git clone --branch infra/vps-pilot git@github.com:jackgolding/rs-sdk-fleet.git /srv/fleet/repo
+git -C /srv/fleet/repo config core.sshCommand "ssh -i ~/.ssh/fleet-deploy -o IdentitiesOnly=yes"
 ```
 
 Migrate the bot (two controllers fight — Mac side stops first):
