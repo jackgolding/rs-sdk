@@ -767,7 +767,7 @@ async function hutSlashableWebs() {
 async function slashMageBankWeb(): Promise<boolean> {
     const blade = slashItem();
     if (!blade) {
-        await sdk.scanNearbyLocs(14).catch(() => {});
+        await sdk.scanNearbyLocs(18).catch(() => {});
         if ((await hutSlashableWebs()).length === 0) return true;
         log('Mage Arena web needs a sharp blade — fetching a knife');
         return false;
@@ -779,7 +779,7 @@ async function slashMageBankWeb(): Promise<boolean> {
     const knife = sdk.findInventoryItem(/^knife$/i);
 
     for (let i = 0; i < 8; i++) {
-        await sdk.scanNearbyLocs(14).catch(() => {});
+        await sdk.scanNearbyLocs(18).catch(() => {});
         const webs = await hutSlashableWebs();
         if (!webs.length) return true;
         // Two webs sandwich 3094. Slash the one in the direction we need, then the rest.
@@ -969,7 +969,7 @@ async function walkToMageFromSafe(): Promise<boolean> {
 
     intent('Walking to Mage Arena bank');
 
-    if (distTo(MAGE_LADDER.x, MAGE_LADDER.z) <= 16 && pos().z >= 3945 && pos().z < 4500) {
+    if (distTo(MAGE_LADDER.x, MAGE_LADDER.z) <= 30 && pos().z >= 3945 && pos().z < 4500) {
         return climbMageBankLadder();
     }
 
@@ -1041,7 +1041,10 @@ async function walkToMageFromSafe(): Promise<boolean> {
     }
 
     if (p.z >= 3906 && p.z < 4500 && p.x >= 3050) {
-        if (distTo(MAGE_LADDER.x, MAGE_LADDER.z) <= 8) {
+        // Hut approach: slash the bank-hut webs and climb instead of
+        // walking west through them (3108,3956 is 17 from the ladder —
+        // a waypoint walk stalls on the uncut web forever).
+        if (distTo(MAGE_LADDER.x, MAGE_LADDER.z) <= 25) {
             return climbMageBankLadder();
         }
         return advanceSendWalkPath(
