@@ -688,19 +688,20 @@ async function handle(req: Request): Promise<Response> {
         const problem = scriptError(script, (path) => existsSync(join(ROOT, path)));
         if (problem) throw new HttpError(400, problem);
         assertDeskFree(name);
+        if (isDocker()) {
+            // Before any repo write: the box deploys with a read-only key and
+            // pull --ff-only, so a tracked-file rewrite here breaks the next
+            // deploy (seen live: a 409 test dirtied roster.json and failed
+            // the rollout). Roster changes go through a PR; fleet-ctl switch
+            // stays for operator SSH use.
+            throw new HttpError(409, 'Roster changes go through a pull request — the deploy rolls them to the box.');
+        }
         const roster = readRosterFile();
         const assigned = assignRosterScript(roster, name, script, extra);
         writeRoster(roster);
         const bot = findBot(assigned.name);
         if (bot?.paused) {
             return json({ name: assigned.name, script, args: assigned.args, restarted: false, paused: true });
-        }
-        if (isDocker()) {
-            // The box deploys with a read-only key and pull --ff-only: a desk
-            // rewrite of the tracked roster would break the next deploy (and
-            // be wiped by it). Roster changes go through a PR; the deploy
-            // rolls them. fleet-ctl switch stays for operator SSH use.
-            throw new HttpError(409, 'Roster changes go through a pull request — the deploy rolls them to the box.');
         }
         const job = startJob(assigned.name, 'switch', [LAUNCHD, 'switch', assigned.name, '--verify']);
         return json({ name: assigned.name, script, args: assigned.args, restarted: true, job });
