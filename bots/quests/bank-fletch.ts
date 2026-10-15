@@ -5,8 +5,10 @@
  * Each trip: knife + 13 logs + 13 bowstrings (unstackable), Make X cut, string, bank.
  * Highest product the character can make: magic long (85) → magic short (80)
  * → yew long (70) → yew short (65). Stays at the nearest of the known banks.
+ * At 99 it still clears remaining logs (does not exit just because XP is done).
  *
  *   bun bots/quests/bank-fletch.ts jackthief
+ *   bun bots/quests/bank-fletch.ts jackthief --magic-short
  */
 import { ActivitySession, BotSDK, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
@@ -23,12 +25,13 @@ import {
 } from './tiles';
 import { closeUi as closeUiShared, distTo as distToShared, walkNear as walkNearShared } from './movement';
 import { resolveSkillDialogProduct } from '../../sdk/action-quantity';
+import { installGracefulShutdown } from '../../sdk/runner';
 
 const KNIFE = /^knife$/i;
 const COINS = /^coins$/i;
 const BOWSTRING = /^bow\s*string$/i;
 const BOW = /^(yew|magic) (shortbow|longbow)$/i;
-const KEEP = /^(coins|knife)$/i;
+const KEEP = /^(coins|knife|(bronze|iron|steel|black|mithril|adamant|rune) axe)$/i;
 /** Unstackable strings + logs: 13 + 13 leaves knife (and coins) in the bag. */
 const BATCH = 13;
 
@@ -40,7 +43,7 @@ type Tier = {
 };
 
 /** Best XP first. */
-const TIERS: Tier[] = [
+const ALL_TIERS: Tier[] = [
     { logs: /^magic logs$/i, label: 'magic logs', product: 'magic long', level: 85 },
     { logs: /^magic logs$/i, label: 'magic logs', product: 'magic short', level: 80 },
     { logs: /^yew logs$/i, label: 'yew logs', product: 'yew long', level: 70 },
@@ -50,7 +53,11 @@ const TIERS: Tier[] = [
 const BANKS: Tile[] = [ARDOUGNE_BANK, SEERS_BANK, CATHERBY_BANK, DRAYNOR_BANK, EDGEVILLE];
 
 const argv = process.argv.slice(2);
+const MAGIC_SHORT = argv.includes('--magic-short') || argv.includes('--short');
 const botArg = argv.find((a) => !a.startsWith('-'));
+const TIERS: Tier[] = MAGIC_SHORT
+    ? ALL_TIERS.filter((t) => t.product === 'magic short')
+    : ALL_TIERS;
 
 function loadBotEnv(): void {
     const envPath = botArg
@@ -85,6 +92,7 @@ const sdk = new BotSDK({
     browserLaunchTimeout: 90_000,
     readyTimeout: 45_000,
     connectTimeout: 60_000,
+    actionTimeout: 12_000,
     showChat: false
 });
 
@@ -96,6 +104,8 @@ const session = new ActivitySession(sdk, bot, {
     grindLogPath: GRIND_LOG,
     maxRecoveryTactics: 8
 });
+
+installGracefulShutdown();
 
 let lastLoggedFl = 0;
 let warnedNoStrings = false;
@@ -195,35 +205,68 @@ async function walkNear(x: number, z: number, tolerance = 4): Promise<boolean> {
     return walkNearShared(bot, sdk, x, z, tolerance);
 }
 
+function bankOpen(): boolean {
+    const s = sdk.getState();
+    return !!s?.bank?.isOpen || s?.interface?.interfaceId === 5292;
+}
+
+async function clickBankBooth(): Promise<boolean> {
+    if (bankOpen()) return true;
+    const p = pos();
+    const booths = (sdk.getNearbyLocs() ?? [])
+        .filter((l) => /^bank booth$/i.test(l.name) && (l.optionsWithIndex ?? []).some((o) => /use.quickly/i.test(o.text)))
+        .sort((a, b) => {
+            const da = Math.hypot((a.x ?? 0) - p.x, (a.z ?? 0) - p.z);
+            const db = Math.hypot((b.x ?? 0) - p.x, (b.z ?? 0) - p.z);
+            return da - db;
+        });
+    const booth = booths[0];
+    if (!booth) return false;
+    const opt = booth.optionsWithIndex.find((o) => /use.quickly/i.test(o.text));
+    if (!opt) return false;
+    log(`Clicking bank booth @ ${booth.x},${booth.z}`);
+    await sdk.sendInteractLoc(booth.x, booth.z, booth.id, opt.opIndex);
+    await sdk.waitForCondition((s) => s.bank?.isOpen === true || s.interface?.interfaceId === 5292, 6_000).catch(() => {});
+    return bankOpen();
+}
+
 async function openHomeBank(): Promise<boolean> {
-    if (sdk.getState()?.bank?.isOpen) return true;
-    await closeUi();
+    if (bankOpen()) return true;
     session.setAnchor(home.x, home.z);
-    if (distTo(home.x, home.z) > 6) {
+    const atCatherby = Math.abs(home.x - CATHERBY_BANK.x) <= 8;
+    const standX = atCatherby ? 2809 : home.x;
+    const standZ = atCatherby ? 3441 : home.z;
+    if (distTo(standX, standZ) > 3) {
         intent(`Walking to bank ${home.x},${home.z}`);
-        await walkNear(home.x, home.z, 3);
+        await walkNear(standX, standZ, 2);
     }
-    if (!sdk.getState()?.bank?.isOpen) {
-        const r = await bot.openBank();
-        if (!r.success && !sdk.getState()?.bank?.isOpen) {
-            session.noteFailure('bank_open', r.message || 'Could not open bank');
-            return false;
-        }
+    for (let attempt = 0; attempt < 5; attempt++) {
+        if (await clickBankBooth()) return true;
+        await sdk.sendWalk(standX, standZ, true);
+        await sdk.waitForTicks(2).catch(() => {});
+    }
+    const r = await bot.openBank(8_000);
+    if (!r.success && !bankOpen()) {
+        session.noteFailure('bank_open', r.message || 'Could not open bank');
+        return false;
     }
     await sdk
         .waitForCondition((s) => s.bank?.isOpen === true && (s.bank.items?.length ?? 0) > 0, 8_000)
         .catch(() => {});
-    return !!sdk.getState()?.bank?.isOpen;
+    return bankOpen();
 }
 
 async function depositKeep(): Promise<void> {
+    for (const pat of [BOW, BOWSTRING, /^magic logs$/i, /^logs$/i]) {
+        if (!sdk.getInventory().some((i) => pat.test(i.name))) continue;
+        const before = count(pat);
+        const r = await bot.depositItem(pat, -1);
+        log(`Deposit ${pat}: ${r.success || r.partial ? 'ok' : r.message} (${before}→${count(pat)})`);
+    }
     for (const item of [...sdk.getInventory()]) {
         if (KEEP.test(item.name)) continue;
-        const r = await bot.depositItem(item, -1);
-        if (!r.success && sdk.isBankOpen()) {
-            await sdk.sendBankDeposit(item.slot, -1);
-            await sdk.waitForTicks(1);
-        }
+        await sdk.sendBankDeposit(item.slot, -1);
+        await sdk.waitForTicks(1).catch(() => {});
     }
 }
 
@@ -273,9 +316,12 @@ async function withdrawUpTo(pattern: RegExp, amount: number): Promise<number> {
 
 async function restock(): Promise<'work' | 'done' | 'fail'> {
     if (!(await openHomeBank())) return 'fail';
-    const finished = strungBows().length + unstrungBows().length;
+    const finishedBows = [...strungBows(), ...unstrungBows()];
+    const finished = finishedBows.length;
+    for (const bow of finishedBows) session.recordGain(bow.name, bow.count ?? 1);
     await depositKeep();
     if (finished > 0) session.recordTrip(finished);
+    session.captureBankStock();
 
     if (!(await withdrawOne(KNIFE))) {
         await bot.closeBank();
@@ -287,26 +333,34 @@ async function restock(): Promise<'work' | 'done' | 'fail'> {
     if (!tier) {
         const leftover = sdk
             .getBankItems()
-            .filter((i) => /^(yew|magic) logs$/i.test(i.name))
+            .filter((i) => TIERS.some((t) => t.logs.test(i.name)))
             .map((i) => `${i.count} ${i.name}`)
             .join(', ');
         await bot.closeBank();
         if (leftover) {
             session.stop('level', `Fletching ${fl()} too low for remaining ${leftover}`);
         } else {
-            session.stop('done', `No yew/magic logs left | FL ${fl()}`);
+            session.stop('done', `${MAGIC_SHORT ? 'No magic logs' : 'No yew/magic logs'} left | FL ${fl()}`);
         }
         return 'done';
     }
 
-    const stringStock = bankCount(BOWSTRING);
-    const logStock = bankCount(tier.logs);
+    const stringStock = bankCount(BOWSTRING) + count(BOWSTRING);
+    const logStock = bankCount(tier.logs) + count(tier.logs);
     const free = 28 - occupiedSlots();
+    const extraStrings = Math.max(0, count(BOWSTRING) - BATCH);
+    if (extraStrings > 0) {
+        for (const item of [...sdk.getInventory()].filter((i) => BOWSTRING.test(i.name))) {
+            if (count(BOWSTRING) <= BATCH) break;
+            await sdk.sendBankDeposit(item.slot, -1);
+            await sdk.waitForCondition(() => occupiedSlots() < 28, 3_000).catch(() => {});
+        }
+    }
     const want = Math.min(
         BATCH,
         logStock,
         stringStock > 0 ? stringStock : BATCH,
-        stringStock > 0 ? Math.floor(free / 2) : free
+        Math.max(1, Math.floor((28 - occupiedSlots() + count(BOWSTRING)) / (stringStock > 0 ? 2 : 1)))
     );
     if (want < 1) {
         await bot.closeBank();
@@ -315,8 +369,11 @@ async function restock(): Promise<'work' | 'done' | 'fail'> {
     }
 
     if (stringStock > 0) {
-        const gotStrings = await withdrawUpTo(BOWSTRING, want);
-        log(`Withdraw-X ${gotStrings} bowstrings`);
+        const need = Math.max(0, want - count(BOWSTRING));
+        if (need > 0) {
+            const gotStrings = await withdrawUpTo(BOWSTRING, need);
+            log(`Withdraw-X ${gotStrings} bowstrings (inv ${count(BOWSTRING)})`);
+        }
         warnedNoStrings = false;
     } else if (!warnedNoStrings) {
         session.log('warn', 'No bowstrings in bank — cutting unstrung only');
@@ -324,6 +381,9 @@ async function restock(): Promise<'work' | 'done' | 'fail'> {
     }
 
     const gotLogs = await withdrawUpTo(tier.logs, want);
+    if (gotLogs === 0 && count(tier.logs) === 0) {
+        session.log('warn', `no ${tier.label} withdrawn`);
+    }
     await bot.closeBank();
     session.noteProgress('bank', home.x + ',' + home.z);
     log(
@@ -359,15 +419,17 @@ async function fletchInventory(tier: Tier): Promise<void> {
     intent(`Make X ${want} ${tier.product}`);
 
     const use = await sdk.sendUseItemOnItem(knife.slot, logs.slot);
-    if (!use.success) {
+    if (!use.success && !sdk.getDialog()?.isOpen) {
         session.noteFailure('fletch', use.message);
         return;
     }
     try {
         await sdk.waitForCondition((s) => s.dialog.isOpen, 5_000);
     } catch {
-        session.noteFailure('fletch', 'Fletching dialog did not open');
-        return;
+        if (!sdk.getDialog()?.isOpen) {
+            session.noteFailure('fletch', 'Fletching dialog did not open');
+            return;
+        }
     }
 
     const options = sdk.getDialog()?.options ?? [];
@@ -382,9 +444,15 @@ async function fletchInventory(tier: Tier): Promise<void> {
     await sdk.sendClickDialog(makeX.index);
     const entered = await sdk.sendCountDialog(want);
     if (!entered.success) {
-        session.noteFailure('fletch', entered.message);
-        await sdk.sendCloseModal();
-        return;
+        session.log('warn', `count dialog: ${entered.message}`);
+        if (count(tier.logs) >= logsBefore) {
+            await sdk.waitForCondition(() => count(tier.logs) < logsBefore, 4_000).catch(() => {});
+        }
+        if (count(tier.logs) >= logsBefore) {
+            session.noteFailure('fletch', entered.message);
+            await sdk.sendCloseModal();
+            return;
+        }
     }
 
     const deadline = Date.now() + want * 1_500 + 8_000;
@@ -413,6 +481,7 @@ async function fletchInventory(tier: Tier): Promise<void> {
 }
 
 async function stringInventory(): Promise<void> {
+    let misses = 0;
     while (!session.isStopped()) {
         await closeUi();
         await bot.dismissBlockingUI();
@@ -423,19 +492,21 @@ async function stringInventory(): Promise<void> {
         const xpBefore = flXp();
         const unstrungBefore = unstrungBows().length;
         const use = await sdk.sendUseItemOnItem(string.slot, bow.slot);
-        if (!use.success) {
-            session.noteFailure('string', use.message);
-            break;
-        }
         await sdk
-            .waitForCondition(() => flXp() > xpBefore || unstrungBows().length < unstrungBefore, 5_000)
+            .waitForCondition(() => flXp() > xpBefore || unstrungBows().length < unstrungBefore, 6_000)
             .catch(() => {});
         if (flXp() > xpBefore || unstrungBows().length < unstrungBefore) {
+            misses = 0;
             session.noteProgress('xp', 'string');
-        } else {
+            continue;
+        }
+        if (!use.success) session.log('warn', `string: ${use.message}`);
+        misses++;
+        if (misses >= 4) {
             session.noteFailure('string', `no effect on ${bow.name}`);
             break;
         }
+        await sdk.waitForTicks(1).catch(() => {});
     }
 }
 
@@ -475,13 +546,15 @@ try {
     home = closestBank();
     session.setAnchor(home.x, home.z);
     await bot.skipTutorial();
-    await closeUi();
-    log(`Bank-fletch start FL ${lastLoggedFl} (${flXp()} xp) @ ${pos().x},${pos().z} → bank ${home.x},${home.z}`);
+    if (!bankOpen()) await closeUi();
+    log(
+        `Bank-fletch start FL ${lastLoggedFl} (${flXp()} xp) @ ${pos().x},${pos().z} → bank ${home.x},${home.z}${MAGIC_SHORT ? ' [magic short]' : ''}`
+    );
 
     await session.setPhase('bank');
     const first = await restock();
     if (first === 'fail' && !session.isStopped()) {
-        session.stop('setup', 'Could not restock logs from bank');
+        session.log('warn', 'Could not restock logs from bank — retrying');
     }
 
     while (!session.isStopped()) {
@@ -489,7 +562,6 @@ try {
             if ((await session.recover()) === 'exhausted') break;
             continue;
         }
-        await closeUi();
         if (pos().isDead) {
             await sdk.waitForCondition((s) => !s.player.isDead, 45_000).catch(() => {});
             continue;
@@ -498,10 +570,6 @@ try {
             log(`LEVEL UP Fletching ${fl()} | ${pickTier()?.product ?? 'no logs'}`);
             lastLoggedFl = fl();
             session.noteProgress('xp', `fl ${fl()}`);
-        }
-        if (fl() >= 99) {
-            session.stop('done', `Fletching ${fl()}`);
-            break;
         }
         await tick();
     }

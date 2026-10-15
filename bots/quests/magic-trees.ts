@@ -17,6 +17,7 @@ import {
     walkNear as walkNearShared
 } from './movement';
 import { nearLegendsMagic, travelToLegendsMagic } from '../Jackpoo1/travel-to-flax';
+import { installGracefulShutdown } from '../../sdk/runner';
 
 const MAGIC_LOGS = /^magic logs$/i;
 const AXE = /^(bronze|iron|steel|black|mithril|adamant|rune) axe$/i;
@@ -79,6 +80,8 @@ const session = new ActivitySession(sdk, bot, {
     stallMs: 180_000,
     maxRecoveryTactics: 8
 });
+
+installGracefulShutdown();
 
 installWaitForTicksGuard(sdk, session);
 
@@ -229,9 +232,12 @@ async function bankTrip(): Promise<boolean> {
         }
         return false;
     }
+    const logs = sdk.findInventoryItem(MAGIC_LOGS);
+    if (logs && (logs.count ?? 0) > 0) session.recordGain(logs.name, logs.count);
     await depositJunk();
     await withdrawBestAxe();
     const banked = before > 0 ? bankCount(MAGIC_LOGS) : 0;
+    session.captureBankStock();
     await bot.closeBank();
     await equipAxe();
     session.noteProgress('bank', 'seers');

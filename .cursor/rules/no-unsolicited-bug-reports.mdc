@@ -1,0 +1,10 @@
+---
+description: Do not file SDK bug reports unless the user asks
+alwaysApply: true
+---
+
+# Bug reports
+
+Do not run `bun sdk/bug-report.ts`, and do not POST to `/bug-report`, unless the user asks for a report in this conversation.
+
+Describe the problem in chat. Keep working on the workaround.

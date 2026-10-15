@@ -1,0 +1,17 @@
+{
+  "now": 1700000000000,
+  "lastRun": 1700000000000,
+  "bots": {
+    "Jackpoo5": {
+      "restarts": [1699996878000, 1699997480000, 1699998080000, 1699999280000, 1699999880000],
+      "capped": true,
+      "cappedAt": 1699999880000,
+      "notified": {
+        "capped": 1696961600000,
+        "intervene:stale (11s old)": 1
+      },
+      "actions": [],
+      "runsSamples": []
+    }
+  }
+}

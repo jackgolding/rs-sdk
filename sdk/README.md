@@ -60,16 +60,13 @@ Defence: 1 (0 xp)
 
 ## Reporting SDK Bugs
 
-When the SDK has a bug or rough edge, first find a workaround, then file a report. One command, no auth needed:
+Do not run `bun sdk/bug-report.ts` unless the user asks. Tell them the problem in chat instead.
 
 ```bash
 bun sdk/bug-report.ts "incorrect results from bot.foo(), had to use raw sdk.sendFoo() instead for xyz reason."
 ```
 
-Important note: The game itself is extremely well tested and complete, it's not buggy. If you can't figure out how to do something, don't blame the game, blame your assumptions and keep investigating. File a bug report _after_ you figure out
-what's going on, don't just assume the game is broken because you got confused, and give up. The SDK is a thin layer on top of the game, and the game is the source of truth.
-
-After filing the bug, keep working on your goal!
+The game itself is extremely well tested and complete. If you can't figure out how to do something, don't blame the game, blame your assumptions and keep investigating. The SDK is a thin layer on top of the game, and the game is the source of truth.
 
 ## Programmatic Usage
 

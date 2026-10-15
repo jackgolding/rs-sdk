@@ -4,7 +4,7 @@
  *
  *   bun bots/quests/abg-food-loot-mule.ts ABGARMY01
  *
- * Does not run the clock tree. Skips ABGARMY06. Prefers swordfish/bass/tuna
+ * Does not run the clock tree. Prefers swordfish/bass/tuna
  * over dumping the whole cod pile on one visitor.
  */
 import { ActivitySession, BotSDK, deriveGatewayUrl } from '../../sdk/index';
@@ -16,6 +16,7 @@ import type { TradeTimingsMs } from '../../sdk/types';
 import { ARDOUGNE_BANK } from './tiles';
 import { closeUi, playerPos, walkNear } from './movement';
 import { FOOD_MULE, FOOD_MULE_FROM, FOOD_PACK_ORDER, FOOD_PER_TRADE, foodPackGive } from './tree-trade-plan';
+import { installGracefulShutdown } from '../../sdk/runner';
 
 const FOOD = /^(cod|bass|tuna|swordfish|lobster|shark|jug of wine)$/i;
 const SLASH =
@@ -72,6 +73,8 @@ const session = new ActivitySession(sdk, bot, {
     grindLogPath: GRIND_LOG,
     stallMs: 8 * 60_000
 });
+
+installGracefulShutdown({ graceMs: 30_000 });
 
 function log(msg: string): void {
     session.log('log', msg);

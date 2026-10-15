@@ -58,7 +58,7 @@ run_food_squad() {
 : >"$ORCH_LOG"
 log "=== food then ABG bank start ==="
 
-run_food_squad jacklove2 ABGARMY07 ABGARMY08 ABGARMY09 ABGARMY10
+run_food_squad jacklove2 ABGARMY06 ABGARMY07 ABGARMY08 ABGARMY09 ABGARMY10
 run_food_squad jacklove1 ABGARMY01 ABGARMY02 ABGARMY03 ABGARMY04 ABGARMY05
 
 fed=$(grep -l "Receive ok" "$LOG_DIR"/ABGARMY*-food.log 2>/dev/null | wc -l | tr -d ' ')

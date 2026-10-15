@@ -127,3 +127,10 @@ async function bankTrip(itemPattern, bankCoords, returnCoords) {
    inspect its current options, call `openDoor(gate)` when `Open` is present,
    then retry `walkTo`
 4. **Banking works at Varrock West**: (3185, 3436) confirmed working
+
+## Connected banks (2026-10-14)
+
+All bank booths/bankers on the server share ONE global bank per account —
+deposit in Ardougne, withdraw at the Mage Arena (Gundai), etc. Route
+scripts can pack the wildy kit (food + slash blade) at any bank; prefer
+the Ardougne north bank (2655,3283) before wilderness legs.

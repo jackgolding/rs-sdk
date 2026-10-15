@@ -21,6 +21,7 @@ import { initPathfinding } from '../../sdk/pathfinding';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { appendGrindLog } from '../../sdk/grind-log';
+import { installGracefulShutdown } from '../../sdk/runner';
 
 const FALADOR_EAST_BANK = { x: 3012, z: 3355 };
 const GUILD_LADDER = { x: 3019, z: 3339 };
@@ -178,6 +179,8 @@ const session = new ActivitySession(sdk, bot, {
     maxRecoveryTactics: 8,
     writeLog: writeGrindLog
 });
+
+installGracefulShutdown();
 
 let lastLoggedMine = 0;
 const banked = { mithril: 0, coal: 0, iron: 0, adamant: 0, gold: 0 };
@@ -423,6 +426,9 @@ async function bankOres(): Promise<boolean> {
         adamant: count(/^adamantite ore$/i),
         gold: count(/^gold ore$/i)
     };
+    for (const item of sdk.getInventory()) {
+        if (/ore$/i.test(item.name) && (item.count ?? 0) > 0) session.recordGain(item.name, item.count ?? 1);
+    }
     for (;;) {
         const item = sdk.getInventory().find((i) => (i.count ?? 0) > 0);
         if (!item) break;
@@ -445,6 +451,7 @@ async function bankOres(): Promise<boolean> {
         )
         .catch(() => {});
     const bankCoal = sdk.findBankItem(/^coal$/i)?.count ?? 0;
+    session.captureBankStock();
     await bot.closeBank();
     const inv = sdk.findInventoryItem(/^rune pickaxe$/i) ?? sdk.findInventoryItem(PICKAXE);
     if (inv && !sdk.findEquipmentItem(PICKAXE)) await bot.equipItem(inv);

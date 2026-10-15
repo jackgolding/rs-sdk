@@ -352,12 +352,13 @@ const SyncModule = {
     // Helper to complete a bot connection (called immediately or after takeover completes)
     completeBotConnection(ws: any, clientId: string, username: string, preservedState?: BotSession | null, maxMessageLength?: number) {
         const now = Date.now();
+        const preserveFromLive = preservedState?.ws && preservedState.ws.readyState === 1;
         const session: BotSession = {
             ws,
             clientId,
             username,
-            lastState: preservedState?.lastState || null,
-            lastStateReceivedAt: preservedState?.lastStateReceivedAt || 0,
+            lastState: preserveFromLive ? preservedState!.lastState : null,
+            lastStateReceivedAt: preserveFromLive ? preservedState!.lastStateReceivedAt : 0,
             currentActionId: null,
             pendingScreenshotId: null,
             connectedAt: now,
@@ -394,7 +395,16 @@ const SyncModule = {
             }
 
             const existingSession = botSessions.get(username);
-            if (existingSession && existingSession.ws !== ws && existingSession.ws) {
+            const existingWs = existingSession?.ws;
+            const existingWsLive = existingWs && existingWs.readyState === 1; /* OPEN */
+            if (existingSession && existingWs !== ws && existingWsLive && existingSession.clientId === clientId) {
+                // Same-client rebind (lite reconnect beat the old socket close):
+                // keep the session, don't self-kick. completeBotConnection
+                // preserves state when the old socket is still live.
+                this.completeBotConnection(ws, clientId, username, existingSession, message.maxMessageLength);
+                return;
+            }
+            if (existingSession && existingWs !== ws && existingWsLive) {
                 // Graceful takeover: ask old bot to save and disconnect, WAIT before allowing new session
                 console.log(`[Gateway] Requesting graceful disconnect for existing session: ${existingSession.clientId}`);
                 console.log(`[Gateway] New session ${clientId} will wait for old session to close`);
@@ -564,10 +574,28 @@ const SyncModule = {
             sdkSessions.set(sessionId, session);
             wsToType.set(ws, { type: 'sdk', id: sessionId });
 
-            // Last controller wins: disconnect existing controllers for this bot
+            // Control ownership: pre-empt only zombie controllers (dead socket).
+            // A live controller keeps the seat; the newcomer is rejected so a
+            // stray second script can't silently kill the real owner. The
+            // newcomer fails fast (sdk_error during handshake disables
+            // auto-reconnect); retry in observe mode instead.
             if (mode === 'control') {
                 const oldControllers = this.getControllersForBot(targetUsername)
                     .filter(s => s.sessionId !== sessionId);
+                const liveOwner = oldControllers.find(s => {
+                    try { return s.ws?.readyState === 1; /* OPEN */ } catch { return false; }
+                });
+                if (liveOwner) {
+                    console.log(`[Gateway] SDK connect refused: ${targetUsername} already controlled by ${liveOwner.sdkClientId} (newcomer ${sdkClientId})`);
+                    ws.send(JSON.stringify({
+                        type: 'sdk_error',
+                        error: `Already controlled by ${liveOwner.sdkClientId} - retry in observe mode`
+                    }));
+                    sdkSessions.delete(sessionId);
+                    wsToType.delete(ws);
+                    try { ws.close(); } catch {}
+                    return;
+                }
 
                 for (const old of oldControllers) {
                     console.log(`[Gateway] Pre-empting old controller ${old.sdkClientId} for ${targetUsername} (replaced by ${sdkClientId})`);
@@ -643,6 +671,10 @@ const SyncModule = {
             });
 
             console.log(`[Gateway] [${botSession.username}] SDK action: ${message.action?.type} (${message.actionId})`);
+        }
+
+        if (message.type === 'sdk_ping') {
+            return;
         }
 
         if (message.type === 'sdk_screenshot_request') {
@@ -1186,6 +1218,9 @@ Bots: ${botSessions.size} | SDKs: ${sdkSessions.size}
     },
 
     websocket: {
+        // Bun defaults to 10s. SDK controllers often wait without sending;
+        // that idle close is why the fleet shows process-up / no-controller.
+        idleTimeout: 255,
         open(ws: any) {
             // Bot/SDK connections identify themselves via first message
         },

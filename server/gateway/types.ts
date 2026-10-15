@@ -38,14 +38,16 @@ export interface SyncToBotMessage {
 }
 
 // SDK connection mode
-// - control: full actions; connecting pre-empts any existing controller
+// - control: full actions; connecting pre-empts only zombie controllers
+//   (dead socket). A live controller keeps the seat and the newcomer is
+//   rejected with 'Already controlled' - retry in observe mode.
 // - observe: read-only (state/chat) plus the 'say' action; never pre-empts
 //   and is never pre-empted, so chat tools can talk without stealing the bot
 export type SDKConnectionMode = 'control' | 'observe';
 
 // Messages from SDK → Gateway
 export interface SDKMessage {
-    type: 'sdk_connect' | 'sdk_action' | 'sdk_screenshot_request';
+    type: 'sdk_connect' | 'sdk_action' | 'sdk_screenshot_request' | 'sdk_ping';
     username: string;
     password?: string;  // Required in production mode
     clientId?: string;

@@ -63,7 +63,7 @@ describe('ActivitySession exit semantics', () => {
         expect(mocks.tradeDeclined).toBe(true);
         expect(mocks.interfaceClosed).toBe(true);
         expect(process.exitCode).toBe(RESTARTABLE_EXIT_CODE);
-        process.exitCode = prev;
+        process.exitCode = prev ?? 0;
     });
 
     test('park failure still exits restartable', async () => {
@@ -77,6 +77,178 @@ describe('ActivitySession exit semantics', () => {
         const prev = process.exitCode;
         await session.finalizeStop();
         expect(process.exitCode).toBe(RESTARTABLE_EXIT_CODE);
-        process.exitCode = prev;
+        process.exitCode = prev ?? 0;
+    });
+});
+
+describe('ActivitySession controller watch', () => {
+    function mockConnectedPair() {
+        const listeners: Array<(state: string, attempt?: number) => void> = [];
+        const { sdk, bot } = mockPair();
+        const connected = {
+            ...sdk,
+            onConnectionStateChange(listener: (state: string, attempt?: number) => void) {
+                listeners.push(listener);
+                return () => {
+                    const i = listeners.indexOf(listener);
+                    if (i >= 0) listeners.splice(i, 1);
+                };
+            },
+        } as unknown as BotSDK;
+        return {
+            sdk: connected,
+            bot,
+            emit(state: string) {
+                for (const listener of [...listeners]) listener(state);
+            },
+        };
+    }
+
+    test('permanent disconnect waits out the give-up window before exiting 70', () => {
+        let next = 1;
+        const intervals: { id: number; ms: number; fn: () => void }[] = [];
+        const timer = {
+            setInterval(fn: () => void, ms: number) {
+                const id = next++;
+                intervals.push({ id, ms, fn });
+                return id;
+            },
+            clearInterval(id: unknown) {
+                const index = intervals.findIndex((item) => item.id === id);
+                if (index >= 0) intervals.splice(index, 1);
+            },
+        };
+        const { sdk, bot, emit } = mockConnectedPair();
+        const exits: number[] = [];
+        const session = new ActivitySession(sdk, bot, {
+            name: 'test',
+            writeLog: () => {},
+            timer,
+            reconnectGiveUpMs: 90_000,
+            exitProcess: (code) => exits.push(code),
+        });
+        emit('disconnected');
+        expect(session.isStopped()).toBe(false);
+        expect(exits).toEqual([]);
+        for (const item of [...intervals]) {
+            if (item.ms === 90_000) item.fn();
+        }
+        expect(session.metrics().stopReason?.code).toBe('controller_lost');
+        expect(session.exitCode()).toBe(RESTARTABLE_EXIT_CODE);
+        expect(exits).toEqual([RESTARTABLE_EXIT_CODE]);
+    });
+
+    test('reconnecting does not exit until the give-up timer fires', () => {
+        let next = 1;
+        const intervals: { id: number; ms: number; fn: () => void }[] = [];
+        const timer = {
+            setInterval(fn: () => void, ms: number) {
+                const id = next++;
+                intervals.push({ id, ms, fn });
+                return id;
+            },
+            clearInterval(id: unknown) {
+                const index = intervals.findIndex((item) => item.id === id);
+                if (index >= 0) intervals.splice(index, 1);
+            },
+        };
+        const { sdk, bot, emit } = mockConnectedPair();
+        const exits: number[] = [];
+        const session = new ActivitySession(sdk, bot, {
+            name: 'test',
+            writeLog: () => {},
+            timer,
+            reconnectGiveUpMs: 90_000,
+            exitProcess: (code) => exits.push(code),
+        });
+        emit('reconnecting');
+        expect(session.isStopped()).toBe(false);
+        expect(exits).toEqual([]);
+        for (const item of [...intervals]) {
+            if (item.ms === 90_000) item.fn();
+        }
+        expect(session.metrics().stopReason?.code).toBe('controller_lost');
+        expect(exits).toEqual([RESTARTABLE_EXIT_CODE]);
+    });
+
+    test('stale SDK state waits out the give-up window before exiting 70', () => {
+        let now = 1_000;
+        let age = 1_000;
+        const { sdk, bot } = mockPair();
+        const live = {
+            ...sdk,
+            getStateAge: () => age,
+            getStateReceivedAt: () => now - age,
+        } as unknown as BotSDK;
+        let next = 1;
+        const intervals: { id: number; ms: number; fn: () => void }[] = [];
+        const timer = {
+            setInterval(fn: () => void, ms: number) {
+                const id = next++;
+                intervals.push({ id, ms, fn });
+                return id;
+            },
+            clearInterval(id: unknown) {
+                const index = intervals.findIndex((item) => item.id === id);
+                if (index >= 0) intervals.splice(index, 1);
+            },
+        };
+        const exits: number[] = [];
+        const session = new ActivitySession(live, bot, {
+            name: 'test',
+            writeLog: () => {},
+            now: () => now,
+            timer,
+            staleStateMs: 90_000,
+            reconnectGiveUpMs: 90_000,
+            exitProcess: (code) => exits.push(code),
+        });
+        for (const item of [...intervals]) {
+            if (item.ms === 15_000) item.fn();
+        }
+        expect(session.isStopped()).toBe(false);
+        age = 90_001;
+        for (const item of [...intervals]) {
+            if (item.ms === 15_000) item.fn();
+        }
+        expect(session.isStopped()).toBe(false);
+        expect(exits).toEqual([]);
+        for (const item of [...intervals]) {
+            if (item.ms === 90_000) item.fn();
+        }
+        expect(session.metrics().stopReason?.code).toBe('controller_lost');
+        expect(exits).toEqual([RESTARTABLE_EXIT_CODE]);
+    });
+
+    test('a successful reconnect cancels the give-up timer', () => {
+        let next = 1;
+        const intervals: { id: number; ms: number; fn: () => void }[] = [];
+        const timer = {
+            setInterval(fn: () => void, ms: number) {
+                const id = next++;
+                intervals.push({ id, ms, fn });
+                return id;
+            },
+            clearInterval(id: unknown) {
+                const index = intervals.findIndex((item) => item.id === id);
+                if (index >= 0) intervals.splice(index, 1);
+            },
+        };
+        const { sdk, bot, emit } = mockConnectedPair();
+        const exits: number[] = [];
+        const session = new ActivitySession(sdk, bot, {
+            name: 'test',
+            writeLog: () => {},
+            timer,
+            reconnectGiveUpMs: 90_000,
+            exitProcess: (code) => exits.push(code),
+        });
+        emit('reconnecting');
+        emit('connected');
+        for (const item of [...intervals]) {
+            if (item.ms === 90_000) item.fn();
+        }
+        expect(session.isStopped()).toBe(false);
+        expect(exits).toEqual([]);
     });
 });

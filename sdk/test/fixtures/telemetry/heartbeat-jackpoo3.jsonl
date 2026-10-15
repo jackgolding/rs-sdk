@@ -1,0 +1,6 @@
+{"t":0,"session":1,"job":"fishing-route","xp":{},"coins":0,"x":0,"z":0}
+{"t":300000,"session":1,"job":"fishing-route","pid":11,"xp":{"Hitpoints":1154,"fishing":1000000},"coins":500,"x":2840,"z":3430,"phase":"fish","lastProgressAt":300000,"lastEffectAt":300000,"recoveries":0,"stopped":null}
+{"t":3900000,"session":1,"job":"fishing-route","pid":11,"xp":{"Hitpoints":1154,"fishing":1074250},"coins":500,"x":2840,"z":3430,"phase":"fish","lastProgressAt":3900000,"lastEffectAt":3900000,"recoveries":0,"stopped":null}
+{"t":4000000,"session":2,"job":"fishing-route","xp":{},"coins":0,"x":0,"z":0}
+{"t":4200000,"session":2,"job":"fishing-route","pid":22,"xp":{"Hitpoints":1154,"fishing":1074250},"coins":500,"x":2840,"z":3430,"phase":"fish","lastProgressAt":4200000,"lastEffectAt":4200000,"recoveries":0,"stopped":null}
+{"t":7800000,"session":2,"job":"fishing-route","pid":22,"xp":{"Hitpoints":1154,"fishing":1148500},"coins":500,"x":2840,"z":3430,"phase":"fish","lastProgressAt":7800000,"lastEffectAt":7800000,"recoveries":0,"stopped":null}

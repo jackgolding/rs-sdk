@@ -2,10 +2,10 @@
  * Food broadcast + gold reduction tree, then dump the winner → fatpig.
  *
  *   bun bots/quests/abg-tree-orchestrate.ts
- *   bun bots/quests/abg-tree-orchestrate.ts --skip=ABGARMY06 --dry-run
+ *   bun bots/quests/abg-tree-orchestrate.ts --dry-run
  *   bun bots/quests/abg-tree-orchestrate.ts --gold-only
- *   bun bots/quests/abg-tree-orchestrate.ts --gold-only --casket --skip=ABGARMY06
- *   bun bots/quests/abg-tree-orchestrate.ts --dump-only --skip=ABGARMY06
+ *   bun bots/quests/abg-tree-orchestrate.ts --gold-only --casket
+ *   bun bots/quests/abg-tree-orchestrate.ts --dump-only
  *   bun bots/quests/abg-tree-orchestrate.ts --food-only
  */
 import { homedir } from 'os';
@@ -37,7 +37,7 @@ for (const a of process.argv.slice(2)) {
     else flags.set(a.slice(2, eq), a.slice(eq + 1));
 }
 
-const skip = (flags.get('skip') ?? 'ABGARMY06')
+const skip = (flags.get('skip') ?? '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);

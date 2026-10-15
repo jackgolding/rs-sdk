@@ -21,6 +21,7 @@ import {
     type Tile
 } from './tiles';
 import { closeUi as closeUiShared, distTo as distToShared, walkNear as walkNearShared } from './movement';
+import { installGracefulShutdown } from '../../sdk/runner';
 
 const PESTLE = /^pestle and mortar$/i;
 const HORN = /^unicorn horn$/i;
@@ -85,6 +86,8 @@ const session = new ActivitySession(sdk, bot, {
     stallMs: 90_000,
     maxRecoveryTactics: 8
 });
+
+installGracefulShutdown();
 
 let home: Tile = FALADOR_WEST_BANK;
 let ground = 0;

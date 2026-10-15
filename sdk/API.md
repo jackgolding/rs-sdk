@@ -318,8 +318,8 @@ Long-running grind supervisor: stall clock, bounded recovery, sampled grind-log 
 |---|---|
 | `registerRecovery(tactics: RecoveryTactic[]): void` | Extra tactics run after the defaults (close UI, step off, re-walk). |
 | `setAnchor(x: number, z: number): void` | Phase re-walk target used by the default `rewalk` tactic. |
-| `async setPhase(phase: string): Promise<void>` | Sets the current step, shows local intent, and counts as progress. |
-| `noteProgress(kind: ProgressKind, detail?: string): void` | Records observed progress and exits an in-progress recovery. |
+| `async setPhase(phase: string): Promise<void>` | Sets the current step and refreshes the in-script stall timer. Does not clear failure counters, end a recovery, or count as an effect. |
+| `noteProgress(kind: ProgressKind, detail?: string): void` | Records observed progress. A non-phase kind exits an in-progress recovery. Effect kinds also move lastEffectAt. |
 | `noteFailure(code: string, message: string): void` | Records a failure; five identical codes in the window arm recovery. |
 | `needsRecovery(): boolean` | True when stalled or repeat-failed, and the session has not stopped. |
 | `async recover(): Promise<RecoveryOutcome>` | Runs remaining tactics until progress, budget, or the list ends. After exhaust, no further walk/interact/bank packets are sent. |
@@ -329,8 +329,10 @@ Long-running grind supervisor: stall clock, bounded recovery, sampled grind-log 
 | `exitCode(): number` | Exit code scripts should honor before disconnect (70 = restartable, 0 = terminal). |
 | `async finalizeStop(): Promise<void>` | Safe-park, final heartbeat, and process.exitCode before disconnect. Grind routes should call this after their main loop when session.isStopped(). |
 | `async safePark(): Promise<void>` | Dismiss trade/modals and run optional park tactic before a restartable exit. |
-| `maybeHeartbeat(): void` | Emit a heartbeat if the interval has elapsed. Call from grind loops. |
+| `maybeHeartbeat(): void` | Compatibility no-op while the snapshot timer is running. Grind loops may still call it; the timer owns the writes. |
 | `metrics(): ActivityMetrics` | Snapshot of phase, trips, stalls, and the current stop reason. |
+| `recordGain(item: string, count: number, at?: number): void` | Records one kept stack. Does not sample, and does not move the effect clock. `at` defaults to now. Zero and non-integer counts are ignored. |
+| `captureBankStock(): void` | Writes this hour's bank picture when a bank is already open. Does not open one. |
 | `recordTrip(quantity: number): void` | Counts a completed bank trip and notes inventory progress. |
 | `log(level: LogLevel, message: string): void` | Writes a grind-log line. Repeated log/warn lines are sampled; error is never dropped. |
 
@@ -487,6 +489,8 @@ interface TradeResult {
   reason?: 'player_not_found' | 'no_response' | 'declined' | 'busy' | 'offer_failed' | 'want_not_met' | 'no_space' | 'not_open' | 'timeout' | 'error';
   /** Items from the partner's final offer that did not reach the inventory (dropped on the ground on overflow). */
   possiblyDropped?: TradeItem[];
+  /** Per-phase durations when the trade layer collected them (ms). */
+  timingsMs?: TradeTimingsMs;
 }
 ```
 

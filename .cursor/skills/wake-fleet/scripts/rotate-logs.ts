@@ -24,6 +24,7 @@ let n = 0;
 for (const bot of rosterBots()) {
     rotateIfPresent(join(ROOT, 'bots', bot.name, 'grind.log'));
     rotateIfPresent(join(ROOT, 'bots', bot.name, 'heartbeat.log'));
+    rotateIfPresent(join(ROOT, 'bots', bot.name, 'events.log'));
     n++;
 }
 

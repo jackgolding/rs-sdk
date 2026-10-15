@@ -11,6 +11,7 @@ import { initPathfinding } from '../../sdk/pathfinding';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { JIMINUA_SHOP, JIMINUA_TO_NATURE, NATURE_ALTAR, NATURE_RUINS, NATURE_TO_JIMINUA } from './tiles';
+import { installGracefulShutdown } from '../../sdk/runner';
 import {
     closeUi as closeUiShared,
     distTo as distToShared,
@@ -73,6 +74,8 @@ const session = new ActivitySession(sdk, bot, {
     stallMs: 240_000,
     maxRecoveryTactics: 8
 });
+
+installGracefulShutdown();
 
 /** Cert id of noted essence, learned from the first stack with count > 1. */
 let notedId: number | null = null;

@@ -15,7 +15,7 @@ LOCK="${LOG_DIR}/abg-food-hub.lock"
 FISH_HUB=jacklove1
 THIEF_HUB=ABGARMY01
 TARGETS=(
-  ABGARMY02 ABGARMY03 ABGARMY04 ABGARMY05 ABGARMY07 ABGARMY08 ABGARMY09 ABGARMY10
+  ABGARMY02 ABGARMY03 ABGARMY04 ABGARMY05 ABGARMY06 ABGARMY07 ABGARMY08 ABGARMY09 ABGARMY10
   ABGARMY11 ABGARMY12 ABGARMY13 ABGARMY14 ABGARMY15 ABGARMY16 ABGARMY17 ABGARMY18 ABGARMY19 ABGARMY20
   Jackpoo3
 )
@@ -23,8 +23,8 @@ TARGETS=(
 COLLECT_READY_WAIT=180
 GIVE_STAGGER=3
 GIVE_WAVE_SIZE=4
-GIVE_WAVE_TIMEOUT=180
-RELAY_PRE_WAIT=45
+GIVE_WAVE_TIMEOUT=150
+RELAY_PRE_WAIT=30
 RELAY_TIMEOUT=900
 HUB_MAX_SEC="${HUB_MAX_SEC:-3600}"
 
@@ -44,11 +44,15 @@ write_hub_lock() {
   {
     echo "$$"
     hub_bots | awk 'NF && !seen[$0]++'
-  } >"$LOCK"
+  } >"${LOCK}.tmp"
+  mv "${LOCK}.tmp" "$LOCK"
 }
 
 past_deadline() {
-  [[ -n "${HUB_DEADLINE_EPOCH:-}" ]] && (( $(date +%s) >= HUB_DEADLINE_EPOCH ))
+  if [[ -n "${HUB_DEADLINE_EPOCH:-}" ]] && (( $(date +%s) >= HUB_DEADLINE_EPOCH )); then
+    return 0
+  fi
+  return 1
 }
 
 abort_if_deadline() {
@@ -59,20 +63,25 @@ abort_if_deadline() {
 }
 
 kill_hub_roles() {
-  pkill -f "abg-food-mule.ts $FISH_HUB fish-collect" 2>/dev/null || true
-  pkill -f "abg-food-mule.ts $FISH_HUB relay" 2>/dev/null || true
-  pkill -f "abg-food-mule.ts $FISH_HUB mule" 2>/dev/null || true
-  pkill -f "abg-food-mule.ts $THIEF_HUB receive" 2>/dev/null || true
-  pkill -f "abg-food-mule.ts $THIEF_HUB mule" 2>/dev/null || true
+  pkill -9 -f "abg-food-mule.ts $FISH_HUB fish-collect" 2>/dev/null || true
+  pkill -9 -f "abg-food-mule.ts $FISH_HUB relay" 2>/dev/null || true
+  pkill -9 -f "abg-food-mule.ts $FISH_HUB mule" 2>/dev/null || true
+  pkill -9 -f "abg-food-mule.ts $THIEF_HUB receive" 2>/dev/null || true
+  pkill -9 -f "abg-food-mule.ts $THIEF_HUB mule" 2>/dev/null || true
   local n
   for n in $(seq 2 20); do
-    pkill -f "abg-food-mule.ts jacklove${n} give" 2>/dev/null || true
+    pkill -9 -f "abg-food-mule.ts jacklove${n} give" 2>/dev/null || true
   done
   kill_receive "${TARGETS[@]}"
-  pkill -f 'abg-food-mule.ts' 2>/dev/null || true
+  pkill -9 -f 'abg-food-mule.ts' 2>/dev/null || true
+  pkill -9 -f 'catherby-cook-bank.ts' 2>/dev/null || true
+  pkill -9 -f 'fishing-route.ts jacklove' 2>/dev/null || true
 }
 
 restore_roster_jobs() {
+  if [[ "${NO_RESTORE_ROSTER:-false}" == "true" ]]; then
+    return 0
+  fi
   local name
   while IFS= read -r name; do
     [[ -n "$name" ]] || continue
@@ -90,7 +99,7 @@ hub_exit() {
 wait_for_collect_ready() {
   local waited=0
   while (( waited < COLLECT_READY_WAIT )); do
-    past_deadline && return 1
+    if past_deadline; then return 1; fi
     if grep -q "accepting food + loot from fishers" "${LOG_DIR}/${FISH_HUB}-fish-collect.log" 2>/dev/null; then
       log "  $FISH_HUB ready at bank (${waited}s)"
       return 0
@@ -110,6 +119,7 @@ if [[ -f "$LOCK" ]]; then
   rm -f "$LOCK"
 fi
 write_hub_lock
+sleep 1
 trap hub_exit EXIT INT TERM
 
 give_ok() {
@@ -143,11 +153,18 @@ run_catherby_consolidate() {
   local wave_start=2
   while (( wave_start <= 20 )); do
     abort_if_deadline
+    if ! kill -0 "$collect_pid" 2>/dev/null; then
+      log "  WARN: fish-collect $FISH_HUB exited early — respawning"
+      bun bots/quests/abg-food-mule.ts "$FISH_HUB" fish-collect >>"${LOG_DIR}/${FISH_HUB}-fish-collect.log" 2>&1 &
+      collect_pid=$!
+      wait_for_collect_ready || true
+    fi
     local -a wave=()
     local n
     for n in $(seq "$wave_start" $((wave_start + GIVE_WAVE_SIZE - 1))); do
-      (( n > 20 )) && continue
-      wave+=("$n")
+      if (( n <= 20 )); then
+        wave+=("$n")
+      fi
     done
     local -a give_pids=()
     for n in "${wave[@]}"; do
@@ -159,23 +176,31 @@ run_catherby_consolidate() {
     log "  give wave jacklove${wave[0]}–jacklove${wave[${#wave[@]}-1]} (${#give_pids[@]} givers)"
     local waited=0 pid alive
     while (( waited < GIVE_WAVE_TIMEOUT )); do
-      past_deadline && break
+      if past_deadline; then break; fi
       alive=0
       for pid in "${give_pids[@]}"; do
-        kill -0 "$pid" 2>/dev/null && alive=$((alive + 1))
+        if kill -0 "$pid" 2>/dev/null; then
+          alive=$((alive + 1))
+        fi
       done
-      (( alive == 0 )) && break
+      if (( alive == 0 )); then
+        break
+      fi
       sleep 5
       waited=$((waited + 5))
     done
     for pid in "${give_pids[@]}"; do
-      kill -0 "$pid" 2>/dev/null && kill "$pid" 2>/dev/null || true
+      if kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+      fi
       wait "$pid" 2>/dev/null || true
     done
     wave_start=$((wave_start + GIVE_WAVE_SIZE))
   done
   sleep 3
-  kill -0 "$collect_pid" 2>/dev/null && kill "$collect_pid" 2>/dev/null || true
+  if kill -0 "$collect_pid" 2>/dev/null; then
+    kill "$collect_pid" 2>/dev/null || true
+  fi
   wait "$collect_pid" 2>/dev/null || true
 
   local gave=0
@@ -210,11 +235,13 @@ run_relay() {
   local relay_pid=$!
   local waited=0
   while kill -0 "$relay_pid" 2>/dev/null && (( waited < RELAY_TIMEOUT )); do
-    past_deadline && break
+    if past_deadline; then break; fi
     sleep 5
     waited=$((waited + 5))
   done
-  kill -0 "$relay_pid" 2>/dev/null && kill "$relay_pid" 2>/dev/null || true
+  if kill -0 "$relay_pid" 2>/dev/null; then
+    kill "$relay_pid" 2>/dev/null || true
+  fi
   wait "$relay_pid" 2>/dev/null || true
   sleep 3
   pkill -f "abg-food-mule.ts $THIEF_HUB receive $FISH_HUB" 2>/dev/null || true
@@ -237,10 +264,16 @@ export HUB_DEADLINE_EPOCH=$((START_EPOCH + HUB_MAX_SEC))
 log "=== abg food hub START epoch=$START_EPOCH deadline=${HUB_DEADLINE_EPOCH} max=${HUB_MAX_SEC}s ==="
 
 run_catherby_consolidate
-run_relay
-run_thief_feed
+if [[ "${NO_RELAY:-false}" != "true" ]]; then
+  run_relay
+fi
+if [[ "${NO_THIEF_FEED:-false}" != "true" ]]; then
+  run_thief_feed
+fi
 
 END_EPOCH=$(date +%s)
 ELAPSED=$((END_EPOCH - START_EPOCH))
 fed=$(grep -lE "Receive ok|Completed [1-9][0-9]* trade" "$LOG_DIR"/ABGARMY*-food.log "$LOG_DIR"/Jackpoo3-food.log "$LOG_DIR"/fatpig-food.log 2>/dev/null | wc -l | tr -d ' ')
 log "=== HUB DONE — fed $fed thieves in ${ELAPSED}s ==="
+trap - EXIT INT TERM
+rm -f "$LOCK"

@@ -5,15 +5,19 @@
  *
  *   bun bots/quests/edgeville-range-druids.ts jacklove1
  */
-import { appendFileSync } from 'fs';
 import { join } from 'path';
+import { ActivitySession } from '../../sdk/index';
 import { runScript } from '../../sdk/runner';
+import { walkKandarinToEdgeville } from './movement';
 
 const botName =
     process.argv.slice(2).find((a) => !a.startsWith('-') && !/^(spiders|druids)$/i.test(a)) ?? '';
 const HUNT_SPIDERS = process.argv.slice(2).some((a) => /^spiders$/i.test(a));
 const IS_MULE = /^jacklove1$/i.test(botName) && !HUNT_SPIDERS;
+/** Opt-in: jacklove2-5 trade herb notes to jacklove1, which must be ranging here too. */
+const MULE_HERBS = process.argv.includes('--mule-herbs') && /^jacklove[1-5]$/i.test(botName);
 const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
+const STUCK_EXIT_MS = 30 * 60 * 1000;
 
 const EDGEVILLE_BANK = { x: 3094, z: 3492 };
 const VARROCK_SQUARE = { x: 3210, z: 3429 };
@@ -55,27 +59,26 @@ const COINS = /^coins$/i;
 const LOOT =
     /^(herb|guam leaf|marrentill|tarromin|harralander|ranarr weed|toadflax|irit leaf|avantoe|kwuarm|cadantine|lantadyme|dwarf weed|torstol|coins|.+ rune)$/i;
 const BONES = /^bones$/i;
-const FOOD = /^tuna$/i;
+const FOOD = /^(tuna|bass|swordfish|lobster|shark)$/i;
 const BRONZE_ARROW = /^bronze arrows?$/i;
 const ARROW = /^(bronze|iron|steel|mithril|adamant|rune) arrows?$/i;
 const MAGIC_SHORTBOW = /^magic shortbow$/i;
 const SHORTBOW = /^shortbow$/i;
+const LOWE_BOWS = [SHORTBOW, /^oak shortbow$/i, /^longbow$/i, /^oak longbow$/i];
 const BOW = /bow/i;
 const RUNE_PICK = /^rune pickaxe$/i;
 const KEEP =
-    /^(tuna|coins|(bronze|iron|steel|mithril|adamant|rune) arrows?|magic shortbow|shortbow|.+bow)$/i;
+    /^(tuna|bass|swordfish|lobster|shark|coins|(bronze|iron|steel|mithril|adamant|rune) arrows?|magic shortbow|shortbow|.+bow)$/i;
 const JACKLOVE1 = /^jacklove1$/i;
 const JACKLOVE_WORKERS = /^jacklove[2-5]$/i;
 
 await runScript(async ({ bot, sdk }) => {
-    const log = (msg: string) => {
-        console.log(msg);
-        try {
-            appendFileSync(GRIND_LOG, `${new Date().toISOString()} ${msg}\n`);
-        } catch {
-            /* ignore */
-        }
-    };
+    const session = new ActivitySession(sdk, bot, {
+        name: 'edgeville-range-druids',
+        grindLogPath: GRIND_LOG,
+        stallMs: 300_000
+    });
+    const log = (msg: string) => session.log('log', msg);
 
     let specEnergy = SPEC_MAX;
     let specArmed = false;
@@ -115,6 +118,20 @@ await runScript(async ({ bot, sdk }) => {
     const coins = () => sdk.findInventoryItem(COINS)?.count ?? 0;
     const rangedLevel = () => sdk.getSkill('Ranged')?.baseLevel ?? 1;
     const rangedXp = () => sdk.getSkill('Ranged')?.experience ?? 0;
+    // Some awaits never settle once the SDK controller drops ("no controller
+    // attached" for hours); exit non-zero so launchd relaunches the job.
+    let watchXp = rangedXp();
+    let watchXpAt = Date.now();
+    setInterval(() => {
+        const xp = rangedXp();
+        if (xp !== watchXp) {
+            watchXp = xp;
+            watchXpAt = Date.now();
+        } else if (Date.now() - watchXpAt > STUCK_EXIT_MS) {
+            console.error(`[watchdog] no Ranged XP for ${Math.round(STUCK_EXIT_MS / 60000)}m — exiting for relaunch`);
+            process.exit(1);
+        }
+    }, 60_000).unref();
     const hasMagicShortbow = () =>
         !!(sdk.findEquipmentItem(MAGIC_SHORTBOW) || sdk.findInventoryItem(MAGIC_SHORTBOW));
     const hasShortbow = () => !!(sdk.findEquipmentItem(SHORTBOW) || sdk.findInventoryItem(SHORTBOW));
@@ -195,6 +212,10 @@ await runScript(async ({ bot, sdk }) => {
             await bot.closeBank();
         }
         if (sdk.getState()?.interface?.isOpen && !sdk.getState()?.bank?.isOpen) await bot.closeInterface();
+        if (!inDungeon() && pos().x < 2990 && x >= 2990) {
+            log(`Kandarin @ ${pos().x},${pos().z} — walking to Edgeville over White Wolf`);
+            await walkKandarinToEdgeville(bot, sdk, { eat: eatIfNeeded, walkNear });
+        }
         await walkNear(x, z, 4);
         if (sdk.getState()?.bank?.isOpen) return true;
         const opened = await bot.openBank();
@@ -426,21 +447,34 @@ await runScript(async ({ bot, sdk }) => {
         }
 
         if (!hasBow()) {
-            const bowLine = sdk.getState()?.shop?.shopItems.find((i) => SHORTBOW.test(i.name));
-            if (bowLine && bowLine.count > 0) {
+            // Lowe stocks only 4 shortbows; fall back down the list when they sell out.
+            const items = sdk.getState()?.shop?.shopItems ?? [];
+            const bowLine = LOWE_BOWS.map((b) => items.find((i) => b.test(i.name) && i.count > 0)).find(Boolean);
+            if (bowLine) {
                 const r = await bot.buyFromShop(bowLine, 1);
-                log(`Buy shortbow: ${(r.amountBought ?? 0) > 0 ? 'ok' : r.message}`);
+                if (!r.success) await sdk.waitForTicks(4);
+                log(`Buy ${bowLine.name}: ${r.success || hasBow() ? 'ok' : r.message}`);
                 await equipGear();
+            } else {
+                log('Lowe has no bows in stock');
             }
         }
 
-        const shopLine = () => sdk.getState()?.shop?.shopItems.find((i) => BRONZE_ARROW.test(i.name)) ?? null;
+        // A plain shortbow fires bronze and iron only.
+        const tiers = [
+            { name: 'bronze', pattern: BRONZE_ARROW, stock: LOWE_BRONZE_STOCK },
+            { name: 'iron', pattern: /^iron arrows?$/i, stock: 1500 }
+        ];
+        const tier =
+            tiers.find((t) => (sdk.getState()?.shop?.shopItems.find((i) => t.pattern.test(i.name))?.count ?? 0) > 0) ??
+            tiers[0]!;
+        const shopLine = () => sdk.getState()?.shop?.shopItems.find((i) => tier.pattern.test(i.name)) ?? null;
         const liveBuyPrice = (line: { count: number; baseCost?: number }) => {
             const cfg = sdk.getState()?.shop?.shopConfig;
             const cost = line.baseCost || 1;
             const haggle = cfg?.haggle ?? 10;
             const sellMult = cfg?.sellMultiplier ?? 1000;
-            const stockDiff = (line.count ?? 0) - LOWE_BRONZE_STOCK;
+            const stockDiff = (line.count ?? 0) - tier.stock;
             const raw = Math.min(1000, Math.max(-5000, stockDiff * haggle));
             return Math.max(1, Math.floor((cost * Math.max(100, sellMult - raw)) / 1000));
         };
@@ -457,7 +491,7 @@ await runScript(async ({ bot, sdk }) => {
             for (let n = 0; n < clicks; n++) {
                 const r = await sdk.sendShopBuy(line.slot, 10);
                 if (!r.success) {
-                    log(`Buy bronze send failed: ${r.message}`);
+                    log(`Buy ${tier.name} send failed: ${r.message}`);
                     stall = 99;
                     break;
                 }
@@ -468,7 +502,7 @@ await runScript(async ({ bot, sdk }) => {
             else stall = 0;
         }
         log(
-            `Bought ${arrowCount() - before} bronze arrows | shelf ${shopLine()?.count ?? 0} | ${coins()}gp | total ${arrowCount()}`
+            `Bought ${arrowCount() - before} ${tier.name} arrows | shelf ${shopLine()?.count ?? 0} | ${coins()}gp | total ${arrowCount()}`
         );
         await bot.closeShop();
         await equipGear();
@@ -479,7 +513,7 @@ await runScript(async ({ bot, sdk }) => {
         if (wantMsb() && !hasMagicShortbow()) {
             const bow = sdk.findBankItem(MAGIC_SHORTBOW);
             if (bow) {
-                const r = await bot.withdrawItem(bow, 1);
+                const r = await bot.withdrawItem(bow, 1, { asNote: false });
                 log(`Withdraw magic shortbow: ${r.success || r.partial}`);
             } else {
                 log('No magic shortbow in bank at 50 range');
@@ -505,14 +539,15 @@ await runScript(async ({ bot, sdk }) => {
         const extraFood = foodCount() - FOOD_WITHDRAW;
         if (extraFood > 0 && sdk.findInventoryItem(FOOD)) {
             const r = await bot.depositItem(FOOD, extraFood);
-            log(`Park extra tuna: ${r.success || r.partial} now ${foodCount()}`);
+            log(`Park extra food: ${r.success || r.partial} now ${foodCount()}`);
         }
         const haveFood = foodCount();
         if (haveFood < FOOD_WITHDRAW) {
-            const bankFood = sdk.findBankItem(FOOD)?.count ?? 0;
-            if (bankFood > 0) {
-                const r = await bot.withdrawItem(FOOD, Math.min(FOOD_WITHDRAW - haveFood, bankFood));
-                log(`Withdraw tuna: ${r.success || r.partial} now ${foodCount()}`);
+            const stocked = (sdk.getState()?.bank?.items ?? []).find((i) => (i.count ?? 0) > 0 && FOOD.test(i.name));
+            const bankFood = stocked?.count ?? 0;
+            if (stocked && bankFood > 0) {
+                const r = await bot.withdrawItem(stocked, Math.min(FOOD_WITHDRAW - haveFood, bankFood));
+                log(`Withdraw food: ${r.success || r.partial} now ${foodCount()}`);
             }
         }
     }
@@ -589,7 +624,7 @@ await runScript(async ({ bot, sdk }) => {
     }
 
     async function prepareLoadout(): Promise<void> {
-        await intent(`bank, shortbow + bronze arrows, ${FOOD_WITHDRAW} tuna`);
+        await intent(`bank, shortbow + bronze arrows, ${FOOD_WITHDRAW} food`);
         if (inDungeon()) await climbToSurface();
         await ensureGroundFloor();
         await leaveVarrockEastBank();
@@ -726,7 +761,7 @@ await runScript(async ({ bot, sdk }) => {
     }
 
     function isArrowStack(g: { name: string; count: number }): boolean {
-        return BRONZE_ARROW.test(g.name) && (g.count ?? 0) >= 5;
+        return ARROW.test(g.name) && (g.count ?? 0) >= 5;
     }
 
     async function lootGround(): Promise<void> {
@@ -878,7 +913,7 @@ await runScript(async ({ bot, sdk }) => {
     );
     await closeUi();
 
-    if (!HUNT_SPIDERS) await dumpPickAndMuleHerbs();
+    if (!HUNT_SPIDERS && MULE_HERBS) await dumpPickAndMuleHerbs();
     await equipGear();
     if (
         !(
@@ -892,6 +927,7 @@ await runScript(async ({ bot, sdk }) => {
     }
     await goToCamp();
     await setRapid();
+
 
     let lastRange = rangedLevel();
     while (true) {
@@ -916,6 +952,10 @@ await runScript(async ({ bot, sdk }) => {
         }
 
         const range = rangedLevel();
+        if (range >= 99 && !HUNT_SPIDERS) {
+            session.stop('goal_reached', 'Ranged is 99');
+            break;
+        }
         if (range !== lastRange) {
             log(
                 `LEVEL UP Ranged ${range} (${rangedXp()} xp) | food ${foodCount()} herbs ${herbSlots()} arrows ${arrowCount()}`
@@ -938,15 +978,15 @@ await runScript(async ({ bot, sdk }) => {
             log(`Banking food=${foodCount()} herbs=${herbSlots()} arrows=${arrowCount()} slots=${occupiedSlots()}`);
             await prepareLoadout();
             if (foodCount() === 0) {
-                log('Out of tuna — stopping');
+                session.stop('needs_supplies', 'Out of food after bank');
                 break;
             }
             if (arrowCount() <= 0) {
-                log('Out of arrows after bank — stopping');
+                session.stop('needs_supplies', 'Out of arrows after bank');
                 break;
             }
             if (!hasBow()) {
-                log('No bow after bank — stopping');
+                session.stop('needs_supplies', 'No bow after bank');
                 break;
             }
             await goToCamp();
@@ -963,4 +1003,5 @@ await runScript(async ({ bot, sdk }) => {
         await shootDruid();
         await lootGround();
     }
+    await session.finalizeStop();
 });

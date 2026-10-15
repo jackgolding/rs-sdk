@@ -11,7 +11,7 @@
 import { BotSDK, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
-import { existsSync, readFileSync, appendFileSync } from 'fs';
+import { existsSync, readFileSync, appendFileSync, openSync, readSync, closeSync, statSync } from 'fs';
 import { dirname, join } from 'path';
 
 const DUKE = { x: 3212, z: 3220 };
@@ -40,6 +40,9 @@ const LUMBRIDGE_TO_TOWER = [
 ];
 
 const PICKAXE = /^(bronze|iron|steel|mithril|adamant|rune) pickaxe$/i;
+const RUNE_PICK = /^rune pickaxe$/i;
+/** Item `levelrequire` is 41. Below that the mining script will not use a rune pickaxe. */
+const RUNE_PICK_LEVEL = 41;
 const ESSENCE = /^(rune essence|pure essence)$/i;
 const TALISMAN = /^air talisman$/i;
 const PACKAGE = /^research package$/i;
@@ -83,6 +86,22 @@ function log(msg: string): void {
     }
 }
 
+/** Recent grind lines already recorded a finished quest or an essence bank trip. */
+function grindShowsQuestDone(): boolean {
+    try {
+        if (!existsSync(GRIND_LOG)) return false;
+        const size = statSync(GRIND_LOG).size;
+        const window = Math.min(size, 256 * 1024);
+        const fd = openSync(GRIND_LOG, 'r');
+        const buf = Buffer.alloc(window);
+        readSync(fd, buf, 0, window, size - window);
+        closeSync(fd);
+        return /QUEST COMPLETE|Banked essence/.test(buf.toString('utf8'));
+    } catch {
+        return false;
+    }
+}
+
 console.log('Warming pathfinder...');
 initPathfinding();
 
@@ -105,6 +124,9 @@ let lastIntent = '';
 let questComplete = false;
 let lastLoggedMine = 0;
 let essenceBanked = 0;
+/** Sedridor's continue-only "go speak to Aubury again" after the package is delivered. */
+let returnToAubury = false;
+let runePickMissing = false;
 
 function intent(msg: string): void {
     if (msg === lastIntent) return;
@@ -162,6 +184,12 @@ function hasPickaxe(): boolean {
 
 function has(pattern: RegExp): boolean {
     return !!sdk.findInventoryItem(pattern);
+}
+
+/** True when every dialog line was a continue click, so no quest choice was offered. */
+function continueOnlyDialog(seen: string[]): boolean {
+    const lines = seen.map((t) => t.trim()).filter(Boolean);
+    return lines.length > 0 && lines.every((t) => /click here to continue|please wait/i.test(t));
 }
 
 function npcHas(pattern: RegExp, option: RegExp): boolean {
@@ -471,8 +499,109 @@ async function buyPickaxe(): Promise<boolean> {
 }
 
 async function equipPickaxe(): Promise<void> {
-    const inv = sdk.findInventoryItem(PICKAXE);
+    const inv = sdk.findInventoryItem(RUNE_PICK) ?? sdk.findInventoryItem(PICKAXE);
     if (inv && !sdk.findEquipmentItem(PICKAXE)) await bot.equipItem(inv);
+}
+
+function wearingRunePick(): boolean {
+    return !!sdk.findEquipmentItem(RUNE_PICK);
+}
+
+/** Bank the lesser pick and wield the rune pickaxe once Mining can use it. */
+async function swapToRunePick(): Promise<void> {
+    if (wearingRunePick() || runePickMissing || mining() < RUNE_PICK_LEVEL) return;
+    const inBag = sdk.findInventoryItem(RUNE_PICK);
+    if (inBag && !sdk.findEquipmentItem(PICKAXE)) {
+        const equipped = await bot.equipItem(inBag);
+        log(`Wield rune pickaxe: ${equipped.success ? 'ok' : equipped.message}`);
+        return;
+    }
+
+    if (inEssenceMine()) {
+        await exitEssencePortal();
+        return;
+    }
+    if (inWizardBasement()) {
+        await climb('up');
+        return;
+    }
+    if (pos().level > 0) await climb('down');
+    await leaveWizardTower();
+    await closeUi();
+    intent('Banking for the rune pickaxe');
+    if (distTo(VARROCK_EAST_BANK.x, VARROCK_EAST_BANK.z) > 20 && pos().x < 3150 && pos().z < 3300) {
+        await walkWaypoints(TOWER_TO_VARROCK);
+    }
+    if (distTo(VARROCK_EAST_BANK.x, VARROCK_EAST_BANK.z) > 8) {
+        await walkNear(VARROCK_EAST_BANK.x, VARROCK_EAST_BANK.z, 3);
+    }
+    if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
+        log('Varrock east bank open failed (rune pickaxe)');
+        return;
+    }
+    await sdk
+        .waitForCondition((s) => s.bank?.isOpen === true && (s.bank.items?.length ?? 0) > 0, 5_000)
+        .catch(() => {});
+
+    const bankedRune = sdk.findBankItem(RUNE_PICK);
+    const bankItems = sdk.getState()?.bank?.items ?? [];
+    if (!bankedRune && !sdk.findInventoryItem(RUNE_PICK)) {
+        if (bankItems.length === 0) {
+            log('Bank list empty — will retry the rune pickaxe');
+            await ensureBankClosed();
+            return;
+        }
+        runePickMissing = true;
+        log(`No rune pickaxe in bank at Mining ${mining()} — keeping ${sdk.findEquipmentItem(PICKAXE)?.name ?? sdk.findInventoryItem(PICKAXE)?.name ?? 'no pick'}`);
+        await ensureBankClosed();
+        return;
+    }
+
+    if (occupiedSlots() >= 28 && sdk.findEquipmentItem(PICKAXE) && !wearingRunePick()) {
+        const filler =
+            sdk.getInventory().find((i) => (i.count ?? 0) > 0 && !PICKAXE.test(i.name)) ??
+            sdk.getInventory().find((i) => (i.count ?? 0) > 0);
+        if (filler) await bot.depositItem(filler, 1);
+    }
+    if (!(await ensureBankClosed())) return;
+
+    const worn = sdk.findEquipmentItem(PICKAXE);
+    if (worn && !RUNE_PICK.test(worn.name)) {
+        const off = await bot.unequipItem(worn);
+        log(`Unequip ${worn.name}: ${off.success ? 'ok' : off.message}`);
+        if (!off.success) return;
+    }
+    if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
+        log('Varrock east bank open failed while swapping pickaxe');
+        return;
+    }
+    for (;;) {
+        const lesser = sdk.getInventory().find((i) => (i.count ?? 0) > 0 && PICKAXE.test(i.name) && !RUNE_PICK.test(i.name));
+        if (!lesser) break;
+        const deposited = await bot.depositItem(lesser, -1);
+        if (!deposited.success) {
+            log(`Deposit ${lesser.name}: ${deposited.message}`);
+            break;
+        }
+    }
+    if (!sdk.findInventoryItem(RUNE_PICK) && !wearingRunePick()) {
+        const rune = sdk.findBankItem(RUNE_PICK);
+        if (!rune) {
+            runePickMissing = true;
+            log('Rune pickaxe left the bank before withdraw');
+            await ensureBankClosed();
+            return;
+        }
+        const withdrawn = await bot.withdrawItem(rune, 1, { asNote: false });
+        log(`Withdraw rune pickaxe: ${withdrawn.success ? 'ok' : withdrawn.message}`);
+    }
+    if (!(await ensureBankClosed())) return;
+    const inv = sdk.findInventoryItem(RUNE_PICK);
+    if (!inv) return;
+    const equipped = await bot.equipItem(inv);
+    log(
+        `Wield rune pickaxe: ${equipped.success ? 'ok' : equipped.message} | Mining ${mining()} | now ${sdk.findEquipmentItem(PICKAXE)?.name ?? 'not worn'}`
+    );
 }
 
 async function goToDuke(): Promise<boolean> {
@@ -716,6 +845,12 @@ async function talkSedridor(): Promise<void> {
         log('QUEST COMPLETE Rune Mysteries');
     }
     if (has(/research package/i)) log('Have research package');
+    // A spare air talisman must not keep us here. This continue-only chat is
+    // Sedridor saying the package was delivered and Aubury still has the notes.
+    if (!questComplete && continueOnlyDialog(seen) && !has(NOTES) && !has(PACKAGE)) {
+        returnToAubury = true;
+        log('Package already delivered — going back to Aubury for the notes');
+    }
     await closeUi();
 }
 
@@ -916,9 +1051,19 @@ async function bankEssence(): Promise<void> {
         if (!r.success) break;
     }
     essenceBanked += before - count(ESSENCE);
+    if (sdk.findEquipmentItem(RUNE_PICK) || sdk.findInventoryItem(RUNE_PICK)) {
+        for (;;) {
+            const lesser = sdk.getInventory().find((i) => (i.count ?? 0) > 0 && PICKAXE.test(i.name) && !RUNE_PICK.test(i.name));
+            if (!lesser) break;
+            const deposited = await bot.depositItem(lesser, -1);
+            if (!deposited.success) break;
+        }
+    }
     if (!hasPickaxe()) {
-        const pick = sdk.findBankItem(PICKAXE);
-        if (pick) await bot.withdrawItem(pick, 1);
+        const pick =
+            (mining() >= RUNE_PICK_LEVEL ? sdk.findBankItem(RUNE_PICK) : null) ??
+            sdk.findBankItem(PICKAXE);
+        if (pick) await bot.withdrawItem(pick, 1, { asNote: false });
     }
     if (!(await ensureBankClosed())) return;
     log(`Banked essence | trip left ${count(ESSENCE)} | session ~${essenceBanked} | Mining ${mining()} (${miningXp()} xp)`);
@@ -933,6 +1078,9 @@ try {
         if (inEssenceMine() || count(ESSENCE) > 0) {
             questComplete = true;
             log('Quest already done (in essence mine or carrying essence)');
+        } else if (grindShowsQuestDone()) {
+            questComplete = true;
+            log('Quest already done (grind log shows completion)');
         } else if (mining() >= 20) {
             // Empty at the bank after a restart — do not walk back to the Duke.
             questComplete = true;
@@ -972,10 +1120,16 @@ try {
                 continue;
             }
             if (has(NOTES)) {
+                returnToAubury = false;
                 await talkSedridor();
                 continue;
             }
             if (has(PACKAGE)) {
+                returnToAubury = false;
+                await talkAubury();
+                continue;
+            }
+            if (returnToAubury) {
                 await talkAubury();
                 continue;
             }
@@ -1004,6 +1158,11 @@ try {
         if (questOnly) {
             log(`Done. Rune Mysteries complete. Mining ${mining()} (${miningXp()} xp)`);
             break;
+        }
+
+        if (mining() >= RUNE_PICK_LEVEL && !wearingRunePick() && !runePickMissing) {
+            await swapToRunePick();
+            continue;
         }
 
         if (!hasPickaxe()) {

@@ -1,22 +1,52 @@
 /**
- * Edgeville dungeon melee — fatpig trapdoor / wildy-gate / loot / bank loop,
- * fighting with a dragon longsword (rune axe / pickaxe fallback).
+ * Edgeville dungeon melee — trapdoor / wildy-gate / loot / bank loop with the
+ * best owned melee weapon (dragon longsword > rune axe/pickaxe > metal
+ * longsword/scimitar/sword/battleaxe). Buys a better longsword at the Varrock
+ * swordshop when Attack allows one and the bank has the coins.
  *
  *   bun bots/quests/edgeville-dungeon-melee.ts jacklove1 druids
  *   bun bots/quests/edgeville-dungeon-melee.ts jacklove3 thugs
+ *   bun bots/quests/edgeville-dungeon-melee.ts jacklove1 druids --herb-swap
+ *   bun bots/quests/edgeville-dungeon-melee.ts Jackpoo3 druids --weapon "mithril sword"
  *
+ * Starts anywhere in Kandarin: walks Ardougne → Catherby → White Wolf → Edgeville.
  * Bury bones. Loot herbs, nature/law runes, rares, then other runes/coins.
- * Train Attack, then Strength, then Defence, one level each. Skip a style at 99;
- * if Attack, Strength, and Defence are all 99, stay on Aggressive.
+ * Trains Strength up to Attack, then Defence up to that level, then one level
+ * at a time: Attack, then Strength, then Defence. Re-picks after each level.
+ * If all three are 99, stays on Aggressive. `--herb-swap` trades banked herbs to
+ * jackthief for a dragon longsword when none is owned.
+ * `--weapon "mithril sword"` withdraws and wields that bank item only, and skips
+ * the Varrock swordshop upgrade.
  */
-import { appendFileSync } from 'fs';
 import { join } from 'path';
+import { ActivitySession } from '../../sdk/index';
 import { runScript } from '../../sdk/runner';
+import { waitForPlayerState, walkKandarinToEdgeville } from './movement';
 
-const botName = process.argv.slice(2).find((a) => !a.startsWith('-') && !/^(druids|thugs)$/i.test(a)) ?? '';
+function flagValue(flag: string): string {
+    const eq = process.argv.find((a) => a.startsWith(`${flag}=`));
+    if (eq) return eq.slice(flag.length + 1).trim();
+    const i = process.argv.indexOf(flag);
+    const next = i >= 0 ? process.argv[i + 1] : undefined;
+    return next && !next.startsWith('-') ? next.trim() : '';
+}
+
+/** Exact item name. Skips the swordshop and any better weapon in the bank. */
+const PINNED_WEAPON = flagValue('--weapon');
+const botName =
+    process.argv.slice(2).find((arg, i) => {
+        if (arg.startsWith('-') || /^(druids|thugs)$/i.test(arg)) return false;
+        return process.argv[i + 1] !== '--weapon';
+    }) ?? '';
 const targetArg = process.argv.slice(2).find((a) => /^(druids|thugs)$/i.test(a)) ?? 'druids';
 const HUNT_THUGS = /^thugs$/i.test(targetArg);
+const HERB_SWAP = process.argv.includes('--herb-swap');
 const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
+const VARROCK_WEST_GATE = { x: 3175, z: 3429 };
+const SWORDSHOP = { x: 3204, z: 3398 };
+const SHOP_COINS = 5_000;
+const SHOP_RETRY_MS = 45 * 60 * 1000;
+const LOADOUT_RETRIES = 4;
 
 const EDGEVILLE_BANK = { x: 3094, z: 3492 };
 const TRAPDOOR = { x: 3095, z: 3468 };
@@ -29,7 +59,7 @@ const NPC = HUNT_THUGS ? /^thug$/i : /^chaos druid$/i;
 const SKELETON_LINE = 9940;
 /** Underground wildy: z 9920 is level 1, every 8 tiles +1. Level 5 is z 9952. */
 const WILDY_LEVEL_5 = 9952;
-const FOOD_WITHDRAW = 2;
+const FOOD_WITHDRAW_MIN = 2;
 /** OSRS-style tolerance: 10 minutes in one 21×21 area, then NPCs stop hunting. */
 const AGGRO_MS = 10 * 60 * 1000;
 /** South of the camp's 21×21 box, at the wilderness gate — not red spiders / bone piles. */
@@ -57,27 +87,48 @@ function lootPriority(name: string): number {
     if (BONES.test(name)) return 9;
     return 5;
 }
-const FOOD = /^tuna$/i;
-const RUNE_AXE = /^rune axe$/i;
-const RUNE_PICK = /^rune pickaxe$/i;
+const FOOD = /^(tuna|bass|swordfish|lobster|cod|salmon|trout|shark)$/i;
+const FOOD_PREFERENCE = ['Trout', 'Cod', 'Salmon', 'Tuna', 'Bass', 'Lobster', 'Swordfish', 'Shark'];
 const DLONG = /^dragon longsword$/i;
 const DDAGGER = /^dragon dagger/i;
 const ESSENCE = /^(pure essence|rune essence)$/i;
-const WEAPON = /^(dragon longsword|rune (axe|pickaxe))$/i;
-const KEEP = /^(tuna|rune axe|rune pickaxe)$/i;
+const WEAPON =
+    /^(dragon longsword|rune (axe|pickaxe)|(adamant|mithril|black|steel|iron|bronze) (longsword|scimitar|sword|battleaxe))$/i;
+const METALS = ['bronze', 'iron', 'steel', 'black', 'mithril', 'adamant', 'rune', 'dragon'] as const;
+const METAL_ATTACK: Record<(typeof METALS)[number], number> = {
+    bronze: 1,
+    iron: 1,
+    steel: 5,
+    black: 10,
+    mithril: 20,
+    adamant: 30,
+    rune: 40,
+    dragon: 60
+};
+/** Swordshop longsword, then sword, best first. */
+const SHOP_TIERS = ['adamant', 'mithril', 'black', 'steel', 'iron', 'bronze'] as const;
 const JACKTHIEF = /^Jackthief$/i;
 const CYCLE = ['Attack', 'Strength', 'Defence'] as const;
 
+function weaponRank(name: string): number {
+    if (!WEAPON.test(name)) return -1;
+    const metal = METALS.findIndex((m) => name.toLowerCase().startsWith(m));
+    const shape = /longsword|scimitar/i.test(name) ? 2 : /pickaxe|axe$/i.test(name) && /^rune/i.test(name) ? 1 : /sword/i.test(name) ? 1 : 0;
+    return metal * 10 + shape;
+}
+
+function weaponAttackReq(name: string): number {
+    const metal = METALS.find((m) => name.toLowerCase().startsWith(m));
+    return metal ? METAL_ATTACK[metal] : 1;
+}
+
 await runScript(async ({ bot, sdk }) => {
-    const log = (msg: string) => {
-        const line = `${new Date().toISOString()} ${msg}`;
-        console.log(msg);
-        try {
-            appendFileSync(GRIND_LOG, line + '\n');
-        } catch {
-            /* ignore */
-        }
-    };
+    const session = new ActivitySession(sdk, bot, {
+        name: 'edgeville-dungeon-melee',
+        grindLogPath: GRIND_LOG,
+        stallMs: 300_000
+    });
+    const log = (msg: string) => session.log('log', msg);
 
     const pos = () => {
         const p = sdk.getState()?.player;
@@ -94,6 +145,18 @@ await runScript(async ({ bot, sdk }) => {
         };
     };
     const distTo = (x: number, z: number) => Math.hypot(pos().x - x, pos().z - z);
+    /** 5292 is the bank. `bank.isOpen` can lag a frame behind the modal. */
+    const bankUiOpen = () => {
+        const s = sdk.getState();
+        return !!(s?.bank?.isOpen || s?.interface?.interfaceId === 5292);
+    };
+    /** Booth options are Withdraw 1/5/10/All. Any other amount opens Withdraw-X and stalls. */
+    const bankChunk = (need: number, available: number) => {
+        const cap = Math.max(1, Math.min(need, available));
+        if (cap >= 10) return 10;
+        if (cap >= 5) return 5;
+        return 1;
+    };
     const inDungeon = () => pos().z > 6400;
     const count = (pattern: RegExp) =>
         sdk.getInventory().filter((i) => pattern.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0);
@@ -107,29 +170,42 @@ await runScript(async ({ bot, sdk }) => {
             .reduce((n, i) => n + (i.count ?? 1), 0);
     const herbSlots = () => sdk.getInventory().filter((i) => HERB.test(i.name)).length;
     const skill = (name: (typeof CYCLE)[number]) => sdk.getSkill(name)?.baseLevel ?? 1;
-    /** Lost City is required to wield dragon. False after a failed equip; stick to rune pickaxe. */
-    let canWieldDlong = true;
-    const hasWeapon = () =>
-        !!(
-            sdk.findEquipmentItem(RUNE_AXE) ||
-            sdk.findEquipmentItem(RUNE_PICK) ||
-            sdk.findEquipmentItem(DLONG) ||
-            sdk.findInventoryItem(RUNE_AXE) ||
-            sdk.findInventoryItem(RUNE_PICK) ||
-            (canWieldDlong && sdk.findInventoryItem(DLONG))
-        );
-    const shouldKeep = (name: string) => KEEP.test(name) || (canWieldDlong && DLONG.test(name));
+    /** Names whose equip failed (Lost City for dragon, too-low Attack). Never retried this run. */
+    const cantWield = new Set<string>();
+    const canWieldDlong = () => !cantWield.has('dragon longsword');
+    const isPinned = (name: string) => !PINNED_WEAPON || name.toLowerCase() === PINNED_WEAPON.toLowerCase();
+    const wieldable = (name: string) =>
+        isPinned(name) &&
+        WEAPON.test(name) &&
+        !cantWield.has(name.toLowerCase()) &&
+        weaponAttackReq(name) <= skill('Attack');
+    const ownedWeapons = () =>
+        [...sdk.getEquipment(), ...sdk.getInventory()].filter((i) => (i.count ?? 1) > 0 && wieldable(i.name));
+    const hasWeapon = () => ownedWeapons().length > 0;
+    const bestOwnedRank = () => Math.max(-1, ...ownedWeapons().map((i) => weaponRank(i.name)));
+    const shouldKeep = (name: string) => FOOD.test(name) || wieldable(name) || /^coins$/i.test(name);
+    /** Low Defence takes real damage from druids; 99 Defence barely eats. */
+    const foodWithdraw = () => (skill('Defence') < 40 ? 8 : skill('Defence') < 70 ? 5 : FOOD_WITHDRAW_MIN);
+    let lastShopTry = 0;
+    let bankHasNoFood = false;
 
-    function nextMeleeSkill(from: (typeof CYCLE)[number]): (typeof CYCLE)[number] {
-        const start = CYCLE.indexOf(from);
-        for (let i = 1; i <= CYCLE.length; i++) {
-            const next = CYCLE[(start + i) % CYCLE.length]!;
-            if (skill(next) < 99) return next;
-        }
+    /**
+     * Strength catches Attack, then Defence catches that level, then one
+     * level at a time: Attack, then Strength, then Defence.
+     */
+    function nextMeleeSkill(): (typeof CYCLE)[number] {
+        const atk = skill('Attack');
+        const str = skill('Strength');
+        const def = skill('Defence');
+        if (str < atk && str < 99) return 'Strength';
+        if (def < atk && def < 99) return 'Defence';
+        if (atk < 99) return 'Attack';
+        if (str < 99) return 'Strength';
+        if (def < 99) return 'Defence';
         return 'Strength';
     }
 
-    let train: (typeof CYCLE)[number] = CYCLE.find((s) => skill(s) < 99) ?? 'Strength';
+    let train: (typeof CYCLE)[number] = nextMeleeSkill();
     let trainAt = skill(train);
     let aggroSince = Date.now();
     let packCalmSince: number | null = null;
@@ -162,7 +238,7 @@ await runScript(async ({ bot, sdk }) => {
         const food = sdk.findInventoryItem(FOOD);
         if (!food) return;
         const r = await bot.eatFood(food);
-        if (r.success) log(`Ate tuna +${r.hpGained} HP ${pos().hp}/${pos().maxHp} left=${foodCount()}`);
+        if (r.success) log(`Ate ${food.name} +${r.hpGained} HP ${pos().hp}/${pos().maxHp} left=${foodCount()}`);
         else log(`Eat failed: ${r.message} HP ${p.hp}/${p.maxHp}`);
     }
 
@@ -183,77 +259,109 @@ await runScript(async ({ bot, sdk }) => {
         if (all99) {
             train = 'Strength';
             trainAt = skill(train);
-        } else if (skill(train) >= 99 || skill(train) > trainAt) {
-            const prev = train;
-            train = nextMeleeSkill(train);
-            trainAt = skill(train);
-            log(`LEVEL UP ${prev} — next ${train} (atk ${skill('Attack')} str ${skill('Strength')} def ${skill('Defence')})`);
+        } else {
+            const next = nextMeleeSkill();
+            if (next !== train) {
+                const prev = train;
+                train = next;
+                trainAt = skill(train);
+                log(`LEVEL UP ${prev} — next ${train} (atk ${skill('Attack')} str ${skill('Strength')} def ${skill('Defence')})`);
+            }
         }
-        const cs = sdk.getState()?.combatStyle;
-        if (!cs?.known) return;
-        const style = all99
-            ? (cs.styles.find((s) => /aggressive/i.test(s.type) || /aggressive/i.test(s.name)) ??
-               cs.styles.find((s) => s.trainsSkills.includes('Strength') && s.trainsSkills.length === 1))
-            : (cs.styles.find((s) => s.trainsSkills.includes(train) && s.trainsSkills.length === 1) ??
-               cs.styles.find((s) => s.trainsSkills.includes(train)));
-        if (!style || cs.currentStyle === style.index) return;
-        await sdk.sendSetCombatStyle(style.index);
-        await sdk.waitForCondition((s) => s.combatStyle?.currentStyle === style.index, 3_000).catch(() => {});
-        log(`Style ${style.name} → ${train} (atk ${skill('Attack')} str ${skill('Strength')} def ${skill('Defence')})`);
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const cs = sdk.getState()?.combatStyle;
+            if (!cs?.known) {
+                await sdk.waitForTicks(2);
+                continue;
+            }
+            const style = all99
+                ? (cs.styles.find((s) => /aggressive/i.test(s.type) || /aggressive/i.test(s.name)) ??
+                   cs.styles.find((s) => s.trainsSkills.includes('Strength') && s.trainsSkills.length === 1))
+                : (cs.styles.find((s) => s.trainsSkills.includes(train) && s.trainsSkills.length === 1) ??
+                   cs.styles.find((s) => s.trainsSkills.includes(train)));
+            if (!style || cs.currentStyle === style.index) return;
+            await sdk.sendSetCombatStyle(style.index);
+            const switched = await sdk
+                .waitForCondition((s) => s.combatStyle?.currentStyle === style.index, 8_000)
+                .then(() => true)
+                .catch(() => false);
+            if (!switched) continue;
+            log(`Style ${style.name} → ${train} (atk ${skill('Attack')} str ${skill('Strength')} def ${skill('Defence')})`);
+            return;
+        }
     }
 
     async function equipWeapon(): Promise<void> {
-        if (sdk.findEquipmentItem(DLONG)) return;
-        if (canWieldDlong) {
-            const dlong = sdk.findInventoryItem(DLONG);
-            if (dlong) {
-                const r = await bot.equipItem(dlong);
-                if (sdk.findEquipmentItem(DLONG)) {
-                    log('Equip dragon longsword: ok');
-                    return;
-                }
-                canWieldDlong = false;
-                log(`Cannot wield dragon longsword (${r.message}) — sticking to rune pickaxe`);
+        for (let attempt = 0; attempt < 4; attempt++) {
+            const worn = sdk.getEquipment().find((i) => WEAPON.test(i.name));
+            const best = sdk
+                .getInventory()
+                .filter((i) => wieldable(i.name))
+                .sort((a, b) => weaponRank(b.name) - weaponRank(a.name))[0];
+            if (!best || (worn && weaponRank(worn.name) >= weaponRank(best.name))) return;
+            const r = await bot.equipItem(best);
+            await sdk.waitForTicks(1);
+            if (sdk.findEquipmentItem(new RegExp(`^${best.name}$`, 'i'))) {
+                log(`Equip ${best.name}: ok`);
+                return;
             }
-        }
-        if (sdk.findEquipmentItem(RUNE_AXE) || sdk.findEquipmentItem(RUNE_PICK)) return;
-        const axe = sdk.findInventoryItem(RUNE_AXE);
-        if (axe) {
-            const r = await bot.equipItem(axe);
-            log(`Equip rune axe: ${r.success ? 'ok' : r.message}`);
-            if (r.success) return;
-        }
-        const pick = sdk.findInventoryItem(RUNE_PICK);
-        if (pick) {
-            const r = await bot.equipItem(pick);
-            log(`Equip rune pickaxe: ${r.success ? 'ok' : r.message}`);
+            cantWield.add(best.name.toLowerCase());
+            log(`Cannot wield ${best.name} (${r.message}) — trying the next weapon`);
         }
     }
 
     async function openEdgevilleBank(): Promise<boolean> {
         if (inDungeon()) await climbToSurface();
         if (sdk.getState()?.shop?.isOpen) await bot.closeShop();
-        if (sdk.getState()?.bank?.isOpen) {
+        if (bankUiOpen()) {
             if (distTo(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z) <= 10) return true;
             await bot.closeBank();
         }
+        await travelFromKandarin();
         if (pos().x > 3120 || pos().z < 3460) {
             if (pos().z < 3320) await walkNear(3088, 3320, 8);
             if (pos().z < 3420) await walkNear(3088, 3420, 8);
         }
         await walkNear(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z, 4);
-        if (sdk.getState()?.bank?.isOpen) return true;
+        if (bankUiOpen()) return true;
         const opened = await bot.openBank();
-        if (!opened.success) {
+        if (!opened.success && !bankUiOpen()) {
             log(`openBank failed: ${opened.message}`);
             return false;
         }
         return true;
     }
 
+    /** Ardougne / Catherby / Seers → White Wolf → Edgeville. Banks for fish first. */
+    async function travelFromKandarin(): Promise<void> {
+        if (inDungeon() || pos().x >= 2990) return;
+        log(`Kandarin start @ ${pos().x},${pos().z} — walking to Edgeville over White Wolf`);
+        await intent('Kandarin → White Wolf → Edgeville');
+        if (foodCount() < foodWithdraw()) {
+            const opened = await bot.openBank();
+            if (opened.success) {
+                await depositJunk();
+                await withdrawFood();
+                await bot.closeBank();
+            } else {
+                log(`Kandarin bank failed: ${opened.message}`);
+            }
+        }
+        await equipWeapon();
+        await walkKandarinToEdgeville(bot, sdk, { eat: eatIfNeeded, walkNear });
+        log(`Kandarin walk done @ ${pos().x},${pos().z} hp ${pos().hp}/${pos().maxHp} food ${foodCount()}`);
+    }
+
     async function depositJunk(): Promise<void> {
+        const worn = sdk.getEquipment().some((i) => WEAPON.test(i.name));
+        const bestInv = sdk
+            .getInventory()
+            .filter((i) => wieldable(i.name))
+            .sort((a, b) => weaponRank(b.name) - weaponRank(a.name))[0];
+        const keep = (it: { name: string; slot: number }) =>
+            FOOD.test(it.name) || (!worn && !!bestInv && it.slot === bestInv.slot);
         for (let i = 0; i < 40; i++) {
-            const item = sdk.getInventory().find((it) => (it.count ?? 0) > 0 && !shouldKeep(it.name));
+            const item = sdk.getInventory().find((it) => (it.count ?? 0) > 0 && !keep(it));
             if (!item) break;
             const r = await bot.depositItem(item, -1);
             log(`Deposit ${item.name}: ${r.success || r.partial ? 'ok' : r.message}`);
@@ -263,68 +371,183 @@ await runScript(async ({ bot, sdk }) => {
             const noted = sdk.getInventory().find((it) => FOOD.test(it.name) && !canEat(it));
             if (!noted) break;
             const r = await bot.depositItem(noted, -1);
-            log(`Deposit noted tuna: ${r.success || r.partial ? 'ok' : r.message}`);
+            log(`Deposit noted ${noted.name}: ${r.success || r.partial ? 'ok' : r.message}`);
             if (!r.success && !r.partial) break;
         }
-        const extraFood = foodCount() - FOOD_WITHDRAW;
-        if (extraFood > 0) {
-            const r = await bot.depositItem(FOOD, extraFood);
-            log(`Park extra tuna: ${r.success || r.partial ? 'ok' : r.message} now ${foodCount()}`);
+        const extraFood = foodCount() - foodWithdraw();
+        for (let n = 0; n < extraFood; n++) {
+            const r = await bot.depositItem(FOOD, 1);
+            if (!r.success && !r.partial) {
+                log(`Park extra food: ${r.message} now ${foodCount()}`);
+                break;
+            }
         }
+        if (extraFood > 0) log(`Park extra food now ${foodCount()}`);
+    }
+
+    /** Cheapest stocked fish first; skips 0-count bank placeholders. */
+    function bestBankFood() {
+        const rank = (name: string) => {
+            const i = FOOD_PREFERENCE.findIndex((f) => f.toLowerCase() === name.toLowerCase());
+            return i < 0 ? FOOD_PREFERENCE.length : i;
+        };
+        return (sdk.getState()?.bank?.items ?? [])
+            .filter((i) => (i.count ?? 0) > 0 && FOOD.test(i.name))
+            .sort((a, b) => rank(a.name) - rank(b.name))[0];
+    }
+
+    async function withdrawFood(): Promise<void> {
+        let ones = false;
+        let stuck = 0;
+        for (let i = 0; i < 12 && foodCount() < foodWithdraw(); i++) {
+            const bankFood = bestBankFood();
+            if (!bankFood) {
+                const listed = (sdk.getState()?.bank?.items ?? []).length;
+                if (listed > 0) {
+                    bankHasNoFood = true;
+                    session.log('warn', 'Bank has no stocked food');
+                } else {
+                    session.log('warn', 'Bank item list empty');
+                }
+                break;
+            }
+            const before = foodCount();
+            const need = foodWithdraw() - before;
+            const qty = ones ? 1 : bankChunk(need, bankFood.count ?? need);
+            const r = await bot.withdrawItem(bankFood, qty, { asNote: false });
+            if (foodCount() === before) await sdk.waitForTicks(2);
+            log(`Withdraw ${bankFood.name} x${qty}: ${foodCount() > before || r.success || r.partial ? 'ok' : r.message} now ${foodCount()}`);
+            const leftoverNotes = sdk.getInventory().find((it) => FOOD.test(it.name) && !canEat(it));
+            if (leftoverNotes) {
+                log(`${leftoverNotes.name} came out noted — depositing`);
+                await bot.depositItem(leftoverNotes, -1);
+            }
+            if (foodCount() > before) {
+                stuck = 0;
+                continue;
+            }
+            ones = true;
+            stuck++;
+            if (stuck >= 2) break;
+        }
+    }
+
+    function bestBankWeapon() {
+        const bank = sdk.getState()?.bank?.items ?? [];
+        return bank
+            .filter((i) => (i.count ?? 0) > 0 && wieldable(i.name) && (canWieldDlong() || !DLONG.test(i.name)))
+            .sort((a, b) => weaponRank(b.name) - weaponRank(a.name))[0];
     }
 
     async function withdrawLoadout(): Promise<void> {
-        if (!hasWeapon()) {
-            if (canWieldDlong) {
-                const bankDlong = sdk.findBankItem(DLONG);
-                if (bankDlong) {
-                    const r = await bot.withdrawItem(bankDlong, 1);
-                    log(`Withdraw dragon longsword: ${r.success || r.partial ? 'ok' : r.message}`);
-                }
-            }
-            if (!hasWeapon()) {
-                const bankAxe = sdk.findBankItem(RUNE_AXE);
-                if (bankAxe) {
-                    const r = await bot.withdrawItem(bankAxe, 1);
-                    log(`Withdraw rune axe: ${r.success || r.partial ? 'ok' : r.message}`);
-                }
-            }
-            if (!hasWeapon()) {
-                const bankPick = sdk.findBankItem(RUNE_PICK);
-                if (bankPick) {
-                    const r = await bot.withdrawItem(bankPick, 1);
-                    log(`Withdraw rune pickaxe: ${r.success || r.partial ? 'ok' : r.message}`);
-                }
-            }
+        const bankBest = bestBankWeapon();
+        if (bankBest && weaponRank(bankBest.name) > bestOwnedRank()) {
+            const r = await bot.withdrawItem(bankBest, 1);
+            log(`Withdraw ${bankBest.name}: ${r.success || r.partial ? 'ok' : r.message}`);
         }
-        const need = FOOD_WITHDRAW - foodCount();
-        if (need > 0) {
-            const bankFood = sdk.findBankItem(FOOD)?.count ?? 0;
-            if (bankFood > 0) {
-                const r = await bot.withdrawItem(FOOD, Math.min(need, bankFood), { asNote: false });
-                log(`Withdraw tuna: ${r.success || r.partial ? 'ok' : r.message} now ${foodCount()}`);
-                const leftoverNotes = sdk.getInventory().find((it) => FOOD.test(it.name) && !canEat(it));
-                if (leftoverNotes) {
-                    log('Tuna came out noted — depositing and retrying unnoted');
-                    await bot.depositItem(leftoverNotes, -1);
-                    const retry = await bot.withdrawItem(FOOD, FOOD_WITHDRAW, { asNote: false });
-                    log(`Retry tuna: ${retry.success || retry.partial ? 'ok' : retry.message} now ${foodCount()}`);
-                }
-            }
+        await withdrawFood();
+    }
+
+    /** Best swordshop tier this Attack level can wield, or null. */
+    function shopTarget(): (typeof SHOP_TIERS)[number] | null {
+        return SHOP_TIERS.find((m) => METAL_ATTACK[m] <= skill('Attack')) ?? null;
+    }
+
+    function wantsShopUpgrade(): boolean {
+        if (PINNED_WEAPON) return false;
+        const tier = shopTarget();
+        if (!tier) return false;
+        if (Date.now() - lastShopTry < SHOP_RETRY_MS) return false;
+        const bankRank = Math.max(-1, ...[bestBankWeapon()].filter(Boolean).map((i) => weaponRank(i!.name)));
+        const have = Math.max(bestOwnedRank(), bankRank);
+        return weaponRank(`${tier} longsword`) > have;
+    }
+
+    /** Withdraws coins at the open Edgeville bank, buys at Varrock, walks back. */
+    async function buyShopUpgrade(): Promise<void> {
+        const tier = shopTarget();
+        if (!tier) return;
+        lastShopTry = Date.now();
+        const bankCoins = sdk.findBankItem(/^coins$/i)?.count ?? 0;
+        if (bankCoins < 40) {
+            log(`Swordshop skipped — ${bankCoins} gp banked`);
+            return;
         }
+        const r = await bot.withdrawItem(/^coins$/i, Math.min(SHOP_COINS, bankCoins));
+        log(`Withdraw coins for swordshop: ${r.success || r.partial ? 'ok' : r.message}`);
+        await bot.closeBank();
+        await intent(`Varrock swordshop — ${tier} longsword`);
+        await walkNear(VARROCK_WEST_GATE.x, VARROCK_WEST_GATE.z, 6);
+        await walkNear(SWORDSHOP.x, SWORDSHOP.z, 3);
+        const opened = await bot.openShop(/^shop (keeper|assistant)$/i);
+        if (!opened.success) {
+            log(`Swordshop open failed: ${opened.message}`);
+        } else {
+            const coins = () => sdk.findInventoryItem(/^coins$/i)?.count ?? 0;
+            const items = sdk.getState()?.shop?.shopItems ?? [];
+            const startAt = SHOP_TIERS.indexOf(tier);
+            let bought = false;
+            for (const metal of SHOP_TIERS.slice(startAt)) {
+                for (const shape of ['longsword', 'sword']) {
+                    const name = `${metal} ${shape}`;
+                    if (weaponRank(name) <= bestOwnedRank()) continue;
+                    const line = items.find((i) => i.name.toLowerCase() === name && (i.count ?? 0) > 0);
+                    if (!line || (line.buyPrice ?? Infinity) > coins()) continue;
+                    const buy = await bot.buyFromShop(line, 1);
+                    if (!buy.success) await sdk.waitForTicks(4);
+                    const arrived = buy.success || !!sdk.findInventoryItem(new RegExp(`^${name}$`, 'i'));
+                    log(`Buy ${name} @ ${line.buyPrice}gp: ${arrived ? 'ok' : buy.message}`);
+                    if (arrived) {
+                        bought = true;
+                        break;
+                    }
+                }
+                if (bought) break;
+            }
+            if (!bought) log(`Swordshop: nothing better affordable (gp ${coins()})`);
+            await bot.closeShop();
+        }
+        await equipWeapon();
+        await walkNear(VARROCK_WEST_GATE.x, VARROCK_WEST_GATE.z, 6);
     }
 
     async function prepareLoadout(): Promise<void> {
-        await intent(canWieldDlong ? 'Edgeville bank — 2 tuna + dragon longsword' : 'Edgeville bank — 2 tuna + rune pickaxe');
+        await intent(`Edgeville bank — ${foodWithdraw()} food + best melee weapon`);
         if (inDungeon()) await climbToSurface();
         if (!(await openEdgevilleBank())) return;
         await depositJunk();
         await withdrawLoadout();
-        await bot.closeBank();
+        for (let i = 0; i < 4 && bankUiOpen(); i++) {
+            await bot.closeBank();
+            await sdk.waitForTicks(1);
+        }
         await equipWeapon();
+        if (wantsShopUpgrade()) {
+            if (!(await openEdgevilleBank())) return;
+            await buyShopUpgrade();
+            if (!(await openEdgevilleBank())) return;
+            await depositJunk();
+            await withdrawLoadout();
+            await bot.closeBank();
+            await equipWeapon();
+        }
         log(
-            `Loadout food=${foodCount()} weapon=${sdk.findEquipmentItem(WEAPON)?.name ?? sdk.findInventoryItem(WEAPON)?.name ?? 'none'}`
+            `Loadout food=${foodCount()} weapon=${sdk.getEquipment().find((i) => WEAPON.test(i.name))?.name ?? 'none'}`
         );
+    }
+
+    // Bank ops time out during gateway hiccups even when the bank holds food.
+    async function prepareLoadoutWithRetry(): Promise<boolean> {
+        for (let attempt = 0; attempt < LOADOUT_RETRIES; attempt++) {
+            if (attempt > 0) {
+                session.log('warn', `No food after bank — retry ${attempt}/${LOADOUT_RETRIES - 1} in 60s`);
+                await new Promise((r) => setTimeout(r, 60_000));
+                await waitForPlayerState(sdk);
+            }
+            await prepareLoadout();
+            if (foodCount() > 0) return true;
+        }
+        return false;
     }
 
     function herbUnits(): number {
@@ -362,7 +585,7 @@ await runScript(async ({ bot, sdk }) => {
         await intent('Edgeville — herbs for dragon kit (jackthief)');
         if (inDungeon()) await climbToSurface();
         if (!(await openEdgevilleBank())) return;
-        if (canWieldDlong && sdk.findBankItem(DLONG) && !hasDlong()) {
+        if (canWieldDlong() && sdk.findBankItem(DLONG) && !hasDlong()) {
             const r = await bot.withdrawItem(DLONG, 1);
             log(`Already banked dlong: ${r.success || r.partial ? 'ok' : r.message}`);
             await bot.closeBank();
@@ -415,17 +638,19 @@ await runScript(async ({ bot, sdk }) => {
 
         if (!(await openEdgevilleBank())) return;
         await depositAll();
-        if (canWieldDlong && sdk.findBankItem(DLONG)) {
+        if (canWieldDlong() && sdk.findBankItem(DLONG)) {
             const r = await bot.withdrawItem(DLONG, 1);
             log(`Withdraw dlong: ${r.success || r.partial ? 'ok' : r.message}`);
         }
         await bot.closeBank();
         await equipWeapon();
-        if (!canWieldDlong) log('Dragon longsword parked — melee continues on rune pickaxe');
+        if (!canWieldDlong()) log('Dragon longsword parked — melee continues on rune pickaxe');
     }
 
     async function climbIntoDungeon(): Promise<boolean> {
         if (inDungeon()) return true;
+        await travelFromKandarin();
+        if (pos().x < 2990) return false;
         await walkNear(TRAPDOOR.x, TRAPDOOR.z, 1);
         for (let attempt = 0; attempt < 4 && !inDungeon(); attempt++) {
             const trap = sdk.findNearbyLoc(/trapdoor/i);
@@ -478,6 +703,7 @@ await runScript(async ({ bot, sdk }) => {
     }
 
     async function goToCamp(): Promise<void> {
+        for (let i = 0; i < 3 && bankUiOpen(); i++) await bot.closeBank();
         if (!inDungeon() && !(await climbIntoDungeon())) return;
         if (pos().z < WILDY_GATE.z - 4) {
             await walkNear(WILDY_GATE.x, WILDY_GATE.z - 2, 3);
@@ -637,7 +863,8 @@ await runScript(async ({ bot, sdk }) => {
         }
         const target = findTarget();
         if (!target) {
-            if (distTo(CAMP.x, CAMP.z) > 8) await walkNear(CAMP.x, CAMP.z, 5);
+            if (!inDungeon()) await goToCamp();
+            else if (distTo(CAMP.x, CAMP.z) > 8) await walkNear(CAMP.x, CAMP.z, 5);
             else await sdk.waitForTicks(1);
             return;
         }
@@ -645,21 +872,35 @@ await runScript(async ({ bot, sdk }) => {
         if (!r.success) log(`Attack ${target.name}: ${r.message}`);
     }
 
+    await waitForPlayerState(sdk);
     log(
         `Edgeville melee ${HUNT_THUGS ? 'thugs' : 'chaos druids'} ` +
-            `atk ${skill('Attack')} str ${skill('Strength')} def ${skill('Defence')} @ ${pos().x},${pos().z}`
+            `atk ${skill('Attack')} str ${skill('Strength')} def ${skill('Defence')} ` +
+            `weapon ${PINNED_WEAPON || 'best'} @ ${pos().x},${pos().z}`
     );
+    await trainMelee();
     await closeUi();
-    await swapHerbsForDragon();
-    await prepareLoadout();
-    if (foodCount() < 1 || !hasWeapon()) {
-        throw new Error(`Need tuna + weapon (food=${foodCount()} weapon=${hasWeapon()})`);
+    if (HERB_SWAP) await swapHerbsForDragon();
+    while (!(await prepareLoadoutWithRetry())) {
+        if (bankHasNoFood) {
+            session.stop('needs_supplies', `No food after loadout @ ${pos().x},${pos().z}`);
+            await session.finalizeStop();
+            return;
+        }
+        session.log('warn', 'Bank click missed — retrying loadout in 20s');
+        await new Promise((r) => setTimeout(r, 20_000));
+        await waitForPlayerState(sdk);
     }
+    if (!hasWeapon()) session.log('warn', 'No wieldable weapon — fighting unarmed');
     await goToCamp();
     await trainMelee();
 
     while (true) {
         await bot.dismissBlockingUI();
+        if (CYCLE.every((s) => skill(s) >= 99)) {
+            session.stop('goal_reached', 'Attack, Strength and Defence are 99');
+            break;
+        }
         if (pos().isDead) {
             log('Died — waiting to respawn');
             await sdk.waitForCondition((s) => !s.player.isDead, 60_000).catch(() => {});
@@ -684,8 +925,10 @@ await runScript(async ({ bot, sdk }) => {
 
         if (foodCount() === 0 || occupied() >= 28) {
             log(`Banking food=${foodCount()} herbs=${herbSlots()} slots=${occupied()}`);
-            await prepareLoadout();
-            if (foodCount() === 0) throw new Error('Out of tuna');
+            if (!(await prepareLoadoutWithRetry())) {
+                session.stop('needs_supplies', 'Out of food after bank');
+                break;
+            }
             await goToCamp();
             continue;
         }
@@ -698,4 +941,5 @@ await runScript(async ({ bot, sdk }) => {
         await fight();
         await lootGround();
     }
+    await session.finalizeStop();
 });

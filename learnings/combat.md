@@ -204,3 +204,43 @@ console.log(`Training ${stat} with ${style.name}`);
 ```
 
 This pattern enabled balanced 60+ in all melee stats.
+
+## Player attack range
+
+Hard cap is **10 tiles**. Nothing a player can fire goes further. Source:
+`player_attackrange` in `server/content/scripts/skill_combat/scripts/player/player_combat.rs2`
+(`min(..., 10)`), and click-cast spells use the engine default `apRange` of 10.
+
+Weapon range comes from the item `attackrange` param. Longrange style adds +2,
+still capped at 10. Autocast Magic ignores the weapon and always returns 10.
+
+The **magic longbow special is not extra range**. A normal magic longbow shot
+is already 10. The spec is Powershot: guaranteed hit (no accuracy roll), +10
+effective Ranged for max hit, 35% energy.
+
+| Attack | Tiles | Longrange |
+|--------|-------|-----------|
+| Melee | 1 | — |
+| Halberd / polearm | 2 | — |
+| Darts | 3 | 5 |
+| Knives / thrown axes | 4 | 6 |
+| Javelins | 5 | 7 |
+| Shortbows (incl. magic shortbow), crossbow | 7 | 9 |
+| Longbows (incl. magic longbow), ogre bow | **10** | **10** (already capped) |
+| Magic (autocast or click-cast) | **10** | — |
+
+KBD mith-knife safespot (Accurate → Longrange → Rapid, loot knives after death): [`kbd.md`](kbd.md).
+
+### Magic longbow vs magic shortbow
+
+Both require 50 Ranged and have +69 range attack.
+
+| | Magic longbow | Magic shortbow |
+|---|---|---|
+| Attack range | 10 (the cap) | 7 (9 on Longrange) |
+| Attack speed | 6 | 4 (default shortbow) |
+| Special (35% energy) | Powershot — one guaranteed hit, +10 Ranged | Snapshot — two arrows, needs 2 ammo, +10 Ranged, 43% accuracy bonus |
+
+Use the shortbow for DPS (speed + two-hit spec). Use any longbow, or Magic,
+when you need the 10-tile window. Config: `server/content/scripts/skill_combat/configs/ranged/bows.obj`.
+Specs: `pvm_magic_longbow.rs2` / `pvm_magic_shortbow.rs2`.

@@ -1,25 +1,31 @@
 /**
  * Wilderness green dragons (3078, 3810), south of the lava maze.
- * Melee, bury dragon bones, loot hides / nature runes / rares.
- * Bank at Edgeville: 16 swordfish, one super attack dose (leftover pot stays in bank).
+ * Melee, loot dragon bones (bank, do not bury), hides, nature runes, rares.
+ * Bank at Edgeville: 4 fish (cod, then other fish by heal ascending). Attack and
+ * strength potions are optional. No food at all hands jackthief to fishing-route.
+ * A death that drops the dragonfire shield respawns in Lumbridge: climb to
+ * Duke Horacio and ask for another. If that line is missing, the spare is
+ * in the bank — withdraw it at Edgeville before hunting.
  * Never bot.walkTo north of the ditch.
  *
  *   bun bots/quests/green-dragons.ts jackthief
  */
-import { existsSync, readFileSync } from 'fs';
+import { spawn } from 'child_process';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { ActivitySession, BotSDK, deriveGatewayUrl, inWilderness } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
 import { EDGEVILLE } from './tiles';
-import { closeUi } from './movement';
+import { closeUi, walkNear } from './movement';
 import { foodHeal, needsBankHeal } from './food-heal';
 import { LAVA_MAZE_EAST, southOfLavaMaze } from './rune-rocks-route';
+import { installGracefulShutdown } from '../../sdk/runner';
 
 const CAMP = { x: 3078, z: 3810 };
 const DITCH_NORTH = { x: 3088, z: 3525 };
 const DITCH_SOUTH = { x: 3088, z: 3518 };
-const FOOD_WITHDRAW = 16;
+const FOOD_WITHDRAW = 4;
 const HUNT_RADIUS = 22;
 /** Keep south of the lava-maze walls (~z 3820). Chasing to 3836 sendWalks around lava. */
 const HUNT = { minX: 3052, maxX: 3112, minZ: 3776, maxZ: 3818 };
@@ -27,7 +33,8 @@ const HUNT = { minX: 3052, maxX: 3112, minZ: 3776, maxZ: 3818 };
 const TO_CAMP = [
     { x: 3088, z: 3525 },
     { x: 3102, z: 3610 },
-    { x: 3110, z: 3700 },
+    { x: 3102, z: 3700 },
+    { x: 3102, z: 3748 },
     { x: 3115, z: 3780 },
     { x: 3078, z: 3810 }
 ];
@@ -50,21 +57,47 @@ const HIDE = /^(green )?dragonhide$/i;
 const NATURE = /^nature runes?$/i;
 const RARE =
     /dragon spear|dragon med(ium)? helm|half of a key|left half|shield left half|^clue scroll|nature talisman|^(uncut )?(sapphire|emerald|ruby|diamond|dragonstone)$|^rune dagger$|^adamant full helm$/i;
-const SWORDFISH = /^swordfish$/i;
-const SUPER_ATTACK = /^super attack(\(\d\))?$/i;
 const EMPTY_VIAL = /^vial$/i;
+/** Cod first, then every other fish from least heal to most. */
+const FISH_WITHDRAW = [
+    'cod',
+    'shrimp',
+    'anchovies',
+    'sardine',
+    'herring',
+    'mackerel',
+    'trout',
+    'pike',
+    'salmon',
+    'tuna',
+    'lobster',
+    'bass',
+    'swordfish',
+    'shark'
+] as const;
+const ATTACK_POTS = [/^attack potion\(\d\)$/i, /^super attack\(\d\)$/i];
+const STRENGTH_POTS = [/^strength potion\(\d\)$/i, /^super strength\(\d\)$/i];
 const DLONG = /^dragon longsword$/i;
 const FIRE_SHIELD = /dragonfire shield|anti-?dragon/i;
+/** South stairs. The north staircase (3204, 3229) does not change floor. */
+const CASTLE_STAIRS = { x: 3205, z: 3208 };
+/** Duke Horacio, first floor of Lumbridge castle. */
+const DUKE = { x: 3212, z: 3220 };
+const DUKE_SHIELD = /shield that will protect me from the dragon/i;
 const CHARGED_GLORY = /amulet of glory\([1-4]\)/i;
 const ANY_GLORY = /amulet of glory/i;
 const GEAR =
     /d'?hide body|d'?hide chaps|dragon vambraces|dragon longsword|dragonfire shield|anti-?dragon|rune (full helm|platelegs)|amulet of glory|cape of saradomin|climbing boots|ring of wealth/i;
 
+function isBoostPotion(name: string): boolean {
+    return [...ATTACK_POTS, ...STRENGTH_POTS].some((pattern) => pattern.test(name));
+}
+
 function shouldKeep(name: string): boolean {
     if (HIDE.test(name) || NATURE.test(name) || RARE.test(name) || ANY_BONES.test(name) || EMPTY_VIAL.test(name)) {
         return false;
     }
-    return SWORDFISH.test(name) || SUPER_ATTACK.test(name) || GEAR.test(name);
+    return foodHeal(name) > 0 || isBoostPotion(name) || GEAR.test(name);
 }
 
 function isLoot(name: string): boolean {
@@ -73,9 +106,9 @@ function isLoot(name: string): boolean {
 
 function lootPriority(name: string): number {
     if (RARE.test(name)) return 0;
-    if (NATURE.test(name)) return 1;
-    if (HIDE.test(name)) return 2;
-    if (ANY_BONES.test(name)) return 3;
+    if (DRAGON_BONES.test(name) || ANY_BONES.test(name)) return 1;
+    if (NATURE.test(name)) return 2;
+    if (HIDE.test(name)) return 3;
     return 9;
 }
 
@@ -126,6 +159,8 @@ const session = new ActivitySession(sdk, bot, {
     maxRecoveryTactics: 8
 });
 
+installGracefulShutdown({ graceMs: 30_000 });
+
 function log(msg: string): void {
     session.log('log', msg);
 }
@@ -175,8 +210,8 @@ function count(pattern: RegExp): number {
     return sdk.getInventory().filter((i) => pattern.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0);
 }
 
-function swordfishCount(): number {
-    return sdk.getInventory().filter((i) => SWORDFISH.test(i.name)).length;
+function fishPattern(name: string): RegExp {
+    return new RegExp(`^${name}$`, 'i');
 }
 
 function edible() {
@@ -189,12 +224,6 @@ function foodCount(): number {
 
 function hpXp(): number {
     return sdk.getSkill('Hitpoints')?.experience ?? 0;
-}
-
-function attackBoosted(): boolean {
-    const sk = sdk.getSkill('Attack');
-    if (!sk) return false;
-    return sk.level > sk.baseLevel;
 }
 
 async function ui(): Promise<void> {
@@ -324,11 +353,8 @@ async function crossDitchSouth(): Promise<boolean> {
 async function gloryToEdgeville(): Promise<boolean> {
     if (wildyLevel(pos().z) > 30) return false;
     if (occupied() >= 28) {
-        await buryBones();
-        if (occupied() >= 28) {
-            const food = edible()[0];
-            if (food) await bot.eatFood(food);
-        }
+        const food = edible()[0];
+        if (food) await bot.eatFood(food);
     }
     if (occupied() >= 28) return false;
     let glory = sdk.findInventoryItem(CHARGED_GLORY);
@@ -386,7 +412,7 @@ async function goToCamp(): Promise<boolean> {
     if (session.metrics().phase !== 'travel') await session.setPhase('travel');
     session.setAnchor(CAMP.x, CAMP.z);
     if (!northOfDitch()) {
-        if (swordfishCount() < 4 && !(await bankTrip())) return false;
+        if (foodCount() < 2 && !(await bankTrip())) return false;
         if (!(await crossDitchNorth())) {
             session.noteFailure('ditch', 'Could not cross wilderness ditch');
             return false;
@@ -412,25 +438,7 @@ async function eatIfNeeded(): Promise<void> {
     const r = await bot.eatFood(food);
     if (r.success) {
         session.noteProgress('inventory', 'eat');
-        log(`Ate ${food.name} +${r.hpGained} HP ${pos().hp}/${pos().maxHp} swordfish=${swordfishCount()}`);
-    }
-}
-
-async function buryBones(): Promise<void> {
-    for (let i = 0; i < 8; i++) {
-        await bot.dismissBlockingUI();
-        const bones = sdk.findInventoryItem(DRAGON_BONES) ?? sdk.findInventoryItem(ANY_BONES);
-        if (!bones) return;
-        const bury = bones.optionsWithIndex.find((o) => /bury/i.test(o.text));
-        if (!bury) return;
-        const xpBefore = sdk.getSkill('Prayer')?.experience ?? 0;
-        await sdk.sendUseItem(bones.slot, bury.opIndex);
-        await sdk.waitForTicks(1);
-        const xpAfter = sdk.getSkill('Prayer')?.experience ?? 0;
-        if (xpAfter > xpBefore) {
-            session.noteProgress('xp', `prayer ${xpAfter}`);
-            log(`Buried ${bones.name} +${xpAfter - xpBefore} prayer xp`);
-        }
+        log(`Ate ${food.name} +${r.hpGained} HP ${pos().hp}/${pos().maxHp} food=${foodCount()}`);
     }
 }
 
@@ -453,8 +461,8 @@ async function pickupNear(item: { x: number; z: number; id: number; name: string
     const got = sdk.getInventory().filter((i) => i.id === item.id).reduce((n, i) => n + (i.count ?? 1), 0) > before;
     if (got) {
         session.noteProgress('inventory', item.name);
+        session.recordGain(item.name, Math.max(1, item.count || 1));
         log(`Picked ${item.count} ${item.name}`);
-        if (ANY_BONES.test(item.name)) await buryBones();
     }
     return got;
 }
@@ -463,16 +471,12 @@ async function lootGround(): Promise<void> {
     for (let i = 0; i < 8; i++) {
         await eatIfNeeded();
         if (pos().hp <= 30) return;
-        await buryBones();
         const ground = [...(sdk.getGroundItems() ?? [])];
         const item = ground
             .filter((g) => isLoot(g.name) && g.reachable !== false && (g.distance ?? 99) <= 12)
             .sort((a, b) => lootPriority(a.name) - lootPriority(b.name) || (a.distance ?? 99) - (b.distance ?? 99))[0];
         if (!item) return;
-        if (occupied() >= 28 && !ANY_BONES.test(item.name)) {
-            await buryBones();
-            if (occupied() >= 28) return;
-        }
+        if (occupied() >= 28) return;
         const ok = await pickupNear(item);
         if (!ok) break;
     }
@@ -571,10 +575,9 @@ async function waitFight(): Promise<void> {
     if (hpXp() > xpBefore) {
         session.noteProgress('xp', `hp ${hpXp()}`);
         log(
-            `Kill green dragon +${hpXp() - xpBefore} hp xp | hides=${count(HIDE)} nats=${count(NATURE)} swordfish=${swordfishCount()}`
+            `Kill green dragon +${hpXp() - xpBefore} hp xp | bones=${count(DRAGON_BONES)} hides=${count(HIDE)} nats=${count(NATURE)} food=${foodCount()}`
         );
     }
-    await buryBones();
     await lootGround();
 }
 
@@ -586,36 +589,87 @@ async function fleePlayer(): Promise<boolean> {
     return true;
 }
 
-async function drinkSuperAttack(): Promise<void> {
-    await ui();
-    if (attackBoosted()) {
-        log(`Attack already boosted ${sdk.getSkill('Attack')?.level}/${sdk.getSkill('Attack')?.baseLevel} — skip dose`);
+function statBoosted(stat: 'Attack' | 'Strength'): boolean {
+    const sk = sdk.getSkill(stat);
+    if (!sk) return false;
+    return sk.level > sk.baseLevel;
+}
+
+async function withdrawBoost(patterns: RegExp[]): Promise<void> {
+    if (patterns.some((pattern) => sdk.findInventoryItem(pattern))) return;
+    for (const pattern of patterns) {
+        const banked = sdk.findBankItem(pattern);
+        if (!banked) continue;
+        const r = await bot.withdrawItem(banked, 1);
+        log(`Withdraw ${banked.name}: ${r.success ? 'ok' : r.message}`);
         return;
     }
-    const pot = sdk.findInventoryItem(SUPER_ATTACK);
+}
+
+async function drinkBoost(stat: 'Attack' | 'Strength', patterns: RegExp[]): Promise<void> {
+    if (statBoosted(stat)) {
+        log(`${stat} already boosted ${sdk.getSkill(stat)?.level}/${sdk.getSkill(stat)?.baseLevel} — skip dose`);
+        return;
+    }
+    const pot = patterns.map((pattern) => sdk.findInventoryItem(pattern)).find((item) => item != null);
     if (!pot) {
-        log('WARN no super attack in inventory after bank');
+        log(`No ${stat.toLowerCase()} potion — continuing without one`);
         return;
     }
     const drink = pot.optionsWithIndex.find((o) => /drink/i.test(o.text));
     if (!drink) {
-        log(`WARN ${pot.name} has no drink option`);
+        session.log('warn', `${pot.name} has no drink option`);
         return;
     }
     const before = pot.name;
-    const atkBefore = sdk.getSkill('Attack')?.level ?? 0;
+    const levelBefore = sdk.getSkill(stat)?.level ?? 0;
     await sdk.sendUseItem(pot.slot, drink.opIndex);
     await sdk.waitForTicks(2);
-    log(`Drank ${before} Attack ${atkBefore} → ${sdk.getSkill('Attack')?.level}`);
+    log(`Drank ${before} ${stat} ${levelBefore} → ${sdk.getSkill(stat)?.level}`);
 }
 
 async function depositPotionRemainder(): Promise<void> {
-    const leftover = sdk.findInventoryItem(SUPER_ATTACK) ?? sdk.findInventoryItem(EMPTY_VIAL);
+    const leftover =
+        [...ATTACK_POTS, ...STRENGTH_POTS].map((pattern) => sdk.findInventoryItem(pattern)).find((item) => item != null) ??
+        sdk.findInventoryItem(EMPTY_VIAL);
     if (!leftover) return;
     const opened = await bot.openBank();
     if (!opened.success) return;
     await bot.depositItem(leftover, -1);
     await bot.closeBank();
+}
+
+/** No fish left. jackthief's roster job becomes fishing-route, then launchd restarts it. */
+function handoffToFishing(): void {
+    if (username.toLowerCase() !== 'jackthief') {
+        session.stop('missing_supplies', 'no food in bank');
+        return;
+    }
+    const rosterPath = join(process.cwd(), 'bots', 'roster.json');
+    const raw = readFileSync(rosterPath, 'utf-8');
+    const nameAt = raw.indexOf(`"name": "${username}"`);
+    if (nameAt < 0) {
+        session.stop('missing_supplies', 'no food in bank');
+        return;
+    }
+    const scriptAt = raw.indexOf('"script":', nameAt);
+    const nextName = raw.indexOf('"name":', nameAt + 10);
+    if (scriptAt < 0 || (nextName >= 0 && scriptAt > nextName)) {
+        session.stop('missing_supplies', 'no food in bank');
+        return;
+    }
+    const head = raw.slice(0, scriptAt);
+    const tail = raw.slice(scriptAt).replace(/"script": "[^"]+"/, '"script": "bots/quests/fishing-route.ts"');
+    writeFileSync(rosterPath, head + tail);
+    log('No food — roster job is now fishing-route');
+    const launchd = join(process.cwd(), '.cursor/skills/wake-fleet/scripts/fleet-launchd.ts');
+    const child = spawn('bun', [launchd, 'restart', username], {
+        cwd: process.cwd(),
+        detached: true,
+        stdio: 'ignore'
+    });
+    child.unref();
+    session.stop('missing_supplies', 'no food — switching to fishing-route');
 }
 
 async function equipGear(): Promise<void> {
@@ -657,23 +711,24 @@ async function bankTrip(): Promise<boolean> {
             break;
         }
     }
-    if (swordfishCount() > FOOD_WITHDRAW) {
-        await bot.depositItem(SWORDFISH, swordfishCount() - FOOD_WITHDRAW);
-    }
-    const short = FOOD_WITHDRAW - swordfishCount();
-    if (short > 0) {
-        const r = await bot.withdrawItem(SWORDFISH, short);
-        log(`Withdraw swordfish ${short}: ${r.success ? 'ok' : r.message}`);
-    }
-    if (!sdk.findInventoryItem(SUPER_ATTACK) && !attackBoosted()) {
-        const bankPot = sdk.findBankItem(SUPER_ATTACK);
-        if (bankPot) {
-            const r = await bot.withdrawItem(bankPot, 1);
-            log(`Withdraw ${bankPot.name}: ${r.success ? 'ok' : r.message}`);
-        } else {
-            log('WARN no super attack in bank');
+    for (const name of [...FISH_WITHDRAW].reverse()) {
+        const pattern = fishPattern(name);
+        while (foodCount() > FOOD_WITHDRAW) {
+            const extra = sdk.findInventoryItem(pattern);
+            if (!extra) break;
+            await bot.depositItem(extra, 1);
         }
     }
+    for (const name of FISH_WITHDRAW) {
+        if (foodCount() >= FOOD_WITHDRAW) break;
+        const banked = sdk.findBankItem(fishPattern(name));
+        if (!banked) continue;
+        const want = FOOD_WITHDRAW - foodCount();
+        const r = await bot.withdrawItem(banked, want);
+        log(`Withdraw ${name} ${want}: ${r.success ? 'ok' : r.message}`);
+    }
+    await withdrawBoost(ATTACK_POTS);
+    await withdrawBoost(STRENGTH_POTS);
     if (!sdk.findEquipmentItem(DLONG) && !sdk.findInventoryItem(DLONG)) {
         const bankDlong = sdk.findBankItem(DLONG);
         if (bankDlong) await bot.withdrawItem(bankDlong, 1);
@@ -698,22 +753,175 @@ async function bankTrip(): Promise<boolean> {
             log(`Withdraw ${charged.name}: ${r.success ? 'ok' : r.message}`);
         }
     }
+    const noFood = foodCount() === 0;
+    session.captureBankStock();
     await bot.closeBank();
     await equipGear();
-    await drinkSuperAttack();
+    if (noFood) {
+        session.noteFailure('missing_supplies', 'no food in bank');
+        handoffToFishing();
+        return false;
+    }
+    await drinkBoost('Attack', ATTACK_POTS);
+    await drinkBoost('Strength', STRENGTH_POTS);
     await depositPotionRemainder();
-    session.noteProgress('bank', `swordfish ${swordfishCount()}`);
+    session.noteProgress('bank', `food ${foodCount()}`);
     log(
-        `Loadout swordfish=${swordfishCount()} slots=${occupied()} Attack ${sdk.getSkill('Attack')?.level}/${sdk.getSkill('Attack')?.baseLevel}`
+        `Loadout food=${foodCount()} bones=${count(DRAGON_BONES)} hides=${count(HIDE)} slots=${occupied()} Attack ${sdk.getSkill('Attack')?.level}/${sdk.getSkill('Attack')?.baseLevel}`
     );
-    return swordfishCount() > 0;
+    return true;
 }
 
 function shouldBank(): boolean {
-    if (swordfishCount() < 2) return true;
+    if (foodCount() < 2) return true;
     if (occupied() >= 26 && foodCount() > 0) return true;
     if (needsBankHeal(pos().hp, pos().maxHp) && foodCount() === 0) return true;
     return false;
+}
+
+function hasFireShield(): boolean {
+    return !!sdk.findEquipmentItem(FIRE_SHIELD) || !!sdk.findInventoryItem(FIRE_SHIELD);
+}
+
+/** South Lumbridge stairs only. Clicking the north pair never changes floor. */
+async function climbCastle(want: 'up' | 'down'): Promise<boolean> {
+    const opt = want === 'up' ? /climb-up|climb.up/i : /climb-down|climb.down/i;
+    if (distTo(CASTLE_STAIRS.x, CASTLE_STAIRS.z) > 2) {
+        await walkNear(bot, sdk, CASTLE_STAIRS.x, CASTLE_STAIRS.z, 1);
+    }
+    const before = pos().level;
+    const loc = (sdk.getNearbyLocs() ?? [])
+        .filter(
+            (l) =>
+                /stair|ladder/i.test(l.name) &&
+                Math.hypot(l.x - CASTLE_STAIRS.x, l.z - CASTLE_STAIRS.z) <= 3 &&
+                (l.optionsWithIndex ?? []).some((o) => opt.test(o.text))
+        )
+        .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+    if (!loc) {
+        log(`No castle stairs to climb ${want} @ ${pos().x},${pos().z} L${pos().level}`);
+        return false;
+    }
+    const match = (loc.optionsWithIndex ?? []).find((o) => opt.test(o.text));
+    if (!match) return false;
+    intent(`Climb ${want} @ ${loc.x},${loc.z}`);
+    await sdk.sendInteractLoc(loc.x, loc.z, loc.id, match.opIndex);
+    await sdk.waitForCondition((s) => (s.player?.level ?? before) !== before, 8_000).catch(() => {});
+    const climbed = pos().level !== before;
+    if (!climbed) log(`Stairs did not change floor (still L${pos().level} @ ${pos().x},${pos().z})`);
+    return climbed;
+}
+
+/**
+ * Click continues, and the Duke's dragon-breath line when it is offered.
+ * A real choice menu without that line means the shield is already banked.
+ */
+async function askDukeForShield(): Promise<'received' | 'in-bank' | 'closed'> {
+    let idle = 0;
+    for (let i = 0; i < 16 && !hasFireShield(); i++) {
+        const dialog = sdk.getDialog();
+        if (!dialog?.isOpen) {
+            idle++;
+            if (idle >= 4) break;
+            await sdk.waitForTicks(1);
+            continue;
+        }
+        idle = 0;
+        const opts = dialog.options ?? [];
+        const shield = opts.find((o) => DUKE_SHIELD.test(o.text));
+        if (shield) {
+            log(`Dialog -> ${shield.text}`);
+            await sdk.sendClickDialog(shield.index);
+            await sdk.waitForTicks(1);
+            continue;
+        }
+        if (opts.length <= 1 || opts.every((o) => /click here to continue|please wait/i.test(o.text))) {
+            await sdk.sendClickDialog(opts[0]?.index ?? 0);
+            await sdk.waitForTicks(1);
+            continue;
+        }
+        log(`Duke has no shield offer — spare is in the bank (${opts.map((o) => o.text).join(' | ')})`);
+        return 'in-bank';
+    }
+    return hasFireShield() ? 'received' : 'closed';
+}
+
+/** Edgeville bank holds the spare when the Duke will not hand out another. */
+async function withdrawFireShield(): Promise<boolean> {
+    if (hasFireShield()) return true;
+    if (northOfDitch()) return false;
+    intent('Withdrawing dragonfire shield at Edgeville');
+    if (distTo(EDGEVILLE.x, EDGEVILLE.z) > 6) {
+        const walked = await bot.walkTo(EDGEVILLE.x, EDGEVILLE.z, 3);
+        if (!walked.success && distTo(EDGEVILLE.x, EDGEVILLE.z) > 8) {
+            session.log('warn', `walkTo Edgeville for shield: ${walked.message}`);
+            return false;
+        }
+    }
+    const opened = await bot.openBank();
+    if (!opened.success && !sdk.getState()?.bank?.isOpen) {
+        session.log('warn', `openBank for shield: ${opened.message}`);
+        return false;
+    }
+    const bankShield = sdk.findBankItem(FIRE_SHIELD);
+    if (!bankShield) {
+        await bot.closeBank();
+        session.log('warn', 'No dragonfire shield in the bank');
+        return false;
+    }
+    const withdrawn = await bot.withdrawItem(bankShield, 1);
+    log(`Withdraw dragonfire shield: ${withdrawn.success ? 'ok' : withdrawn.message}`);
+    await bot.closeBank();
+    await equipGear();
+    return hasFireShield();
+}
+
+/**
+ * Lumbridge respawn loses the shield. Duke Horacio replaces it on the floor
+ * above the throne room when Dragon Slayer has taught him the shield line.
+ */
+async function claimDragonfireShield(): Promise<boolean> {
+    if (hasFireShield()) return true;
+    if (northOfDitch()) return false;
+    await ui();
+    intent('Duke Horacio — dragonfire shield');
+    if (pos().level > 1 && !(await climbCastle('down'))) return false;
+    if (pos().level < 1 && !(await climbCastle('up'))) return false;
+    if (pos().level > 1 && !(await climbCastle('down'))) return false;
+    if (pos().level !== 1) {
+        log(`Not on the Duke's floor @ ${pos().x},${pos().z} L${pos().level}`);
+        return false;
+    }
+    if (distTo(DUKE.x, DUKE.z) > 4) await walkNear(bot, sdk, DUKE.x, DUKE.z, 2);
+    const duke = sdk.findNearbyNpc(/duke/i);
+    if (!duke) {
+        log(`Duke not visible @ ${pos().x},${pos().z} L${pos().level}`);
+        return false;
+    }
+    const talked = await bot.talkTo(duke);
+    if (!talked.success && !sdk.getDialog()?.isOpen) {
+        log(`Talk to Duke failed: ${talked.message}`);
+        return false;
+    }
+    const answer = await askDukeForShield();
+    await ui();
+    if (!hasFireShield() && answer === 'in-bank') {
+        while (pos().level > 0) {
+            if (!(await climbCastle('down'))) break;
+        }
+        return withdrawFireShield();
+    }
+    const shield = sdk.findInventoryItem(FIRE_SHIELD);
+    if (!shield) {
+        session.log('warn', 'Duke did not hand over a dragonfire shield');
+        return false;
+    }
+    if (!sdk.findEquipmentItem(FIRE_SHIELD)) await bot.equipItem(shield);
+    log('Duke gave a dragonfire shield');
+    while (pos().level > 0) {
+        if (!(await climbCastle('down'))) break;
+    }
+    return hasFireShield();
 }
 
 async function waitRespawn(): Promise<void> {
@@ -745,7 +953,7 @@ try {
     await ui();
     log(
         `Green dragons @ ${pos().x},${pos().z} | Atk ${sdk.getSkill('Attack')?.level} HP ${pos().hp}/${pos().maxHp} ` +
-            `swordfish=${swordfishCount()} hides=${count(HIDE)}`
+            `food=${foodCount()} bones=${count(DRAGON_BONES)} hides=${count(HIDE)}`
     );
 
     let deathsThisSession = 0;
@@ -753,10 +961,6 @@ try {
 
     while (!session.isStopped()) {
         session.maybeHeartbeat();
-        if (session.needsRecovery()) {
-            if ((await session.recover()) === 'exhausted') break;
-            continue;
-        }
         await ui();
 
         if (pos().isDead) {
@@ -766,14 +970,27 @@ try {
                 session.stopRestartable('death_cap', `Died ${deathsThisSession} times this session`);
                 break;
             }
-            if (shouldBank() || swordfishCount() === 0) {
+            if (!hasFireShield()) await claimDragonfireShield();
+            if (shouldBank() || foodCount() === 0) {
                 if (northOfDitch()) await leaveWildy();
                 await bankTrip();
-                if (swordfishCount() === 0) {
-                    session.stop('cannot_regear', 'No swordfish in bank after death');
-                    break;
-                }
+                if (session.isStopped()) break;
             }
+            continue;
+        }
+
+        if (!hasFireShield()) {
+            if (northOfDitch()) {
+                log('No dragonfire shield — leaving wilderness');
+                await leaveWildy();
+                if (pos().isDead) continue;
+            }
+            if (!(await claimDragonfireShield())) await sdk.waitForTicks(8);
+            continue;
+        }
+
+        if (session.needsRecovery()) {
+            if ((await session.recover()) === 'exhausted') break;
             continue;
         }
 
@@ -784,7 +1001,7 @@ try {
         }
 
         if (shouldBank()) {
-            log(`Banking swordfish=${swordfishCount()} slots=${occupied()} hides=${count(HIDE)}`);
+            log(`Banking food=${foodCount()} slots=${occupied()} bones=${count(DRAGON_BONES)} hides=${count(HIDE)}`);
             if (northOfDitch()) await leaveWildy();
             if (pos().isDead) continue;
             if (!(await bankTrip())) {

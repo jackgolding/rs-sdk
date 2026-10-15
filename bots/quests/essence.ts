@@ -3,6 +3,10 @@
  * Assumes Rune Mysteries is already complete. Quest walkthrough lives in
  * bots/quests/rune-mysteries.ts and is not this loop.
  *
+ * jackthief only: after every 5th banked trip, buy Zaff's battlestaves and
+ * staves of fire plus Lowe's adamant arrows. After every 10th, also buy
+ * Nurmof's rune pickaxes and Varrock-teleport back.
+ *
  *   bun bots/quests/essence.ts {botname}
  *   bun bots/Jackpoo2/essence.ts
  */
@@ -13,12 +17,14 @@ import {
     inEssenceMine as inEssenceMineCoords,
     inMiningGuild as inMiningGuildCoords,
     npcHasTeleportOption,
-    shopIsNotTeleport
+    shopIsNotTeleport,
+    Spells
 } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
+import { installGracefulShutdown } from '../../sdk/runner';
 
 const AUBURY = { x: 3253, z: 3401 };
 const VARROCK_EAST_BANK = { x: 3253, z: 3420 };
@@ -31,6 +37,36 @@ const TOWER_TO_VARROCK = [
     { x: 3180, z: 3430 },
     { x: 3253, z: 3401 }
 ];
+
+/** jackthief supply cadence, counted on banked essence trips. */
+const SUPPLY_EVERY = 5;
+const PICK_EVERY = 10;
+const SUPPLY_COINS = 200_000;
+const ZAFF = { x: 3203, z: 3433 };
+const LOWE = { x: 3232, z: 3423 };
+const NURMOF = { x: 2998, z: 9844 };
+const DWARF_STAIRS_DOWN = { x: 3059, z: 3376 };
+const DWARF_STAIRS_UP = { x: 3058, z: 9776 };
+const DWARF_DOOR = { x: 3063, z: 3380 };
+const TO_DWARF_STAIRS = [
+    { x: 3180, z: 3430 },
+    { x: 3082, z: 3420 },
+    { x: 3059, z: 3376 }
+];
+const FROM_DWARF_TO_VARROCK = [
+    { x: 3082, z: 3420 },
+    { x: 3180, z: 3430 },
+    { x: 3253, z: 3420 }
+];
+const BATTLESTAFF = /^battlestaff$/i;
+const FIRE_STAFF = /^staff of fire$/i;
+const ADDY_ARROW = /^adamant arrow$/i;
+const RUNE_PICK = /^rune pickaxe$/i;
+const LAW_RUNE = /^law rune$/i;
+const AIR_RUNE = /^air rune$/i;
+const FIRE_RUNE = /^fire rune$/i;
+const COINS = /^coins$/i;
+const SHOP_LOOT = /^(battlestaff|staff of fire|adamant arrow|law rune|air rune|fire rune|coins)$/i;
 
 const PICKAXE = /^(bronze|iron|steel|mithril|adamant|rune) pickaxe$/i;
 const ESSENCE = /^(rune essence|pure essence)$/i;
@@ -89,7 +125,7 @@ const sdk = new BotSDK({
     botUsername: username,
     password,
     gatewayUrl: deriveGatewayUrl(server),
-    autoLaunchBrowser: true,
+    autoLaunchBrowser: false,
     browserLaunchTimeout: 90_000,
     readyTimeout: 45_000,
     connectTimeout: 60_000,
@@ -104,6 +140,8 @@ const session = new ActivitySession(sdk, bot, {
     grindLogPath: GRIND_LOG,
     maxRecoveryTactics: 8
 });
+
+installGracefulShutdown();
 
 let lastLoggedMine = 0;
 
@@ -559,6 +597,8 @@ async function bankEssence(): Promise<boolean> {
         return false;
     }
     const before = count(ESSENCE);
+    const essence = sdk.findInventoryItem(ESSENCE);
+    if (essence && (essence.count ?? 0) > 0) session.recordGain(essence.name, essence.count);
     if (before > 0) await bot.depositItem(ESSENCE, -1);
     for (;;) {
         const junk = sdk.getInventory().find((i) => (i.count ?? 0) > 0 && !PICKAXE.test(i.name));
@@ -568,6 +608,7 @@ async function bankEssence(): Promise<boolean> {
     }
     const deposited = before - count(ESSENCE);
     await ensureBestPickaxeInOpenBank();
+    session.captureBankStock();
     await bot.closeBank();
     if (deposited > 0) {
         session.recordTrip(deposited);
@@ -626,7 +667,268 @@ async function equipBestPickaxe(): Promise<void> {
     if (inv) await bot.equipItem(inv);
 }
 
+function jackthiefSupplies(): boolean {
+    return username.toLowerCase() === 'jackthief';
+}
+
+function inDwarvenMine(): boolean {
+    const p = pos();
+    if (p.z < 9600 || p.z > 9920 || p.x < 2930 || p.x > 3072) return false;
+    // South guild ladder room uses the existing leave-guild climb. The dwarf
+    // stairs land on the guild's north edge (about 3058, 9776).
+    if (p.x >= 3014 && p.x <= 3058 && p.z <= 9755) return false;
+    return true;
+}
+
+function extraPickaxes(): number {
+    const inv = sdk.getInventory().filter((i) => PICKAXE.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0);
+    const equipped = sdk.findEquipmentItem(PICKAXE) ? 1 : 0;
+    return Math.max(0, inv + equipped - 1);
+}
+
+function hasShopLoot(): boolean {
+    return extraPickaxes() > 0 || sdk.getInventory().some((i) => (i.count ?? 0) > 0 && SHOP_LOOT.test(i.name));
+}
+
+async function openVarrockEastBank(): Promise<boolean> {
+    await closeUi();
+    if (inDwarvenMine() || inEssenceMine() || inGuild()) return false;
+    await openToward(VARROCK_EAST_BANK.x, VARROCK_EAST_BANK.z);
+    if (distTo(VARROCK_EAST_BANK.x, VARROCK_EAST_BANK.z) > 2) {
+        await walkNear(VARROCK_EAST_BANK.x, VARROCK_EAST_BANK.z, 2);
+    }
+    await openToward(VARROCK_EAST_BANK.x, VARROCK_EAST_BANK.z);
+    if (sdk.getState()?.bank?.isOpen) return true;
+    const opened = await bot.openBank();
+    if (!opened.success && !sdk.getState()?.bank?.isOpen) {
+        session.noteFailure('bank_open', opened.message);
+        return false;
+    }
+    return true;
+}
+
+/** Tops the inventory up to `amount`. Bank must already be open. */
+async function withdrawUpTo(pattern: RegExp, amount: number): Promise<number> {
+    const have = count(pattern);
+    if (have >= amount) return have;
+    const bank = sdk.findBankItem(pattern);
+    if (!bank || (bank.count ?? 0) < 1) return have;
+    await bot.withdrawItem(bank, Math.min(amount - have, bank.count));
+    return count(pattern);
+}
+
+async function depositShopLoot(): Promise<boolean> {
+    if (!hasShopLoot()) return true;
+    intent('Depositing shop loot at Varrock east');
+    if (!(await openVarrockEastBank())) return false;
+    for (;;) {
+        const junk = sdk.getInventory().find((i) => (i.count ?? 0) > 0 && !PICKAXE.test(i.name));
+        if (!junk) break;
+        const r = await bot.depositItem(junk, -1);
+        if (!r.success) break;
+    }
+    await ensureBestPickaxeInOpenBank();
+    await depositExtraPickaxes();
+    session.captureBankStock();
+    await bot.closeBank();
+    session.noteProgress('bank', 'shop loot');
+    return !hasShopLoot();
+}
+
+/** Bank keeps one usable pickaxe. Bought duplicates go in the bank. */
+async function depositExtraPickaxes(): Promise<void> {
+    await equipBestPickaxe();
+    const equipped = !!sdk.findEquipmentItem(PICKAXE);
+    for (let i = 0; i < 28; i++) {
+        const picks = sdk.getInventory().filter((item) => PICKAXE.test(item.name) && (item.count ?? 0) > 0);
+        const held = picks.reduce((n, item) => n + (item.count ?? 1), 0);
+        if (held <= (equipped ? 0 : 1)) return;
+        const extra = picks[0];
+        if (!extra) return;
+        const deposited = await bot.depositItem(extra, 1);
+        if (!deposited.success) return;
+    }
+}
+
+/** Buy the live shelf. Stops when the line is empty, coins run out, or the bag is full. */
+async function buyShelf(pattern: RegExp, label: string): Promise<number> {
+    let bought = 0;
+    for (let i = 0; i < 40; i++) {
+        const line = sdk.getState()?.shop?.shopItems?.find((it) => pattern.test(it.name));
+        const stock = line?.count ?? 0;
+        if (!line) {
+            if (bought === 0) log(`${label}: not sold here`);
+            break;
+        }
+        if (stock <= 0) {
+            if (bought === 0) log(`${label}: none in stock`);
+            break;
+        }
+        const stacks = !!sdk.findInventoryItem(pattern);
+        if (28 - occupiedSlots() <= 0 && !stacks) {
+            log(`${label}: inventory full, ${stock} still in the shop`);
+            break;
+        }
+        const before = count(pattern);
+        const result = await bot.buyFromShop(line, Math.min(stock, 1000));
+        const got = Math.max(0, count(pattern) - before);
+        bought += got;
+        if (got <= 0) {
+            log(`${label} buy stopped: ${result.message ?? 'no change'}`);
+            break;
+        }
+        log(`Bought ${got} ${label} | ${count(COINS)} gp left`);
+    }
+    if (bought > 0) session.noteProgress('shop', label);
+    return bought;
+}
+
+async function openNamedShop(npc: RegExp, x: number, z: number, label: string): Promise<boolean> {
+    await closeUi();
+    await openToward(x, z);
+    if (distTo(x, z) > 4 || !sdk.findNearbyNpc(npc)) await walkNear(x, z, 3);
+    await openToward(x, z);
+    const opened = await bot.openShop(npc);
+    if (!opened.success && !sdk.getState()?.shop?.isOpen) {
+        session.noteFailure('shop', `${label}: ${opened.message}`);
+        return false;
+    }
+    return true;
+}
+
+/** Every 5th trip: 200k, Zaff battlestaves + fire staves, Lowe adamant arrows, bank. */
+async function buyVarrockSupplies(): Promise<void> {
+    await session.setPhase('varrock-shops');
+    intent('Withdrawing 200k for Zaff and Lowe');
+    if (!(await openVarrockEastBank())) return;
+    const gp = await withdrawUpTo(COINS, SUPPLY_COINS);
+    await bot.closeBank();
+    log(`Shop coins ${gp}`);
+    if (gp < 1) {
+        session.noteFailure('shop', 'No coins for Zaff and Lowe');
+        return;
+    }
+
+    intent("Buying battlestaves and fire staves from Zaff");
+    if (await openNamedShop(/zaff/i, ZAFF.x, ZAFF.z, 'Zaff')) {
+        await buyShelf(BATTLESTAFF, 'battlestaff');
+        await buyShelf(FIRE_STAFF, 'staff of fire');
+        await bot.closeShop();
+    }
+
+    intent("Buying adamant arrows from Lowe");
+    if (await openNamedShop(/lowe/i, LOWE.x, LOWE.z, 'Lowe')) {
+        await buyShelf(ADDY_ARROW, 'adamant arrow');
+        await bot.closeShop();
+    }
+
+    await depositShopLoot();
+}
+
+async function climbDwarf(want: 'down' | 'up'): Promise<boolean> {
+    const opt = want === 'down' ? /climb-down/i : /climb-up/i;
+    for (let i = 0; i < 8; i++) {
+        if (want === 'down' ? inDwarvenMine() : !inDwarvenMine()) return true;
+        if (want === 'down' && distTo(DWARF_STAIRS_DOWN.x, DWARF_STAIRS_DOWN.z) <= 2) {
+            await walkNear(DWARF_DOOR.x, DWARF_DOOR.z, 1);
+        }
+        await sdk.scanNearbyLocs(8).catch(() => {});
+        const loc = (sdk.getNearbyLocs() ?? [])
+            .filter(
+                (l) =>
+                    /stair/i.test(l.name) &&
+                    l.optionsWithIndex.some((o) => opt.test(o.text)) &&
+                    l.reachable !== false
+            )
+            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+        if (!loc) {
+            const stand = want === 'down' ? DWARF_DOOR : DWARF_STAIRS_UP;
+            await walkNear(stand.x, stand.z, 2);
+            continue;
+        }
+        intent(`Climb ${want} ${loc.name} @ ${loc.x},${loc.z}`);
+        if ((loc.distance ?? 99) > 2) await walkNear(loc.x, loc.z, 1);
+        const beforeZ = pos().z;
+        await bot.interactLoc(loc, opt);
+        await sdk.waitForCondition(() => Math.abs(pos().z - beforeZ) > 8, 8_000).catch(() => {});
+    }
+    return want === 'down' ? inDwarvenMine() : !inDwarvenMine();
+}
+
+async function castVarrockTeleport(): Promise<boolean> {
+    const magic = sdk.getSkill('Magic')?.baseLevel ?? 1;
+    if (magic < 25 || count(LAW_RUNE) < 1 || count(AIR_RUNE) < 3 || count(FIRE_RUNE) < 1) {
+        log(
+            `WARN Varrock teleport unavailable magic=${magic} law=${count(LAW_RUNE)} ` +
+                `air=${count(AIR_RUNE)} fire=${count(FIRE_RUNE)}`
+        );
+        return false;
+    }
+    await closeUi();
+    const before = pos();
+    intent('Casting Varrock teleport');
+    await sdk.sendSetTab(6);
+    await sdk.waitForTicks(1);
+    await sdk.sendClickComponent(Spells.VARROCK_TELEPORT);
+    await sdk
+        .waitForCondition(() => {
+            const p = sdk.getState()?.player;
+            return Math.hypot((p?.worldX ?? 0) - before.x, (p?.worldZ ?? 0) - before.z) > 40;
+        }, 8_000)
+        .catch(() => {});
+    const moved = distTo(before.x, before.z) > 40;
+    if (moved) {
+        session.noteProgress('location', 'varrock teleport');
+        log(`Varrock teleport landed @ ${pos().x},${pos().z}`);
+    }
+    return moved;
+}
+
+/** Every 10th trip: runes + 200k, buy Nurmof's rune pickaxes, teleport to Varrock. */
+async function buyNurmofPicks(): Promise<void> {
+    await session.setPhase('nurmof');
+    intent('Withdrawing a law, three air, a fire, and 200k');
+    if (!(await openVarrockEastBank())) return;
+    const law = await withdrawUpTo(LAW_RUNE, 1);
+    const air = await withdrawUpTo(AIR_RUNE, 3);
+    const fire = await withdrawUpTo(FIRE_RUNE, 1);
+    const gp = await withdrawUpTo(COINS, SUPPLY_COINS);
+    await bot.closeBank();
+    log(`Nurmof kit law=${law} air=${air} fire=${fire} gp=${gp}`);
+    if (gp < 1) {
+        session.noteFailure('shop', 'No coins for Nurmof');
+        await depositShopLoot();
+        return;
+    }
+
+    intent('Walking to the dwarven mine');
+    await walkWaypoints(TO_DWARF_STAIRS);
+    if (!(await climbDwarf('down'))) {
+        session.noteFailure('nurmof', `Could not enter the dwarven mine @ ${pos().x},${pos().z}`);
+        return;
+    }
+    if (await openNamedShop(/nurmof/i, NURMOF.x, NURMOF.z, 'Nurmof')) {
+        await buyShelf(RUNE_PICK, 'rune pickaxe');
+        await bot.closeShop();
+    }
+
+    if (!(await castVarrockTeleport())) {
+        if (inDwarvenMine()) {
+            intent('Climbing out of the dwarven mine');
+            await walkNear(DWARF_STAIRS_UP.x, DWARF_STAIRS_UP.z, 3);
+            await climbDwarf('up');
+        }
+        intent('Walking back to Varrock');
+        await walkWaypoints(FROM_DWARF_TO_VARROCK);
+    }
+    await depositShopLoot();
+}
+
 session.registerRecovery([
+    {
+        name: 'leave_dwarven_mine',
+        run: async () => inDwarvenMine() && (await climbDwarf('up'))
+    },
     {
         name: 'close_shop',
         run: async () => {
@@ -713,7 +1015,24 @@ try {
         }
 
         if (shouldBank()) {
+            const tripsBefore = session.metrics().trips;
             await bankEssence();
+            if (jackthiefSupplies() && session.metrics().trips > tripsBefore && !inEssenceMine()) {
+                const trips = session.metrics().trips;
+                if (trips % PICK_EVERY === 0) await buyNurmofPicks();
+                if (trips % SUPPLY_EVERY === 0 && !inDwarvenMine()) await buyVarrockSupplies();
+            }
+            continue;
+        }
+
+        if (inDwarvenMine()) {
+            await walkNear(DWARF_STAIRS_UP.x, DWARF_STAIRS_UP.z, 3);
+            await climbDwarf('up');
+            continue;
+        }
+
+        if (jackthiefSupplies() && hasShopLoot() && !inEssenceMine()) {
+            await depositShopLoot();
             continue;
         }
 

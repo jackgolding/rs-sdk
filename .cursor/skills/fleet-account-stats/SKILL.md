@@ -3,8 +3,10 @@ name: fleet-account-stats
 description: >-
   Snapshot live combat and skill levels for every roster account and render
   them as a Cursor canvas table. Use when the user asks for account stats,
-  skill levels, combat levels, hiscores, a stats table, or to regenerate the
-  fleet account-stats canvas.
+  skill levels, combat levels, hiscores, a stats table, who is 99, who is
+  90+ attack, whether a job matches combat stats, fleet performance that
+  needs levels, reassignment by skill, or to regenerate the fleet
+  account-stats canvas. Never invert heartbeat XP into a level.
 ---
 
 # Fleet account stats

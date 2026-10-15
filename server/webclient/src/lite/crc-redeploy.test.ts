@@ -31,10 +31,19 @@ beforeAll(async () => {
     try {
         // Warm the disk caches from the real origin so the mock server below
         // only ever has to serve /crc and the login handshake: the archive and
-        // locindex fetches are keyed by CRC and will hit disk.
-        const { checksums } = await loadCache({ origin: ORIGIN, cacheDir: CACHE_DIR, quiet: true });
+        // locindex fetches are keyed by CRC and will hit disk. A slow or
+        // unreachable origin must settle inside the hook timeout so the tests
+        // below can skip.
+        const checksums = await Promise.race([
+            loadCache({ origin: ORIGIN, cacheDir: CACHE_DIR, quiet: true }).then(async (loaded) => {
+                await LocIndex.load({ origin: ORIGIN, cacheDir: CACHE_DIR, versionlistCrc: loaded.checksums[5], quiet: true });
+                return loaded.checksums;
+            }),
+            new Promise<never>((_, reject) => {
+                setTimeout(() => reject(new Error('crc origin timeout')), 4_000);
+            }),
+        ]);
         realChecksums = checksums;
-        await LocIndex.load({ origin: ORIGIN, cacheDir: CACHE_DIR, versionlistCrc: checksums[5], quiet: true });
         available = true;
     } catch {
         available = false;

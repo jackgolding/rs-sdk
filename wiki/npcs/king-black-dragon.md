@@ -24,10 +24,18 @@
 
 ## Location
 
-| Area | Map | Coordinate samples |
-|------|-----|--------------------|
-| m42_153 | m42_153 | (2716, 9817) |
+Lair map `m42_153` (2688–2751, 9792–9855). Not a wilderness zone. Multiway.
+
+| | Tile |
+|---|---|
+| Spawn (SW of size-5 NPC) | (2716, 9817) |
+| Exit lever (`dragonkingoutlever`) | (2717, 9801) → lava-maze dungeon (3067, 10254) |
+| Entry lever (`dragonkinginlever`) | (3067, 10253) |
+| Surface climb-down (`loc_1765`) | (3017, 3849) → (3069, 10255) |
+| Lesser-demon members gate | (3008, 3849) |
+
+Bot safespot loop (mith knives, Ardougne lever, style order, knife pickup): [`learnings/kbd.md`](../../learnings/kbd.md).
 
 ## Drops
 
-Always drops: Dragon bones
+Always drops: Dragon bones, Black dragonhide

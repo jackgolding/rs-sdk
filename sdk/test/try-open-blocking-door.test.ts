@@ -3,10 +3,11 @@ import { ActionHelpers, isVerticalExitName } from '../actions-helpers';
 import type { BotSDK } from '../index';
 
 describe('tryOpenBlockingDoor vertical exits', () => {
-    test('isVerticalExitName matches trapdoors, manholes, hatches only', () => {
+    test('isVerticalExitName matches trapdoors, manholes, hatches, magic doors only', () => {
         expect(isVerticalExitName('Trapdoor')).toBe(true);
         expect(isVerticalExitName('Manhole')).toBe(true);
         expect(isVerticalExitName('Hatch')).toBe(true);
+        expect(isVerticalExitName('Magic door')).toBe(true);
         expect(isVerticalExitName('Door')).toBe(false);
         expect(isVerticalExitName('Gate')).toBe(false);
     });

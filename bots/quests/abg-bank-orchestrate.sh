@@ -8,6 +8,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 LOG_DIR="${HOME}/Library/Logs/rs-sdk-fleet"
 mkdir -p "$LOG_DIR"
+LOCK="${LOG_DIR}/abg-food-hub.lock"
 ORCH_LOG="${LOG_DIR}/abg-bank-orchestrate.log"
 LAUNCHD="$ROOT/.cursor/skills/wake-fleet/scripts/fleet-launchd.ts"
 HUB=ABGARMY01
@@ -20,9 +21,9 @@ start_bot() { bun "$LAUNCHD" start "$1" >>"$ORCH_LOG" 2>&1 || true; }
 kill_donate() {
   local t
   for t in "$@"; do
-    pkill -f "abg-bank.ts $t donate" 2>/dev/null || true
+    pkill -9 -f "abg-bank.ts $t donate" 2>/dev/null || true
   done
-  pkill -f "abg-bank.ts $HUB mule" 2>/dev/null || true
+  pkill -9 -f "abg-bank.ts $HUB mule" 2>/dev/null || true
 }
 
 run_batch() {
@@ -43,25 +44,52 @@ run_batch() {
     log "  donate $t pid $!"
     sleep 2
   done
-  sleep 25
+  sleep 15
 
   bun bots/quests/abg-bank.ts "$HUB" mule "$csv" >>"${LOG_DIR}/${HUB}-mule.log" 2>&1 || true
-  sleep 5
+  sleep 3
   kill_donate "${targets[@]}"
 
   for t in "${targets[@]}"; do
     if grep -q "Donate ok" "${LOG_DIR}/${t}-bank.log" 2>/dev/null; then
-      log "  BANKED $t — restarting thieving"
-      start_bot "$t"
+      log "  BANKED $t"
     else
       log "  MISS $t — $(tail -1 "${LOG_DIR}/${t}-bank.log" 2>/dev/null || echo no log)"
-      start_bot "$t"
     fi
   done
 }
 
+write_lock() {
+  {
+    echo "$$"
+    echo "$HUB"
+    echo "ABGARMY02"
+    echo "ABGARMY03"
+    echo "ABGARMY04"
+    echo "ABGARMY05"
+    echo "ABGARMY07"
+    echo "ABGARMY08"
+    echo "ABGARMY09"
+    echo "ABGARMY10"
+    echo "ABGARMY11"
+    echo "ABGARMY12"
+    echo "ABGARMY13"
+    echo "ABGARMY14"
+    echo "ABGARMY15"
+    echo "ABGARMY16"
+    echo "ABGARMY17"
+    echo "ABGARMY18"
+    echo "ABGARMY19"
+    echo "ABGARMY20"
+    echo "Jackpoo3"
+  } >"${LOCK}.tmp"
+  mv "${LOCK}.tmp" "$LOCK"
+}
+
 : >"$ORCH_LOG"
 : >"${LOG_DIR}/${HUB}-mule.log"
+write_lock
+trap 'rm -f "$LOCK"' EXIT INT TERM
 
 if [[ $# -gt 0 ]]; then
   log "=== ABG bank pair/batch start ($*) ==="
@@ -76,12 +104,14 @@ log "=== ABG bank orchestrator start (01 mule, batches of 4) ==="
 stop_bot "$HUB"
 
 run_batch ABGARMY02 ABGARMY03 ABGARMY04 ABGARMY05
-run_batch ABGARMY07 ABGARMY08 ABGARMY09 ABGARMY10
+run_batch ABGARMY06 ABGARMY07 ABGARMY08 ABGARMY09 ABGARMY10
 run_batch ABGARMY11 ABGARMY12 ABGARMY13 ABGARMY14
 run_batch ABGARMY15 ABGARMY16 ABGARMY17 ABGARMY18
 run_batch ABGARMY19 ABGARMY20 Jackpoo3
 
-start_bot "$HUB"
+if [[ "${NO_START_HUB:-false}" != "true" ]]; then
+  start_bot "$HUB"
+fi
 log "=== DONE ==="
 grep -h "Trade .* ok\|Donate ok\|Could not trade\|Nothing to trade\|Mule done" \
   "$LOG_DIR/${HUB}-mule.log" "$LOG_DIR"/ABGARMY*-bank.log "$LOG_DIR"/Jackpoo3-bank.log 2>/dev/null \

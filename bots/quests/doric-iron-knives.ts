@@ -21,6 +21,7 @@ import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
+import { installGracefulShutdown } from '../../sdk/runner';
 import {
     DITCH_NORTH,
     DITCH_SOUTH,
@@ -186,6 +187,8 @@ const session = new ActivitySession(sdk, bot, {
     maxRecoveryTactics: 8
 });
 
+installGracefulShutdown();
+
 let lastSmith = 0;
 
 function log(msg: string): void {
@@ -254,6 +257,11 @@ function hasPickaxe(): boolean {
 
 function hasHammer(): boolean {
     return !!sdk.findInventoryItem(HAMMER);
+}
+
+/** Anvil work only. Bank smelting (addy/rune at 70+) needs neither hammer nor pick. */
+function needsHammer(): boolean {
+    return smithing() < KNIFE_TARGET;
 }
 
 function bankReady(): boolean {
@@ -666,14 +674,15 @@ async function withdrawOne(pattern: RegExp): Promise<boolean> {
 }
 
 async function ensureTools(): Promise<boolean> {
-    if (hasPickaxe() && hasHammer()) {
+    const wantHammer = needsHammer();
+    if (hasPickaxe() && (!wantHammer || hasHammer())) {
         const inv = sdk.findInventoryItem(PICKAXE);
         if (inv && !sdk.findEquipmentItem(PICKAXE)) await bot.equipItem(inv);
         return true;
     }
-    if (!(await openNearbyBank())) return false;
+    if (!(await openNearbyBank())) return !wantHammer;
     await depositJunk();
-    if (!hasHammer()) await withdrawOne(HAMMER);
+    if (wantHammer && !hasHammer()) await withdrawOne(HAMMER);
     if (!hasPickaxe()) {
         const pick =
             sdk.findBankItem(/^rune pickaxe$/i) ??
@@ -684,9 +693,9 @@ async function ensureTools(): Promise<boolean> {
     await bot.closeBank();
     const inv = sdk.findInventoryItem(PICKAXE);
     if (inv && !sdk.findEquipmentItem(PICKAXE)) await bot.equipItem(inv);
-    if (!hasHammer()) session.noteFailure('no_hammer', 'No hammer in inv or bank');
-    if (!hasPickaxe()) session.noteFailure('no_pickaxe', 'No pickaxe in inv, equipment, or bank');
-    return hasPickaxe() && hasHammer();
+    if (wantHammer && !hasHammer()) session.noteFailure('no_hammer', 'No hammer in inv or bank');
+    if (wantHammer && !hasPickaxe()) session.noteFailure('no_pickaxe', 'No pickaxe in inv, equipment, or bank');
+    return wantHammer ? hasPickaxe() && hasHammer() : true;
 }
 
 function findFurnace() {
@@ -1343,11 +1352,16 @@ try {
             `pick=${sdk.findEquipmentItem(PICKAXE)?.name ?? 'none'} hammer=${hasHammer()}`
     );
 
-    for (let i = 0; i < 6 && !(hasPickaxe() && hasHammer()) && !session.isStopped(); i++) {
+    if (needsHammer()) {
+        for (let i = 0; i < 6 && !(hasPickaxe() && hasHammer()) && !session.isStopped(); i++) {
+            await ensureTools();
+        }
+        if (!hasPickaxe() || !hasHammer()) {
+            session.stop('no_tools', `pick=${hasPickaxe()} hammer=${hasHammer()}`);
+        }
+    } else {
         await ensureTools();
-    }
-    if (!hasPickaxe() || !hasHammer()) {
-        session.stop('no_tools', `pick=${hasPickaxe()} hammer=${hasHammer()}`);
+        log(`Premium smelt — hammer not required | pick=${hasPickaxe()}`);
     }
 
     while (!session.isStopped()) {

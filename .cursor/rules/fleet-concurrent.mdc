@@ -1,0 +1,14 @@
+---
+description: Fleet lite/grind/launchd work is concurrent; only shop stock may serialize
+alwaysApply: true
+---
+
+# Fleet concurrent
+
+Do not stagger, `sleep` between bot names, or restart the fleet one account at
+a time. Pass every name in one `fleet-launchd` / `lite-launchd` command.
+
+Serialize only when hitting a shared **shop inventory** or one GE book. Login,
+gateway idle, CPU, and pathfinding are not reasons to stagger.
+
+Skill: `.cursor/skills/fleet-concurrent/SKILL.md`

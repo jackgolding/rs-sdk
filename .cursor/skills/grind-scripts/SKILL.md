@@ -45,7 +45,66 @@ await import('../quests/thieving-route.ts');
 - Restore `.gitignore` `bots/*/`.
 - Add a second bot list (`FLEET`, `DEFAULT_CMD`, hardcoded `add_tower`).
 
+## Safe stops (all new loops)
+
+Stops end at banks; starts begin at banks. No script handles every position
+on its route — the previous park record plus declared legs cover handoffs.
+
+1. After creating the session: `installGracefulShutdown()` from
+   `sdk/runner.ts` (standalone scripts) — SIGTERM drains instead of dying
+   mid-route. Grace must exceed your drain deadline; second signal still
+   exits immediately.
+2. At startup: `ensureBankStart(sdk, bot, '<bank>', GRIND_LOG)` from
+   `bots/quests/safe-stops.ts`. Banks come from `SAFE_BANKS`
+   (tiles.ts is the tile source of truth — never redeclare a bank tile).
+3. Loop on `while (!session.isStoppedOrRequested())`. At each stage
+   boundary, if `session.stopRequested`, run `session.drainToBank(bankFn,
+   { deadlineMs, onStage })`: `onStage` advances one productive unit
+   toward a bankable state (craft the essence first, then walk out),
+   `bankFn` is `parkAtBank(sdk, bot, '<bank>')`. Then
+   `session.stop('stopped', ..., { restartable: false })` and break —
+   a graceful stop exits 0 so launchd does NOT relaunch it.
+4. `finally`: `await session.finalizeStop()` before disconnect. This writes
+   `park.json` (tile + banked flag) the next job routes from.
+5. Bank-to-bank moves go through `walkLeg(sdk, from, to)` legs in
+   `safe-stops.ts` (draynor↔ardougne, ardougne↔catherby so far). Adding a
+   leg means verifying the corridor with `findLongPath` and encoding the
+   compressed waypoints — never a straight chord across the map.
+
+Reference: `bots/quests/law-runes.ts` (drain + Draynor start/end).
+Hook summary: runner grace → requestStop → stage boundary → drainToBank →
+parkAtBank → park.json → next job's ensureBankStart.
+
 Existing canaries: `bots/quests/thieving-route.ts`, `fishing-route.ts`, `mining-guild.ts`, `bots/Jackpoo1/bowstrings.ts`.
+
+## Training other skills
+
+`bots/quests/training.ts` maps skill → grind job (`TRAINERS`) with level
+ranges. Accounts level by scheduling trainer jobs on the roster, not by a
+runtime trainer: `planTraining(levels, goals)` turns "need WC40" into an
+ordered job list (weakest skill first). Quest scripts fail fast with
+quest-lib `requireSkills`; QP and prior-quest gates have no SDK accessor
+and stay assignment-side (the quest × account matrix). Gap: Prayer has no
+trainer — `planTraining` says so explicitly rather than skipping it.
+
+## Quest supply (mule-first)
+
+`bots/quests/supply.ts` is the acquisition chain: inventory → own bank →
+quest mule → verified shops → fail. `QUEST_STOCK` is the mule manifest
+(50–100x of every quest shopping list); `bots/quests/quest-mule.ts` parks
+at Draynor bank and serves `quest-supply` DMs via trade. Quest scripts
+pass `QUEST_MULE` env to enable the handoff and fall back to shops when
+the mule is dry. Shop sources are hand-verified (wiki/shops) — unsourced
+items fail loudly, never guessed. Stock the mule once by trading the
+manifest over; low lines log WARN for top-up.
+
+## Do not
+
+- `process.exit` / bare SIGTERM death mid-route (strands inventory and position).
+- Deposit-all without a `keep` list when the job needs tools to restart —
+  pass keeps explicitly; handoff-clean otherwise means deposit-all.
+- Resume a different job from a live command or grind.log text. Roster job +
+  park record is the handoff; drift is reported, not resumed.
 
 ## Prove the loop, then patch the hop
 
@@ -65,9 +124,14 @@ In the wilderness, `bot.walkTo` / `bot.interactLoc` pathfind around lava,
 through fences, and into void. Use `sdk.sendWalk` in **2–3 tile hops** that
 cannot go the wrong way, and `sdk.sendInteractLoc`. A long `sendWalk` to a
 sensible tile will still take the scenic route; if the trail goes north around
-the course, the hop is too far. Same class of no-op: Ardougne **Handelmort
-yard** (`leaveHandelmortMansion`) — `walkNear`/`walkTo` to the east street
-does not move; hop `sdk.sendWalk` toward `HANDELMORT_SAFE_EAST`.
+the course, the hop is too far. `ActivitySession` already enforces the two
+clock rules for every grind: repeating `setPhase` with the same name does not
+refresh the stall timer, and `noteProgress('location')` counts only when the
+player tile changed. The default wilderness `rewalk` tactic uses
+`nextWalkStep` (3 tiles), not one chord to the anchor. Same class of no-op:
+Ardougne **Handelmort yard** (`leaveHandelmortMansion`) — `walkNear`/`walkTo`
+to the east street does not move; hop `sdk.sendWalk` toward
+`HANDELMORT_SAFE_EAST`.
 
 `inferStep` from (x,z) is for **resume and pit-exit only**. Running it after
 every stall skips varp (stones → log while falling, pipe → log at Mage Arena

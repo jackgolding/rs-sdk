@@ -2,6 +2,8 @@
 
 Route: Edgeville ditch → north road → (optional spider gate) → slash keep web → pull lever.
 
+Accounts with **more than 30 current HP** do not take this route. They walk south out of the wilderness (if already in it) and cross **White Wolf Mountain** to Catherby, then the Seers road to Ardougne. The lever remains for accounts at 30 HP or below.
+
 ## Critical rules
 
 1. **Never `bot.walkTo` in the wilderness** — pathfinder routes back to safe areas (Edgeville bank loop) or east into deep wildy.
@@ -17,4 +19,8 @@ Route: Edgeville ditch → north road → (optional spider gate) → slash keep 
 3088,3525 → 3102,3610 → 3110,3700 → 3125,3790 → 3135,3865 → 3135,3895 → 3135,3954 → 3158,3953
 ```
 
-Lever: `(3154,3924)`. Web: `(3158,3951)` — do not walk onto the web tile; stand at `(3158,3953)`.
+Lever: `(3154,3924)`. Web: `(3158,3951)` — do not walk onto the web tile; stand at `(3158,3953)` from the north, `(3158,3949)` from inside.
+
+## Reverse (Ardougne → keep → lava maze)
+
+East Ardougne hut lever `wildinlever` **(2561, 3311)** (door 2564,3310). Lands inside the keep. Exit **north** through the web, then south-west on **x=3135** (KBD ladder is 3017,3849). Stay z=3283 west of Ardougne bank until past Handelmort. Kitchen `knife` slashes the web; mithril knives do not. See `learnings/kbd.md`.
