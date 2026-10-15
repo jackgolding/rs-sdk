@@ -9,7 +9,7 @@
  */
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { BotSDK, deriveGatewayUrl } from '../../sdk/index';
 import { formatWorldState } from '../../sdk/formatter';
 import type { BankItem, BotWorldState } from '../../sdk/types';
@@ -18,6 +18,7 @@ import { formatBotState } from '../../server/webclient/src/bot/formatters';
 import { collectFleet } from '../../.cursor/skills/wake-fleet/scripts/fleet-status';
 import { MAX_RESTARTS_PER_HOUR } from '../../.cursor/skills/wake-fleet/scripts/fleet-shepherd';
 import { findBot, invalidateRosterCache, ROOT, rosterBots } from '../../.cursor/skills/wake-fleet/scripts/roster';
+import { supervisorKind } from '../../.cursor/skills/wake-fleet/scripts/supervisor';
 import { areaName } from './areas';
 import { assignRosterScript, scriptError, setSkipList } from './roster-edit';
 import { tailFile } from './tail';
@@ -25,10 +26,13 @@ import { tailFile } from './tail';
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.FLEET_DESK_PORT || 8791);
 const ROSTER_PATH = join(ROOT, 'bots', 'roster.json');
-const SKIP_PATH = join(ROOT, '.cursor/skills/wake-fleet/skip-bots.txt');
+const SKIP_PATH = process.env.FLEET_SKIP_FILE ?? join(ROOT, '.cursor/skills/wake-fleet/skip-bots.txt');
 const LOG_DIR = join(homedir(), 'Library', 'Logs', 'rs-sdk-fleet');
 const LAUNCHD = join(ROOT, '.cursor/skills/wake-fleet/scripts/fleet-launchd.ts');
 const LITE = join(ROOT, '.cursor/skills/lite-client/scripts/lite-launchd.ts');
+/** Docker-side stop/start/restart for the VPS fleet (Mac keeps fleet-launchd). */
+const CTL = join(ROOT, '.cursor/skills/wake-fleet/scripts/fleet-ctl.ts');
+const isDocker = () => supervisorKind() === 'docker';
 const BANK_CHECK = join(import.meta.dir, 'bank-check.ts');
 const HTML = join(import.meta.dir, 'public', 'index.html');
 const STALE_BANK_MS = 24 * 60 * 60 * 1000;
@@ -61,7 +65,10 @@ const SUGGESTED_SCRIPTS = [
 ];
 
 const LOGS: Record<string, (name: string) => string> = {
-    grind: (name) => join(ROOT, 'bots', name, 'grind.log'),
+    // Live per-bot files live under FLEET_BOTS_DIR on the VPS host
+    // (/srv/fleet/bots), not in the repo checkout — same rule as
+    // supervisor.ts assignmentRoot(). Unset keeps the Mac repo path.
+    grind: (name) => join(process.env.FLEET_BOTS_DIR ? resolve(process.env.FLEET_BOTS_DIR) : join(ROOT, 'bots'), name, 'grind.log'),
     out: (name) => join(LOG_DIR, `${name}.out.log`),
     err: (name) => join(LOG_DIR, `${name}.err.log`),
     lite: (name) => join(LOG_DIR, `lite-${name}.out.log`),
@@ -653,20 +660,24 @@ async function handle(req: Request): Promise<Response> {
         assertDeskFree(name);
         // Drained stop: the grind banks first (park.json), so the next job
         // starts from a bank instead of mid-route.
+        if (isDocker()) return json(startJob(name, 'stop', [CTL, 'stop', name, '--drain']));
         return json(startJob(name, 'stop', [LAUNCHD, 'stop', name, '--drain']));
     }
     if (req.method === 'POST' && action === 'restart') {
         assertDeskFree(name);
         // --verify waits for an effect (up to 10 min) so the job outcome says
         // "verified producing" instead of "process started, good luck".
+        if (isDocker()) return json(startJob(name, 'restart', [CTL, 'restart', name, '--verify']));
         return json(startJob(name, 'restart', [LAUNCHD, 'restart', name, '--verify']));
     }
     if (req.method === 'POST' && action === 'chrome') {
         assertDeskFree(name);
+        if (isDocker()) throw new HttpError(409, 'The VPS fleet runs headless — there is no browser client to move to.');
         return json(startJob(name, 'chrome', [LITE, 'to-chrome', name]));
     }
     if (req.method === 'POST' && action === 'lite') {
         assertDeskFree(name);
+        if (isDocker()) throw new HttpError(409, 'The VPS fleet is already headless.');
         return json(startJob(name, 'lite', [LITE, 'to-lite', name]));
     }
 
@@ -683,6 +694,13 @@ async function handle(req: Request): Promise<Response> {
         const bot = findBot(assigned.name);
         if (bot?.paused) {
             return json({ name: assigned.name, script, args: assigned.args, restarted: false, paused: true });
+        }
+        if (isDocker()) {
+            // The box deploys with a read-only key and pull --ff-only: a desk
+            // rewrite of the tracked roster would break the next deploy (and
+            // be wiped by it). Roster changes go through a PR; the deploy
+            // rolls them. fleet-ctl switch stays for operator SSH use.
+            throw new HttpError(409, 'Roster changes go through a pull request — the deploy rolls them to the box.');
         }
         const job = startJob(assigned.name, 'switch', [LAUNCHD, 'switch', assigned.name, '--verify']);
         return json({ name: assigned.name, script, args: assigned.args, restarted: true, job });
@@ -704,7 +722,9 @@ async function handle(req: Request): Promise<Response> {
         invalidateRosterCache();
         fleetCache = null;
         let job: Job | null = null;
-        if (body.paused) job = startJob(name, 'stop', [LAUNCHD, 'stop', name, '--drain']);
+        // Unpausing releases the bot; the shepherd wakes it within a cycle.
+        // (Same on both supervisors — no start here.)
+        if (body.paused) job = startJob(name, 'stop', isDocker() ? [CTL, 'stop', name, '--drain'] : [LAUNCHD, 'stop', name, '--drain']);
         const after = findBot(name);
         return json({
             name,

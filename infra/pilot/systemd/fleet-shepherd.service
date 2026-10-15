@@ -10,4 +10,5 @@ WorkingDirectory=/srv/fleet/repo
 Environment=FLEET_SUPERVISOR=docker
 Environment=FLEET_BOTS_DIR=/srv/fleet/bots
 Environment=FLEET_STATE_DIR=/srv/fleet/state
+Environment=FLEET_SKIP_FILE=/srv/fleet/state/skip-bots.txt
 ExecStart=/usr/local/bin/bun .cursor/skills/wake-fleet/scripts/fleet-shepherd.ts

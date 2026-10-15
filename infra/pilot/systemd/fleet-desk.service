@@ -1,0 +1,19 @@
+[Unit]
+Description=rs-sdk fleet desk (VPS fleet view, loopback only)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/srv/fleet/repo
+Environment=FLEET_SUPERVISOR=docker
+Environment=FLEET_BOTS_DIR=/srv/fleet/bots
+Environment=FLEET_STATE_DIR=/srv/fleet/state
+Environment=FLEET_SKIP_FILE=/srv/fleet/state/skip-bots.txt
+ExecStart=/usr/local/bin/bun tools/fleet-desk/server.ts --no-open
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

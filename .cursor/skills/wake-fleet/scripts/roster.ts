@@ -38,7 +38,7 @@ const ROSTER_PATH = join(ROOT, 'bots', 'roster.json');
 export function botsDir(): string {
     return process.env.FLEET_BOTS_DIR ? resolve(process.env.FLEET_BOTS_DIR) : join(ROOT, 'bots');
 }
-const SKIP_PATH = join(ROOT, '.cursor/skills/wake-fleet/skip-bots.txt');
+const SKIP_PATH = process.env.FLEET_SKIP_FILE ?? join(ROOT, '.cursor/skills/wake-fleet/skip-bots.txt');
 const HUB_LOCK_PATH = join(homedir(), 'Library', 'Logs', 'rs-sdk-fleet', 'abg-food-hub.lock');
 
 export interface RosterView {
