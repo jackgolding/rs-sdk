@@ -281,7 +281,7 @@
         {
             "name": "ABGARMY02",
             "view": "army",
-            "script": "bots/quests/druidic-ritual.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
                 "ABGARMY02"
             ]
