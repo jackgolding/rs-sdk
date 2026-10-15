@@ -12,14 +12,17 @@
 + * running and their banks are not opened (the snapshot run would otherwise
 + * steal control from the live owner).
  */
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { homedir, tmpdir } from 'os';
 import { join } from 'path';
 import { isFreshGatewayState, type GatewaySnapshot } from '../../sdk/gateway-state';
-import { ROOT, rosterBots } from '../../.cursor/skills/wake-fleet/scripts/roster';
+import { botsDir, ROOT, rosterBots } from '../../.cursor/skills/wake-fleet/scripts/roster';
+import { supervisorKind } from '../../.cursor/skills/wake-fleet/scripts/supervisor';
+import { releaseLock, STATE_DIR } from '../../.cursor/skills/wake-fleet/scripts/fleet-shepherd';
 
 const LAUNCHD = join(ROOT, '.cursor/skills/wake-fleet/scripts/fleet-launchd.ts');
 const LITE = join(ROOT, '.cursor/skills/lite-client/scripts/lite-launchd.ts');
+const COMPOSE = join(ROOT, 'infra/pilot/compose.fleet.yml');
 const SNAPSHOT = join(ROOT, 'bots/quests/snapshot-nearest-banks.ts');
 const SHEPHERD_LABEL = 'com.rs-sdk.fleet-shepherd';
 const USER_ID = process.getuid?.() ?? Number(Bun.spawnSync(['id', '-u']).stdout.toString().trim());
@@ -44,7 +47,9 @@ export function namesNeedingLogin(candidates: string[], fresh: ReadonlySet<strin
 }
 
 function statusUrl(name: string): string {
-    const envPath = join(ROOT, 'bots', name, 'bot.env');
+    // Per-bot live files (bot.env) live under FLEET_BOTS_DIR on the VPS
+    // host (/srv/fleet/bots), not in the repo checkout.
+    const envPath = join(botsDir(), name, 'bot.env');
     let server: string | undefined;
     if (existsSync(envPath)) {
         for (const line of readFileSync(envPath, 'utf8').split('\n')) {
@@ -119,11 +124,49 @@ function run(args: string[], stdout: 'inherit' | 'ignore'): Promise<number> {
     });
 }
 
+/** Non-bun child (docker, systemctl): same lifecycle tracking, no execPath. */
+function runSys(cmd: string[]): Promise<number> {
+    const proc = Bun.spawn(cmd, {
+        cwd: ROOT,
+        stdout: 'inherit',
+        stderr: 'inherit',
+        stdin: 'ignore',
+    });
+    child = proc;
+    return proc.exited.finally(() => {
+        if (child === proc) child = null;
+    });
+}
+
+function sysStatus(cmd: string[]): { ok: boolean; output: string } {
+    const proc = Bun.spawnSync(cmd, { stdout: 'pipe', stderr: 'pipe' });
+    const output = `${proc.stdout ?? ''}${proc.stderr ?? ''}`.trim();
+    return { ok: proc.exitCode === 0, output };
+}
+
+const isDocker = supervisorKind() === 'docker';
+/** Mirrors gen-compose.py service naming: quest-<lowercase name>. */
+const questSvc = (name: string) => `quest-${name.toLowerCase()}`;
+
 let shepherdWasLoaded = false;
 let grindsStopped = false;
 let finishing: Promise<void> | null = null;
 
 function holdShepherd(): void {
+    if (isDocker) {
+        // Stop the systemd timer so no shepherd run restarts quest
+        // containers mid-walk. The timer stays enabled, so a reboot
+        // restores supervision even if this pass dies mid-flight.
+        mkdirSync(STATE_DIR, { recursive: true });
+        writeFileSync(join(STATE_DIR, 'shepherd.lock'), String(Date.now()));
+        const t = sysStatus(['systemctl', 'stop', 'fleet-shepherd.timer']);
+        console.log(t.ok ? 'shepherd timer: held' : `shepherd timer: stop failed — ${t.output}`);
+        if (sysStatus(['systemctl', 'is-active', '--quiet', 'fleet-shepherd.service']).ok) {
+            const k = sysStatus(['systemctl', 'stop', 'fleet-shepherd.service']);
+            console.log(k.ok ? 'shepherd: in-flight run stopped' : `shepherd: service stop failed — ${k.output}`);
+        }
+        return;
+    }
     if (!existsSync(SHEPHERD_PLIST)) {
         console.log('shepherd: not installed');
         return;
@@ -139,6 +182,12 @@ function holdShepherd(): void {
 }
 
 function releaseShepherd(): void {
+    if (isDocker) {
+        releaseLock();
+        const out = sysStatus(['systemctl', 'start', 'fleet-shepherd.timer']);
+        console.log(out.ok ? 'shepherd timer: restored' : `shepherd timer: start failed — ${out.output}`);
+        return;
+    }
     if (!shepherdWasLoaded) return;
     shepherdWasLoaded = false;
     // Bootstrap without RunAtLoad so shepherd does not immediately restart
@@ -156,9 +205,22 @@ function finish(names: string[]): Promise<void> {
     finishing = (async () => {
         try {
             if (grindsStopped && names.length > 0) {
-                console.log(`[bank-check] starting ${names.length} grind(s)`);
-                const code = await run([LAUNCHD, 'start', ...names], 'inherit');
-                if (code !== 0) console.log(`[bank-check] grind start exited ${code}`);
+                if (isDocker) {
+                    console.log(`[bank-check] starting ${names.length} quest container(s)`);
+                    const code = await runSys([
+                        'docker',
+                        'compose',
+                        '-f',
+                        COMPOSE,
+                        'start',
+                        ...names.map(questSvc),
+                    ]);
+                    if (code !== 0) console.log(`[bank-check] quest start exited ${code}`);
+                } else {
+                    console.log(`[bank-check] starting ${names.length} grind(s)`);
+                    const code = await run([LAUNCHD, 'start', ...names], 'inherit');
+                    if (code !== 0) console.log(`[bank-check] grind start exited ${code}`);
+                }
             }
         } finally {
             releaseShepherd();
@@ -188,20 +250,52 @@ async function main(): Promise<number> {
     try {
         holdShepherd();
         if (restart.length > 0) {
-            console.log(`[bank-check] stopping ${restart.length} grind(s)`);
-            const stopCode = await run([LAUNCHD, 'stop', ...restart], 'inherit');
-            grindsStopped = true;
-            if (stopCode !== 0) console.log(`[bank-check] grind stop exited ${stopCode}`);
+            if (isDocker) {
+                // One compose call stops every quest container in parallel.
+                // SIGTERM lets each quest drain to its bank (park.json), so
+                // snapshots start near a bank; -t 60 bounds the wait well
+                // below the compose stop grace. Lite containers stay up and
+                // keep the game sessions live for the snapshot pass.
+                console.log(`[bank-check] stopping ${restart.length} quest container(s)`);
+                const stopCode = await runSys([
+                    'docker',
+                    'compose',
+                    '-f',
+                    COMPOSE,
+                    'stop',
+                    '-t',
+                    '60',
+                    ...restart.map(questSvc),
+                ]);
+                grindsStopped = true;
+                if (stopCode !== 0) console.log(`[bank-check] quest stop exited ${stopCode}`);
+            } else {
+                console.log(`[bank-check] stopping ${restart.length} grind(s)`);
+                const stopCode = await run([LAUNCHD, 'stop', ...restart], 'inherit');
+                grindsStopped = true;
+                if (stopCode !== 0) console.log(`[bank-check] grind stop exited ${stopCode}`);
+            }
         }
-        const fresh = await freshNameSet(login);
-        const needingLogin = namesNeedingLogin(login, fresh);
-        if (needingLogin.length > 0) {
-            console.log(`[bank-check] starting lite for ${needingLogin.length} account(s) with no live client`);
-            const liteCode = await run([LITE, 'restart', ...needingLogin], 'inherit');
-            if (liteCode !== 0) console.log(`[bank-check] lite restart exited ${liteCode}`);
-            const stillDown = await waitForLiveClients(needingLogin);
-            if (stillDown.length > 0) {
-                console.log(`[bank-check] no live client after wait: ${stillDown.join(', ')}`);
+        if (isDocker) {
+            // Lite containers stay up on the VPS — no restart step. Log
+            // accounts with no live client; the snapshot pass reports them
+            // stale per account instead of waiting out a login window.
+            const fresh = await freshNameSet(login);
+            const stale = namesNeedingLogin(login, fresh);
+            if (stale.length > 0) {
+                console.log(`[bank-check] no live client for ${stale.length} account(s): ${stale.join(', ')}`);
+            }
+        } else {
+            const fresh = await freshNameSet(login);
+            const needingLogin = namesNeedingLogin(login, fresh);
+            if (needingLogin.length > 0) {
+                console.log(`[bank-check] starting lite for ${needingLogin.length} account(s) with no live client`);
+                const liteCode = await run([LITE, 'restart', ...needingLogin], 'inherit');
+                if (liteCode !== 0) console.log(`[bank-check] lite restart exited ${liteCode}`);
+                const stillDown = await waitForLiveClients(needingLogin);
+                if (stillDown.length > 0) {
+                    console.log(`[bank-check] no live client after wait: ${stillDown.join(', ')}`);
+                }
             }
         }
         console.log(`[bank-check] opening nearest banks for ${open.length} account(s)`);
