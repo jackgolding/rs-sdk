@@ -16,7 +16,7 @@ import {
     walkNear as walkNearShared,
     walkWaypoints as walkWaypointsShared
 } from './movement';
-import { ARDOUGNE_BANK, ARDOUGNE_MARKET, BRIMHAVEN_CUSTOMS, type Tile } from './tiles';
+import { ARDOUGNE_BANK, ARDOUGNE_MARKET, BRIMHAVEN_CUSTOMS, EDGEVILLE, type Tile } from './tiles';
 import { foodHeal } from './food-heal';
 import { GnomeCourse, GNOME_START } from './gnome-course';
 import { WildyCourse } from './wildy-course';
@@ -188,6 +188,9 @@ const session = new ActivitySession(sdk, bot, {
 installGracefulShutdown();
 
 let laps = 0;
+// Final-lap mode: 99 hit mid-lap — finish the lap before Edgeville.
+let finishingLap = false;
+let lapsAt99 = 0;
 let obstacleStreak = 0;
 let lastXp = 0;
 
@@ -253,7 +256,10 @@ const wildyCourse = new WildyCourse({
 
 function onWildyCourse(): boolean {
     const p = pos();
-    return inWilderness(p.x, p.z) && p.z >= 3925 && p.z < 5000 && distTo(WILDY_COURSE.x, WILDY_COURSE.z) < 80;
+    // x cap: the ground east of the course fence (e.g. 3041,3942) is
+    // within 80 tiles but is NOT the course — without the cap the bot
+    // runs lap logic there instead of entry routing and stalls on pipe.
+    return inWilderness(p.x, p.z) && p.z >= 3929 && p.z < 5000 && p.x <= 3010 && distTo(WILDY_COURSE.x, WILDY_COURSE.z) < 80;
 }
 
 /** Log-balance / lava fail drops into the underground pit (z≈10362). */
@@ -529,14 +535,51 @@ async function sendWalkWaypoints(wps: { x: number; z: number }[]): Promise<void>
 async function leaveWilderness(): Promise<boolean> {
     if (!inWilderness(pos().x, pos().z)) return true;
     intent('Leaving wilderness south');
-    for (let i = 0; i < 24 && inWilderness(pos().x, pos().z) && !session.isStopped(); i++) {
+    // The wilderness ditch only crosses at the gap near x=3088, and long
+    // single walks silently drop — line up on the gap, then short-hop out.
+    let still = 0;
+    for (let i = 0; i < 60 && inWilderness(pos().x, pos().z) && !session.isStopped(); i++) {
         const p = pos();
-        await sdk.sendWalk(p.x, Math.max(DITCH_SOUTH.z, p.z - 40), true);
-        const z0 = p.z;
+        if (p.isDead) {
+            await waitForRespawn();
+            break;
+        }
+        let tx = 3088;
+        let tz = Math.max(3525, p.z - 15);
+        if (Math.abs(p.x - 3088) > 8 && p.z > 3560) {
+            tx = 3088;
+            tz = p.z;
+        } else if (p.z <= 3535) {
+            tx = 3088;
+            tz = 3508;
+        }
+        const dx = tx - p.x;
+        const dz = tz - p.z;
+        const span = Math.hypot(dx, dz);
+        const hop =
+            span > 15
+                ? { x: Math.round(p.x + (dx / span) * 15), z: Math.round(p.z + (dz / span) * 15) }
+                : { x: tx, z: tz };
+        await sdk.sendWalk(hop.x, hop.z, true);
         await sdk
-            .waitForCondition((s) => (s.player?.worldZ ?? z0) < z0 - 6 || (s.player?.worldZ ?? z0) < 3520, 10_000)
+            .waitForCondition(
+                (s) =>
+                    Math.hypot((s.player?.worldX ?? p.x) - p.x, (s.player?.worldZ ?? p.z) - p.z) > 4 ||
+                    (s.player?.worldZ ?? 99_999) < 3520,
+                10_000
+            )
             .catch(() => {});
-        if (pos().z === z0) await sdk.waitForTicks(2).catch(() => {});
+        if (Math.hypot(pos().x - p.x, pos().z - p.z) < 2) {
+            // No movement: don't burn iterations blind — surface it so the
+            // caller retries with fresh routing.
+            if (++still >= 2) {
+                log(`leaveWilderness stuck @ ${pos().x},${pos().z} — breaking for round retry`);
+                break;
+            }
+            await sdk.waitForTicks(2).catch(() => {});
+        } else {
+            still = 0;
+        }
     }
     return !inWilderness(pos().x, pos().z);
 }
@@ -1137,13 +1180,14 @@ async function dropJunk(): Promise<void> {
     }
 }
 
-async function depositAll(): Promise<boolean> {
+async function depositAll(forceTile?: Tile): Promise<boolean> {
     const bankTile =
-        agilityLevel() >= GNOME_UNTIL && (onWildyCourse() || inWilderness(pos().x, pos().z))
+        forceTile ??
+        (agilityLevel() >= GNOME_UNTIL && (onWildyCourse() || inWilderness(pos().x, pos().z))
             ? MAGE_BANK
             : onGnomeCourse() || distTo(GNOME_START.x, GNOME_START.z) < 120
               ? ARDOUGNE_BANK
-              : nearestSafeBank();
+              : nearestSafeBank());
     await closeUi();
     if (onGnomeCourse() && !pastGnomeGate()) {
         await ensureGnomeEntrance();
@@ -1504,11 +1548,38 @@ async function enterWildyAgilityCourse(): Promise<void> {
         await enterCourseDoor();
     }
     if (!onWildyCourse() && pos().z >= 3920) {
-        await sdk.sendWalk(3002, 3933, true);
-        await sdk
-            .waitForCondition((s) => (s.player?.worldZ ?? 0) >= WILDY_COURSE.z - 2, 8_000)
-            .catch(() => {});
+        if (!(await enterRidgeGate())) {
+            await sdk.sendWalk(3002, 3933, true);
+            await sdk
+                .waitForCondition((s) => (s.player?.worldZ ?? 0) >= WILDY_COURSE.z - 2, 8_000)
+                .catch(() => {});
+        }
     }
+}
+
+/** Ridge gates (2307/2308) south → step north onto the course. */
+async function enterRidgeGate(): Promise<boolean> {
+    if (onWildyCourse()) return true;
+    await sdk.scanNearbyLocs(16).catch(() => {});
+    const gate = (sdk.getNearbyLocs() ?? []).find(
+        (l) =>
+            /gate/i.test(l.name) &&
+            l.x >= 2996 &&
+            l.x <= 3000 &&
+            l.z >= 3929 &&
+            l.z <= 3933 &&
+            l.optionsWithIndex.some((o) => /^open$/i.test(o.text))
+    );
+    if (gate) {
+        const open = gate.optionsWithIndex.find((o) => /^open$/i.test(o.text))!;
+        intent('Opening ridge gate north');
+        session.noteProgress('location', 'ridge gate');
+        await sdk.sendInteractLoc(gate.x, gate.z, gate.id, open.opIndex);
+        await sdk.waitForTicks(2).catch(() => {});
+    }
+    await sdk.sendWalk(3002, 3935, true);
+    await sdk.waitForCondition(() => onWildyCourse(), 8_000).catch(() => {});
+    return onWildyCourse();
 }
 
 /** Ridge gates (2307/2308) south → yard → west fence gate south. */
@@ -1591,6 +1662,26 @@ async function goWildyCourse(): Promise<void> {
         return;
     }
     if (insideWildyCourseYard()) {
+        await enterWildyAgilityCourse();
+        return;
+    }
+    // East of the course fence (e.g. 3041,3942 off the Mage walk): no east
+    // gate exists — drop south to the yard door on the recorded line
+    // (3041,3942 → 3027,3938 → 3007,3924 → 3005,3908 → 3000,3916), then enter.
+    if (pos().x > 3010 && pos().z >= 3906 && pos().z < 4500) {
+        intent('East side — south to the yard door');
+        for (const hop of [
+            { x: 3027, z: 3938 },
+            { x: 3007, z: 3924 },
+            { x: 3005, z: 3908 },
+            { x: 3000, z: 3916 }
+        ]) {
+            if (session.isStopped() || onWildyCourse()) return;
+            if (distTo(hop.x, hop.z) <= 4) continue;
+            await sdk.sendWalk(hop.x, hop.z, true);
+            await sdk.waitForCondition(() => distTo(hop.x, hop.z) <= 5, 12_000).catch(() => {});
+            if (distTo(hop.x, hop.z) > 8) return;
+        }
         await enterWildyAgilityCourse();
         return;
     }
@@ -1805,10 +1896,57 @@ async function gnomeTick(): Promise<void> {
     laps = gnomeCourse.laps;
 }
 
+/** 99 reached: leave the course, bank everything at Edgeville, stop clean.
+ * Never stops dirty — unverified rounds retry next tick. */
+async function finishAtEdgeville(): Promise<void> {
+    await session.setPhase('done_walk');
+    intent('Agility 99 — banking at Edgeville');
+    log(`Agility 99 after ${laps} laps — walking to Edgeville`);
+    for (let round = 0; round < 3; round++) {
+        if (pos().isDead) {
+            await waitForRespawn();
+            continue;
+        }
+        await eatIfNeeded();
+        if (inWildyCoursePit()) {
+            await climbOutOfWildyPit();
+        }
+        if (onWildyCourse() || insideWildyCourseYard()) {
+            await leaveWildyAgilityCourse();
+        }
+        if (inWilderness(pos().x, pos().z)) {
+            await leaveWilderness();
+        }
+        if (!inWilderness(pos().x, pos().z)) break;
+    }
+    if (inWilderness(pos().x, pos().z)) {
+        session.noteFailure('done_walk', `still in wildy @ ${pos().x},${pos().z} — retrying next tick`);
+        return;
+    }
+    await walkNear(EDGEVILLE.x, EDGEVILLE.z, 6);
+    if (!(await depositAll(EDGEVILLE))) {
+        session.noteFailure('done_walk', 'Edgeville deposit failed — retrying next tick');
+        return;
+    }
+    if (sdk.getInventory().some((i) => (i.count ?? 0) > 0)) {
+        session.noteFailure('done_walk', 'inventory not empty after deposit — retrying');
+        return;
+    }
+    session.stop('done', `Agility 99 @ ${pos().x},${pos().z} laps=${laps}`);
+}
+
 async function wildyTick(): Promise<void> {
     if (agilityLevel() >= TARGET_LEVEL) {
-        session.stop('done', `Agility ${agilityLevel()}`);
-        return;
+        if (onWildyCourse() && wildyCourse.stepIndex !== 0 && !finishingLap) {
+            finishingLap = true;
+            lapsAt99 = laps;
+            log(`Agility 99 mid-lap — finishing the lap first`);
+        } else if (!onWildyCourse() || wildyCourse.stepIndex === 0 || finishingLap) {
+            if (!finishingLap || laps > lapsAt99 || wildyCourse.stepIndex === 0) {
+                await finishAtEdgeville();
+                return;
+            }
+        }
     }
     if (pos().isDead) {
         await waitForRespawn();
@@ -1844,7 +1982,8 @@ async function wildyTick(): Promise<void> {
 async function tick(): Promise<void> {
     await closeUi();
     if (agilityLevel() >= TARGET_LEVEL) {
-        session.stop('done', `Agility ${TARGET_LEVEL}`);
+        // 99 lands mid-lap — wildyTick finishes the lap, then Edgeville.
+        await wildyTick();
         return;
     }
 
