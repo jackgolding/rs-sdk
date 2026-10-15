@@ -22,7 +22,10 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }} # root
-          key: ${{ secrets.VPS_SSH_KEY }} # private key matching the Terraform deployer key
+          key: ${{ secrets.VPS_SSH_KEY }} # passwordless ~/.ssh/fleet-actions, never the personal key
+          # Quest drains run to the 700s stop_grace_period; 10m (action default)
+          # kills mid-rollout and strands new containers in Created.
+          command_timeout: 25m
           script: |
             set -e
             cd /srv/fleet/repo
