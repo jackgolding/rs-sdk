@@ -131,7 +131,7 @@ services:
   quest-abgarmy04:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/druidic-ritual.ts", "ABGARMY04"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY04"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -165,7 +165,7 @@ services:
   quest-abgarmy05:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/druidic-ritual.ts", "ABGARMY05"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY05"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -233,7 +233,7 @@ services:
   quest-abgarmy07:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY07", "--tank=jacklove5", "--lead=jacklove5"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY07"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -267,7 +267,7 @@ services:
   quest-abgarmy08:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/druidic-ritual.ts", "ABGARMY08"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY08"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -301,7 +301,7 @@ services:
   quest-abgarmy09:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY09", "--tank=jacklove5", "--lead=jacklove5"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY09"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -369,7 +369,7 @@ services:
   quest-abgarmy11:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY11", "--tank=jacklove5", "--lead=jacklove5"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY11"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -539,7 +539,7 @@ services:
   quest-abgarmy16:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY16", "--tank=jacklove5", "--lead=jacklove5"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY16"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -675,7 +675,7 @@ services:
   quest-abgarmy20:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY20", "--tank=jacklove5", "--lead=jacklove5"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY20"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -743,7 +743,7 @@ services:
   quest-jacklove1:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/druidic-ritual.ts", "jacklove1"]
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove1", "--shark"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1185,7 +1185,7 @@ services:
   quest-jacklove3:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/red-dragons.ts", "jacklove3", "--tank=jacklove5", "--lead=jacklove5"]
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove3", "--shark"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
