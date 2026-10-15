@@ -34,5 +34,5 @@ jobs:
             # per-service build fans out 96 concurrent buildx jobs that
             # cancel each other on a small box.
             docker build -t fleet-pilot:latest -f Dockerfile ../..
-            docker compose -f infra/pilot/compose.fleet.yml up -d --remove-orphans
-            docker compose -f infra/pilot/compose.fleet.yml ps
+            docker compose -f compose.fleet.yml up -d --remove-orphans
+            docker compose -f compose.fleet.yml ps
