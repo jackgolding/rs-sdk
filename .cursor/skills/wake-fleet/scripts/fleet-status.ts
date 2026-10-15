@@ -149,6 +149,7 @@ export async function collectFleet(now = Date.now()): Promise<{
         return classify({
             bot,
             now,
+            containerPids: kind === 'docker',
             gateway: {
                 reachable: !err && !!gw,
                 status: gw?.status,

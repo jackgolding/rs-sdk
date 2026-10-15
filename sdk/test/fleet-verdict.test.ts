@@ -212,6 +212,20 @@ describe('fleet verdict precedence', () => {
         expect(row.kind).toBe('churning');
     });
 
+    test('container pids: host-pid owner sees container-pid records only with containerPids', () => {
+        // Docker: quest script writes its container pid while the owner carries the host pid.
+        const docker = base({
+            owner: { pid: 1230928, command: 'bun bots/quests/fishing-route.ts TestBot', supervised: true, startedAt: null, legacy: false },
+            snapshots: [snap(NOW - 3 * 60 * 1000, 8000, { pid: 1 })],
+        });
+        const blind = classify(docker);
+        expect(blind.kind).toBe('alive-not-producing');
+        expect(blind.check).toBe('no_effect');
+        const seeing = classify({ ...docker, containerPids: true });
+        expect(seeing.kind).toBe('producing');
+        expect(seeing.minutesSinceSnapshot).toBe(3);
+    });
+
     test('headline counts exclude paused from notProducing', () => {
         const rows = [
             classify(base()),

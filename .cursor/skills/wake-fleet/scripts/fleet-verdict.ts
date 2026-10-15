@@ -49,6 +49,14 @@ export interface ShepherdView {
 export interface ClassifyInput {
     bot: RosterBot;
     now: number;
+    /**
+     * True when record pids live in a container namespace (Docker): the
+     * quest script writes its container pid (often 1) while the owner
+     * carries the host pid, so pid-matching would discard every record.
+     * fleet-status sets this from the supervisor kind; default false
+     * preserves the Mac shared-namespace matching.
+     */
+    containerPids?: boolean;
     gateway: {
         reachable: boolean;
         status?: string;
@@ -201,13 +209,13 @@ function minutesBetween(now: number, at: number | null): number | null {
 
 function snapshotsFor(input: ClassifyInput): HeartbeatRecord[] {
     const valid = input.snapshots.filter(isValidSnapshot);
-    if (!input.owner) return valid;
+    if (!input.owner || input.containerPids) return valid;
     return valid.filter((record) => record.pid == null || record.pid === input.owner!.pid);
 }
 
 function eventsFor(input: ClassifyInput): ActivityEvent[] {
     const events = input.events ?? [];
-    if (!input.owner) return events;
+    if (!input.owner || input.containerPids) return events;
     return events.filter((event) => event.pid == null || event.pid === input.owner!.pid);
 }
 

@@ -1,15 +1,18 @@
 /**
  * Fleet shepherd: classify → plan one action per bot → execute → notify.
- * Installed as com.rs-sdk.fleet-shepherd (StartInterval 600s) by fleet-launchd install.
+ * Mac: installed as com.rs-sdk.fleet-shepherd (StartInterval 600s) by
+ * fleet-launchd install. VPS: systemd timer with FLEET_SUPERVISOR=docker,
+ * FLEET_BOTS_DIR=/srv/fleet/bots, FLEET_STATE_DIR=/srv/fleet/state
+ * (see infra/pilot/observability/README.md).
  *
  * A cycle never starts and stops the same bot. `canStart` is checked before any start.
  */
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, appendFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { spawnSync } from 'child_process';
 import { ROOT, rosterBots, type RosterBot } from './roster';
-import { launchdInfo } from './launchd-info';
+import { dockerContainerId, supervisorInfo, supervisorKind } from './supervisor';
 
 export const MAX_RESTARTS_PER_HOUR = 4;
 export const ROLLING_WINDOW_MS = 60 * 60 * 1000;
@@ -30,10 +33,19 @@ export function detectWake(state: ShepherdState, now: number): boolean {
     return now - state.lastRun > WAKE_GAP_MS;
 }
 
-const LOG_DIR = join(homedir(), 'Library', 'Logs', 'rs-sdk-fleet');
-export const STATE_PATH = join(LOG_DIR, 'shepherd-state.json');
-const LOCK_PATH = join(LOG_DIR, 'shepherd.lock');
-const HUB_LOCK_PATH = join(LOG_DIR, 'abg-food-hub.lock');
+const DEFAULT_STATE_DIR = join(homedir(), 'Library', 'Logs', 'rs-sdk-fleet');
+/**
+ * State home. Mac default is the historical log dir; the VPS host sets
+ * FLEET_STATE_DIR=/srv/fleet/state (host dir, survives redeploys, never git).
+ * fleet-status reads shepherd state through loadState(), so capped/churning
+ * verdicts light up wherever this points.
+ */
+export const STATE_DIR = process.env.FLEET_STATE_DIR ?? DEFAULT_STATE_DIR;
+export const STATE_PATH = join(STATE_DIR, 'shepherd-state.json');
+const LOCK_PATH = join(STATE_DIR, 'shepherd.lock');
+/** Docker-mode notification sink (replaces the Mac osascript popup). */
+const SHEPHERD_LOG = join(STATE_DIR, 'shepherd.log');
+const HUB_LOCK_PATH = join(DEFAULT_STATE_DIR, 'abg-food-hub.lock');
 
 function isHubLocked(): boolean {
     if (!existsSync(HUB_LOCK_PATH)) return false;
@@ -124,6 +136,7 @@ export function loadState(): ShepherdState {
 }
 
 export function saveState(state: ShepherdState): void {
+    mkdirSync(STATE_DIR, { recursive: true });
     const tmp = `${STATE_PATH}.tmp`;
     writeFileSync(tmp, JSON.stringify(state, null, 2));
     writeFileSync(STATE_PATH, readFileSync(tmp));
@@ -341,6 +354,14 @@ export function releaseLock(): void {
 }
 
 function notifyMac(body: string): void {
+    if (supervisorKind() === 'docker') {
+        try {
+            appendFileSync(SHEPHERD_LOG, `${new Date().toISOString()} ${body}\n`);
+        } catch {
+            console.error(`shepherd notify: ${body}`);
+        }
+        return;
+    }
     const safe = body.slice(0, 200).replace(/"/g, "'");
     spawnSync('osascript', ['-e', `display notification "${safe}" with title "rs-sdk fleet"`], {
         stdio: 'ignore',
@@ -350,7 +371,7 @@ function notifyMac(body: string): void {
 function sampleRuns(state: ShepherdState, now: number): ShepherdState {
     const next = cloneState(state);
     for (const bot of rosterBots()) {
-        const info = launchdInfo(bot.name);
+        const info = supervisorInfo(bot.name);
         if (!info.loaded || info.runs == null) continue;
         const entry = ensure(next, bot.name);
         entry.runsSamples = [...(entry.runsSamples ?? []), { t: now, runs: info.runs }].filter(
@@ -414,17 +435,61 @@ function launchdStop(name: string): boolean {
     return proc.status === 0;
 }
 
-export async function runShepherdCycle(now = Date.now()): Promise<{
+/**
+ * Docker executors. Act on the container ID (compose names carry the
+ * fleet- prefix, so the bare quest-<slug> name never matches).
+ *
+ * STOP_GRACE: `docker restart`/`stop` wait up to the compose stop grace
+ * (700s quest drain) for SIGTERM handlers. A full drain per bot stalls a
+ * 10-minute cycle when several bots need restarts, so cap the wait: stuck
+ * bots are restarted BECAUSE they are stuck, and producing bots are never
+ * touched, so SIGKILL after the grace is the right tradeoff.
+ * NOTE: a manual restart resets Docker's RestartCount — loop detection must
+ * use the shepherd's own restarts[] timestamps, never the counter alone.
+ */
+const STOP_GRACE_SECS = 90;
+
+function dockerAct(name: string, op: 'start' | 'stop' | 'restart'): boolean {
+    const id = dockerContainerId(name);
+    if (!id) {
+        console.error(`shepherd: no quest container for ${name}`);
+        return false;
+    }
+    console.log(`shepherd: docker ${op} ${name} (grace ${STOP_GRACE_SECS}s)`);
+    const args = op === 'start' ? [op, id] : [op, '-t', String(STOP_GRACE_SECS), id];
+    const proc = spawnSync('docker', args, { encoding: 'utf-8' });
+    if ((proc.stdout ?? '').trim()) console.log((proc.stdout ?? '').trim());
+    if (proc.status !== 0) console.error(`shepherd: docker ${op} ${name}: ${(proc.stderr ?? '').trim()}`);
+    return proc.status === 0;
+}
+
+function botStart(name: string): LaunchdStartResult {
+    if (supervisorKind() === 'docker') return dockerAct(name, 'start') ? 'started' : 'failed';
+    return launchdStart(name);
+}
+
+function botRestart(name: string): boolean {
+    if (supervisorKind() === 'docker') return dockerAct(name, 'restart');
+    return launchdRestart(name);
+}
+
+function botStop(name: string): boolean {
+    if (supervisorKind() === 'docker') return dockerAct(name, 'stop');
+    return launchdStop(name);
+}
+
+export async function runShepherdCycle(now = Date.now(), opts?: { dryRun?: boolean; only?: string }): Promise<{
     woke: string[];
     capped: string[];
     notified: string[];
 }> {
-    if (isHubLocked()) {
+    // The food-hub lock is Mac orchestration; the VPS runs roster jobs only.
+    if (supervisorKind() !== 'docker' && isHubLocked()) {
         console.log('shepherd: abg-food-hub lock active — skip cycle');
         return { woke: [], capped: [], notified: [] };
     }
 
-    if (!acquireLock(now)) {
+    if (!opts?.dryRun && !acquireLock(now)) {
         console.log('shepherd: previous cycle still running — skip');
         return { woke: [], capped: [], notified: [] };
     }
@@ -439,11 +504,18 @@ export async function runShepherdCycle(now = Date.now()): Promise<{
         const rosterMap = new Map(rosterBots().map((bot) => [bot.name, bot]));
         const wake = detectWake(state, now);
         if (wake) console.log(`shepherd: wake after ${Math.round((now - state.lastRun) / 60_000)}m quiet`);
-        const plan = planCycle(state, rows, rosterMap, now, { wake });
+        const scoped = opts?.only ? rows.filter((row) => row.name.toLowerCase() === opts.only!.toLowerCase()) : rows;
+        if (opts?.only && scoped.length === 0) console.log(`shepherd: no such bot ${opts.only}`);
+        const plan = planCycle(state, scoped, rosterMap, now, { wake });
+        if (opts?.dryRun) {
+            for (const action of plan.actions) console.log(`plan: ${action.op} ${action.name}`);
+            console.log(`plan: woke=${plan.woke.length} capped=${plan.capped.length} notified=${plan.notifications.length}`);
+            return { woke: plan.woke, capped: plan.capped, notified: plan.notifications };
+        }
         for (const action of plan.actions) {
-            if (action.op === 'start') launchdStart(action.name);
-            else if (action.op === 'restart') launchdRestart(action.name);
-            else if (action.op === 'stop') launchdStop(action.name);
+            if (action.op === 'start') botStart(action.name);
+            else if (action.op === 'restart') botRestart(action.name);
+            else if (action.op === 'stop') botStop(action.name);
         }
         plan.state.lastRun = now;
         saveState(plan.state);
@@ -451,12 +523,14 @@ export async function runShepherdCycle(now = Date.now()): Promise<{
         console.log(`shepherd: woke=${plan.woke.length} capped=${plan.capped.length} notified=${plan.notifications.length}`);
         return { woke: plan.woke, capped: plan.capped, notified: plan.notifications };
     } finally {
-        releaseLock();
+        if (!opts?.dryRun) releaseLock();
     }
 }
 
 if (import.meta.main) {
-    runShepherdCycle()
+    const dryRun = process.argv.includes('--plan');
+    const only = process.argv.slice(2).find((a) => !a.startsWith('-'));
+    runShepherdCycle(Date.now(), { dryRun, only })
         .then((result) => {
             if (result.woke.length) console.log('woke:', result.woke.join(', '));
             if (result.capped.length) console.log('capped:', result.capped.join(', '));

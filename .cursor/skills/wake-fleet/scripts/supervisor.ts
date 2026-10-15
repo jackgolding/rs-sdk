@@ -84,9 +84,15 @@ function runDocker(args: string[]): { ok: boolean; out: string } {
 }
 
 /** `{ loaded: false }` when docker is absent or no quest container matches. */
-export function dockerSupervisorInfo(botName: string): SupervisorInfo {
+export function dockerContainerId(botName: string): string | null {
     const ps = runDocker(['ps', '-a', '--filter', `name=${dockerNameFilter(botName)}`, '--format', '{{.ID}}']);
     const id = ps.ok ? ps.out.split('\n').map((l) => l.trim()).filter(Boolean)[0] : undefined;
+    return id ?? null;
+}
+
+/** `{ loaded: false }` when docker is absent or no quest container matches. */
+export function dockerSupervisorInfo(botName: string): SupervisorInfo {
+    const id = dockerContainerId(botName);
     if (!id) return { loaded: false };
     const inspect = runDocker(['inspect', id]);
     if (!inspect.ok) return { loaded: false };
