@@ -13,8 +13,19 @@ on:
       - "infra/pilot/**"
       - ".github/workflows/fleet-pilot-deploy.yml"
 
+# Serialize: overlapping runs race `up -d` create/remove against each other
+# (container name Conflicts, removal-in-progress, No such container) and
+# leave the box half-rolled. Queue, never parallel.
+concurrency:
+  group: fleet-pilot-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
+    # The workflow file also exists in the public repo's history — only the
+    # private fleet repo holds the VPS secrets, so skip anywhere else instead
+    # of fast-failing on missing secrets.
+    if: github.repository == 'jackgolding/rs-sdk-fleet'
     runs-on: ubuntu-latest
     steps:
       - name: Deploy over SSH
@@ -29,6 +40,8 @@ jobs:
           script: |
             set -e
             cd /srv/fleet/repo
+            # Fail fast on a dirty box tree instead of dying mid-rollout.
+            test -z "$(git status --porcelain)" || { git status --porcelain; echo "BOX TREE DIRTY — refusing rollout"; exit 1; }
             git fetch origin
             git checkout infra/vps-pilot
             git pull --ff-only origin infra/vps-pilot
