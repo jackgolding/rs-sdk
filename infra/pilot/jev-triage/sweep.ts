@@ -60,7 +60,8 @@ function arg(name: string, def?: string): string | undefined {
   return v && !v.startsWith("--") ? v : def;
 }
 
-const live = process.argv.includes("--live");
+const live = process.argv.includes("--live") || process.argv.includes("--live-router");
+const useRouter = process.argv.includes("--live-router");
 const squadRaw = arg("--squad", "ABGARMY18")!;
 const squad = squadRaw.split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -147,6 +148,63 @@ function dryVerdict(
   return { ...base, choice: "healthy", confidence: 0.85, urgency: "ignore", safe_to_restart: false, reasons };
 }
 
+async function routerVerdicts(
+  bots: { bot: string; s: Awaited<ReturnType<typeof botState>> }[],
+): Promise<Verdict[] | null> {
+  // OpenRouter fallback: chat-shaped typesafe/jev-router, one call per sweep.
+  // Key read at runtime from env (source ~/.zshrc before running) — never in
+  // chat, logs, git, or compose.
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) {
+    console.error("live-router requested but OPENROUTER_API_KEY is unset — falling back to dry.");
+    return null;
+  }
+  const lines = bots.map(({ bot, s }) => {
+    const gw = s.gw as Record<string, unknown> | null;
+    return `- ${bot}: status=${gw?.status ?? "unknown"} inGame=${gw?.inGame === true} controllers=${Array.isArray(gw?.controllers) ? (gw.controllers as unknown[]).length : 0} grindAgeS=${s.grindAge ?? "unknown"} tail=${JSON.stringify(s.tail.slice(-2))}`;
+  });
+  const sys =
+    "You triage Runescape fleet bots. Reply with ONE line of JSON: an array with one object per bot, in order: " +
+    '{"choice":"healthy|restartable|needs-relogin|needs-restat|escalate-human","urgency":"ignore|routine|now|critical","safe":true|false,"conf":0-1}. ' +
+    "healthy=producing leave alone. restartable=in-game no controller, safe to restart. needs-relogin=session dead. " +
+    "needs-restat=controller attached but stale log. escalate-human=capped, skipped, or unclear, never restart. No other text.";
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "typesafe/jev-router",
+        messages: [
+          { role: "system", content: sys },
+          { role: "user", content: `Triage these bots:\n${lines.join("\n")}` },
+        ],
+        temperature: 0,
+        max_tokens: 600,
+      }),
+      signal: AbortSignal.timeout(90000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    const raw = data.choices?.[0]?.message?.content ?? "";
+    const arr = JSON.parse(raw.slice(raw.indexOf("["), raw.lastIndexOf("]") + 1)) as {
+      choice?: Choice; urgency?: Urgency; safe?: boolean; conf?: number;
+    }[];
+    if (!Array.isArray(arr) || arr.length !== bots.length) throw new Error("short/malformed verdict array");
+    return bots.map(({ bot, s }, i) => ({
+      ...dryVerdict(bot, s, false, 0),
+      mode: "live" as const,
+      choice: arr[i].choice ?? "escalate-human",
+      urgency: arr[i].urgency ?? "routine",
+      safe_to_restart: arr[i].safe ?? false,
+      confidence: arr[i].conf ?? 0.7,
+      reasons: ["openrouter typesafe/jev-router verdict"],
+    }));
+  } catch (e) {
+    console.error(`router call failed (${e}) — falling back to dry.`);
+    return null;
+  }
+}
+
 async function liveVerdicts(
   bots: { bot: string; s: Awaited<ReturnType<typeof botState>> }[],
 ): Promise<Verdict[] | null> {
@@ -199,7 +257,7 @@ for (const bot of names) {
 }
 let verdicts: Verdict[];
 if (live) {
-  const lv = await liveVerdicts(collected);
+  const lv = useRouter ? await routerVerdicts(collected) : await liveVerdicts(collected);
   if (lv) {
     verdicts = lv;
   } else {
