@@ -98,7 +98,7 @@ describe('west lava-maze route', () => {
         expect(start).toBeGreaterThan(0);
         const click = clickAhead(hops[start]!, hops, start);
         expect(click.straight).toBe(false);
-        expect(click.tile).toEqual(hops[start + 1]);
+        expect(click.tile).toEqual(hops[start + 1]!);
     });
 
     test('chaos altar click stops before the temple door', () => {

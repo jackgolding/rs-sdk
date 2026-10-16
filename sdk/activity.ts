@@ -385,10 +385,6 @@ export class ActivitySession {
     }
 
     /**
-     * Runs remaining tactics until progress, budget, or the list ends.
-     * After exhaust, no further walk/interact/bank packets are sent.
-     */
-    /**
      * True once after tactics are used up. The session is still running;
      * the caller should switch to another productive approach.
      */
@@ -398,6 +394,10 @@ export class ActivitySession {
         return pending;
     }
 
+    /**
+     * Runs remaining tactics until progress, budget, or the list ends.
+     * After exhaust, no further walk/interact/bank packets are sent.
+     */
     async recover(): Promise<RecoveryOutcome> {
         if (this.stopReasonValue) return 'exhausted';
         if (this.fallbackPending) return 'resumed';

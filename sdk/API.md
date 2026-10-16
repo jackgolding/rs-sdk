@@ -316,18 +316,22 @@ Long-running grind supervisor: stall clock, bounded recovery, sampled grind-log 
 
 | Signature | Description |
 |---|---|
+| `requestStopAll(reason: string): void` | Ask every live session to finish its stage and bank. Never throws. |
 | `registerRecovery(tactics: RecoveryTactic[]): void` | Extra tactics run after the defaults (close UI, step off, re-walk). |
 | `setAnchor(x: number, z: number): void` | Phase re-walk target used by the default `rewalk` tactic. |
-| `async setPhase(phase: string): Promise<void>` | Sets the current step and refreshes the in-script stall timer. Does not clear failure counters, end a recovery, or count as an effect. |
-| `noteProgress(kind: ProgressKind, detail?: string): void` | Records observed progress. A non-phase kind exits an in-progress recovery. Effect kinds also move lastEffectAt. |
+| `async setPhase(phase: string): Promise<void>` | Sets the current step. A phase change refreshes the in-script stall timer so a long walk is not interrupted. Repeating the same phase does not: that is how a stuck loop used to look busy. Does not clear failure counters, end a recovery, or count as an effect. |
+| `noteProgress(kind: ProgressKind, detail?: string): void` | Records observed progress. A non-phase kind exits an in-progress recovery. Effect kinds also move lastEffectAt. A location note whose tile has not changed since the last credited location note is ignored. |
 | `noteFailure(code: string, message: string): void` | Records a failure; five identical codes in the window arm recovery. |
 | `needsRecovery(): boolean` | True when stalled or repeat-failed, and the session has not stopped. |
+| `consumeFallback(): boolean` | True once after tactics are used up. The session is still running; the caller should switch to another productive approach. |
 | `async recover(): Promise<RecoveryOutcome>` | Runs remaining tactics until progress, budget, or the list ends. After exhaust, no further walk/interact/bank packets are sent. |
 | `async showIntent(message: string): Promise<void>` | Local game-chat intent; never sent to other players. |
 | `stop(code: string, message: string, opts?: { restartable?: boolean }): void` | Records a terminal stop reason and writes an error grind-log line. |
 | `stopRestartable(code: string, message: string): void` | Stop with restartable exit semantics (launchd KeepAlive will restart). |
+| `requestStop(reason: string): void` | External stop request (SIGTERM from launchd stop, job switch). Does NOT stop the loop: the script finishes its current stage, banks via drainToBank, then exits from a bank. Idempotent. |
+| `async drainToBank(bank: () => Promise<boolean>, opts?: { deadlineMs?: number; onStage?: () => Promise<unknown> }): Promise<'banked' \| 'timeout' \| 'failed'>` | Interrupt-and-bank: run one more productive stage at a time (onStage), then deposit via bank(), until banked or the deadline passes. The stage callback lets a law run craft its essence before walking out — stopping never strands a full inventory mid-route. Returns 'banked' (park.json records the bank), 'timeout', or 'failed'. Never throws; a wedged drain must still exit, not hang the process. |
 | `exitCode(): number` | Exit code scripts should honor before disconnect (70 = restartable, 0 = terminal). |
-| `async finalizeStop(): Promise<void>` | Safe-park, final heartbeat, and process.exitCode before disconnect. Grind routes should call this after their main loop when session.isStopped(). |
+| `async finalizeStop(): Promise<void>` | Safe-park, final heartbeat, park record, and process.exitCode before disconnect. Grind routes should call this after their main loop when session.isStopped(). A graceful external stop exits 0 (stopped means stopped — launchd must NOT relaunch it); only restartable reasons do. |
 | `async safePark(): Promise<void>` | Dismiss trade/modals and run optional park tactic before a restartable exit. |
 | `maybeHeartbeat(): void` | Compatibility no-op while the snapshot timer is running. Grind loops may still call it; the timer owns the writes. |
 | `metrics(): ActivityMetrics` | Snapshot of phase, trips, stalls, and the current stop reason. |
@@ -341,6 +345,7 @@ Long-running grind supervisor: stall clock, bounded recovery, sampled grind-log 
 | Signature | Description |
 |---|---|
 | `isStopped(): boolean` | True after {@link stop} or a recovery exhaust. |
+| `isStoppedOrRequested(): boolean` | Loop condition for drain-aware grinds: `while (!session.isStoppedOrRequested())`. |
 
 ---
 
