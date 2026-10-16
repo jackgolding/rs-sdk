@@ -845,7 +845,10 @@ async function slashMageBankWeb(): Promise<boolean> {
 async function climbMageBankLadder(): Promise<boolean> {
     if (inMageArenaBank()) return true;
     await session.setPhase('wildy_bank');
-    if (!(await slashMageBankWeb())) return false;
+    if (!(await slashMageBankWeb())) {
+        log(`mage ladder: webs uncut @ ${pos().x},${pos().z}`);
+        return false;
+    }
     intent('Climbing down Mage Arena bank ladder');
     session.noteProgress('location', 'mage ladder');
     await sdk.sendWalk(3092, 3957, true);
@@ -860,11 +863,15 @@ async function climbMageBankLadder(): Promise<boolean> {
             l.z >= 3954 &&
             l.z <= 3960
     );
-    if (ladder?.reachable === false) return false;
+    if (ladder?.reachable === false) {
+        log(`mage ladder: unreachable @ ${pos().x},${pos().z}`);
+        return false;
+    }
     if (ladder) {
         const down = ladder.optionsWithIndex.find((o) => /climb-down/i.test(o.text))!;
         await sdk.sendInteractLoc(ladder.x, ladder.z, ladder.id, down.opIndex);
     } else {
+        log(`mage ladder: none visible @ ${pos().x},${pos().z} — blind interact`);
         await sdk.sendInteractLoc(MAGE_LADDER.x, MAGE_LADDER.z, MAGE_LADDER_DOWN_ID, 1);
     }
     await sdk
@@ -874,6 +881,7 @@ async function climbMageBankLadder(): Promise<boolean> {
         log(`Mage Arena bank cellar @ ${pos().x},${pos().z}`);
         return true;
     }
+    log(`mage ladder: still surface @ ${pos().x},${pos().z}`);
     return false;
 }
 
@@ -966,13 +974,22 @@ async function walkToMageFromSafe(): Promise<boolean> {
             intent('Need a knife before Mage Arena web');
             if (!(await pickupLumbyKnife())) return false;
         } else if (pos().z >= 3906) {
-            intent('No blade for mage web — south through members gate, then Lumbridge knife');
+            log(`No blade for mage web @ ${pos().x},${pos().z} — south through members gate, then Lumbridge knife`);
             session.noteProgress('location', 'leave for knife');
-            if (pos().x < 3218) {
-                await sdk.sendWalk(SPIDER_GATE.x, 3912, true);
-                await sdk
-                    .waitForCondition((s) => (s.player?.worldX ?? 0) >= 3218, 12_000)
-                    .catch(() => {});
+            // Short hops: the gate is ~120 tiles away and long walks drop.
+            if (pos().x < 3218 || pos().z > 3908) {
+                const tx = 3224;
+                const tz = Math.min(3904, pos().z > 3912 ? pos().z - 15 : 3904);
+                const dx = tx - pos().x;
+                const dz = tz - pos().z;
+                const span = Math.hypot(dx, dz);
+                const hop =
+                    span > 15
+                        ? { x: Math.round(pos().x + (dx / span) * 15), z: Math.round(pos().z + (dz / span) * 15) }
+                        : { x: tx, z: tz };
+                await sdk.sendWalk(hop.x, hop.z, true);
+                await sdk.waitForTicks(8).catch(() => {});
+                return false;
             }
             await sdk.scanNearbyLocs(16).catch(() => {});
             const gate = (sdk.getNearbyLocs() ?? []).find(
@@ -1009,6 +1026,8 @@ async function walkToMageFromSafe(): Promise<boolean> {
             return false;
         }
     }
+
+    log(`walkToMage @ ${pos().x},${pos().z} food=${invFoodCount()} blade=${slashItem()?.name ?? 'none'}`);
 
     intent('Walking to Mage Arena bank');
 
@@ -1135,16 +1154,25 @@ async function openBankAt(x: number, z: number): Promise<boolean> {
     if (sdk.getState()?.bank?.isOpen) return true;
 
     if (inMageArenaBank()) {
-        await sdk.sendWalk(MAGE_BANK.x, MAGE_BANK.z, true);
-        await sdk.waitForCondition(() => distTo(MAGE_BANK.x, MAGE_BANK.z) <= 4, 6_000).catch(() => {});
-        const gundai = sdk.findNearbyNpc(/gundai/i);
-        if (gundai) {
-            intent('Talking to Gundai');
-            const talk = gundai.optionsWithIndex.find((o) => /talk/i.test(o.text));
-            await sdk.sendInteractNpc(gundai.index, talk?.opIndex ?? 1, { route: false });
-            await clickThroughBankerChat();
+        // Gundai's dialog is flaky — retry the talk a few times, then fall
+        // back to the booth before giving up (a failed open strands the bot
+        // in the cellar with no food top-up).
+        for (let attempt = 0; attempt < 3; attempt++) {
+            if (sdk.getState()?.bank?.isOpen) return true;
+            await sdk.sendWalk(MAGE_BANK.x, MAGE_BANK.z, true);
+            await sdk.waitForCondition(() => distTo(MAGE_BANK.x, MAGE_BANK.z) <= 4, 6_000).catch(() => {});
+            await sdk.scanNearbyLocs(12).catch(() => {});
+            const gundai = sdk.findNearbyNpc(/gundai/i);
+            if (gundai) {
+                intent(`Talking to Gundai (try ${attempt + 1})`);
+                const talk = gundai.optionsWithIndex.find((o) => /talk/i.test(o.text));
+                await sdk.sendInteractNpc(gundai.index, talk?.opIndex ?? 1, { route: false });
+                await clickThroughBankerChat();
+            }
+            if (sdk.getState()?.bank?.isOpen) return true;
         }
-        if (sdk.getState()?.bank?.isOpen) return true;
+        const booth = await bot.openBank();
+        if (booth.success && sdk.getState()?.bank?.isOpen) return true;
         session.noteFailure('bank', 'Gundai did not open the bank');
         return false;
     }
@@ -1180,7 +1208,7 @@ async function dropJunk(): Promise<void> {
     }
 }
 
-async function depositAll(forceTile?: Tile): Promise<boolean> {
+async function depositAll(forceTile?: Tile, keepBlade = true): Promise<boolean> {
     const bankTile =
         forceTile ??
         (agilityLevel() >= GNOME_UNTIL && (onWildyCourse() || inWilderness(pos().x, pos().z))
@@ -1201,7 +1229,14 @@ async function depositAll(forceTile?: Tile): Promise<boolean> {
     await session.setPhase('bank');
     intent('Depositing inventory and equipment');
     const inv = sdk.getInventory().filter((i) => (i.count ?? 0) > 0);
+    let keptBlade = false;
     for (const item of inv) {
+        // Never bank the last slash blade — a bladeless bot cannot re-enter
+        // the Mage bank (the Lumby-knife bootstrap is a 200-tile trek).
+        if (keepBlade && !keptBlade && SLASH.test(item.name)) {
+            keptBlade = true;
+            continue;
+        }
         await bot.depositItem(item.name, item.count ?? 1);
     }
     await closeUi();
@@ -1924,7 +1959,7 @@ async function finishAtEdgeville(): Promise<void> {
         return;
     }
     await walkNear(EDGEVILLE.x, EDGEVILLE.z, 6);
-    if (!(await depositAll(EDGEVILLE))) {
+    if (!(await depositAll(EDGEVILLE, false))) {
         session.noteFailure('done_walk', 'Edgeville deposit failed — retrying next tick');
         return;
     }
