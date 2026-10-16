@@ -1165,8 +1165,9 @@ async function openBankAt(x: number, z: number): Promise<boolean> {
             const gundai = sdk.findNearbyNpc(/gundai/i);
             if (gundai) {
                 intent(`Talking to Gundai (try ${attempt + 1})`);
-                const talk = gundai.optionsWithIndex.find((o) => /talk/i.test(o.text));
-                await sdk.sendInteractNpc(gundai.index, talk?.opIndex ?? 1, { route: false });
+                // Route into range first: route:false interacts silently drop
+                // from 3+ tiles away (counter furniture blocks the stand tile).
+                await sdk.sendTalkToNpc(gundai.index);
                 await clickThroughBankerChat();
             }
             if (sdk.getState()?.bank?.isOpen) return true;
