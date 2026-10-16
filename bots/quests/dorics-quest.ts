@@ -11,7 +11,7 @@
  * The dark-wizard circle sits between those two mines — always route north
  * through Varrock streets, never straight west along z=3368.
  */
-import { BotSDK, deriveGatewayUrl, inEssenceMine as inEssenceMineCoords } from '../../sdk/index';
+import { ActivitySession, BotSDK, deriveGatewayUrl, inEssenceMine as inEssenceMineCoords } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
 import { existsSync, readFileSync, appendFileSync } from 'fs';
@@ -125,6 +125,10 @@ const sdk = new BotSDK({
 console.log('Opening/attaching the game client...');
 await sdk.connect();
 const bot = new BotActions(sdk);
+const session = new ActivitySession(sdk, bot, {
+    name: 'dorics-quest',
+    grindLogPath: GRIND_LOG
+});
 
 let lastIntent = '';
 let questComplete = false;
@@ -134,6 +138,7 @@ function intent(msg: string): void {
     if (msg === lastIntent) return;
     lastIntent = msg;
     console.log(`> ${msg}`);
+    void session.showIntent(msg);
 }
 
 function pos() {

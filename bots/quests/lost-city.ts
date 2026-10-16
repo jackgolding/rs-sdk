@@ -14,6 +14,7 @@
 import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
+import { ActivitySession } from '../../sdk/activity';
 
 const DRAYNOR_BANK = { x: 3092, z: 3245 };
 const EDGEVILLE_BANK = { x: 3094, z: 3492 };
@@ -69,6 +70,10 @@ const botName = process.argv.slice(2).find((a) => !a.startsWith('-')) ?? '';
 const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
 
 await runScript(async ({ bot, sdk }) => {
+    const session = new ActivitySession(sdk, bot, {
+        name: 'lost-city',
+        grindLogPath: GRIND_LOG
+    });
     const log = (msg: string) => {
         console.log(msg);
         try {
@@ -83,7 +88,7 @@ await runScript(async ({ bot, sdk }) => {
         if (msg === lastIntent) return;
         lastIntent = msg;
         console.log(`> ${msg}`);
-        void sdk.showIntent(msg);
+        void session.showIntent(msg);
     }
 
     function pos() {
