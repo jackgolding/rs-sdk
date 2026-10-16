@@ -22,7 +22,7 @@ export const FOOD_SQUADS: { source: string; recipients: string[] }[] = [
     },
     {
         source: 'jacklove2',
-        recipients: ['ABGARMY07', 'ABGARMY08', 'ABGARMY09', 'ABGARMY10']
+        recipients: ['ABGARMY06', 'ABGARMY07', 'ABGARMY08', 'ABGARMY09', 'ABGARMY10']
     },
     {
         source: 'jacklove3',
@@ -36,13 +36,13 @@ export const FOOD_SQUADS: { source: string; recipients: string[] }[] = [
 ];
 
 export const FOOD_MULE = 'ABGARMY01';
-/** Frozen / out of the army — keep off every ABG target list. */
-export const ABG_SKIPPED: string[] = ['ABGARMY06'];
+/** Names kept off every ABG target list. Empty while the whole army is in. */
+export const ABG_SKIPPED: string[] = [];
 /**
  * Overnight 1-to-1 at the Ardougne bank. 01 serves these names and nobody else
  * (so a random player cannot drain the fish pile).
  */
-export const FOOD_MULE_FROM = /^(?:ABGARMY(?!01$|06$)\d+|Jackpoo3)$/i;
+export const FOOD_MULE_FROM = /^(?:ABGARMY(?!01$)\d+|Jackpoo3)$/i;
 /** Noted fish per mule handoff. Smaller = faster offer screen (experiment: 25, was 100). */
 export const FOOD_PER_TRADE = 25;
 export const FOOD_PACK_ORDER = ['swordfish', 'lobster', 'tuna', 'bass', 'cod', 'shark', 'jug of wine'] as const;

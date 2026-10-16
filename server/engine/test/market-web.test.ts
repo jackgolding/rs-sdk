@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import ObjType from '../src/cache/config/ObjType.js';
@@ -21,7 +21,9 @@ const request = (path: string) => {
     return handleMarket(new Request(url), url)!;
 };
 
-test('HTTP rankings, search, pagination and item details use the same period metrics', async () => {
+const PACK = join(import.meta.dir, '../data/pack');
+
+test.skipIf(!existsSync(PACK))('HTTP rankings, search, pagination and item details use the same period metrics', async () => {
     const now = Date.now(),
         logs = ObjType.getId('logs'),
         iron = ObjType.getId('iron_ore'),

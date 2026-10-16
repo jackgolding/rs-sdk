@@ -17,6 +17,7 @@ import {
 } from './tiles';
 import { closeUi as closeUiShared } from './movement';
 import { foodHeal } from './food-heal';
+import { installGracefulShutdown } from '../../sdk/runner';
 
 const CAMP = CRAFTING_GUILD_HOBS;
 const BANK = FALADOR_EAST_BANK;
@@ -87,6 +88,8 @@ const session = new ActivitySession(sdk, bot, {
     stallMs: 180_000,
     maxRecoveryTactics: 8
 });
+
+installGracefulShutdown();
 
 const identifyFailedSlots = new Set<number>();
 let bankedLimp = 0;
@@ -557,6 +560,11 @@ async function bankTrip(): Promise<boolean> {
         session.noteFailure('bank_open', 'Falador east bank open failed');
         return false;
     }
+    for (const item of sdk.getInventory()) {
+        const name = item.name?.trim();
+        if (!name || (item.count ?? 0) < 1) continue;
+        if (LIMPWURT.test(name) || SNAPE.test(name) || /herb/i.test(name)) session.recordGain(name, item.count ?? 1);
+    }
     const beforeLimp = count(LIMPWURT);
     const beforeHerb = herbSlots();
     const beforeSnape = count(SNAPE);
@@ -570,6 +578,7 @@ async function bankTrip(): Promise<boolean> {
         const bankDlong = sdk.findBankItem(DLONG);
         if (bankDlong) await bot.withdrawItem(bankDlong, 1);
     }
+    session.captureBankStock();
     await bot.closeBank();
     const invDlong = sdk.findInventoryItem(DLONG);
     if (invDlong && !sdk.findEquipmentItem(DLONG)) await bot.equipItem(invDlong);

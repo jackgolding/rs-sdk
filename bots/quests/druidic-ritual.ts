@@ -10,6 +10,8 @@
 import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
+import { hopSend, leaveEdgevilleWilderness } from './movement';
+import { scheduleHandoff } from './handoff';
 
 const KAQEMEEX = { x: 2925, z: 3486 };
 const SANFEW = { x: 2899, z: 3428 };
@@ -58,7 +60,7 @@ const MEATS = [
     { raw: RAW_BEAR, enchanted: ENC_BEAR, npc: /^bear$/i, spot: BEAR, label: 'raw bear meat' }
 ] as const;
 
-const botName = process.argv.slice(2).find((a) => !a.startsWith('-')) ?? '';
+const botName = process.argv.slice(2).find((a) => !a.startsWith('-') && !a.endsWith('.ts')) ?? '';
 const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
 
 await runScript(async ({ bot, sdk }) => {
@@ -310,6 +312,62 @@ await runScript(async ({ bot, sdk }) => {
         if (count(meat) < 1) log(`Still missing ${label} @ ${pos().x},${pos().z}`);
     }
 
+    function isMeat(name: string): boolean {
+        return (
+            RAW_BEEF.test(name) ||
+            RAW_CHICKEN.test(name) ||
+            RAW_RAT.test(name) ||
+            RAW_BEAR.test(name) ||
+            ENC_BEEF.test(name) ||
+            ENC_CHICKEN.test(name) ||
+            ENC_RAT.test(name) ||
+            ENC_BEAR.test(name)
+        );
+    }
+
+    async function makeRoom(): Promise<void> {
+        const used = sdk.getInventory().filter((i) => (i.count ?? 0) > 0).length;
+        if (28 - used >= 6) return;
+        if (pos().z >= 3520) return;
+        intent('Banking to make room');
+        if (distTo(3094, 3492) > 12) await walkNear(3094, 3492, 5);
+        const opened = sdk.getState()?.bank?.isOpen || (await bot.openBank()).success;
+        if (!opened && !sdk.getState()?.bank?.isOpen) {
+            log(`No bank for a full inventory @ ${pos().x},${pos().z}`);
+            return;
+        }
+        for (let i = 0; i < 40; i++) {
+            const item = sdk.getInventory().find((it) => (it.count ?? 0) > 0 && !isMeat(it.name));
+            if (!item) break;
+            const r = await bot.depositItem(item, -1);
+            if (!r.success && !r.partial) break;
+        }
+        await bot.closeBank();
+        log(`Inventory cleared @ ${pos().x},${pos().z} slots=${sdk.getInventory().filter((i) => (i.count ?? 0) > 0).length}`);
+    }
+
+    /** Quest-start convention: bank everything except quest meats before doing anything. */
+    async function startBank(): Promise<void> {
+        if (underground() || pos().level > 0 || pos().z >= 3520) return;
+        if (distTo(3094, 3492) > 12) {
+            intent('Walking to Edgeville bank to clear inventory');
+            await walkNear(3094, 3492, 5);
+        }
+        const opened = sdk.getState()?.bank?.isOpen || (await bot.openBank()).success;
+        if (!opened && !sdk.getState()?.bank?.isOpen) {
+            log(`Start bank: no bank @ ${pos().x},${pos().z}`);
+            return;
+        }
+        for (let i = 0; i < 40; i++) {
+            const item = sdk.getInventory().find((it) => (it.count ?? 0) > 0 && !isMeat(it.name));
+            if (!item) break;
+            const r = await bot.depositItem(item, -1);
+            if (!r.success && !r.partial) break;
+        }
+        await bot.closeBank();
+        log(`Start bank cleared @ ${pos().x},${pos().z} slots=${sdk.getInventory().filter((i) => (i.count ?? 0) > 0).length}`);
+    }
+
     async function gatherMeats(): Promise<void> {
         if (allRawOrEnchanted()) return;
         if (!hasType(RAW_BEEF, ENC_BEEF) || !hasType(RAW_CHICKEN, ENC_CHICKEN)) {
@@ -383,24 +441,33 @@ await runScript(async ({ bot, sdk }) => {
 
     async function talkSanfew(): Promise<string[]> {
         await goSanfew();
-        const npc = sdk.findNearbyNpc(/^sanfew$/i) ?? sdk.findNearbyNpc(/sanfew/i);
-        if (!npc) {
-            log(`Sanfew missing @ ${pos().x},${pos().z} floor=${pos().level}`);
-            return [];
+        // Sanfew often pops into the NPC list a tick or two after we arrive
+        // upstairs (ABGARMY07 got dialog ~15s after a "missing" at the same
+        // tile), so retry from adjacent tiles instead of failing once.
+        for (let i = 0; i < 12; i++) {
+            const npc = sdk.findNearbyNpc(/^sanfew$/i) ?? sdk.findNearbyNpc(/sanfew/i);
+            if (npc) {
+                const talk = await bot.talkTo(npc);
+                if (talk.success) {
+                    await sdk.waitForTicks(1);
+                    return chat([
+                        /sent to help purify/i,
+                        /sent to help purify/i,
+                        /ok, i['’]?ll do that then/i,
+                        /i['’]?ll get on with it then/i,
+                        /i['’]?ll do that then/i
+                    ]);
+                }
+                if (i === 0) log(`talk Sanfew: ${talk.message}`);
+            } else if (i === 0 || i === 6) {
+                log(`Sanfew missing @ ${pos().x},${pos().z} floor=${pos().level} try=${i}`);
+            }
+            await openNearbyGate();
+            await walkNear(SANFEW.x + (i % 2 === 0 ? 1 : -1), SANFEW.z, 3);
+            await sdk.waitForTicks(2);
         }
-        const talk = await bot.talkTo(npc);
-        if (!talk.success) {
-            log(`talk Sanfew: ${talk.message}`);
-            return [];
-        }
-        await sdk.waitForTicks(1);
-        return chat([
-            /sent to help purify/i,
-            /sent to help purify/i,
-            /ok, i['’]?ll do that then/i,
-            /i['’]?ll get on with it then/i,
-            /i['’]?ll do that then/i
-        ]);
+        log(`Sanfew: (no dialog)`);
+        return [];
     }
 
     async function killSuits(): Promise<void> {
@@ -475,10 +542,23 @@ await runScript(async ({ bot, sdk }) => {
         `Druidic Ritual start @ ${pos().x},${pos().z} floor=${pos().level} herbXp=${startXp} gp=${count(/^coins$/i)}`
     );
     await closeUi();
+    await startBank();
 
-    const until = Date.now() + 20 * 60_000;
+    const until = Date.now() + 45 * 60_000;
     while (Date.now() < until && !questDone()) {
         await closeUi();
+        if (pos().z >= 3520 && pos().z < 6400) {
+            intent('Leaving wilderness');
+            const left = await leaveEdgevilleWilderness(sdk);
+            log(`wilderness exit ${left ? 'ok' : 'stuck'} @ ${pos().x},${pos().z}`);
+            if (!left) continue;
+        }
+        await makeRoom();
+        if (pos().x >= 3088 && pos().x <= 3112 && pos().z >= 3484 && pos().z <= 3508) {
+            intent('Leaving the Edgeville bank');
+            await hopSend(sdk, 3060, 3472, 8);
+            log(`Left bank @ ${pos().x},${pos().z}`);
+        }
         if (pos().isDead) {
             await sdk.waitForTicks(3);
             continue;
@@ -513,10 +593,16 @@ await runScript(async ({ bot, sdk }) => {
         await chat();
         await closeUi();
         if (questDone()) break;
+        if (!san && !allEnchanted()) {
+            log('Sanfew silent — retrying dialog before dip');
+            continue;
+        }
 
         await dipMeats();
     }
 
-    if (questDone()) log(`Druidic Ritual complete herbloreXp=${herbXp()} (+${herbXp() - startXp})`);
-    else throw new Error(`Quest unfinished @ ${pos().x},${pos().z} herbXp=${herbXp()}`);
+    if (questDone()) {
+        log(`Druidic Ritual complete herbloreXp=${herbXp()} (+${herbXp() - startXp})`);
+        scheduleHandoff(botName);
+    } else throw new Error(`Quest unfinished @ ${pos().x},${pos().z} herbXp=${herbXp()}`);
 });

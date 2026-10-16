@@ -1,0 +1,9 @@
+.git
+node_modules
+**/node_modules
+bots/*/bot.env
+bots/**/*.log
+*.log
+.env
+infra/pilot/terraform
+.github

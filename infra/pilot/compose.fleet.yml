@@ -1,0 +1,1644 @@
+# GENERATED from bots/roster.json — do not edit by hand.
+# Regenerate: python3 infra/pilot/gen-compose.py > infra/pilot/compose.fleet.yml
+# Mirrors launchd per-bot pairs: restart ≈ KeepAlive, 700s quest drain ≈ ExitTimeOut.
+name: fleet
+
+x-runner: &runner
+  build:
+    context: ../..
+    dockerfile: infra/pilot/Dockerfile
+  image: fleet-pilot:latest
+
+services:
+  lite-abgarmy01:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY01"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy01:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY01", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy02:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY02"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy02:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY02"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy03:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY03"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy03:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY03", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy04:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY04"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy04:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY04"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy05:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY05"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy05:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY05"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy06:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY06"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy06:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY06", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy07:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY07"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy07:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY07"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy08:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY08"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy08:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY08"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy09:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY09"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy09:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY09"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy10:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY10"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy10:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY10", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy11:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY11"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy11:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY11"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy12:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY12"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy12:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY12", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy13:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY13"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy13:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY13", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy14:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY14"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy14:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY14", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy15:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY15"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy15:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY15", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy16:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY16"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy16:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY16"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy17:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY17"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy17:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY17", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy18:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY18"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy18:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY18", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy19:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY19"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy19:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY19", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-abgarmy20:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "ABGARMY20"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-abgarmy20:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY20"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-fatpig:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "fatpig"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-fatpig:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/bowstrings.ts", "fatpig"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove1:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove1"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove1:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove1", "--shark"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove10:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove10"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove10:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove10", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove11:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove11"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove11:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove11", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove12:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove12"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove12:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove12", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove13:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove13"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove13:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove13", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove14:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove14"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove14:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove14", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove15:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove15"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove15:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove15", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove16:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove16"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove16:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove16", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove17:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove17"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove17:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove17", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove18:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove18"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove18:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove18", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove19:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove19"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove19:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove19", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove2:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove2"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove2:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/red-dragons.ts", "jacklove2", "--tank=jacklove5", "--lead=jacklove5"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove20:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove20"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove20:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove20", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove3:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove3"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove3:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove3", "--shark"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove4:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove4"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove4:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/lost-city.ts", "jacklove4"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove5:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove5"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove5:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/red-dragons.ts", "jacklove5", "--tank=jacklove5", "--lead=jacklove5"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove6:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove6"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove6:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove6", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove7:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove7"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove7:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove7", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove8:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove8"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove8:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove8", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jacklove9:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jacklove9"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jacklove9:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove9", "--bignet"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jackpoo1:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "Jackpoo1"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jackpoo1:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/agility-route.ts", "Jackpoo1"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jackpoo2:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "Jackpoo2"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jackpoo2:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/agility-route.ts", "Jackpoo2"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jackpoo3:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "Jackpoo3"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jackpoo3:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/agility-route.ts", "Jackpoo3"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jackpoo4:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "Jackpoo4"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jackpoo4:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/agility-route.ts", "Jackpoo4"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jackpoo5:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "Jackpoo5"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jackpoo5:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/agility-route.ts", "Jackpoo5"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-jackthief:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jackthief"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jackthief:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/dorics-quest.ts", "jackthief"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
+  lite-pigfat:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "pigfat"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-pigfat:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/quest-mule.ts", "pigfat", "--stock"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped

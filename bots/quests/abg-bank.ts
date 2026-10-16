@@ -214,6 +214,12 @@ async function runDonate(
 
     async function walkNear(x: number, z: number, tolerance = 4): Promise<boolean> {
         if (distTo(x, z) <= tolerance) return true;
+        const p = pos();
+        if (!inArdougneMarket(p.x, p.z) && p.x >= 2600 && p.x <= 2700 && p.z >= 3100 && p.z <= 3250) {
+            log(`Walking north to Ardougne market from ${p.x},${p.z}`);
+            await sdk.sendWalk(2655, 3283, true);
+            await sdk.waitForTicks(4);
+        }
         const r = await bot.walkTo(x, z, Math.min(tolerance, 3));
         return r.success || distTo(x, z) <= tolerance + 2;
     }
@@ -235,10 +241,32 @@ async function runDonate(
     }
 
     async function prepareNotedLoot(): Promise<number> {
+        const cur = pos();
+        if (cur.x >= 2635 && cur.x <= 2649 && cur.z >= 3298 && cur.z <= 3311) {
+            const dest = { x: 2650, z: 3306 };
+            const hops = [{ x: Math.min(cur.x + 5, dest.x), z: cur.z }, { x: dest.x, z: cur.z }, dest];
+            for (const hop of hops) {
+                const p = pos();
+                if (!(p.x >= 2635 && p.x <= 2649 && p.z >= 3298 && p.z <= 3311)) break;
+                const until = Date.now() + 10_000;
+                while (distTo(hop.x, hop.z) > 2 && Date.now() < until) {
+                    void sdk.sendWalk(hop.x, hop.z, true).catch(() => {});
+                    await Bun.sleep(500);
+                }
+            }
+        }
         await walkNear(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 3);
-        const opened = await bot.openBank();
-        if (!opened.success && !sdk.getState()?.bank?.isOpen) {
-            log(`Bank open failed: ${opened.message}`);
+        let opened = sdk.getState()?.bank?.isOpen;
+        for (let attempt = 0; attempt < 4 && !opened; attempt++) {
+            const r = await bot.openBank();
+            if (r.success || sdk.getState()?.bank?.isOpen) {
+                opened = true;
+                break;
+            }
+            await sdk.waitForTicks(2);
+        }
+        if (!opened) {
+            log(`Bank open failed @ ${pos().x},${pos().z}`);
             return 0;
         }
         for (let i = 0; i < 40; i++) {
@@ -259,8 +287,12 @@ async function runDonate(
             if (isEatFood(item.name)) continue;
             if (/^coins$/i.test(item.name)) continue;
             const before = usedSlots(sdk);
-            const r = await sdk.sendBankWithdraw(item.slot, -1);
+            const r = await bot.withdrawItem(item.name, -1, { asNote: true });
             if (r.success) noted += item.count ?? 0;
+            else {
+                const fallback = await sdk.sendBankWithdraw(item.slot, -1);
+                if (fallback.success) noted += item.count ?? 0;
+            }
             await sdk.waitForCondition(() => usedSlots(sdk) !== before, 4_000).catch(() => {});
         }
         const bankCoins = sdk.findBankItem(/^coins$/i)?.count ?? 0;
@@ -305,6 +337,260 @@ async function runDonate(
     });
     const last = served.trades[served.trades.length - 1];
     log(`Donate ${last?.success ? 'ok' : last?.reason ?? served.reason} ${served.message}`);
+}
+
+async function runDumpToJacklove1({
+    bot,
+    sdk
+}: {
+    bot: import('../../sdk/actions').BotActions;
+    sdk: import('../../sdk/index').BotSDK;
+}) {
+    const GRIND_LOG = join(process.cwd(), 'bots', HUB, 'grind.log');
+    const log = (msg: string) => {
+        console.log(msg);
+        try {
+            appendFileSync(GRIND_LOG, `${new Date().toISOString()} ${msg}\n`);
+        } catch {
+            /* ignore */
+        }
+    };
+    const pos = () => {
+        const p = sdk.getState()?.player;
+        return { x: p?.worldX ?? 0, z: p?.worldZ ?? 0 };
+    };
+    const distTo = (x: number, z: number) => Math.hypot(pos().x - x, pos().z - z);
+
+    async function walkNear(x: number, z: number, tolerance = 4): Promise<boolean> {
+        if (distTo(x, z) <= tolerance) return true;
+        const r = await bot.walkTo(x, z, Math.min(tolerance, 3));
+        return r.success || distTo(x, z) <= tolerance + 2;
+    }
+
+    function lootGiveList(): { item: RegExp; amount: number }[] {
+        const give: { item: RegExp; amount: number }[] = [];
+        const seen = new Set<string>();
+        for (const item of sdk.getInventory()) {
+            const count = item.count ?? 0;
+            if (count <= 0) continue;
+            if (isKeep(item.name)) continue;
+            const key = item.name.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            give.push({ item: new RegExp(`^${escapeRegex(item.name)}$`, 'i'), amount: -1 });
+        }
+        return give;
+    }
+
+    function lootSummary(): string {
+        return (
+            sdk
+                .getInventory()
+                .filter((i) => (i.count ?? 0) > 0 && !isKeep(i.name))
+                .map((i) => `${i.count} ${i.name}`)
+                .join(', ') || 'none'
+        );
+    }
+
+    async function packLootTrip(): Promise<number> {
+        await walkNear(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 3);
+        const opened = await bot.openBank();
+        if (!opened.success && !sdk.getState()?.bank?.isOpen) {
+            log(`Bank open failed: ${opened.message}`);
+            return lootGiveList().length;
+        }
+        for (let i = 0; i < 40; i++) {
+            const item = sdk.getInventory().find((it) => (it.count ?? 0) > 0 && !isKeep(it.name));
+            if (!item) break;
+            const r = await bot.depositItem(item, -1);
+            if (!r.success && !r.partial) break;
+        }
+        await sdk.waitForTicks(1);
+        const bankState = sdk.getState()?.bank;
+        if (!bankState?.noteMode) {
+            log('Clicking bank note toggle');
+            await sdk.sendClickComponent(5386);
+            await sdk.waitForTicks(2);
+        }
+        let withdrawn = 0;
+        for (const item of sdk.getBankItems()) {
+            if ((item.count ?? 0) <= 0) continue;
+            if (isEatFood(item.name) || /^coins$/i.test(item.name)) continue;
+            if (usedSlots(sdk) >= 20 || withdrawn >= 10) break;
+            const before = usedSlots(sdk);
+            await sdk.sendBankWithdraw(item.slot, -1);
+            await sdk.waitForCondition(() => usedSlots(sdk) !== before, 4_000).catch(() => {});
+            if (usedSlots(sdk) > before) withdrawn++;
+        }
+        const bankCoins = sdk.findBankItem(/^coins$/i)?.count ?? 0;
+        if (bankCoins > 0 && usedSlots(sdk) < 24 && withdrawn < 10) {
+            await bot.withdrawItem(/^coins$/i, bankCoins);
+        }
+        await bot.closeBank();
+        return lootGiveList().length;
+    }
+
+    log(`ABG dump → jacklove1 start @ ${pos().x},${pos().z}`);
+    await bot.dismissBlockingUI();
+
+    for (let trip = 1; trip <= 12; trip++) {
+        const stacks = await packLootTrip();
+        if (stacks <= 0) {
+            log(trip === 1 ? 'Nothing to dump — bank and inv are clean of loot' : 'Dump complete — no loot left');
+            break;
+        }
+        log(`Trip ${trip}: ${lootSummary()}`);
+        if (!inArdougneMarket(pos().x, pos().z) || distTo(HUB_MEET.x, HUB_MEET.z) > 10) {
+            await walkNear(ARDOUGNE_MARKET.x, ARDOUGNE_MARKET.z, 6);
+            await sdk.sendWalk(HUB_MEET.x, HUB_MEET.z, true);
+            await Bun.sleep(2_000);
+        }
+        const deadline = Date.now() + 180_000;
+        while (Date.now() < deadline && !sdk.getNearbyPlayers()?.some((p) => /^jacklove1$/i.test(p.name))) {
+            log('jacklove1 not at market yet — waiting');
+            await sdk.waitForTicks(6);
+        }
+        let traded = false;
+        for (let attempt = 1; attempt <= 8 && !traded; attempt++) {
+            const result = await bot.trade(/^jacklove1$/i, {
+                give: lootGiveList(),
+                want: [],
+                requestTimeout: 30_000,
+                timeout: 90_000,
+                retryOnBusy: true
+            });
+            log(`Trade jacklove1 ${result.success ? 'ok' : result.reason} ${result.message}`);
+            if (result.success) {
+                traded = true;
+                break;
+            }
+            const full = result.reason === 'no_space' || /inventory space/i.test(result.message ?? '');
+            if (!full) {
+                log('Dump stopped — jacklove1 trade failed');
+                break;
+            }
+            log(`jacklove1 full (attempt ${attempt}) — waiting for them to bank`);
+            await sdk.waitForTicks(20);
+        }
+        if (!traded) break;
+        await sdk.waitForTicks(2);
+    }
+    log(`Dump done leftover ${lootSummary()} @ ${pos().x},${pos().z}`);
+}
+
+async function runJacklove1Collect({
+    bot,
+    sdk
+}: {
+    bot: import('../../sdk/actions').BotActions;
+    sdk: import('../../sdk/index').BotSDK;
+}) {
+    const GRIND_LOG = join(process.cwd(), 'bots', 'jacklove1', 'grind.log');
+    const log = (msg: string) => {
+        console.log(msg);
+        try {
+            appendFileSync(GRIND_LOG, `${new Date().toISOString()} ${msg}\n`);
+        } catch {
+            /* ignore */
+        }
+    };
+    const pos = () => {
+        const p = sdk.getState()?.player;
+        return { x: p?.worldX ?? 0, z: p?.worldZ ?? 0 };
+    };
+    const distTo = (x: number, z: number) => Math.hypot(pos().x - x, pos().z - z);
+
+    async function walkNear(x: number, z: number, tolerance = 4): Promise<boolean> {
+        if (distTo(x, z) <= tolerance) return true;
+        const r = await bot.walkTo(x, z, Math.min(tolerance, 3));
+        return r.success || distTo(x, z) <= tolerance + 2;
+    }
+
+    async function bankLoot(): Promise<void> {
+        await walkNear(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 3);
+        const opened = await bot.openBank();
+        if (!opened.success && !sdk.getState()?.bank?.isOpen) {
+            log(`Bank open failed: ${opened.message}`);
+            return;
+        }
+        const skipped = new Set<string>();
+        for (let i = 0; i < 50; i++) {
+            const item = sdk.getInventory().find(
+                (it) => (it.count ?? 0) > 0 && !isEatFood(it.name) && !skipped.has(it.name.toLowerCase())
+            );
+            if (!item) break;
+            const r = await bot.depositItem(item, -1);
+            if (!r.success && !r.partial) skipped.add(item.name.toLowerCase());
+        }
+        for (let i = 0; i < 40; i++) {
+            const food = sdk.getInventory().filter((it) => (it.count ?? 0) > 0 && isEatFood(it.name));
+            if (food.length <= 4) break;
+            const extra = food[food.length - 1]!;
+            const r = await bot.depositItem(extra, -1);
+            if (!r.success && !r.partial) break;
+        }
+        await bot.closeBank();
+        log(
+            `Banked loot, ${usedSlots(sdk)} inv slots @ ${pos().x},${pos().z} leftover=${sdk
+                .getInventory()
+                .filter((i) => (i.count ?? 0) > 0)
+                .map((i) => `${i.count} ${i.name}`)
+                .join(', ') || 'empty'}`
+        );
+    }
+
+    log(`jacklove1 collect from ${HUB} start @ ${pos().x},${pos().z}`);
+    await bot.dismissBlockingUI();
+    if (!inArdougneMarket(pos().x, pos().z) && distTo(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z) > 15) {
+        const CATHERBY_TO_ARDY = [
+            { x: 2808, z: 3443 },
+            { x: 2788, z: 3460 },
+            { x: 2758, z: 3477 },
+            { x: 2726, z: 3485 },
+            { x: 2695, z: 3375 },
+            { x: 2662, z: 3375 },
+            { x: 2662, z: 3336 }
+        ];
+        log(`Walking Catherby → Ardougne @ ${pos().x},${pos().z}`);
+        for (const wp of CATHERBY_TO_ARDY) {
+            if (distTo(ARDOUGNE_MARKET.x, ARDOUGNE_MARKET.z) <= 10) break;
+            await walkNear(wp.x, wp.z, 8);
+        }
+    }
+    await bankLoot();
+    if (!inArdougneMarket(pos().x, pos().z) || distTo(HUB_MEET.x, HUB_MEET.z) > 10) {
+        await walkNear(ARDOUGNE_MARKET.x, ARDOUGNE_MARKET.z, 6);
+        await sdk.sendWalk(HUB_MEET.x, HUB_MEET.z, true);
+        await Bun.sleep(2_000);
+    }
+    log(`Waiting for mule ${HUB} @ ${pos().x},${pos().z}`);
+
+    const windowEnd = Date.now() + 20 * 60_000;
+    let got = 0;
+    while (Date.now() < windowEnd) {
+        const served = await bot.serveTrades({
+            from: HUB_PLAYER,
+            give: [],
+            want: [{ item: /.+/i, amount: 1 }],
+            maxTrades: 1,
+            timeout: Math.min(3 * 60_000, windowEnd - Date.now()),
+            tradeTimeout: 90_000
+        });
+        const last = served.trades[served.trades.length - 1];
+        if (last?.success) {
+            got++;
+            log(`Collect ok ${served.message}`);
+            await bankLoot();
+            await walkNear(ARDOUGNE_MARKET.x, ARDOUGNE_MARKET.z, 6);
+            await sdk.sendWalk(HUB_MEET.x, HUB_MEET.z, true);
+            await Bun.sleep(2_000);
+        } else {
+            log(`Collect ${last?.reason ?? served.reason} ${served.message}`);
+            if (served.reason === 'timeout' && got > 0) break;
+            if (Date.now() >= windowEnd) break;
+        }
+    }
+    log(`jacklove1 collect done (${got} trip(s)) @ ${pos().x},${pos().z}`);
 }
 
 async function runDumpToFatpig({
@@ -617,9 +903,18 @@ if (role === 'run') {
     if (targets.length === 0) throw new Error(`No valid mule targets: ${(args[2] ?? '').trim() || '(none)'}`);
     await runScript((ctx) => runMule(targets, ctx));
 } else if (role === 'dump') {
-    await runScript((ctx) => runDumpToFatpig(ctx));
+    const targetMule = (args[2] ?? '').toLowerCase();
+    if (targetMule === 'jacklove1') {
+        await runScript((ctx) => runDumpToJacklove1(ctx));
+    } else {
+        await runScript((ctx) => runDumpToFatpig(ctx));
+    }
 } else if (role === 'collect') {
-    await runScript((ctx) => runFatpigCollect(ctx));
+    if (/^jacklove1$/i.test(botName)) {
+        await runScript((ctx) => runJacklove1Collect(ctx));
+    } else {
+        await runScript((ctx) => runFatpigCollect(ctx));
+    }
 } else {
     await runScript((ctx) => runDonate(botName, ctx));
 }

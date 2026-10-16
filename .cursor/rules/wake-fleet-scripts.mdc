@@ -6,10 +6,11 @@ alwaysApply: false
 
 # Wake-fleet scripts
 
-- Import bots from `roster.ts` (`rosterBots`, `findBot`, `resolveCommand`, `writeAssignment`). A pasted name table is a bug.
-- `fleet-status.ts` may read grind logs only for intervene heuristics (repeat lines, recovery ×20, pathfinding bursts, Musa ship). Job identity is `resolveCommand`, not regex on log text.
+- Import bots from `roster.ts` (`rosterBots`, `findBot`, `resolveOwner`, `readOwnership`). A pasted name table is a bug.
+- `fleet-status.ts` reads its supervisor through `supervisor.ts` (`FLEET_SUPERVISOR=docker` on the VPS host, launchd default on the Mac). Do not call `launchdInfo` directly from status/desk paths again.
+- `fleet-status.ts` may read grind logs and `events.log` only for supply, repeat, recovery, and pathfinding detectors. Job identity is the roster command. Ownership is written by `BotSDK.connect`, not by matching a name in argv.
 - `grindTail` must stay a bounded tail read. Do not `readFileSync` the whole log.
-- On observing a live bun process or starting a launch agent, write `assignment.json`. `runScript` and `ActivitySession` (`grindLogPath` set) also write it. Do not invent a fourth command source. Do not bring back `inferCommand()`.
+- Do not write `assignment.json` from fleet-status or fleet-launchd. `BotSDK.connect` (control mode) records ownership. Do not bring back `inferCommand()`, `resolveCommand()`, or `writeAssignment()`.
 - `watch-fleet.sh` panes come from `roster.ts tmux`. Do not hardcode Jackpoo / ABGARMY towers again.
 - `install` / `restart` must rewrite plists from the current roster; keep installed argv in lockstep with `roster.json`.
 - Grind appends go through `appendGrindLog` (`sdk/grind-log.ts`). `ActivitySession.log` already does. Do not switch it back to unbounded `appendFileSync`.

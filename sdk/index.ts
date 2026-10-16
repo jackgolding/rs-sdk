@@ -34,6 +34,7 @@ import { PRAYER_INDICES, PRAYER_NAMES, PLAYER_CHAT_TYPES, isPlayerChat, TRADE_RE
 import { ChatHistory } from './chat-history';
 import * as pathfinding from './pathfinding';
 import { resolveInterfaceOption, shortestNameMatch, type InterfaceOptionSelector } from './action-quantity';
+import { recordOwnership } from './assignment';
 
 /**
  * Apply {@link FindOptions} to a find* winner. `shortestNameMatch` already
@@ -198,7 +199,10 @@ export class BotSDK {
     private connectionState: ConnectionState = 'disconnected';
     private reconnectAttempt = 0;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
     private intentionalDisconnect = false;
+    /** In-tree gateway uses idleTimeout 255; older hosted builds still idle-close at 10s. 3s leaves headroom when this Mac is running ~90 bun processes. */
+    private static readonly KEEPALIVE_MS = 3_000;
 
     constructor(config: SDKConfig) {
         this.config = {
@@ -308,6 +312,7 @@ export class BotSDK {
                 this.connectPromise = null;
                 this.ws = null;
                 this.authenticated = false;
+                this.stopKeepalive();
 
                 for (const [actionId, pending] of this.pendingActions) {
                     clearTimeout(pending.timeout);
@@ -323,10 +328,13 @@ export class BotSDK {
                 }
             };
 
-            this.ws.onerror = (error) => {
+            this.ws.onerror = () => {
                 console.warn('[LOGOUT DEBUG] SDK WebSocket error event');
                 clearTimeout(deadline);
                 reject(new Error('WebSocket error'));
+                // Some runtimes fire error without close. If we leave the
+                // socket half-open, onclose never runs and reconnect stops.
+                try { this.ws?.close(); } catch { /* already closing */ }
             };
 
             const checkConnected = (event: MessageEvent) => {
@@ -342,6 +350,10 @@ export class BotSDK {
                             this.serverMaxMessageLength = msg.maxMessageLength;
                         }
                         this.setConnectionState('connected');
+                        this.startKeepalive();
+                        if (this.config.connectionMode === 'control') {
+                            recordOwnership(this.config.botUsername);
+                        }
 
                         // Gateway accepted us. Anything that goes wrong past this point is a
                         // game-state problem, not a connection problem.
@@ -400,6 +412,11 @@ export class BotSDK {
     }
 
     private scheduleReconnect() {
+        if (this.intentionalDisconnect || !this.config.autoReconnect) {
+            this.setConnectionState('disconnected');
+            return;
+        }
+        if (this.reconnectTimer) return;
         if (this.reconnectAttempt >= this.config.reconnectMaxRetries) {
             console.log(`[BotSDK] Max reconnection attempts (${this.config.reconnectMaxRetries}) reached, giving up`);
             this.setConnectionState('disconnected');
@@ -421,15 +438,44 @@ export class BotSDK {
             try {
                 await this.connect();
                 console.log(`[BotSDK] Reconnected successfully after ${this.reconnectAttempt} attempt(s)`);
-            } catch (e) {
+            } catch {
                 console.log(`[BotSDK] Reconnection attempt ${this.reconnectAttempt} failed`);
+                // onclose usually reschedules. If the socket errored without
+                // closing, that path never runs and the grind would sit
+                // forever with no controller — schedule the next attempt here.
+                if (!this.reconnectTimer && this.config.autoReconnect && !this.intentionalDisconnect) {
+                    this.scheduleReconnect();
+                } else if (!this.reconnectTimer) {
+                    this.setConnectionState('disconnected');
+                }
             }
         }, delay);
+    }
+
+    private startKeepalive(): void {
+        this.stopKeepalive();
+        this.keepaliveTimer = setInterval(() => {
+            if (this.ws?.readyState !== WebSocket.OPEN) return;
+            // Any inbound frame resets Bun.serve idleTimeout. The hosted
+            // gateway does not need a ping handler — unknown sdk_ types are ignored.
+            this.send({ type: 'sdk_ping', username: this.config.botUsername });
+            const ping = (this.ws as WebSocket & { ping?: () => void }).ping;
+            if (typeof ping === 'function') ping.call(this.ws);
+        }, BotSDK.KEEPALIVE_MS);
+        this.keepaliveTimer.unref?.();
+    }
+
+    private stopKeepalive(): void {
+        if (this.keepaliveTimer) {
+            clearInterval(this.keepaliveTimer);
+            this.keepaliveTimer = null;
+        }
     }
 
     /** Disconnect from the gateway. */
     async disconnect(): Promise<void> {
         this.intentionalDisconnect = true;
+        this.stopKeepalive();
 
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
@@ -2077,8 +2123,10 @@ export class BotSDK {
         }
 
         if (message.type === 'sdk_error') {
-            // Handle controller pre-emption: another controller connected, so we were kicked
-            if (message.error?.includes('another controller connected')) {
+            // Handle controller pre-emption: another controller connected, so we were kicked.
+            // 'Already controlled' is the newcomer-side counterpart (live owner kept
+            // the seat): fail fast, don't reconnect-storm the owner.
+            if (message.error?.includes('another controller connected') || message.error?.includes('Already controlled')) {
                 console.warn(`[BotSDK] Pre-empted by another controller - disabling auto-reconnect`);
                 this.intentionalDisconnect = true;
             }
@@ -2135,9 +2183,12 @@ export * from './types';
 export {
     ActivitySession,
     RESTARTABLE_EXIT_CODE,
+    parkPathFor,
+    readParkRecord,
     type ActivityConfig,
     type ActivityMetrics,
     type LogLevel,
+    type ParkRecord,
     type RecoveryTactic,
     type StopReason,
 } from './activity';

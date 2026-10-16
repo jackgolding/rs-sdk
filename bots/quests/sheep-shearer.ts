@@ -13,7 +13,9 @@
 import { BotSDK, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
-import { existsSync, readFileSync, appendFileSync } from 'fs';
+import { appendGrindLog } from '../../sdk/grind-log';
+import { existsSync, readFileSync } from 'fs';
+import { walkKandarinToEdgeville } from './movement';
 import { dirname, join } from 'path';
 
 const UNSHEERED_ID = 43;
@@ -41,6 +43,7 @@ const SHEARS = /^shears$/i;
 const WOOL = /^wool$/i;
 const BALL = /^ball of wool$/i;
 const KEEP = /^(shears|coins|wool|ball of wool)$/i;
+const FOOD = /^(shark|swordfish|lobster|tuna|salmon|trout|bread|cake|meat)$/i;
 
 const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-'));
@@ -70,13 +73,9 @@ const password = process.env.PASSWORD!;
 const server = process.env.SERVER;
 const GRIND_LOG = join(process.cwd(), 'bots', username, 'grind.log');
 
-function log(msg: string): void {
+function log(msg: string, level: 'LOG' | 'WARN' | 'ERROR' = 'LOG'): void {
     console.log(msg);
-    try {
-        appendFileSync(GRIND_LOG, `${new Date().toISOString()} ${msg}\n`);
-    } catch {
-        /* ignore */
-    }
+    appendGrindLog(GRIND_LOG, `${new Date().toISOString()} ${level} ${msg}`);
 }
 
 console.log('Warming pathfinder...');
@@ -86,7 +85,7 @@ const sdk = new BotSDK({
     botUsername: username,
     password,
     gatewayUrl: deriveGatewayUrl(server),
-    autoLaunchBrowser: true,
+    autoLaunchBrowser: false,
     browserLaunchTimeout: 90_000,
     readyTimeout: 45_000,
     connectTimeout: 60_000,
@@ -187,22 +186,37 @@ async function chat(choices: RegExp[] = [], max = 28): Promise<string[]> {
 
 async function talkFred(): Promise<boolean> {
     await closeUi();
-    let fred = sdk.findNearbyNpc(/fred/i);
-    if (!fred) {
-        await goToFarm();
-        fred = sdk.findNearbyNpc(/fred/i);
+    for (let attempt = 0; attempt < 3; attempt++) {
+        let fred = sdk.findNearbyNpc(/fred/i);
+        if (!fred) {
+            await goToFarm();
+            fred = sdk.findNearbyNpc(/fred/i);
+        }
+        if (!fred) {
+            log(
+                `Fred not nearby @ ${pos().x},${pos().z} npcs=${(sdk.getNearbyNpcs() ?? []).map((n) => n.name).slice(0, 8).join(',')}`,
+                'WARN'
+            );
+            await sdk.waitForTicks(3);
+            continue;
+        }
+        // Standing in the farmhouse doorway with the door shut leaves Fred
+        // unreachable from one tile away; talkTo will not open it for us.
+        if (fred.reachable === false) {
+            if (!(await openToward(fred.x, fred.z))) await openNearbyGate();
+            await sdk.waitForTicks(2);
+            fred = sdk.findNearbyNpc(/fred/i) ?? fred;
+        }
+        const talk = await bot.talkTo(fred);
+        if (talk.success) {
+            await sdk.waitForTicks(1);
+            return true;
+        }
+        log(`talk Fred: ${talk.message} @ ${pos().x},${pos().z}`, 'WARN');
+        await bot.walkTo(FRED.x, FRED.z, 2);
+        await sdk.waitForTicks(3);
     }
-    if (!fred) {
-        log(`Fred not nearby @ ${pos().x},${pos().z} npcs=${(sdk.getNearbyNpcs() ?? []).map((n) => n.name).slice(0, 8).join(',')}`);
-        return false;
-    }
-    const talk = await bot.talkTo(fred);
-    if (!talk.success) {
-        log(`talk Fred: ${talk.message}`);
-        return false;
-    }
-    await sdk.waitForTicks(1);
-    return true;
+    return false;
 }
 
 async function startOrCheckQuest(): Promise<void> {
@@ -447,14 +461,28 @@ async function goToCastleWheel(): Promise<boolean> {
     return found;
 }
 
+function junkSlots(): number {
+    return sdk.getInventory().filter((i) => (i.count ?? 0) > 0 && !KEEP.test(i.name)).length;
+}
+
 async function bankJunk(): Promise<void> {
-    if (occupiedSlots() < 8 && hasShears() && coinCount() >= 1) return;
-    const nearBank =
-        (distTo(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z) <= 20 && pos().z > 3450) ||
-        distTo(DRAYNOR_BANK.x, DRAYNOR_BANK.z) <= 15;
-    if (!nearBank) return;
+    if (junkSlots() === 0 && hasShears() && coinCount() >= 1) return;
+    const nearEdgeville = distTo(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z) <= 20 && pos().z > 3450;
+    if (!nearEdgeville && distTo(DRAYNOR_BANK.x, DRAYNOR_BANK.z) > 15) {
+        if (pos().level > 0 && !(await climbTo(0))) return;
+        intent(`Walking to Draynor bank to clear ${junkSlots()} junk slot(s)`);
+        if (pos().z > 3360) await walkWaypoints(TO_FARM);
+        await bot.walkTo(DRAYNOR_BANK.x, DRAYNOR_BANK.z, 3);
+        if (distTo(DRAYNOR_BANK.x, DRAYNOR_BANK.z) > 15) {
+            log(`Could not reach Draynor bank (now ${pos().x},${pos().z})`, 'WARN');
+            return;
+        }
+    }
     intent('Banking at nearby bank');
-    if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) return;
+    if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
+        log(`openBank failed @ ${pos().x},${pos().z}`, 'WARN');
+        return;
+    }
     for (const item of [...sdk.getInventory()]) {
         if (KEEP.test(item.name)) continue;
         await bot.depositItem(item, -1);
@@ -466,6 +494,7 @@ async function bankJunk(): Promise<void> {
     const bankShears = sdk.findBankItem(SHEARS);
     if (!hasShears() && bankShears) await bot.withdrawItem(bankShears, 1);
     await bot.closeBank();
+    log(`Banked junk | ${junkSlots()} junk slot(s) left | ${28 - occupiedSlots()} free`);
 }
 
 async function buyShears(): Promise<boolean> {
@@ -600,6 +629,23 @@ try {
             `until=${questOnly ? 'quest only' : CRAFT_UNTIL}`
     );
 
+    if (!questOnly && CRAFT_UNTIL > 0 && craft() >= CRAFT_UNTIL) {
+        log(`Crafting ${craft()} already at until=${CRAFT_UNTIL} — leaving sheep`);
+    } else {
+    if (pos().x < 2940 && pos().z < 6400 && distTo(SHEEP_PEN.x, SHEEP_PEN.z) > 50) {
+        log('Leaving Kandarin for the Lumbridge sheep pen');
+        await walkKandarinToEdgeville(bot, sdk, {
+            eat: async () => {
+                const food = sdk.findInventoryItem(FOOD);
+                if (food && pos().hp < pos().maxHp - 20) await bot.eatFood(food);
+            },
+            walkNear: async (x, z, tol) => {
+                const r = await bot.walkTo(x, z, tol);
+                return r.success || distTo(x, z) <= tol + 2;
+            }
+        });
+    }
+
     await ensureShears();
     if (!hasShears()) {
         log('Shears retry after walking to Lumbridge');
@@ -610,7 +656,24 @@ try {
 
     await startOrCheckQuest();
 
+    const progress = () =>
+        `${count(WOOL)}|${count(BALL)}|${craftXp()}|${questComplete}|${occupiedSlots()}|${pos().x},${pos().z},${pos().level}`;
+    let lastProgress = '';
+    let stalls = 0;
+    let junkTrips = 0;
+
     while (true) {
+        const now = progress();
+        if (now === lastProgress) {
+            stalls++;
+            if (stalls % 10 === 0) log(`No progress for ${stalls} loops @ ${pos().x},${pos().z} (${now})`, 'WARN');
+            if (stalls >= 40) throw new Error(`Stalled ${stalls} loops @ ${pos().x},${pos().z} (${now})`);
+            await sdk.waitForTicks(Math.min(stalls, 10));
+        } else {
+            stalls = 0;
+        }
+        lastProgress = now;
+
         await closeUi();
         if (pos().isDead) {
             await sdk.waitForCondition((s) => !s.player.isDead, 45_000).catch(() => {});
@@ -629,6 +692,11 @@ try {
         if (!hasShears() && !(await ensureShears())) {
             await sdk.waitForTicks(5);
             continue;
+        }
+
+        if (junkSlots() > 0 && junkTrips < 3) {
+            junkTrips++;
+            await bankJunk();
         }
 
         const needForQuest = questComplete ? 0 : Math.max(0, 20 - count(BALL));
@@ -651,8 +719,9 @@ try {
             await climbTo(0);
         }
     }
+    }
 } catch (err) {
-    console.error('Script error:', err);
+    log(`Script error: ${err instanceof Error ? err.message : String(err)}`, 'ERROR');
     throw err;
 } finally {
     console.log('Disconnecting SDK; browser client can stay open.');

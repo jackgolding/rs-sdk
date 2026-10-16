@@ -44,3 +44,12 @@ Do not paste context-prefixed runner expressions into `execute_code`.
   slot.
 
 See [`../sdk/API.md`](../sdk/API.md) for exact signatures.
+
+## Combat
+
+- [`combat.md`](combat.md) — attack, combat styles, loot, range table (knives are 4 / 6 Longrange).
+- [`kbd.md`](kbd.md) — King Black Dragon mith-knife safespot: style 99 range → 99 def → Rapid, loot knives after death, return to the pillar.
+
+## Fleet & gateway
+
+- [`gateway-fleet.md`](gateway-fleet.md) — lite vs Chrome vs SDK controllers, login signal priority, stale gateway state, Yanille bring-up playbook, bank canvas workflow, manual play.

@@ -1,19 +1,21 @@
 /**
- * Shared thieving route: Lumbridge men → Al Kharid warriors →
- * wilderness lever to Ardougne → knights / paladins / heroes.
+ * Shared thieving route: Ardougne men → farmers → guards → knights
+ * until 99, then heroes. Eat the lowest-heal food this script allows.
  *
  *   bun bots/quests/thieving-route.ts ABGARMY01
  *   bun bots/quests/thieving-route.ts Jackpoo3
  *
- * Jackpoo3 and fatpig also buy Aemad bronze arrows (or ranging-guild tips).
+ * fatpig buys ranging-guild rune arrows between food runs. Jackpoo3 still
+ * buys rune arrowtips there when Ranged is over 40. Nobody buys bronze arrows.
  */
 import { ActivitySession, BotSDK, deriveGatewayUrl } from '../../sdk/index';
+import { localHour } from '../../sdk/job-key';
 import { BotActions } from '../../sdk/actions';
-import { initPathfinding } from '../../sdk/pathfinding';
-import { existsSync, readFileSync } from 'fs';
+import { initPathfinding, isTileWalkable } from '../../sdk/pathfinding';
+import { spawn } from 'child_process';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import {
-    AEMAD_SHOP,
     ARDOUGNE_BANK,
     ARDOUGNE_MARKET,
     ARDY_TO_CATHERBY,
@@ -32,25 +34,32 @@ import {
     LUMBRIDGE_MEN,
     PORT_SARIM_DOCK,
     RANGING_CHICKENS,
-    RANGING_GUILD_DOOR
+    RANGING_GUILD_DOOR,
+    WHITE_WOLF_MIN_HP,
+    WHITE_WOLF_TO_CATHERBY,
+    WILDY_SOUTH_TO_DITCH
 } from './tiles';
 import {
     recoverStun as recoverStunShared,
     recoverGangplank,
     recoverLeverOscillation,
     leaveAdjacentClosedDoor,
-    walkNear as walkNearShared
+    installWaitForTicksGuard,
+    walkNear as walkNearShared,
+    walkSendHops
 } from './movement';
-import { foodHp } from './food-heal';
+import { foodHeal, foodHp } from './food-heal';
 import { FOOD_MULE, usesFoodMule } from './tree-trade-plan';
+import { installGracefulShutdown } from '../../sdk/runner';
 
 const TARGET_LEVEL = 99;
 const RESTOCK_FOOD_BELOW = 1;
 const INV_PACK_LOOT_AT = 26;
 const INV_KEEP_FREE = 3;
 const EAT_MISSING_HP = 14;
-/** Un-noted fish heals; best-heal-first for eating and bank withdraw. */
+/** Un-noted fish this route will eat. Withdraw and eat lowest heal first. */
 const THIEVE_FISH = ['swordfish', 'bass', 'lobster', 'tuna', 'cod'] as const;
+const THIEVE_FISH_LOWEST = [...THIEVE_FISH].sort((a, b) => foodHeal(a) - foodHeal(b));
 const THIEVE_FISH_RE = /^(swordfish|bass|lobster|tuna|cod)$/i;
 const MULE_FOOD = /^(tuna|swordfish|lobster|shark|cod|bass|jug of wine)$/i;
 const WINE = /^jug of wine$/i;
@@ -68,16 +77,25 @@ const BACKUP_FOOD_TAKE = 8;
 const SWORD = /^(bronze |iron |steel )?sword$/i;
 const SLASH = /^(bronze |iron |steel |mithril |adamant |rune )?(axe|sword|scimitar|dagger|claws|battleaxe|longsword|2h sword)$|^knife$/i;
 
-const LOGOUT_TAB = 10;
-const LOGOUT_BUTTON = 2458;
+const ARDY_MEN = { x: 2614, z: 3318 };
+const ARDY_FARMERS = { x: 2645, z: 3367 };
+const ARDY_GUARDS = { x: 2651, z: 3307 };
 const KNIGHTS = { x: 2652, z: 3318 };
-const PALADINS = { x: 2653, z: 3315 };
 const HEROES = { x: 2630, z: 3288 };
 const EDGEVILLE_BANK = { x: 3094, z: 3492 };
-const BRONZE_ARROW = /^bronze arrows?$/i;
+const RUNE_ARROW = /^rune arrows?$/i;
 const RUNE_TIPS = /^rune arrowtips?$/i;
-const BRONZE_COIN_WITHDRAW = 2_500;
+/** Spend at most this much of the coin stack on rune arrows per food run. */
+const RUNE_ARROW_GP = 50_000;
 const TIPS_COIN_WITHDRAW = 50_000;
+/**
+ * loc_2514 enters only from on or west of the door and on or north of it
+ * (`x <= doorX && z >= doorZ`). South of the door, including (2657, 3438),
+ * the same click teleports you back outside.
+ */
+const GUILD_ENTER_STAND = { x: 2657, z: 3439 };
+/** Inside, one tile from the door, on the exit side (south of it). */
+const GUILD_EXIT_STAND = { x: 2659, z: 3438 };
 const BOBS_AXES = { x: 3232, z: 3203 };
 const ALKHARID_GATE = { x: 3267, z: 3228 };
 const ALKHARID_WARRIORS = { x: 3301, z: 3166 };
@@ -94,8 +112,22 @@ const ALKHARID_NORTH_BYPASS = [
     { x: 3273, z: 3180 }
 ];
 const ALKHARID_GATE_GIVEUP_MS = 60_000;
-/** West Lumbridge chicken farm — used only before the wildy run. */
+/** West Lumbridge chicken farm — even-numbered accounts, before the wildy run. */
 const LUMBY_CHICKENS = { x: 3185, z: 3277 };
+/** East of the river. learnings/combat.md — cluster runs northeast from here. */
+const LUMBY_GOBLINS = { x: 3252, z: 3230 };
+/**
+ * Surface goblins on the Kandarin coast, west of the Fishing Guild (m40_53).
+ * Odd-numbered accounts train here instead of the ranging-guild chicken pen.
+ */
+const KANDARIN_GOBLINS = { x: 2572, z: 3420 };
+/** Stay south of the ranging-guild chicken pen. Its west gate does not open for a walk-through. */
+const TO_KANDARIN_GOBLINS = [
+    { x: 2656, z: 3416 },
+    { x: 2620, z: 3410 },
+    { x: 2590, z: 3416 },
+    KANDARIN_GOBLINS
+];
 /** Kitchen knife spawn SE of Lumbridge castle — use-on-web slashes the keep web. */
 const LUMBY_KNIFE = { x: 3224, z: 3202 };
 const TARGET_HP = 30;
@@ -128,6 +160,8 @@ const MUSA_TO_BRIMHAVEN = [
 
 const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-'));
+/** Stay on Ardougne knights past 99. Heroes path traps accounts in the mansion yard. */
+const KNIGHTS_ONLY = argv.includes('--knights');
 
 function loadBotEnv(): void {
     const envPath = botArg
@@ -147,11 +181,18 @@ function loadBotEnv(): void {
 loadBotEnv();
 
 const username = process.env.BOT_USERNAME!;
+
+/** jacklove7 / ABGARMY11 → goblins. jacklove10 / fatpig → chickens. */
+function nameEndsOdd(name: string): boolean {
+    const match = name.match(/(\d+)$/);
+    if (!match) return false;
+    return Number(match[1]) % 2 === 1;
+}
+
+const trainsGoblins = nameEndsOdd(username);
 const password = process.env.PASSWORD!;
 const server = process.env.SERVER;
 const GRIND_LOG = join(process.cwd(), 'bots', username, 'grind.log');
-const SHOP_ARROWS = /^(Jackpoo3|fatpig)$/i.test(username);
-
 let session!: ActivitySession;
 
 function log(msg: string): void {
@@ -181,8 +222,12 @@ session = new ActivitySession(sdk, bot, {
     // default; stall recovery then walkTo(Ardougne) and dies on White Wolf.
     stallMs: 8 * 60_000
 });
+installGracefulShutdown({ graceMs: 30_000 });
+installWaitForTicksGuard(sdk, session);
 
 let lastLoggedLevel = 0;
+/** After a stuck lap, pickpocket the open market instead of the same tile. */
+let openSquareUntil = 0;
 
 function intent(msg: string): void {
     void session.showIntent(msg);
@@ -196,7 +241,13 @@ async function enterPhase(name: string): Promise<void> {
 async function tickSession(): Promise<boolean> {
     if (session.isStopped()) return false;
     if (session.needsRecovery()) {
-        return (await session.recover()) === 'resumed';
+        await session.recover();
+        if (session.isStopped()) return false;
+        if (session.consumeFallback()) {
+            openSquareUntil = Date.now() + 5 * 60_000;
+            session.log('warn', 'Pickpocket stuck — using the open market for 5 min');
+        }
+        return true;
     }
     return true;
 }
@@ -205,12 +256,15 @@ function rangedLevel(): number {
     return sdk.getSkill('Ranged')?.baseLevel ?? 1;
 }
 
-function buyRuneTips(): boolean {
-    return SHOP_ARROWS && rangedLevel() > 40;
+/** fatpig buys rune arrows. Jackpoo3 keeps arrowtips. No bronze arrows. */
+function shopKind(): 'arrows' | 'tips' | null {
+    if (/^fatpig$/i.test(username)) return rangedLevel() >= 40 ? 'arrows' : null;
+    if (/^Jackpoo3$/i.test(username) && rangedLevel() > 40) return 'tips';
+    return null;
 }
 
 function shopItemPattern(): RegExp {
-    return buyRuneTips() ? RUNE_TIPS : BRONZE_ARROW;
+    return shopKind() === 'tips' ? RUNE_TIPS : RUNE_ARROW;
 }
 
 function thievingLevel(): number {
@@ -247,6 +301,13 @@ function pos() {
 function inArdougne(): boolean {
     const p = pos();
     return p.x > 2500 && p.x < 2720 && p.z > 3240 && p.z < 3355 && p.z < 6400;
+}
+
+/** City plus the north farm. Farmers stand just outside inArdougne's z cap. */
+function onArdyThieveGround(): boolean {
+    if (inArdougne()) return true;
+    const p = pos();
+    return p.x >= 2600 && p.x <= 2690 && p.z >= 3355 && p.z <= 3395 && p.z < 6400;
 }
 
 function nearSeersCatherby(): boolean {
@@ -299,6 +360,21 @@ function onDockedShip(): boolean {
 function inWilderness(): boolean {
     const p = pos();
     return p.z >= 3520 && p.z < 6400 && p.x >= 2944 && p.x < 3392;
+}
+
+/** East slope of White Wolf. nearSeersCatherby() includes this, and walkNear from here dies. */
+function onWhiteWolfSlope(): boolean {
+    const p = pos();
+    return p.x >= 2828 && p.x <= 2895 && p.z >= 3448 && p.z <= 3518 && p.z < 6400;
+}
+
+function useWhiteWolf(): boolean {
+    return onWhiteWolfSlope() || pos().hp > WHITE_WOLF_MIN_HP;
+}
+
+/** East of the mountain: Falador, Edgeville, Lumbridge. Not Yanille or the gnome stronghold. */
+function eastOfWhiteWolf(): boolean {
+    return pos().x > 2890 && pos().z < 3520 && pos().z < 6400;
 }
 
 function slashItem() {
@@ -411,6 +487,30 @@ function distTo(x: number, z: number): number {
 
 function coinCount(): number {
     return sdk.findInventoryItem(/^coins$/i)?.count ?? 0;
+}
+
+let pendingCoins = 0;
+let pendingCoinAt = 0;
+let coinHour = localHour(Date.now());
+
+function noteCoinDelta(before: number): void {
+    const delta = coinCount() - before;
+    if (delta <= 0) return;
+    if (pendingCoins === 0) pendingCoinAt = Date.now();
+    pendingCoins += delta;
+}
+
+function flushCoins(at?: number): void {
+    if (pendingCoins <= 0) return;
+    session.recordGain('Coins', pendingCoins, at ?? pendingCoinAt);
+    pendingCoins = 0;
+}
+
+function maybeFlushCoins(): void {
+    const hour = localHour(Date.now());
+    if (hour === coinHour) return;
+    flushCoins(Date.now() - 1);
+    coinHour = hour;
 }
 
 function occupiedSlots(): number {
@@ -625,18 +725,15 @@ const SHARK_EAT_BELOW_HP = 10;
 const KEEP_EMERGENCY_SHARKS = 4;
 
 function findEatFood(skip?: RegExp) {
-    const candidates = [
-        ...THIEVE_FISH.map((name) =>
-            sdk.getInventory().find((i) => new RegExp(`^${name}$`, 'i').test(i.name) && i.count === 1)
-        ),
-        sdk.getInventory().find((i) => WINE.test(i.name)),
-        pos().hp < SHARK_EAT_BELOW_HP
-            ? sdk.getInventory().find((i) => /^shark$/i.test(i.name) && i.count === 1)
-            : null,
-        sdk.getInventory().find((i) => /^kebab$/i.test(i.name) && i.count === 1),
-        sdk.getInventory().find((i) => BACKUP_FOOD.test(i.name) && i.count === 1),
-    ].filter(Boolean) as { name: string; slot: number; optionsWithIndex: { text: string; opIndex: number }[] }[];
-    return candidates.find((i) => !skip?.test(i.name)) ?? null;
+    const candidates = sdk.getInventory().filter((i) => {
+        if ((i.count ?? 0) !== 1 || skip?.test(i.name)) return false;
+        if (THIEVE_FISH_RE.test(i.name) || WINE.test(i.name) || /^kebab$/i.test(i.name) || BACKUP_FOOD.test(i.name)) {
+            return true;
+        }
+        return /^shark$/i.test(i.name) && pos().hp < SHARK_EAT_BELOW_HP;
+    });
+    candidates.sort((a, b) => foodHeal(a.name) - foodHeal(b.name) || a.name.localeCompare(b.name));
+    return candidates[0] ?? null;
 }
 
 async function recoverLowHp(): Promise<boolean> {
@@ -647,6 +744,23 @@ async function recoverLowHp(): Promise<boolean> {
         log(`Low HP recovery: trying ${food.name} at ${pos().hp}/${pos().maxHp}`);
         if (await consumeHeal(food)) return true;
         skip = new RegExp(`^${food.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    }
+    // Sharks are withheld until 10hp, but pickpocketing stops at 15. Eat one
+    // so a shark stack cannot sit in that gap forever.
+    if (pos().hp < MIN_THIEVE_HP) {
+        const shark = sdk.getInventory().find((i) => /^shark$/i.test(i.name) && i.count === 1);
+        if (shark) {
+            const before = emergencySharks();
+            log(`Low HP recovery: emergency ${shark.name} at ${pos().hp}/${pos().maxHp}`);
+            const eaten = async () => {
+                await consumeHeal(shark);
+                return emergencySharks() < before;
+            };
+            if (await eaten()) return true;
+            log(`Emergency shark still in inventory at ${pos().hp} — waiting stun`);
+            await sdk.waitForTicks(8);
+            if (await eaten()) return true;
+        }
     }
     if (inAlKharid() || onAlKharidToll()) {
         if (Date.now() >= kebabBuyBlockedUntil) await buyTenKebabs();
@@ -661,10 +775,7 @@ async function recoverLowHp(): Promise<boolean> {
         await walkNear(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 8);
         if (!hasThieveFood()) {
             const bank = await ensureFood();
-            if (!hasThieveFood() && bank.opened) {
-                await logoutOutOfFood();
-                return false;
-            }
+            if (!hasThieveFood() && bank.opened) return false;
         }
     }
     await sdk.waitForTicks(8);
@@ -695,6 +806,11 @@ async function consumeHeal(item: { name: string; slot: number; optionsWithIndex:
 }
 
 async function walkNear(x: number, z: number, tolerance = 6): Promise<boolean> {
+    if (inNorthEastArdy(pos().x, pos().z)) await leaveNorthEastArdy();
+    if (inNorthEastArdy(x, z)) {
+        x = ARDOUGNE_MARKET.x;
+        z = ARDOUGNE_MARKET.z;
+    }
     if (distTo(x, z) <= tolerance) return true;
     if (onGateLine(x, z)) {
         x = x < 3270 ? 3258 : 3276;
@@ -746,6 +862,32 @@ function tooLowToThieve(): boolean {
 /** Interior of the market-east house. Door tiles (2672,3311) and (2672,3305) are NOT inside. */
 function inHouse(x: number, z: number): boolean {
     return x >= 2673 && x <= 2676 && z >= 3307 && z <= 3311;
+}
+
+/**
+ * Cabinet house and Cromperty, north-east of the market. The south door is
+ * (2669, 3316); the market square is south of it. Knights stand west of x=2668.
+ */
+function inNorthEastArdy(x: number, z: number): boolean {
+    return x >= 2668 && x <= 2696 && z >= 3316 && z <= 3340;
+}
+
+async function leaveNorthEastArdy(): Promise<void> {
+    if (!inNorthEastArdy(pos().x, pos().z)) return;
+    intent('Leaving the building north-east of the market');
+    log(`Leaving NE Ardougne @ ${pos().x},${pos().z}`);
+    for (let i = 0; i < 8 && inNorthEastArdy(pos().x, pos().z); i++) {
+        await leaveAdjacentClosedDoor(sdk);
+        const p = pos();
+        if (!inNorthEastArdy(p.x, p.z)) return;
+        // South through the market door. West only after that door is behind us.
+        const hop = p.z >= 3316 ? { x: p.x, z: p.z - 2 } : { x: p.x - 2, z: p.z };
+        await sdk.sendWalk(hop.x, hop.z, true);
+        await sdk.waitForTicks(4);
+    }
+    if (inNorthEastArdy(pos().x, pos().z)) {
+        log(`Still in NE Ardougne @ ${pos().x},${pos().z}`);
+    }
 }
 
 function onHouseDoorTile(): boolean {
@@ -824,28 +966,64 @@ async function leaveHouse(): Promise<void> {
 }
 
 async function leaveHandelmortMansion(): Promise<void> {
-    const p = pos();
-    if (!inHandelmortMansion(p.x, p.z)) return;
+    if (!inHandelmortMansion(pos().x, pos().z)) return;
     intent('Leaving Handelmort mansion — guard dogs');
-    log(`Leaving mansion yard @ ${p.x},${p.z}`);
-    const dest = HANDELMORT_SAFE_EAST;
-    const hops = [
-        { x: Math.min(p.x + 5, dest.x), z: p.z },
-        { x: dest.x, z: p.z },
-        dest
-    ];
-    for (const hop of hops) {
-        if (!inHandelmortMansion(pos().x, pos().z)) return;
-        const until = Date.now() + 12_000;
-        while (
-            distTo(hop.x, hop.z) > 2 &&
-            inHandelmortMansion(pos().x, pos().z) &&
-            Date.now() < until
-        ) {
-            void sdk.sendWalk(hop.x, hop.z, true).catch(() => {});
-            await new Promise((r) => setTimeout(r, 500));
+    log(`Leaving mansion yard @ ${pos().x},${pos().z}`);
+    const gate = sdk.findNearbyLoc(/gate|door/i, { withOption: /open/i });
+    if (gate && (gate.distance ?? 99) <= 5) await bot.openDoor(gate);
+
+    // South of z=3306 the hero road (z=3289) is open. Stepping north toward
+    // the east road walks into the dog yard and sticks on 2627–2633.
+    // The east road itself (z=3306–3308) still leaves east to 2658,3307.
+    const deadline = Date.now() + 45_000;
+    let stuck = 0;
+    while (inHandelmortMansion(pos().x, pos().z) && Date.now() < deadline) {
+        const p = pos();
+        const onEastRoad = p.z >= 3306 && p.z <= 3308;
+        const options = KNIGHTS_ONLY
+            ? [
+                { x: p.x + 1, z: p.z },
+                { x: p.x + 1, z: Math.min(p.z + 1, 3307) },
+                { x: p.x, z: Math.min(p.z + 1, 3307) }
+            ]
+            : onEastRoad
+            ? [
+                { x: Math.min(p.x + 1, HANDELMORT_SAFE_EAST.x), z: p.z },
+                { x: Math.min(p.x + 1, HANDELMORT_SAFE_EAST.x), z: 3307 },
+                { x: p.x, z: 3307 }
+            ]
+            : [
+                { x: p.x, z: p.z - 1 },
+                { x: p.x - 1, z: p.z - 1 },
+                { x: p.x + 1, z: p.z - 1 },
+                { x: p.x - 1, z: p.z },
+                { x: p.x + 1, z: p.z }
+            ];
+        const step = options.find((tile) => isTileWalkable(0, tile.x, tile.z) && (tile.x !== p.x || tile.z !== p.z));
+        if (!step) {
+            stuck++;
+            if (stuck >= 3) return;
+            await recoverStun();
+            continue;
+        }
+        await sdk.sendWalk(step.x, step.z, true);
+        const moved = await sdk
+            .waitForCondition((s) => {
+                const x = s.player?.worldX ?? 0;
+                const z = s.player?.worldZ ?? 0;
+                return x !== p.x || z !== p.z;
+            }, 4_000)
+            .then(() => true)
+            .catch(() => false);
+        if (!moved) {
+            stuck++;
+            if (stuck >= 4) return;
+            await recoverStun();
+        } else {
+            stuck = 0;
         }
     }
+    if (!inHandelmortMansion(pos().x, pos().z)) log(`Left mansion yard @ ${pos().x},${pos().z}`);
 }
 
 async function recoverStun(): Promise<void> {
@@ -866,7 +1044,12 @@ function logPick(result: { success: boolean; reason?: string }, _npc: { name: st
 }
 
 function findPickNpc(pattern: RegExp) {
-    return sdk.findNearbyNpc(pattern, { reachable: true }) ?? sdk.findNearbyNpc(pattern);
+    const onSquare = (sdk.getNearbyNpcs() ?? []).filter((n) => {
+        if (!pattern.test(n.name)) return false;
+        return !inNorthEastArdy(n.tileX ?? n.x, n.tileZ ?? n.z);
+    });
+    onSquare.sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99));
+    return onSquare.find((n) => n.reachable !== false) ?? onSquare[0] ?? null;
 }
 
 async function clickPickpocket(npc: { index: number; name: string }): Promise<'ok' | 'stunned' | 'fail'> {
@@ -883,6 +1066,7 @@ async function clickPickpocket(npc: { index: number; name: string }): Promise<'o
 
     const xpBefore = sdk.getSkill('Thieving')?.experience ?? 0;
     const tickBefore = sdk.getState()?.tick ?? 0;
+    const coinsBefore = coinCount();
     await sdk.sendInteractNpc(fresh.index, pickOpt.opIndex);
 
     try {
@@ -907,7 +1091,10 @@ async function clickPickpocket(npc: { index: number; name: string }): Promise<'o
         return 'fail';
     }
 
-    if ((sdk.getSkill('Thieving')?.experience ?? 0) > xpBefore) return 'ok';
+    if ((sdk.getSkill('Thieving')?.experience ?? 0) > xpBefore) {
+        noteCoinDelta(coinsBefore);
+        return 'ok';
+    }
     return 'stunned';
 }
 
@@ -921,6 +1108,7 @@ async function spamPickpocket(
     let last: 'ok' | 'stunned' | 'fail' = 'fail';
     const until = Date.now() + 20_000;
     while (Date.now() < until) {
+        maybeFlushCoins();
         if (pos().isDead) return last;
         if (tooLowToThieve()) {
             await eatIfNeeded();
@@ -957,8 +1145,26 @@ async function spamPickpocket(
     return last;
 }
 
+async function stepEastOfMansion(): Promise<void> {
+    const deadline = Date.now() + 25_000;
+    while (pos().x < HANDELMORT_SAFE_EAST.x && Date.now() < deadline) {
+        await leaveHandelmortMansion();
+        const p = pos();
+        const z = p.z >= 3306 && p.z <= 3308 ? p.z : 3307;
+        await sdk.sendWalk(Math.min(p.x + 2, HANDELMORT_SAFE_EAST.x), z, true);
+        const moved = await sdk
+            .waitForCondition((s) => (s.player?.worldX ?? 0) !== p.x || (s.player?.worldZ ?? 0) !== p.z, 4_000)
+            .then(() => true)
+            .catch(() => false);
+        if (!moved) break;
+    }
+}
+
 async function pickpocketOpen(pattern: RegExp, spot: { x: number; z: number }, label: string): Promise<'ok' | 'stunned' | 'fail' | 'none'> {
     if (inHouse(pos().x, pos().z)) await leaveHouse();
+    if (label === 'knight' && pos().x < HANDELMORT_SAFE_EAST.x) {
+        await stepEastOfMansion();
+    }
     if (!findPickNpc(pattern)) {
         intent(`Walking to ${label}s`);
         await walkNear(spot.x, spot.z, 4);
@@ -966,28 +1172,98 @@ async function pickpocketOpen(pattern: RegExp, spot: { x: number; z: number }, l
     return spamPickpocket(() => findPickNpc(pattern), label);
 }
 
+/**
+ * Heroes stand on the south road. The open row is z=3289.
+ * z=3288 is the south-bank wall at x=2663–2664, and sliding east there
+ * bounced the pack between 2665 and 2666. z>=3290 is the dog yard.
+ */
+async function approachHeroes(): Promise<void> {
+    const roadZ = 3289;
+    await leaveHandelmortMansion();
+    if (distTo(HEROES.x, HEROES.z) <= 4 && pos().z <= roadZ && !inHandelmortMansion(pos().x, pos().z)) return;
+    log(`Heroes via south road @ ${pos().x},${pos().z}`);
+    const deadline = Date.now() + 120_000;
+    let stuck = 0;
+    while (distTo(HEROES.x, HEROES.z) > 4 && Date.now() < deadline) {
+        if (inHandelmortMansion(pos().x, pos().z)) {
+            await leaveHandelmortMansion();
+            if (inHandelmortMansion(pos().x, pos().z)) return;
+        }
+        const p = pos();
+        const toward = Math.sign(HEROES.x - p.x) || -1;
+        let stepX = p.x;
+        let stepZ = p.z;
+        if (p.z > roadZ) stepZ = p.z - 1;
+        else if (p.z < roadZ) stepZ = p.z + 1;
+        else stepX = p.x + toward;
+        if (!isTileWalkable(0, stepX, stepZ)) {
+            const next = [
+                { x: p.x + toward, z: roadZ },
+                { x: p.x, z: Math.min(p.z + 1, roadZ) },
+                { x: p.x + toward, z: p.z }
+            ].find((tile) => tile.z <= roadZ && isTileWalkable(0, tile.x, tile.z) && (tile.x !== p.x || tile.z !== p.z));
+            if (!next) {
+                stuck++;
+                if (stuck >= 4) return;
+                await recoverStun();
+                continue;
+            }
+            stepX = next.x;
+            stepZ = next.z;
+        }
+        await sdk.sendWalk(stepX, stepZ, true);
+        const moved = await sdk
+            .waitForCondition((s) => {
+                const x = s.player?.worldX ?? 0;
+                const z = s.player?.worldZ ?? 0;
+                return x !== p.x || z !== p.z;
+            }, 6_000)
+            .then(() => true)
+            .catch(() => false);
+        if (!moved) {
+            stuck++;
+            if (stuck >= 4) return;
+            await recoverStun();
+        } else {
+            stuck = 0;
+        }
+    }
+}
+
 async function pickpocketBest(): Promise<'ok' | 'stunned' | 'fail' | 'none'> {
+    if (Date.now() < openSquareUntil) {
+        return pickpocketOpen(/^(man|woman|guard)$/i, ARDY_MEN, 'market');
+    }
+    if (inNorthEastArdy(pos().x, pos().z)) {
+        await leaveNorthEastArdy();
+        return 'none';
+    }
     await stepOffHouseDoor();
     await leaveHandelmortMansion();
+    if (KNIGHTS_ONLY && pos().x < HANDELMORT_SAFE_EAST.x && pos().z < 3314) {
+        await walkSendHops(sdk, [HANDELMORT_SAFE_EAST], KNIGHTS, 2);
+    }
 
     if (inHouse(pos().x, pos().z) || onHouseDoorTile()) await leaveHouse();
 
     const level = thievingLevel();
-    if (level >= 80) {
-        if (!findPickNpc(/^hero$/i) && distTo(HEROES.x, HEROES.z) > 8) {
-            intent('Walking to heroes');
-            await walkNear(HEROES.x, HEROES.z, 4);
-        }
-        const hero = await spamPickpocket(() => findPickNpc(/^hero$/i), 'hero');
-        if (hero !== 'none') return hero;
-        const pal = await pickpocketOpen(/^paladin$/i, PALADINS, 'paladin');
-        if (pal !== 'none') return pal;
+    if (level >= 99 && !KNIGHTS_ONLY) {
+        await approachHeroes();
+        const onSouthRoad = pos().z <= 3289 && distTo(HEROES.x, HEROES.z) <= 6;
+        if (!onSouthRoad || inHandelmortMansion(pos().x, pos().z)) return 'none';
+        return spamPickpocket(() => {
+            const hero = findPickNpc(/^hero$/i);
+            if (!hero) return null;
+            const x = hero.tileX ?? hero.x;
+            const z = hero.tileZ ?? hero.z;
+            if (z >= 3290 && x < 2645) return null;
+            return hero;
+        }, 'hero');
     }
-    if (level >= 70) {
-        const r = await pickpocketOpen(/^paladin$/i, PALADINS, 'paladin');
-        if (r !== 'none') return r;
-    }
-    return pickpocketOpen(/^knight of ardougne$/i, KNIGHTS, 'knight');
+    if (level >= 55) return pickpocketOpen(/^knight of ardougne$/i, KNIGHTS, 'knight');
+    if (level >= 40) return pickpocketOpen(/^guard$/i, ARDY_GUARDS, 'guard');
+    if (level >= 10) return pickpocketOpen(/^farmer$/i, ARDY_FARMERS, 'farmer');
+    return pickpocketOpen(/^man$/i, ARDY_MEN, 'man');
 }
 
 async function dismissLegendsGuard(): Promise<void> {
@@ -1099,7 +1375,7 @@ async function withdrawBankFood(): Promise<{ opened: boolean; count: number }> {
         .waitForCondition((s) => s.bank?.isOpen === true && (s.bank.items?.length ?? 0) > 0, 5_000)
         .catch(() => {});
     logBank();
-    for (const name of THIEVE_FISH) {
+    for (const name of THIEVE_FISH_LOWEST) {
         const space = 28 - occupiedSlots() - INV_KEEP_FREE;
         if (space <= 0) break;
         const re = new RegExp(`^${name}$`, 'i');
@@ -1186,10 +1462,6 @@ function shopLine() {
     return sdk.getState()?.shop?.shopItems?.find((i) => pattern.test(i.name)) ?? null;
 }
 
-function aemadNpc() {
-    return sdk.findNearbyNpc(/^(aemad|kortan)$/i, { reachable: true });
-}
-
 function dargaudNpc() {
     return (
         sdk.findNearbyNpc(/^bow and arrow salesman$/i, { reachable: true }) ??
@@ -1202,70 +1474,70 @@ function inRangingGuild(): boolean {
     return p.x >= 2659 && p.x <= 2685 && p.z >= 3415 && p.z <= 3445;
 }
 
-async function stepEastFromGuildGate(): Promise<void> {
-    const p = pos();
-    if (p.x >= 2657 && p.x <= 2661 && p.z >= 3434 && p.z <= 3442) {
-        await sdk.sendWalk(2665, 3437, true);
-        await sdk.waitForTicks(3);
+function guildDoorLoc() {
+    return (
+        sdk.findNearbyLoc(/^guild door$/i) ??
+        (sdk.getNearbyLocs() ?? []).find(
+            (l) => l.x === RANGING_GUILD_DOOR.x && l.z === RANGING_GUILD_DOOR.z && /door/i.test(l.name)
+        ) ??
+        null
+    );
+}
+
+async function standExact(x: number, z: number): Promise<boolean> {
+    if (pos().x !== x || pos().z !== z) await walkNear(x, z, 0);
+    if (pos().x !== x || pos().z !== z) {
+        await sdk.sendWalk(x, z, true);
+        await sdk
+            .waitForCondition((s) => s.player?.worldX === x && s.player?.worldZ === z, 8_000)
+            .catch(() => {});
     }
+    return pos().x === x && pos().z === z;
+}
+
+async function clickGuildDoor(): Promise<void> {
+    const door = guildDoorLoc();
+    if (!door) {
+        session.log('warn', `No guild door visible @ ${pos().x},${pos().z}`);
+        return;
+    }
+    const open = door.optionsWithIndex.find((o) => /^open$/i.test(o.text));
+    await sdk.sendInteractLoc(door.x, door.z, door.id, open?.opIndex ?? 1);
+    await sdk.waitForTicks(3);
 }
 
 async function enterRangingGuild(): Promise<boolean> {
-    if (inRangingGuild()) {
-        await stepEastFromGuildGate();
-        return true;
+    if (inRangingGuild()) return true;
+    if (rangedLevel() < 40) {
+        session.noteFailure('dargaud_shop', `Ranged ${rangedLevel()} is below 40`);
+        return false;
     }
-    const p = pos();
-    if (p.x >= 2657 && p.x <= 2661 && p.z >= 3434 && p.z <= 3442) {
-        await stepEastFromGuildGate();
-        if (inRangingGuild()) return true;
-        await walkNear(DARGAUD.x, DARGAUD.z, 4);
-        return inRangingGuild();
+    if (distTo(GUILD_ENTER_STAND.x, GUILD_ENTER_STAND.z) > 15) await walkWaypoints(ARDY_TO_RANGING);
+    for (let i = 0; i < 4 && !inRangingGuild(); i++) {
+        const stood = await standExact(GUILD_ENTER_STAND.x, GUILD_ENTER_STAND.z);
+        if (!stood) {
+            session.log('warn', `Guild enter stand missed @ ${pos().x},${pos().z}`);
+            continue;
+        }
+        await clickGuildDoor();
+        await sdk.waitForCondition(() => inRangingGuild(), 6_000).catch(() => {});
     }
-    await walkWaypoints(ARDY_TO_RANGING);
-    await walkNear(RANGING_GUILD_DOOR.x, RANGING_GUILD_DOOR.z, 2);
-    const door =
-        sdk.findNearbyLoc(/^guild door$/i, { withOption: /open/i }) ?? sdk.findNearbyLoc(/^guild door$/i);
-    if (door) await bot.openDoor(door);
-    else await bot.openDoor();
-    await walkNear(2665, 3437, 2);
-    await sdk.waitForCondition(() => inRangingGuild(), 8_000).catch(() => {});
+    if (inRangingGuild()) await walkNear(DARGAUD.x, DARGAUD.z, 4);
     return inRangingGuild();
 }
 
 async function leaveRangingGuild(): Promise<void> {
-    if (!inRangingGuild() && !(pos().x >= 2657 && pos().x <= 2661 && pos().z >= 3434 && pos().z <= 3442)) {
-        return;
+    if (!inRangingGuild()) return;
+    for (let i = 0; i < 4 && inRangingGuild(); i++) {
+        const stood = await standExact(GUILD_EXIT_STAND.x, GUILD_EXIT_STAND.z);
+        if (!stood) {
+            session.log('warn', `Guild exit stand missed @ ${pos().x},${pos().z}`);
+            await walkNear(DARGAUD.x, DARGAUD.z, 4);
+            continue;
+        }
+        await clickGuildDoor();
+        await sdk.waitForCondition(() => !inRangingGuild(), 6_000).catch(() => {});
     }
-    await stepEastFromGuildGate();
-    await walkNear(DARGAUD.x, DARGAUD.z, 4);
-    await walkNear(RANGING_GUILD_DOOR.x + 2, RANGING_GUILD_DOOR.z - 2, 2);
-    const door =
-        sdk.findNearbyLoc(/^guild door$/i, { withOption: /open/i }) ?? sdk.findNearbyLoc(/^guild door$/i);
-    if (door) await bot.openDoor(door);
-    await sdk.waitForCondition(() => !inRangingGuild(), 8_000).catch(() => {});
-}
-
-async function openAemadShop(): Promise<boolean> {
-    await bot.dismissBlockingUI();
-    if (sdk.getState()?.bank?.isOpen) await bot.closeBank();
-    if (sdk.getState()?.shop?.isOpen) await bot.closeShop();
-    let npc = aemadNpc();
-    if (!npc || (npc.distance ?? 99) > 10) {
-        await walkNear(AEMAD_SHOP.x, AEMAD_SHOP.z, 4);
-        npc = aemadNpc();
-    }
-    if (!npc) {
-        session.noteFailure('aemad_shop', 'Aemad/Kortan not visible');
-        return false;
-    }
-    const opened = await bot.openShop(npc);
-    if (!opened.success && !sdk.getState()?.shop?.isOpen) {
-        session.noteFailure('aemad_shop', opened.message || 'shop open failed');
-        return false;
-    }
-    log(`Opened ${sdk.getState()?.shop?.title ?? 'shop'} via ${npc.name}`);
-    return true;
 }
 
 async function openDargaudShop(): Promise<boolean> {
@@ -1301,6 +1573,7 @@ async function depositShopItems(): Promise<void> {
     await walkNear(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 3);
     const opened = await bot.openBank();
     if (!opened.success && !sdk.getState()?.bank?.isOpen) return;
+    flushCoins();
     if (held > 0) await bot.depositItem(pattern, -1);
     if (sdk.findInventoryItem(/^coins$/i)) await bot.depositItem(/^coins$/i, -1);
     await sdk.waitForTicks(1);
@@ -1308,35 +1581,39 @@ async function depositShopItems(): Promise<void> {
         .waitForCondition((s) => s.bank?.isOpen === true && (s.bank.items?.length ?? 0) > 0, 5_000)
         .catch(() => {});
     logBank();
+    session.captureBankStock();
     session.noteProgress('bank', 'shop deposit');
     await bot.closeBank();
 }
 
-async function buyShelfStock(): Promise<void> {
+async function buyShelfStock(coinFloor = 0): Promise<void> {
     const line = shopLine();
     const stockAtOpen = line?.count ?? 0;
     const slot = line?.slot;
     const before = shopHeldCount();
     if (slot == null || stockAtOpen <= 0) return;
     const clicks = Math.ceil(stockAtOpen / 10);
-    for (let n = 0; n < clicks && coinCount() >= 1; n++) {
+    for (let n = 0; n < clicks && coinCount() > coinFloor; n++) {
         const r = await sdk.sendShopBuy(slot, 10);
         if (!r.success) break;
     }
-    await sdk.waitForCondition(() => (shopLine()?.count ?? 0) <= 0 || coinCount() < 1, 15_000).catch(() => {});
+    await sdk
+        .waitForCondition(() => (shopLine()?.count ?? 0) <= 0 || coinCount() <= coinFloor, 15_000)
+        .catch(() => {});
     log(`Bought ${shopHeldCount() - before} (shop had ${stockAtOpen}, holding ${shopHeldCount()}, ${coinCount()}gp)`);
 }
 
 async function buyAndBankShopStock(): Promise<void> {
-    if (!SHOP_ARROWS) return;
+    const kind = shopKind();
+    if (!kind) return;
     await enterPhase('shop');
     await stepOffHouseDoor();
     await leaveHouse();
-    const tips = buyRuneTips();
+    const arrows = kind === 'arrows';
     const pattern = shopItemPattern();
-    const wantGp = tips ? TIPS_COIN_WITHDRAW : BRONZE_COIN_WITHDRAW;
+    const wantGp = arrows ? RUNE_ARROW_GP : TIPS_COIN_WITHDRAW;
     if (coinCount() < wantGp) {
-        intent(tips ? 'Withdrawing coins for rune arrowtips' : 'Withdrawing coins to buy bronze arrows');
+        intent(arrows ? 'Withdrawing coins for rune arrows' : 'Withdrawing coins for rune arrowtips');
         await walkNear(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 3);
         const opened = await bot.openBank();
         if (opened.success || sdk.getState()?.bank?.isOpen) {
@@ -1361,28 +1638,69 @@ async function buyAndBankShopStock(): Promise<void> {
             await bot.closeBank();
         }
     }
-    if (tips) {
-        intent('Buying rune arrowtips at the ranging guild');
-        if (!(await openDargaudShop())) return;
-    } else {
-        intent('Spam buying bronze arrows at Aemad');
-        if (!(await openAemadShop())) return;
-    }
-    await buyShelfStock();
+    intent(arrows ? 'Buying rune arrows at the ranging guild' : 'Buying rune arrowtips at the ranging guild');
+    if (!(await openDargaudShop())) return;
+    const coinFloor = arrows ? Math.max(0, coinCount() - wantGp) : 0;
+    await buyShelfStock(coinFloor);
     await bot.closeShop();
-    if (tips) await leaveRangingGuild();
+    await leaveRangingGuild();
     if (shopHeldCount() > 0 || coinCount() > 0) await depositShopItems();
 }
 
-async function logoutOutOfFood(): Promise<void> {
-    await bot.dismissBlockingUI();
-    if (sdk.getState()?.shop?.isOpen) await bot.closeShop();
-    if (sdk.getState()?.bank?.isOpen) await bot.closeBank();
-    await sdk.sendSetTab(LOGOUT_TAB);
-    await sdk.waitForTicks(1);
-    await sdk.sendClickComponent(LOGOUT_BUTTON);
-    await sdk.waitForCondition((s) => s.inGame === false, 15_000).catch(() => {});
-    session.stop('out_of_food', 'no food in bank');
+const THIEVE_SUPPLY_COOKED = 500;
+
+function fishingLevel(): number {
+    return sdk.getSkill('Fishing')?.baseLevel ?? 1;
+}
+
+/** Replace this bot's script and args. Leaves every other roster entry alone. */
+function patchRosterJob(script: string, args: string[]): string | null {
+    const rosterPath = join(process.cwd(), 'bots', 'roster.json');
+    const raw = readFileSync(rosterPath, 'utf-8');
+    const nameAt = raw.search(new RegExp(`"name": "${username}"`, 'i'));
+    if (nameAt < 0) return null;
+    const rest = raw.slice(nameAt + 10);
+    const nextName = rest.search(/"name":/);
+    const end = nextName < 0 ? raw.length : nameAt + 10 + nextName;
+    let block = raw.slice(nameAt, end);
+    if (!/"script": "[^"]+"/.test(block) || !/"args": \[[\s\S]*?\]/.test(block)) return null;
+    const rosterName = block.match(/"name": "([^"]+)"/i)?.[1] ?? username;
+    const namedArgs = args.map((arg, i) => (i === 0 ? rosterName : arg));
+    const argsBody = namedArgs.map((arg) => `\n                "${arg}"`).join(',') + '\n            ';
+    block = block.replace(/"script": "[^"]+"/, `"script": "${script}"`);
+    block = block.replace(/"args": \[[\s\S]*?\]/, `"args": [${argsBody}]`);
+    writeFileSync(rosterPath, raw.slice(0, nameAt) + block + raw.slice(end));
+    return rosterName;
+}
+
+/**
+ * Bank has no thieving fish. Net at Catherby under Fishing 35, otherwise
+ * harpoon. fishing-route cooks 500 tuna/swordfish, then puts this bot back
+ * on thieving-route.
+ */
+function handoffToThieveSupply(): void {
+    const net = fishingLevel() < 35;
+    const args = [username];
+    if (net) args.push('--smallnet');
+    args.push('--thieve-supply', String(THIEVE_SUPPLY_COOKED));
+    const supplyPath = join(process.cwd(), 'bots', username, 'thieve-supply.json');
+    writeFileSync(supplyPath, JSON.stringify({ cooked: 0, target: THIEVE_SUPPLY_COOKED }));
+    const rosterName = patchRosterJob('bots/quests/fishing-route.ts', args);
+    if (!rosterName) {
+        session.stop('out_of_food', 'no food in bank');
+        return;
+    }
+    log(
+        `No food — Catherby ${net ? 'small-net until 35, then ' : ''}harpoon, cook ${THIEVE_SUPPLY_COOKED} tuna/swordfish, then thieving`
+    );
+    const launchd = join(process.cwd(), '.cursor/skills/wake-fleet/scripts/fleet-launchd.ts');
+    const child = spawn('bun', [launchd, 'restart', rosterName], {
+        cwd: process.cwd(),
+        detached: true,
+        stdio: 'ignore'
+    });
+    child.unref();
+    session.stop('out_of_food', 'no food — switching to Catherby fishing');
 }
 
 async function clickBoatDialog(): Promise<void> {
@@ -1514,7 +1832,8 @@ async function stepOffTollWest(opts?: { skipBypass?: boolean }): Promise<void> {
     }
     intent('Leaving the toll westward — not walking the gate line');
     await clickYesOrContinue(false);
-    await sdk.sendWalk(LUMBY_CHICKENS.x, LUMBY_CHICKENS.z, true);
+    const dest = trainsGoblins && pos().maxHp < TARGET_HP ? LUMBY_GOBLINS : LUMBY_CHICKENS;
+    await sdk.sendWalk(dest.x, dest.z, true);
     await sdk.waitForTicks(6);
 }
 
@@ -1734,6 +2053,12 @@ async function crossAlKharidGate(): Promise<void> {
         alkharidGateSince = 0;
         return;
     }
+    if (distTo(ALKHARID_GATE.x, ALKHARID_GATE.z) > 40) {
+        alkharidGateSince = 0;
+        intent('Walking to the Al Kharid toll');
+        await walkNear(ALKHARID_GATE.x, ALKHARID_GATE.z, 8);
+        return;
+    }
     if (!alkharidGateSince) alkharidGateSince = Date.now();
     if (Date.now() - alkharidGateSince >= ALKHARID_GATE_GIVEUP_MS) {
         await walkAroundAlKharidGate();
@@ -1755,7 +2080,7 @@ async function crossAlKharidGate(): Promise<void> {
     await sdk.waitForTicks(8);
 }
 
-async function leaveAlKharid(): Promise<void> {
+async function leaveAlKharid(dest: { x: number; z: number } = LUMBY_CHICKENS): Promise<void> {
     if (await maybeBypassAlKharidWestExit()) return;
     if (pos().x <= 3268 && !inAlKharid()) {
         alkharidWestExitSince = 0;
@@ -1766,7 +2091,7 @@ async function leaveAlKharid(): Promise<void> {
         alkharidWestExitSince = 0;
         return;
     }
-    intent('Paying the toll once, then walking west to chickens');
+    intent(dest === LUMBY_GOBLINS ? 'Paying the toll once, then walking west to goblins' : 'Paying the toll once, then walking west to chickens');
     await clickYesOrContinue(true);
     if (pos().z >= 3225) {
         await sdk.sendWalk(3276, 3220, true);
@@ -1774,7 +2099,7 @@ async function leaveAlKharid(): Promise<void> {
     }
     await payAlKharidToll();
     await clickYesOrContinue(true);
-    await sdk.sendWalk(LUMBY_CHICKENS.x, LUMBY_CHICKENS.z, true);
+    await sdk.sendWalk(dest.x, dest.z, true);
     await sdk.waitForTicks(8);
 }
 
@@ -1867,28 +2192,46 @@ async function openNearbyFarmGate(): Promise<void> {
     if (gate) await bot.openDoor(gate);
 }
 
-async function ensureUnarmedPunch(): Promise<void> {
+let loggedTrainingSkill: string | null = null;
+let loggedCampWalk = '';
+
+/** Punch until 40 Attack, then Kick/Block so Strength and Defence stay level. */
+async function ensureTrainingStyle(): Promise<void> {
     const weapon = bot.findEquippedItem(/sword|dagger|scimitar|axe|bow|mace|spear|claws|whip/i);
-    if (weapon) await bot.unequipItem(weapon);
     const shield = bot.findEquippedItem(/shield|defender/i);
+    if (weapon) await bot.unequipItem(weapon);
     if (shield) await bot.unequipItem(shield);
+    if (weapon || shield) await sdk.waitForTicks(1);
+
+    const attack = sdk.getSkill('Attack')?.baseLevel ?? 1;
+    const strXp = sdk.getSkill('Strength')?.experience ?? 0;
+    const defXp = sdk.getSkill('Defence')?.experience ?? 0;
+    const skill: 'Attack' | 'Strength' | 'Defence' =
+        attack < 40 ? 'Attack' : strXp <= defXp ? 'Strength' : 'Defence';
     const cs = sdk.getState()?.combatStyle;
     if (!cs) return;
-    const punch =
-        cs.styles.find((s) => /^punch$/i.test(s.name)) ??
-        cs.styles.find((s) => s.type === 'Accurate' && s.trainsSkills.includes('Attack'));
-    if (punch && cs.currentStyle !== punch.index) await sdk.sendSetCombatStyle(punch.index);
+    const named = skill === 'Attack' ? /^punch$/i : skill === 'Strength' ? /^kick$/i : /^block$/i;
+    const trains = (s: { trainsSkills: string[] }) =>
+        s.trainsSkills.some((trained) => trained.toLowerCase() === skill.toLowerCase());
+    const style =
+        cs.styles.find((s) => named.test(s.name)) ??
+        cs.styles.find((s) => trains(s) && s.trainsSkills.length === 1) ??
+        cs.styles.find(trains);
+    if (style && cs.currentStyle !== style.index) await sdk.sendSetCombatStyle(style.index);
+    if (loggedTrainingSkill === skill) return;
+    loggedTrainingSkill = skill;
+    log(`Training ${skill} (attack ${attack}, strength ${strXp} xp, defence ${defXp} xp)`);
 }
 
-function findChicken() {
-    const hens = (sdk.getNearbyNpcs() ?? []).filter(
-        (n) => /^chicken$/i.test(n.name) && n.optionsWithIndex.some((o) => /^attack$/i.test(o.text))
+function findAttackable(pattern: RegExp) {
+    const npcs = (sdk.getNearbyNpcs() ?? []).filter(
+        (n) => pattern.test(n.name) && n.optionsWithIndex.some((o) => /^attack$/i.test(o.text))
     );
-    const byDist = (a: (typeof hens)[0], b: (typeof hens)[0]) => (a.distance ?? 99) - (b.distance ?? 99);
-    const free = hens.filter((n) => !n.inCombat && n.reachable !== false).sort(byDist);
+    const byDist = (a: (typeof npcs)[0], b: (typeof npcs)[0]) => (a.distance ?? 99) - (b.distance ?? 99);
+    const free = npcs.filter((n) => !n.inCombat && n.reachable !== false).sort(byDist);
     if (free[0]) return free[0];
-    const reachable = hens.filter((n) => n.reachable !== false).sort(byDist);
-    return reachable[0] ?? hens.sort(byDist)[0] ?? null;
+    const reachable = npcs.filter((n) => n.reachable !== false).sort(byDist);
+    return reachable[0] ?? npcs.sort(byDist)[0] ?? null;
 }
 
 async function buryBones(): Promise<void> {
@@ -1933,12 +2276,66 @@ async function lootFeathersAndBones(): Promise<void> {
     await buryBones();
 }
 
-function chickenSpot() {
-    if (inKandarin() || inArdougne()) return RANGING_CHICKENS;
-    return LUMBY_CHICKENS;
+type CombatCamp = {
+    x: number;
+    z: number;
+    label: string;
+    npc: RegExp;
+    kind: 'kandarin-goblins' | 'lumbridge-goblins' | 'ranging-chickens' | 'lumbridge-chickens';
+};
+
+function combatCamp(): CombatCamp {
+    if (trainsGoblins) {
+        if (inKandarin()) {
+            return { ...KANDARIN_GOBLINS, label: 'Kandarin goblins', npc: /^goblin$/i, kind: 'kandarin-goblins' };
+        }
+        return { ...LUMBY_GOBLINS, label: 'Lumbridge goblins', npc: /^goblin$/i, kind: 'lumbridge-goblins' };
+    }
+    if (inKandarin() || inArdougne()) {
+        return {
+            x: RANGING_CHICKENS.x,
+            z: RANGING_CHICKENS.z,
+            label: 'ranging guild chickens',
+            npc: /^chicken$/i,
+            kind: 'ranging-chickens'
+        };
+    }
+    return {
+        x: LUMBY_CHICKENS.x,
+        z: LUMBY_CHICKENS.z,
+        label: 'Lumbridge chickens',
+        npc: /^chicken$/i,
+        kind: 'lumbridge-chickens'
+    };
 }
 
-async function punchChickens(): Promise<void> {
+function inRangingChickenPen(): boolean {
+    const p = pos();
+    return p.x >= 2640 && p.x <= 2660 && p.z >= 3432 && p.z <= 3448;
+}
+
+/** West gate at (2642, 3441) eats walkTo. Hop south onto the road instead. */
+async function leaveChickenPenSouth(): Promise<void> {
+    if (!inRangingChickenPen()) return;
+    log(`Leaving chicken pen south @ ${pos().x},${pos().z}`);
+    const hops = [
+        { x: 2648, z: 3436 },
+        { x: 2652, z: 3430 },
+        { x: 2656, z: 3422 }
+    ];
+    for (const hop of hops) {
+        if (!inRangingChickenPen()) break;
+        await sdk.sendWalk(hop.x, hop.z, true);
+        await sdk
+            .waitForCondition(
+                (s) => Math.hypot((s.player?.worldX ?? 0) - hop.x, (s.player?.worldZ ?? 0) - hop.z) <= 3,
+                8_000
+            )
+            .catch(() => {});
+    }
+}
+
+async function trainCombat(): Promise<void> {
     await clickYesOrContinue(false);
     await eatIfNeeded();
     if (pos().maxHp >= TARGET_HP) return;
@@ -1948,58 +2345,68 @@ async function punchChickens(): Promise<void> {
     if (inLegendsGuild()) await leaveLegendsGuild();
     if (inKeepLeFaye()) await leaveKeepLeFaye();
 
-    const spot = chickenSpot();
-    if (spot === LUMBY_CHICKENS) {
+    const camp = combatCamp();
+    if (camp.kind === 'lumbridge-chickens' || camp.kind === 'lumbridge-goblins') {
         if (inAlKharid() || (onAlKharidToll() && pos().x >= 3269)) {
-            await leaveAlKharid();
+            await leaveAlKharid(camp.kind === 'lumbridge-goblins' ? LUMBY_GOBLINS : LUMBY_CHICKENS);
             return;
         }
         if (onAlKharidToll()) {
             await clickYesOrContinue(false);
-            await sdk.sendWalk(LUMBY_CHICKENS.x, LUMBY_CHICKENS.z, true);
+            await sdk.sendWalk(camp.x, camp.z, true);
             await sdk.waitForTicks(4);
             return;
         }
     }
 
-    await ensureUnarmedPunch();
-    await lootFeathersAndBones();
+    await ensureTrainingStyle();
 
-    if (pos().inCombat) {
-        intent(`Punching chicken — HP ${pos().maxHp}/${TARGET_HP}`);
-        await sdk.waitForTicks(2);
-        await lootFeathersAndBones();
+    if (distTo(camp.x, camp.z) > 10) {
+        intent(`Walking to ${camp.label} (HP ${pos().maxHp} → ${TARGET_HP})`);
+        if (loggedCampWalk !== camp.kind) {
+            loggedCampWalk = camp.kind;
+            log(`Walking to ${camp.label} @ ${camp.x},${camp.z}`);
+        }
+        if (camp.kind === 'kandarin-goblins') {
+            await leaveChickenPenSouth();
+            await walkWaypoints(TO_KANDARIN_GOBLINS);
+        } else {
+            await walkNear(camp.x, camp.z, 4);
+            await openNearbyFarmGate();
+        }
         return;
     }
 
-    if (distTo(spot.x, spot.z) > 10) {
-        const where = spot === RANGING_CHICKENS ? 'ranging guild' : 'Lumbridge';
-        intent(`Walking to ${where} chickens (HP ${pos().maxHp} → ${TARGET_HP})`);
-        await walkNear(spot.x, spot.z, 4);
-        await openNearbyFarmGate();
+    loggedCampWalk = '';
+    await lootFeathersAndBones();
+
+    if (pos().inCombat) {
+        intent(`Fighting ${camp.label} — HP ${pos().maxHp}/${TARGET_HP}`);
+        await sdk.waitForTicks(2);
+        await lootFeathersAndBones();
         return;
     }
 
     await openNearbyFarmGate();
-    const hen = findChicken();
-    if (!hen) {
-        intent('No chicken — looting feathers and bones');
+    const target = findAttackable(camp.npc);
+    if (!target) {
+        intent(`No ${camp.npc.source.includes('goblin') ? 'goblin' : 'chicken'} — looting feathers and bones`);
         await lootFeathersAndBones();
-        await sdk.sendWalk(spot.x, spot.z, true);
+        await sdk.sendWalk(camp.x, camp.z, true);
         await sdk.waitForTicks(2);
         return;
     }
 
-    const attackOpt = hen.optionsWithIndex.find((o) => /^attack$/i.test(o.text));
+    const attackOpt = target.optionsWithIndex.find((o) => /^attack$/i.test(o.text));
     if (!attackOpt) return;
-    const hx = hen.tileX ?? hen.x;
-    const hz = hen.tileZ ?? hen.z;
-    if ((hen.distance ?? 99) > 1) {
+    const hx = target.tileX ?? target.x;
+    const hz = target.tileZ ?? target.z;
+    if ((target.distance ?? 99) > 1) {
         await sdk.sendWalk(hx, hz, true);
         await sdk.waitForTicks(1);
     }
-    intent(`Attacking chicken @ ${hx},${hz} d=${hen.distance} — HP ${pos().maxHp}/${TARGET_HP}`);
-    await sdk.sendInteractNpc(hen.index, attackOpt.opIndex);
+    intent(`Attacking ${target.name} @ ${hx},${hz} d=${target.distance} — HP ${pos().maxHp}/${TARGET_HP}`);
+    await sdk.sendInteractNpc(target.index, attackOpt.opIndex);
     await sdk.waitForCondition((s) => !!s.player?.combat?.inCombat, 4_000).catch(() => {});
     await lootFeathersAndBones();
 }
@@ -2437,9 +2844,43 @@ async function pullWildyLever(): Promise<boolean> {
     return inArdougne();
 }
 
+/** Edgeville dungeon ladder and the wilderness-section gate south of the druids. */
+const EDGE_DUNGEON_LADDER = { x: 3096, z: 9867 };
+const EDGE_DUNGEON_GATE = { x: 3103, z: 9909 };
+
+function inEdgevilleDungeon(): boolean {
+    const p = pos();
+    return p.x >= 3050 && p.x <= 3165 && p.z >= 9800 && p.z <= 10120;
+}
+
+async function leaveEdgevilleDungeon(): Promise<boolean> {
+    if (!inEdgevilleDungeon()) return pos().z < 6400;
+    log(`Edgeville dungeon @ ${pos().x},${pos().z} — climbing out`);
+    if (pos().z >= EDGE_DUNGEON_GATE.z) {
+        await walkNear(EDGE_DUNGEON_GATE.x, EDGE_DUNGEON_GATE.z + 4, 3);
+        const gate = sdk.findNearbyLoc(/gate/i, { withOption: /open/i });
+        if (gate) await bot.openDoor(gate);
+        await walkNear(EDGE_DUNGEON_GATE.x, EDGE_DUNGEON_GATE.z - 6, 3);
+    }
+    await walkNear(EDGE_DUNGEON_LADDER.x, EDGE_DUNGEON_LADDER.z, 2);
+    const ladder = sdk.findNearbyLoc(/^ladder$/i, { withOption: /climb-up/i });
+    if (ladder) {
+        await bot.interactLoc(ladder, /climb-up/i);
+        await sdk.waitForCondition((s) => (s.player?.worldZ ?? 0) < 6400, 10_000).catch(() => {});
+    }
+    const out = pos().z < 6400;
+    log(out ? `Surface @ ${pos().x},${pos().z}` : `Still in dungeon @ ${pos().x},${pos().z}`);
+    return out;
+}
+
 async function returnToArdougne(): Promise<void> {
     session.noteProgress('location', `${pos().x},${pos().z}`);
     await leaveAdjacentClosedDoor(sdk);
+    if (pos().z >= 6400) {
+        if (inEdgevilleDungeon()) await leaveEdgevilleDungeon();
+        else log(`Underground @ ${pos().x},${pos().z} — not Edgeville dungeon`);
+        return;
+    }
     if (inArdougne()) {
         if (pos().z < 3271 && sdk.findNearbyLoc(/gangplank/i)) {
             await crossGangplank();
@@ -2476,13 +2917,32 @@ async function returnToArdougne(): Promise<void> {
         return;
     }
 
+    if (useWhiteWolf() && (inWilderness() || (pos().z >= 3520 && pos().z < 6400))) {
+        intent(`HP ${pos().hp} — leaving the wilderness for White Wolf`);
+        await walkSendHops(sdk, WILDY_SOUTH_TO_DITCH, WILDY_SOUTH_TO_DITCH[WILDY_SOUTH_TO_DITCH.length - 1]!, 4);
+        if (pos().z >= 3520 && pos().z < 6400) {
+            await sdk.sendWalk(3088, 3510, true);
+            await sdk.waitForCondition((s) => (s.player?.worldZ ?? 0) < 3520, 10_000).catch(() => {});
+        }
+        return;
+    }
+    if (useWhiteWolf() && (onWhiteWolfSlope() || eastOfWhiteWolf())) {
+        intent(`HP ${pos().hp} — White Wolf Mountain to Catherby`);
+        if (!inWilderness() && pos().x > 3030 && distTo(3088, 3512) > 25) {
+            await walkNear(EDGEVILLE.x, EDGEVILLE.z, 8);
+            return;
+        }
+        await walkSendHops(sdk, WHITE_WOLF_TO_CATHERBY, WHITE_WOLF_TO_CATHERBY[WHITE_WOLF_TO_CATHERBY.length - 1]!, 5);
+        if (distTo(2816, 3439) <= 12) await walkWaypoints(CATHERBY_TO_ARDY);
+        return;
+    }
     if (nearSeersCatherby()) {
         intent('Walking Catherby/Seers → Ardougne');
         await walkWaypoints(CATHERBY_TO_ARDY);
         return;
     }
 
-    if (inWilderness() || pos().z >= 3508) {
+    if (inWilderness() || (pos().z >= 3508 && pos().z < 6400)) {
         if (pos().z < 3524) {
             intent('Crossing the wilderness ditch — not walking back to the bank');
             await sdk.sendWalk(3088, 3528, true);
@@ -2509,6 +2969,15 @@ async function returnToArdougne(): Promise<void> {
 }
 
 session.registerRecovery([
+    {
+        name: 'leave_northeast',
+        maxConsecutive: 2,
+        run: async () => {
+            if (!inNorthEastArdy(pos().x, pos().z)) return false;
+            await leaveNorthEastArdy();
+            return !inNorthEastArdy(pos().x, pos().z);
+        }
+    },
     {
         name: 'recover_stun',
         maxConsecutive: 2,
@@ -2590,21 +3059,6 @@ try {
             lastLoggedLevel = level;
         }
 
-        // Men / Al Kharid warriors restock at the kebab shop. recoverLowHp()
-        // walks to Ardougne/Catherby bank food — only for 55+ heroes.
-        if (level < 25) {
-            await enterPhase('men');
-            await pickpocketMen();
-            session.noteProgress('xp', 'men');
-            continue;
-        }
-        if (level < 55) {
-            await enterPhase('warriors');
-            await trainWarriors();
-            session.noteProgress('xp', 'warriors');
-            continue;
-        }
-
         if (inAlKharid() || pos().x >= 3269) {
             await enterPhase('travel_ardougne');
             await returnToArdougne();
@@ -2619,7 +3073,8 @@ try {
             intent(`HP ${pos().hp} — not pickpocketing under ${MIN_THIEVE_HP}`);
             session.noteFailure('low_hp', `hp ${pos().hp}`);
             if (!(await recoverLowHp())) {
-                session.stop('low_hp', `could not recover above ${MIN_THIEVE_HP}`);
+                if (!hasThieveFood()) handoffToThieveSupply();
+                else session.stop('low_hp', `could not recover above ${MIN_THIEVE_HP}`);
                 break;
             }
             continue;
@@ -2633,12 +3088,12 @@ try {
         }
 
         if (pos().maxHp < TARGET_HP && !inWilderness()) {
-            await enterPhase('chickens');
-            await punchChickens();
+            await enterPhase(trainsGoblins ? 'goblins' : 'chickens');
+            await trainCombat();
             continue;
         }
 
-        if (!inArdougne()) {
+        if (!onArdyThieveGround()) {
             await enterPhase('travel_ardougne');
             if (inKandarin()) {
                 await returnToArdougne();
@@ -2663,18 +3118,18 @@ try {
             await enterPhase('restock_food');
             const food = await ensureFood();
             if (!hasThieveFood() && notedFood().length === 0) {
+                if (food.opened) {
+                    handoffToThieveSupply();
+                    break;
+                }
                 if (usesFoodMule(username)) {
                     log(`Still no food after mule/bank — waiting on ${FOOD_MULE}`);
                     await sdk.waitForTicks(15);
                     continue;
                 }
-                if (food.opened) {
-                    await logoutOutOfFood();
-                    break;
-                }
                 continue;
             }
-            if (SHOP_ARROWS) await buyAndBankShopStock();
+            if (shopKind()) await buyAndBankShopStock();
             continue;
         }
 

@@ -8,6 +8,13 @@ import { BotSDK } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
 import { ActivitySession } from '../../sdk/activity';
 import { atSeersFlax as atFlaxCoord } from '../../sdk/regions';
+import { walkSendHops } from '../quests/movement';
+import {
+    CATHERBY_TO_ARDY,
+    WHITE_WOLF_MIN_HP,
+    WHITE_WOLF_TO_CATHERBY,
+    WILDY_SOUTH_TO_DITCH
+} from '../quests/tiles';
 
 const SLASH = /^(bronze |iron |steel |mithril |adamant |rune )?(axe|sword|scimitar|dagger|claws|battleaxe|longsword|2h sword)$|^knife$/i;
 const SWORD = /^(bronze |iron |steel )?sword$/i;
@@ -164,6 +171,21 @@ function inWilderness(): boolean {
 
 function northOfDitch(): boolean {
     return pos().z >= 3520;
+}
+
+/** East slope of White Wolf. nearSeersCatherby() includes this, and walkNear from here dies. */
+function onWhiteWolfSlope(): boolean {
+    const p = pos();
+    return p.x >= 2828 && p.x <= 2895 && p.z >= 3448 && p.z <= 3518 && p.z < 6400;
+}
+
+function useWhiteWolf(): boolean {
+    return onWhiteWolfSlope() || pos().hp > WHITE_WOLF_MIN_HP;
+}
+
+/** East of the mountain: Falador, Edgeville, Lumbridge. Not Yanille or the gnome stronghold. */
+function eastOfWhiteWolf(): boolean {
+    return pos().x > 2890 && pos().z < 3520 && pos().z < 6400;
 }
 
 /** Aggressive Tree NPCs on the due-north road (~3103,3347). */
@@ -329,6 +351,7 @@ async function followWildyNorthRoad(untilZ = 3895): Promise<void> {
     for (const wp of WILDY_TO_LEVER) {
         if (pos().z >= untilZ) break;
         if (nearLever() || insideKeep() || atKeepWeb()) return;
+        if (wp.z + 12 < pos().z) continue;
         if (distTo(wp.x, wp.z) <= 6) continue;
         await sendWalkTo(wp.x, wp.z, 6);
     }
@@ -812,6 +835,25 @@ async function returnToArdougne(): Promise<void> {
         await brimhavenToArdougne();
         return;
     }
+    if (useWhiteWolf() && (inWilderness() || northOfDitch())) {
+        intent(`HP ${pos().hp} — leaving the wilderness for White Wolf`);
+        await walkSendHops(sdk, WILDY_SOUTH_TO_DITCH, WILDY_SOUTH_TO_DITCH[WILDY_SOUTH_TO_DITCH.length - 1]!, 4);
+        if (northOfDitch()) {
+            await sdk.sendWalk(3088, 3510, true);
+            await sdk.waitForCondition((s) => (s.player?.worldZ ?? 0) < 3520, 10_000).catch(() => {});
+        }
+        return;
+    }
+    if (useWhiteWolf() && (onWhiteWolfSlope() || eastOfWhiteWolf())) {
+        intent(`HP ${pos().hp} — White Wolf Mountain to Catherby`);
+        if (!inWilderness() && pos().x > 3030 && distTo(3088, 3512) > 25) {
+            await walkToEdgeville();
+            return;
+        }
+        await walkSendHops(sdk, WHITE_WOLF_TO_CATHERBY, WHITE_WOLF_TO_CATHERBY[WHITE_WOLF_TO_CATHERBY.length - 1]!, 5);
+        if (distTo(2816, 3439) <= 12) await walkWaypoints(CATHERBY_TO_ARDY);
+        return;
+    }
     if (nearSeersCatherby()) return;
     if (inWilderness() || northOfDitch()) {
         if (distTo(WILDY_LEVER.x, WILDY_LEVER.z) > 12) await walkWildyToLever();
@@ -899,9 +941,13 @@ export async function travelToArdougne(opts: {
             await leaveLegendsGuild();
             continue;
         }
+        if (onWhiteWolfSlope()) {
+            await returnToArdougne();
+            continue;
+        }
         if (nearSeersCatherby() && !inArdougne()) {
             intent('Walking from Seers area back to Ardougne');
-            await walkNear(ARDOUGNE_MARKET.x, ARDOUGNE_MARKET.z, 6);
+            await walkWaypoints(CATHERBY_TO_ARDY);
             continue;
         }
         if (inArdougne()) break;
@@ -912,7 +958,7 @@ export async function travelToArdougne(opts: {
         log(`Done — at Ardougne ${pos().x},${pos().z}`);
         return 'arrived';
     }
-    session?.stop('stuck', `Did not reach Ardougne (at ${pos().x},${pos().z})`);
+    log(`Did not reach Ardougne (at ${pos().x},${pos().z}) — will retry`);
     return 'stuck';
 }
 

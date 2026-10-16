@@ -1,0 +1,25 @@
+---
+description: Never invent skill levels from XP — this world is not OSRS
+alwaysApply: true
+---
+
+# Game levels
+
+This server is not OSRS. Do not convert heartbeat or grind XP to a level
+with the OSRS table, `13_034_431`, or any other guessed curve.
+
+Skill **level** comes from the game client `baseLevel`:
+
+- `fleet-status` JSON `levels` (and the pretty `levels` column)
+- `bun .cursor/skills/fleet-account-stats/scripts/dump-skills.ts` (observe only)
+- Grind line that already printed `Atk 99` / `Fishing 99` / `Ranged 76`
+- `sdk.getSkill('Attack')?.baseLevel` in observe `cli` / MCP
+
+Heartbeat `xp` is for **rates** (xp/h). Heartbeat `levels` is the client
+level. If a snapshot has no `levels` (old file), say so — do not invert XP.
+`dump-skills.ts` in control mode is forbidden — last controller wins.
+
+```text
+❌ BAD  heartbeat Attack 1_075_292 → “73 attack” via OSRS table
+✅ GOOD fleet-status levels.Attack 99 / grind “Atk 99”
+```

@@ -19,6 +19,7 @@ bots/**/*.env
 bots/**/*.log
 bots/**/*.pid
 bots/**/assignment.json
+bots/**/thieve-supply.json
 
 # Daemon type checker temp file
 sdk/__exec_check.ts
@@ -42,6 +43,13 @@ server/engine/data/market.sqlite*
 # Dashboard state is live host data, not source.
 /dashboard-max/data/
 
+# Spec Kit: current-feature pointer is machine-local
+.specify/feature.json
+
 # Agent session scratch. Monthly notes under .cursor/session-notes/*.md are tracked.
 .cursor/session-notes/pending/
 .cursor/offline-worktree
+# Terraform: local state may carry secrets; backends only.
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/.terraform/

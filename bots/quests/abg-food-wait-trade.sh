@@ -70,7 +70,7 @@ done
 log "=== ABG food orchestrator start (jacklove1-4 → all 20) ==="
 
 # 2 and 3 are already at Catherby bank; 1 and 4 often spawn on the pier.
-run_squad jacklove2 ABGARMY07 ABGARMY08 ABGARMY09 ABGARMY10
+run_squad jacklove2 ABGARMY06 ABGARMY07 ABGARMY08 ABGARMY09 ABGARMY10
 run_squad jacklove3 ABGARMY11 ABGARMY12 ABGARMY13 ABGARMY14 ABGARMY15
 run_squad jacklove1 ABGARMY01 ABGARMY02 ABGARMY03 ABGARMY04 ABGARMY05
 run_squad jacklove4 ABGARMY16 ABGARMY17 ABGARMY18 ABGARMY19 ABGARMY20

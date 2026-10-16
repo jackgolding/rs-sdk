@@ -7,6 +7,9 @@
  *
  *   bun bots/quests/seers-wc-fm.ts jackthief
  *   bun bots/quests/seers-wc-fm.ts Jackpoo1 --yews   # chop + bank churchyard yews (no FM)
+ *   bun bots/quests/seers-wc-fm.ts ABGARMY02 --until-wc=36
+ *     # chop only (normal → oak → willow), drop logs, stop at 36.
+ *     # Buys an iron/bronze/steel axe from Bob when the bank has none.
  */
 import { ActivitySession, BotSDK, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
@@ -30,10 +33,12 @@ import {
     closeUi as closeUiShared,
     distTo as distToShared,
     installWaitForTicksGuard,
+    walkKandarinToEdgeville,
     walkNear as walkNearShared,
     walkWaypoints as walkWaypointsShared
 } from './movement';
 import { travelToSeersFlax } from '../Jackpoo1/travel-to-flax';
+import { installGracefulShutdown } from '../../sdk/runner';
 
 const TARGET = 99;
 const YEW_WC = 80;
@@ -46,6 +51,7 @@ const HAMMER = /^hammer$/i;
 const TINDERBOX = /^tinderbox$/i;
 const KNIFE = /^knife$/i;
 const COINS = /^coins$/i;
+const FOOD_EAT = /^(shark|swordfish|lobster|tuna|salmon|trout|bass|bread|cake|meat|anchovies)$/i;
 const ANY_LOGS = /logs$/i;
 const BOW = /^(oak |willow |maple |yew |magic )?(shortbow|longbow)$/i;
 const SHAFTS = /^arrow shaft/i;
@@ -149,6 +155,20 @@ const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-'));
 /** Chop Seers yews and bank the logs — no firemaking or fletching. */
 const BANK_YEWS = argv.includes('--yews');
+const untilWcArg = argv.find((a) => a.startsWith('--until-wc='));
+const untilWc = Number(untilWcArg?.split('=')[1]);
+/** Chop-only stop. Tree choice follows Woodcutting, logs are dropped, no FM. */
+const WC_UNTIL = Number.isFinite(untilWc) && untilWc > 0 ? untilWc : 0;
+
+const BOBS_AXES = { x: 3232, z: 3203 };
+const EDGEVILLE_BANK = { x: 3094, z: 3492 };
+const DUNGEON_LADDER = { x: 3096, z: 9867 };
+const WILDY_GATE = { x: 3103, z: 9909 };
+const SHOP_AXES = [
+    { name: 'steel axe', level: 6, price: 200 },
+    { name: 'iron axe', level: 1, price: 56 },
+    { name: 'bronze axe', level: 1, price: 16 }
+] as const;
 
 function loadBotEnv(): void {
     const envPath = botArg
@@ -195,6 +215,8 @@ const session = new ActivitySession(sdk, bot, {
     stallMs: 180_000,
     maxRecoveryTactics: 8
 });
+
+installGracefulShutdown();
 
 installWaitForTicksGuard(sdk, session);
 
@@ -297,11 +319,28 @@ function fletchingNow(): boolean {
     return !BANK_YEWS && fm() >= TARGET;
 }
 
+function chopOnly(): boolean {
+    return BANK_YEWS || WC_UNTIL > 0;
+}
+
+/** Spread a fleet off the same stand tile. The 99 burn route keeps the fixed stand. */
+function chopStand(p: Phase): { x: number; z: number } {
+    if (!(WC_UNTIL > 0)) return p.stand;
+    let h = 0;
+    for (const ch of username) h = (h * 33 + ch.charCodeAt(0)) >>> 0;
+    const dx = (h % 9) - 4;
+    const dz = ((h >>> 4) % 9) - 4;
+    return {
+        x: Math.min(p.maxX - 1, Math.max(p.minX + 1, p.stand.x + dx)),
+        z: Math.min(p.maxZ - 1, Math.max(p.minZ + 1, p.stand.z + dz))
+    };
+}
+
 function phase(): Phase {
     const wood = wc();
     const fire = fm();
     const fletch = fl();
-    if (BANK_YEWS) {
+    if (BANK_YEWS || WC_UNTIL > 0) {
         if (wood >= YEW_WC) return PHASES.yew;
         if (wood >= 45) return PHASES.maple;
         if (wood >= 30) return PHASES.willow;
@@ -537,10 +576,108 @@ async function buyFromArhein(item: RegExp, label: string): Promise<boolean> {
     return !!sdk.findInventoryItem(item);
 }
 
+async function climbOutOfEdgeDungeon(): Promise<void> {
+    if (pos().z < 6400) return;
+    intent('Climbing out of Edgeville dungeon');
+    if (pos().z >= WILDY_GATE.z) {
+        await walkNear(WILDY_GATE.x, WILDY_GATE.z + 6, 3);
+        const gate = sdk.findNearbyLoc(/gate/i, { withOption: /open/i });
+        if (gate) await bot.openDoor(gate);
+        await walkNear(WILDY_GATE.x, WILDY_GATE.z - 6, 3);
+    }
+    await walkNear(DUNGEON_LADDER.x, DUNGEON_LADDER.z, 2);
+    const ladder = sdk.findNearbyLoc(/^ladder$/i, { withOption: /climb-up/i });
+    if (ladder) {
+        await bot.interactLoc(ladder, /climb-up/i);
+        await sdk.waitForCondition((s) => (s.player?.worldZ ?? 9999) < 6400, 10_000).catch(() => {});
+    }
+}
+
+async function withdrawAxeAndCoins(): Promise<void> {
+    await closeUi();
+    if (pos().z < 6400 && distTo(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z) > 8 && distTo(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z) < 80) {
+        await walkNear(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z, 4);
+    }
+    const opened = await bot.openBank();
+    if (!opened.success && !sdk.getState()?.bank?.isOpen) {
+        session.noteFailure('bank_open', opened.message || 'Could not open a bank for an axe');
+        return;
+    }
+    await withdrawBestAxe();
+    if (coins() < 250) {
+        const banked = sdk.findBankItem(COINS);
+        if (banked) await bot.withdrawItem(banked, Math.min(banked.count, 500));
+    }
+    await bot.closeBank();
+}
+
+async function buyAxeFromBob(): Promise<boolean> {
+    if (hasAxe()) return true;
+    const affordable = SHOP_AXES.filter((axe) => wc() >= axe.level && coins() >= axe.price);
+    if (affordable.length === 0) {
+        session.noteFailure('no_axe', `Need coins for an axe (have ${coins()}gp)`);
+        return false;
+    }
+    intent("Buying an axe from Bob's");
+    await walkNear(BOBS_AXES.x, BOBS_AXES.z, 3);
+    let opened = await bot.openShop(/^bob$/i);
+    if (!opened.success && !sdk.getState()?.shop?.isOpen) {
+        await bot.interactNpc(/^bob$/i, /trade/i);
+        await sdk.waitForCondition((s) => s.shop?.isOpen === true, 8_000).catch(() => {});
+    }
+    if (!sdk.getState()?.shop?.isOpen && sdk.getDialog()?.isOpen) {
+        await sdk.clickDialogByText(/have you anything to sell/i).catch(() => {});
+        await sdk.waitForCondition((s) => s.shop?.isOpen === true, 8_000).catch(() => {});
+    }
+    if (!sdk.getState()?.shop?.isOpen) {
+        session.noteFailure('shop', `Bob shop closed @ ${pos().x},${pos().z}`);
+        return false;
+    }
+    for (const axe of affordable) {
+        const bought = await bot.buyFromShop(new RegExp(`^${axe.name}$`, 'i'), 1);
+        log(`Buy ${axe.name}: ${bought.success ? 'ok' : bought.message} | coins ${coins()}`);
+        if (hasAxe()) break;
+    }
+    await bot.closeShop();
+    if (hasAxe()) await equipBestAxe();
+    else await sdk.waitForTicks(20);
+    return hasAxe();
+}
+
+/** Bank, then Bob. Used by --until-wc before the Seers trip and again if the axe is lost. */
+async function ensureChopAxe(): Promise<boolean> {
+    if (hasAxe()) {
+        await equipBestAxe();
+        return true;
+    }
+    await climbOutOfEdgeDungeon();
+    await withdrawAxeAndCoins();
+    if (hasAxe()) {
+        await equipBestAxe();
+        return true;
+    }
+    if (inKandarin() && pos().x < 2940 && pos().z < 6400) {
+        intent('No axe in this bank — walking Kandarin → Edgeville');
+        await walkKandarinToEdgeville(bot, sdk, {
+            eat: async () => {
+                const food = sdk.findInventoryItem(FOOD_EAT);
+                if (food && pos().hp < pos().maxHp - 15) await bot.eatFood(food);
+            },
+            walkNear
+        });
+        await withdrawAxeAndCoins();
+        if (hasAxe()) {
+            await equipBestAxe();
+            return true;
+        }
+    }
+    return buyAxeFromBob();
+}
+
 async function ensureTools(): Promise<boolean> {
     await closeUi();
-    const needTinder = !BANK_YEWS && !fletchingNow();
-    const needKnife = !BANK_YEWS && (fletchingNow() || fl() < TARGET);
+    const needTinder = !chopOnly() && !fletchingNow();
+    const needKnife = !chopOnly() && (fletchingNow() || fl() < TARGET);
     if (hasAxe() && (!needTinder || sdk.findInventoryItem(TINDERBOX)) && (!needKnife || sdk.findInventoryItem(KNIFE))) {
         await equipBestAxe();
         return true;
@@ -557,6 +694,7 @@ async function ensureTools(): Promise<boolean> {
         await walkToSeers();
     }
     if (!hasAxe()) {
+        if (WC_UNTIL > 0) return ensureChopAxe();
         session.noteFailure('no_axe', 'No axe after bank');
         return false;
     }
@@ -732,10 +870,11 @@ async function bankLogs(): Promise<void> {
 }
 
 async function goToTrees(p: Phase): Promise<void> {
-    session.setAnchor(p.stand.x, p.stand.z);
-    if (distTo(p.stand.x, p.stand.z) <= p.maxDrift) return;
+    const stand = chopStand(p);
+    session.setAnchor(stand.x, stand.z);
+    if (distTo(stand.x, stand.z) <= p.maxDrift) return;
     intent(`Walking to Seers ${p.id} trees`);
-    await walkNear(p.stand.x, p.stand.z, 4);
+    await walkNear(stand.x, stand.z, 4);
 }
 
 async function tick(): Promise<void> {
@@ -743,8 +882,9 @@ async function tick(): Promise<void> {
     await climbDown();
     const p = phase();
 
-    if (!hasAxe() || (!BANK_YEWS && !fletchingNow() && !sdk.findInventoryItem(TINDERBOX))) {
-        await ensureTools();
+    if (!hasAxe() || (!chopOnly() && !fletchingNow() && !sdk.findInventoryItem(TINDERBOX))) {
+        if (WC_UNTIL > 0 && !hasAxe()) await ensureChopAxe();
+        else await ensureTools();
         return;
     }
     if (fletchingNow() && !sdk.findInventoryItem(KNIFE) && sdk.findInventoryItem(p.logs)) {
@@ -762,7 +902,10 @@ async function tick(): Promise<void> {
     }
 
     if (sdk.findInventoryItem(p.logs) && (invFull() || occupiedSlots() >= 27)) {
-        if (BANK_YEWS) {
+        if (WC_UNTIL > 0) {
+            intent(`Dropping ${p.id} logs (WC ${wc()}/${WC_UNTIL})`);
+            await dropLogs(p.logs);
+        } else if (BANK_YEWS) {
             await bankLogs();
         } else if (fletchingNow()) {
             await fletchInventory(p);
@@ -774,7 +917,7 @@ async function tick(): Promise<void> {
     }
 
     if (invFull() && !sdk.findInventoryItem(p.logs)) {
-        if (BANK_YEWS) await bankLogs();
+        if (BANK_YEWS || WC_UNTIL > 0) await bankLogs();
         else if (fletchingNow()) await bankProducts();
         else await depositJunk();
         return;
@@ -784,8 +927,9 @@ async function tick(): Promise<void> {
     await sdk.scanNearbyLocs(12).catch(() => {});
     let tree = findTree(p);
     if (!tree) {
+        const stand = chopStand(p);
         intent(`Waiting for ${p.id} to respawn`);
-        await walkNear(p.stand.x, p.stand.z, 3);
+        await walkNear(stand.x, stand.z, 3);
         await sdk.waitForTicks(4);
         tree = findTree(p);
     }
@@ -859,13 +1003,22 @@ try {
     await bot.skipTutorial();
     await closeUi();
     log(
-        `${BANK_YEWS ? 'Seers yew-bank' : 'Seers WC/FM'} start WC ${lastLoggedWc} FM ${lastLoggedFm} FL ${lastLoggedFl} Smith ${smithing()} @ ${pos().x},${pos().z}`
+        `${WC_UNTIL > 0 ? `Seers WC until ${WC_UNTIL}` : BANK_YEWS ? 'Seers yew-bank' : 'Seers WC/FM'} start WC ${lastLoggedWc} FM ${lastLoggedFm} FL ${lastLoggedFl} Smith ${smithing()} @ ${pos().x},${pos().z}`
     );
 
+    if (WC_UNTIL > 0 && wc() >= WC_UNTIL) {
+        session.stop('done', `WC ${wc()} — until ${WC_UNTIL}`);
+    } else if (WC_UNTIL > 0) {
+        await session.setPhase('axe');
+        const gotAxe = await ensureChopAxe();
+        log(`Axe: ${gotAxe ? (currentAxeName() ?? 'yes') : `none (${coins()}gp, will retry Bob)`}`);
+    }
+
+    if (!session.isStopped()) {
     await session.setPhase('travel');
     await walkToSeers();
 
-    if (!BANK_YEWS) {
+    if (!BANK_YEWS && !(WC_UNTIL > 0)) {
         await session.setPhase('smith');
         session.setAnchor(SEERS_ANVIL.x, SEERS_ANVIL.z);
         const smithed = await smithRuneAxe();
@@ -874,7 +1027,11 @@ try {
 
     await session.setPhase('tools');
     if (!(await ensureTools())) {
-        session.stop('setup', BANK_YEWS ? 'Could not get an axe' : 'Could not get axe + tinderbox');
+        if (WC_UNTIL > 0) {
+            log(`Tools still missing @ ${pos().x},${pos().z} — chop loop retries the axe`);
+        } else {
+            session.stop('setup', BANK_YEWS ? 'Could not get an axe' : 'Could not get axe + tinderbox');
+        }
     } else {
         log(
             `Tools axe=${currentAxeName() ?? 'none'} tinder=${!!sdk.findInventoryItem(TINDERBOX)} knife=${!!sdk.findInventoryItem(KNIFE)} phase=${phase().id}`
@@ -892,15 +1049,21 @@ try {
             continue;
         }
         logLevels();
-        if (!BANK_YEWS && wc() >= TARGET && fm() >= TARGET && fl() >= TARGET) {
+        if (WC_UNTIL > 0 && wc() >= WC_UNTIL) {
+            session.stop('done', `WC ${wc()} — until ${WC_UNTIL}`);
+            break;
+        }
+        if (!BANK_YEWS && !(WC_UNTIL > 0) && wc() >= TARGET && fm() >= TARGET && fl() >= TARGET) {
             session.stop('done', `WC ${wc()} FM ${fm()} FL ${fl()} — all 99`);
             break;
         }
         const p = phase();
-        const wantPhase = BANK_YEWS ? `chop_${p.id}` : fletchingNow() ? `fletch_${p.id}` : `burn_${p.id}`;
+        const wantPhase = chopOnly() ? `chop_${p.id}` : fletchingNow() ? `fletch_${p.id}` : `burn_${p.id}`;
         if (session.metrics().phase !== wantPhase) await session.setPhase(wantPhase);
-        session.setAnchor(p.stand.x, p.stand.z);
+        const stand = chopStand(p);
+        session.setAnchor(stand.x, stand.z);
         await tick();
+    }
     }
 
     const stop = session.metrics().stopReason;

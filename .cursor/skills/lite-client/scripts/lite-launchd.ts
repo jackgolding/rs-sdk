@@ -10,18 +10,22 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join, resolve } from 'path';
+import {
+    FRESH_STATE_MS,
+    hasForeignLiveSession,
+    type GatewaySnapshot,
+} from '../../../../sdk/gateway-state';
 import { assertOnlineWorktree } from '../../../scripts/offline-worktree';
 
 const ROOT = resolve(dirname(import.meta.path), '../../../..');
 const WEBCLIENT = join(ROOT, 'server/webclient');
 const USER_ID = process.getuid?.() ?? Number(Bun.spawnSync(['id', '-u']).stdout.toString().trim());
 const DOMAIN = `gui/${USER_ID}`;
-const BUN = Bun.which('bun');
+const BUN = Bun.which('bun') ?? (process.execPath.endsWith('/bun') ? process.execPath : null);
 const AGENTS_DIR = join(homedir(), 'Library', 'LaunchAgents');
 const LOG_DIR = join(homedir(), 'Library', 'Logs', 'rs-sdk-fleet');
 const LITE_PREFIX = 'com.rs-sdk.lite';
 const GRIND_PREFIX = 'com.rs-sdk.bot';
-const STAGGER_MS = 4_000;
 const WAIT_MS = 90_000;
 
 if (!BUN) throw new Error('bun is not available on PATH');
@@ -206,6 +210,27 @@ function statusUrl(name: string): string {
     return `https://${server}/status/${encodeURIComponent(name)}`;
 }
 
+async function fetchGatewayStatus(name: string): Promise<GatewaySnapshot | null> {
+    try {
+        const res = await fetch(statusUrl(name), { signal: AbortSignal.timeout(8000) });
+        if (!res.ok) return null;
+        return (await res.json()) as GatewaySnapshot;
+    } catch {
+        return null;
+    }
+}
+
+function liteRunnerActive(name: string): boolean {
+    return run(['pgrep', '-f', `src/lite/runner.ts ${name}`], true).ok;
+}
+
+async function foreignLiveSessionReason(name: string): Promise<string | null> {
+    const gw = await fetchGatewayStatus(name);
+    if (!hasForeignLiveSession(gw, { liteRunning: liteRunnerActive(name) })) return null;
+    const age = gw?.stateAge ?? 0;
+    return `already in-game with fresh gateway state (${age}ms old) — another client likely holds the session; stop it first`;
+}
+
 async function waitInGame(name: string, timeoutMs = WAIT_MS, requireLite = false): Promise<boolean> {
     const url = statusUrl(name);
     const start = Date.now();
@@ -217,8 +242,8 @@ async function waitInGame(name: string, timeoutMs = WAIT_MS, requireLite = false
         try {
             const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
             if (res.ok) {
-                const gw = (await res.json()) as { inGame?: boolean; status?: string; stateAge?: number };
-                if (gw.inGame && gw.status !== 'dead' && (gw.stateAge ?? 0) < 8000) return true;
+                const gw = (await res.json()) as GatewaySnapshot & { status?: string };
+                if (gw.inGame && gw.status !== 'dead' && (gw.stateAge ?? 0) < FRESH_STATE_MS) return true;
             }
         } catch {
             /* retry */
@@ -331,18 +356,25 @@ if (command === 'status') {
     if (list.length === 0) console.log('No lite launch agents installed');
     for (const name of list) printStatus(name);
 } else if (command === 'install' || command === 'start') {
-    for (let i = 0; i < names.length; i++) {
-        const name = names[i]!;
+    for (const name of names) {
+        const foreign = await foreignLiveSessionReason(name);
+        if (foreign) {
+            console.log(`${name}: skipping lite start — ${foreign}`);
+            continue;
+        }
         writeLiteAgent(name);
         if (!startLite(name)) failed = true;
-        if (names.length > 1 && i < names.length - 1) await Bun.sleep(STAGGER_MS);
     }
 } else if (command === 'stop') {
     for (const name of names) if (!stopLite(name)) failed = true;
 } else if (command === 'restart') {
-    for (let i = 0; i < names.length; i++) {
-        if (!restartLite(names[i]!)) failed = true;
-        if (names.length > 1 && i < names.length - 1) await Bun.sleep(STAGGER_MS);
+    for (const name of names) {
+        const foreign = await foreignLiveSessionReason(name);
+        if (foreign) {
+            console.log(`${name}: skipping lite restart — ${foreign}`);
+            continue;
+        }
+        if (!restartLite(name)) failed = true;
     }
 } else if (command === 'uninstall') {
     for (const name of names) {
@@ -351,43 +383,60 @@ if (command === 'status') {
         console.log(`${name}: lite launch agent removed`);
     }
 } else if (command === 'to-lite') {
-    const moved: string[] = [];
-    for (let i = 0; i < names.length; i++) {
-        const name = names[i]!;
+    const started: string[] = [];
+    for (const name of names) {
+        const foreign = await foreignLiveSessionReason(name);
+        if (foreign) {
+            console.log(`${name}: skipping to-lite — ${foreign}`);
+            continue;
+        }
         writeLiteAgent(name);
         if (isLoaded(liteLabel(name))) {
-            if (!restartLite(name)) failed = true;
+            if (!restartLite(name)) {
+                failed = true;
+                continue;
+            }
         } else if (!startLite(name)) {
             failed = true;
             continue;
         }
-        const ok = await waitInGame(name, WAIT_MS, true);
-        if (!ok) {
-            console.log(`${name}: lite did not reach in-game within ${WAIT_MS / 1000}s — grind not restarted`);
-            failed = true;
-            continue;
-        }
-        console.log(`${name}: lite in-game`);
-        restartGrind(name);
-        moved.push(name);
-        if (names.length > 1 && i < names.length - 1) await Bun.sleep(STAGGER_MS);
+        started.push(name);
     }
+    const moved = (
+        await Promise.all(
+            started.map(async (name) => {
+                const ok = await waitInGame(name, WAIT_MS, true);
+                if (!ok) {
+                    console.log(`${name}: lite did not reach in-game within ${WAIT_MS / 1000}s — grind not restarted`);
+                    failed = true;
+                    return null;
+                }
+                console.log(`${name}: lite in-game`);
+                restartGrind(name);
+                return name;
+            })
+        )
+    ).filter((name): name is string => name != null);
     if (moved.length) closeChromeTabs(moved);
 } else if (command === 'to-chrome') {
-    for (let i = 0; i < names.length; i++) {
-        const name = names[i]!;
+    const started: string[] = [];
+    for (const name of names) {
         stopLite(name);
         openChrome(name);
-        const ok = await waitInGame(name);
-        if (!ok) {
-            console.log(`${name}: Chrome did not reach in-game within ${WAIT_MS / 1000}s — grind not restarted`);
-            failed = true;
-            continue;
-        }
-        console.log(`${name}: Chrome in-game`);
-        restartGrind(name);
-        if (names.length > 1 && i < names.length - 1) await Bun.sleep(STAGGER_MS);
+        started.push(name);
     }
+    await Promise.all(
+        started.map(async (name) => {
+            const ok = await waitInGame(name);
+            if (!ok) {
+                console.log(`${name}: Chrome did not reach in-game within ${WAIT_MS / 1000}s — grind not restarted`);
+                failed = true;
+                return;
+            }
+            console.log(`${name}: Chrome in-game`);
+            restartGrind(name);
+        })
+    );
 }
 
 if (failed) process.exitCode = 1;

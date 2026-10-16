@@ -1,0 +1,41 @@
+name: fleet-pilot-deploy
+
+# Push-to-deploy for the VPS pilot. No container registry: the box builds
+# from git (build on deploy keeps the pilot to SSH + Compose fundamentals;
+# ghcr.io push/pull is the phase-2 upgrade — see infra/pilot/README.md).
+on:
+  push:
+    branches: [infra/vps-pilot]
+    paths:
+      - "bots/quests/**"
+      - "sdk/**"
+      - "server/webclient/**"
+      - "infra/pilot/**"
+      - ".github/workflows/fleet-pilot-deploy.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }} # root
+          key: ${{ secrets.VPS_SSH_KEY }} # passwordless ~/.ssh/fleet-actions, never the personal key
+          # Quest drains run to the 700s stop_grace_period; 10m (action default)
+          # kills mid-rollout and strands new containers in Created.
+          command_timeout: 25m
+          script: |
+            set -e
+            cd /srv/fleet/repo
+            git fetch origin
+            git checkout infra/vps-pilot
+            git pull --ff-only origin infra/vps-pilot
+            cd infra/pilot
+            # One build, not 96: every service shares the same image, and a
+            # per-service build fans out 96 concurrent buildx jobs that
+            # cancel each other on a small box.
+            docker build -t fleet-pilot:latest -f Dockerfile ../..
+            docker compose -f compose.fleet.yml up -d --remove-orphans
+            docker compose -f compose.fleet.yml ps

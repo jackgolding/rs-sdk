@@ -7,7 +7,7 @@ alwaysApply: true
 
 `bots/roster.json` is the only list of bots and default jobs. `fleet-status.ts`, `fleet-launchd.ts`, and `bots/watch-fleet.sh` must read it via `roster.ts`. Do not add a second `FLEET` / `DEFAULT_CMD` array.
 
-Restart command, most-trusted first: live `argv` → `bots/{name}/assignment.json` → roster default. Never guess the job from `grind.log` text (`inferCommand` was deleted for a reason). `runScript` and `ActivitySession` (when `grindLogPath` is set) write that assignment on start.
+Restart command: the roster always wins. Live or recorded jobs that differ are drift, shown by `fleet-status`, and are not what `fleet-launchd` runs. Never guess the job from `grind.log` text (`inferCommand` / `resolveCommand` were deleted for a reason). Ownership is written by `BotSDK.connect` in control mode; `assignment.json` is not a restart source.
 
 Long-running grind jobs go through launchd (`fleet-launchd.ts start|restart`), not a Cursor-shell `bun` / `nohup`. Classify with `fleet-status.ts` and trust `command` / `commandSource`.
 
@@ -18,3 +18,5 @@ Do not `readFileSync` whole `grind.log` files (they can be gigabytes). Tail with
 Shared loops live in `bots/quests/` (helpers in `movement.ts` / `tiles.ts`). Prefer one script + argv over copying a 2k-line route per character. Overnight grinds use `ActivitySession` so every grind-log line has `LOG` / `WARN` / `ERROR`.
 
 Track bot scripts in git. Ignore only `bots/**/bot.env`, `*.log`, `*.pid`, and `assignment.json` — never `bots/*/`.
+
+Gateway: one game client (lite or Chrome) + one SDK controller per bot; last controller wins. `fleet-status` coords are gateway snapshots — trust manual play over stale `stateAge`. See `learnings/gateway-fleet.md`. Manual Chrome → stop lite, kill script controllers, `skip-bots.txt`. One fleet-wide accept/converge loop, not overlapping copies.

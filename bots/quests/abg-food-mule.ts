@@ -439,7 +439,7 @@ await runScript(async ({ bot, sdk }) => {
     async function openCatherbyBank(): Promise<boolean> {
         if (sdk.getState()?.bank?.isOpen) return true;
         await openNearbyDoors();
-        if (distTo(CATHERBY_BANK.x, CATHERBY_BANK.z) > 10) {
+        if (pos().z < 3440 || distTo(CATHERBY_BANK.x, CATHERBY_BANK.z) > 10) {
             log(`Rushing pier → bank @ ${pos().x},${pos().z}`);
             await walkWaypoints(PIER_TO_BANK);
         }
@@ -683,12 +683,13 @@ await runScript(async ({ bot, sdk }) => {
                 from: FISH_GIVERS,
                 give: [],
                 want: [{ item: CARGO, amount: 1 }],
-                maxTrades: 1,
+                maxTrades: 4,
                 timeout: 75_000,
                 tradeTimeout: 90_000
             });
-            if (served.trades.some((t) => t.success)) {
-                trades++;
+            const successCount = served.trades.filter((t) => t.success).length;
+            if (successCount > 0) {
+                trades += successCount;
                 idleRounds = 0;
                 log(`Collect trade ${trades} ok | now ${cargoSummary()}`);
                 continue;

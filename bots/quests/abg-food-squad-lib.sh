@@ -14,21 +14,19 @@ start_bot() { bun "$LAUNCHD" start "$1" >>"$ORCH_LOG" 2>&1 || true; }
 stop_fishing_grind() {
   local name="$1"
   stop_bot "$name"
-  pkill -f "fishing-route.ts ${name}" 2>/dev/null || true
+  pkill -9 -f "fishing-route.ts ${name}" 2>/dev/null || true
+  pkill -9 -f "catherby-cook-bank.ts ${name}" 2>/dev/null || true
+  pkill -9 -f "bots/${name}/script.ts" 2>/dev/null || true
 }
 
 stop_all_jacklove_grinds() {
   local n remaining
   for n in $(seq 1 20); do stop_fishing_grind "jacklove$n"; done
   sleep 3
-  pkill -f 'bots/quests/fishing-route.ts jacklove' 2>/dev/null || true
-  sleep 5
-  remaining=$(pgrep -fc 'fishing-route.ts jacklove' 2>/dev/null || echo 0)
-  if [[ "$remaining" -gt 0 ]]; then
-    log "WARN: ${remaining} jacklove fishing-route still up — SIGKILL"
-    pkill -9 -f 'fishing-route.ts jacklove' 2>/dev/null || true
-    sleep 2
-  fi
+  pkill -9 -f 'fishing-route.ts jacklove' 2>/dev/null || true
+  pkill -9 -f 'catherby-cook-bank.ts jacklove' 2>/dev/null || true
+  pkill -9 -f 'bots/jacklove.*/script.ts' 2>/dev/null || true
+  sleep 2
 }
 
 kill_receive() {
@@ -86,13 +84,17 @@ run_food_squad() {
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$mule] DEADLINE — stopping mule"
         break
       fi
-      kill -0 "$mule_pid" 2>/dev/null || break
+      if ! kill -0 "$mule_pid" 2>/dev/null; then
+        break
+      fi
       sleep 5
       waited=$((waited + 5))
     done
     sleep 3
     kill_receive "${targets[@]}"
-    kill -0 "$mule_pid" 2>/dev/null && kill "$mule_pid" 2>/dev/null || true
+    if kill -0 "$mule_pid" 2>/dev/null; then
+      kill "$mule_pid" 2>/dev/null || true
+    fi
 
     for t in "${targets[@]}"; do
       if receive_ok "${LOG_DIR}/${t}-food.log"; then
@@ -100,11 +102,15 @@ run_food_squad() {
       else
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$mule] MISS $t — $(tail -1 "${LOG_DIR}/${t}-food.log" 2>/dev/null || echo no log)"
       fi
-      if [[ "$t" =~ ^ABGARMY || "$t" == "Jackpoo3" || "$t" == "fatpig" ]]; then
-        start_bot "$t"
+      if [[ "${NO_RESTORE_ROSTER:-false}" != "true" ]]; then
+        if [[ "$t" =~ ^ABGARMY || "$t" == "Jackpoo3" || "$t" == "fatpig" ]]; then
+          start_bot "$t"
+        fi
       fi
     done
-    start_bot "$mule"
+    if [[ "${NO_RESTORE_ROSTER:-false}" != "true" ]]; then
+      start_bot "$mule"
+    fi
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$mule] squad done"
   } >>"$squad_log" 2>&1
 }

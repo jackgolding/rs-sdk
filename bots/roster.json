@@ -9,67 +9,436 @@
         ".cursor/skills/wake-fleet/skip-bots.txt."
     ],
     "views": [
-        { "name": "fleet", "columns": 4 },
-        { "name": "loves", "columns": 5 },
-        { "name": "army", "columns": 5 }
+        {
+            "name": "fleet",
+            "columns": 4
+        },
+        {
+            "name": "loves",
+            "columns": 5
+        },
+        {
+            "name": "army",
+            "columns": 5
+        }
     ],
     "bots": [
-        { "name": "Jackpoo1", "view": "fleet", "script": "bots/quests/magic-trees.ts", "args": ["Jackpoo1"] },
-        { "name": "Jackpoo2", "view": "fleet", "script": "bots/quests/doric-iron-knives.ts", "args": ["Jackpoo2"] },
-        { "name": "Jackpoo3", "view": "fleet", "script": "bots/quests/thieving-route.ts", "args": ["Jackpoo3"] },
-
-        { "name": "Jackpoo4", "view": "fleet", "script": "bots/quests/mining-guild.ts", "args": ["Jackpoo4", "--coal-only"] },
-        { "name": "Jackpoo5", "view": "fleet", "script": "bots/quests/mining-guild.ts", "args": ["Jackpoo5", "--coal-only"] },
-        { "name": "fatpig", "view": "fleet", "script": "bots/quests/fishing-route.ts", "args": ["fatpig", "--shark"] },
-
-        { "name": "jacklove1", "view": "fleet", "script": "bots/quests/fishing-route.ts", "args": ["jacklove1", "--shark"] },
-        { "name": "jacklove2", "view": "fleet", "script": "bots/quests/fishing-route.ts", "args": ["jacklove2", "--shark"] },
-        { "name": "jacklove3", "view": "fleet", "script": "bots/quests/fishing-route.ts", "args": ["jacklove3", "--shark"] },
-
-        { "name": "jacklove4", "view": "fleet", "script": "bots/quests/fishing-route.ts", "args": ["jacklove4", "--shark"] },
-        { "name": "jacklove5", "view": "fleet", "script": "bots/quests/fishing-route.ts", "args": ["jacklove5", "--shark"] },
-        { "name": "jackthief", "view": "fleet", "script": "bots/quests/green-dragons.ts", "args": ["jackthief"] },
-
-        { "name": "jacklove6", "view": "loves", "script": "bots/quests/fishing-route.ts", "args": ["jacklove6", "--shark"] },
-        { "name": "jacklove7", "view": "loves", "script": "bots/quests/fishing-route.ts", "args": ["jacklove7", "--shark"] },
-        { "name": "jacklove8", "view": "loves", "script": "bots/quests/fishing-route.ts", "args": ["jacklove8", "--shark"] },
-        { "name": "jacklove9", "view": "loves", "script": "bots/quests/fishing-route.ts", "args": ["jacklove9", "--shark"] },
-        { "name": "jacklove10", "view": "loves", "script": "bots/quests/fishing-route.ts", "args": ["jacklove10", "--shark"] },
-
-        { "name": "jacklove11", "view": "loves", "script": "bots/quests/fishing-route.ts", "args": ["jacklove11", "--shark"] },
-        { "name": "jacklove12", "view": "loves", "script": "bots/quests/fishing-route.ts", "args": ["jacklove12", "--shark"] },
-        { "name": "jacklove13", "view": "loves", "script": "bots/quests/fishing-route.ts", "args": ["jacklove13", "--shark"] },
-        { "name": "jacklove14", "view": "loves", "script": "bots/quests/fishing-route.ts", "args": ["jacklove14", "--shark"] },
-        { "name": "jacklove15", "view": "loves", "script": "bots/quests/fishing-route.ts", "args": ["jacklove15", "--shark"] },
-
-        { "name": "jacklove16", "view": "loves", "script": "bots/quests/fishing-route.ts", "args": ["jacklove16", "--shark"] },
-        { "name": "jacklove17", "view": "loves", "script": "bots/quests/fishing-route.ts", "args": ["jacklove17", "--shark"] },
-        { "name": "jacklove18", "view": "loves", "script": "bots/quests/fishing-route.ts", "args": ["jacklove18", "--shark"] },
-        { "name": "jacklove19", "view": "loves", "script": "bots/quests/fishing-route.ts", "args": ["jacklove19", "--shark"] },
-        { "name": "jacklove20", "view": "loves", "script": "bots/quests/fishing-route.ts", "args": ["jacklove20", "--shark"] },
-
-        { "name": "ABGARMY01", "view": "army", "script": "bots/quests/abg-food-loot-mule.ts", "args": ["ABGARMY01"], "bursty": true },
-        { "name": "ABGARMY02", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY02"] },
-        { "name": "ABGARMY03", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY03"] },
-        { "name": "ABGARMY04", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY04"] },
-
-        { "name": "ABGARMY05", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY05"] },
-        { "name": "ABGARMY07", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY07"] },
-        { "name": "ABGARMY08", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY08"] },
-
-        { "name": "ABGARMY09", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY09"] },
-        { "name": "ABGARMY10", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY10"] },
-        { "name": "ABGARMY11", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY11"] },
-        { "name": "ABGARMY12", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY12"] },
-
-        { "name": "ABGARMY13", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY13"] },
-        { "name": "ABGARMY14", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY14"] },
-        { "name": "ABGARMY15", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY15"] },
-        { "name": "ABGARMY16", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY16"] },
-
-        { "name": "ABGARMY17", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY17"] },
-        { "name": "ABGARMY18", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY18"] },
-        { "name": "ABGARMY19", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY19"] },
-        { "name": "ABGARMY20", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY20"] }
+        {
+            "name": "Jackpoo1",
+            "view": "fleet",
+            "script": "bots/quests/agility-route.ts",
+            "args": [
+                "Jackpoo1"
+            ]
+        },
+        {
+            "name": "Jackpoo2",
+            "view": "fleet",
+            "script": "bots/quests/agility-route.ts",
+            "args": [
+                "Jackpoo2"
+            ]
+        },
+        {
+            "name": "Jackpoo3",
+            "view": "fleet",
+            "script": "bots/quests/agility-route.ts",
+            "args": [
+                "Jackpoo3"
+            ]
+        },
+        {
+            "name": "Jackpoo4",
+            "view": "fleet",
+            "script": "bots/quests/agility-route.ts",
+            "args": [
+                "Jackpoo4"
+            ]
+        },
+        {
+            "name": "Jackpoo5",
+            "view": "fleet",
+            "script": "bots/quests/agility-route.ts",
+            "args": [
+                "Jackpoo5"
+            ]
+        },
+        {
+            "name": "fatpig",
+            "view": "fleet",
+            "script": "bots/quests/bowstrings.ts",
+            "args": [
+                "fatpig"
+            ]
+        },
+        {
+            "name": "jacklove1",
+            "view": "fleet",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove1",
+                "--shark"
+            ]
+        },
+        {
+            "name": "jacklove2",
+            "view": "fleet",
+            "script": "bots/quests/red-dragons.ts",
+            "args": [
+                "jacklove2",
+                "--tank=jacklove5",
+                "--lead=jacklove5"
+            ]
+        },
+        {
+            "name": "jacklove3",
+            "view": "fleet",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove3",
+                "--shark"
+            ]
+        },
+        {
+            "name": "jacklove4",
+            "view": "fleet",
+            "script": "bots/quests/lost-city.ts",
+            "args": [
+                "jacklove4"
+            ]
+        },
+        {
+            "name": "jacklove5",
+            "view": "fleet",
+            "script": "bots/quests/red-dragons.ts",
+            "args": [
+                "jacklove5",
+                "--tank=jacklove5",
+                "--lead=jacklove5"
+            ]
+        },
+        {
+            "name": "jackthief",
+            "view": "fleet",
+            "script": "bots/quests/dorics-quest.ts",
+            "args": [
+                "jackthief"
+            ]
+        },
+        {
+            "name": "pigfat",
+            "view": "fleet",
+            "script": "bots/quests/quest-mule.ts",
+            "args": [
+                "pigfat",
+                "--stock"
+            ]
+        },
+        {
+            "name": "jacklove6",
+            "view": "loves",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove6",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "jacklove7",
+            "view": "loves",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove7",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "jacklove8",
+            "view": "loves",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove8",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "jacklove9",
+            "view": "loves",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove9",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "jacklove10",
+            "view": "loves",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove10",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "jacklove11",
+            "view": "loves",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove11",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "jacklove12",
+            "view": "loves",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove12",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "jacklove13",
+            "view": "loves",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove13",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "jacklove14",
+            "view": "loves",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove14",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "jacklove15",
+            "view": "loves",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove15",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "jacklove16",
+            "view": "loves",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove16",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "jacklove17",
+            "view": "loves",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove17",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "jacklove18",
+            "view": "loves",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove18",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "jacklove19",
+            "view": "loves",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove19",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "jacklove20",
+            "view": "loves",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "jacklove20",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "ABGARMY01",
+            "view": "army",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "ABGARMY01",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "ABGARMY02",
+            "view": "army",
+            "script": "bots/quests/thieving-route.ts",
+            "args": [
+                "ABGARMY02"
+            ]
+        },
+        {
+            "name": "ABGARMY03",
+            "view": "army",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "ABGARMY03",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "ABGARMY04",
+            "view": "army",
+            "script": "bots/quests/thieving-route.ts",
+            "args": [
+                "ABGARMY04"
+            ]
+        },
+        {
+            "name": "ABGARMY05",
+            "view": "army",
+            "script": "bots/quests/thieving-route.ts",
+            "args": [
+                "ABGARMY05"
+            ]
+        },
+        {
+            "name": "ABGARMY06",
+            "view": "army",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "ABGARMY06",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "ABGARMY07",
+            "view": "army",
+            "script": "bots/quests/thieving-route.ts",
+            "args": [
+                "ABGARMY07"
+            ]
+        },
+        {
+            "name": "ABGARMY08",
+            "view": "army",
+            "script": "bots/quests/thieving-route.ts",
+            "args": [
+                "ABGARMY08"
+            ]
+        },
+        {
+            "name": "ABGARMY09",
+            "view": "army",
+            "script": "bots/quests/thieving-route.ts",
+            "args": [
+                "ABGARMY09"
+            ]
+        },
+        {
+            "name": "ABGARMY10",
+            "view": "army",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "ABGARMY10",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "ABGARMY11",
+            "view": "army",
+            "script": "bots/quests/thieving-route.ts",
+            "args": [
+                "ABGARMY11"
+            ]
+        },
+        {
+            "name": "ABGARMY12",
+            "view": "army",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "ABGARMY12",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "ABGARMY13",
+            "view": "army",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "ABGARMY13",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "ABGARMY14",
+            "view": "army",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "ABGARMY14",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "ABGARMY15",
+            "view": "army",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "ABGARMY15",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "ABGARMY16",
+            "view": "army",
+            "script": "bots/quests/thieving-route.ts",
+            "args": [
+                "ABGARMY16"
+            ]
+        },
+        {
+            "name": "ABGARMY17",
+            "view": "army",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "ABGARMY17",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "ABGARMY18",
+            "view": "army",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "ABGARMY18",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "ABGARMY19",
+            "view": "army",
+            "script": "bots/quests/fishing-route.ts",
+            "args": [
+                "ABGARMY19",
+                "--bignet"
+            ]
+        },
+        {
+            "name": "ABGARMY20",
+            "view": "army",
+            "script": "bots/quests/thieving-route.ts",
+            "args": [
+                "ABGARMY20"
+            ]
+        }
     ]
 }

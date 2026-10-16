@@ -59,7 +59,7 @@ run_food_squad() {
 log "=== food all thieves, loot → fatpig, restart ==="
 
 run_food_squad jacklove1 ABGARMY01 ABGARMY02 ABGARMY03 ABGARMY04 ABGARMY05
-run_food_squad jacklove2 ABGARMY07 ABGARMY08 ABGARMY09 ABGARMY10
+run_food_squad jacklove2 ABGARMY06 ABGARMY07 ABGARMY08 ABGARMY09 ABGARMY10
 run_food_squad jacklove3 ABGARMY11 ABGARMY12 ABGARMY13 ABGARMY14 ABGARMY15
 run_food_squad jacklove4 ABGARMY16 ABGARMY17 ABGARMY18 ABGARMY19 ABGARMY20
 run_food_squad jacklove5 Jackpoo3 fatpig

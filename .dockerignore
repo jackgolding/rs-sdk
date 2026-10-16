@@ -1,0 +1,16 @@
+# Repo-root builds (infra/pilot/Dockerfile, context = repo root) ship ONLY:
+# sdk/, server/webclient/ (manifest + src), and bots/quests/.
+# Everything else is excluded to keep the context small — and so secrets
+# (bots/*/bot.env) can NEVER bake into an image layer.
+.git/
+.cursor/session-notes/
+.github/
+**/node_modules/
+server/engine/
+server/gateway/
+server/content/
+server/webclient/out/
+bots/*/bot.env
+**/*.log
+**/*.sqlite*
+**/.DS_Store

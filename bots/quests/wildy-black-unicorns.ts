@@ -13,6 +13,7 @@ import { findLongPath, initPathfinding } from '../../sdk/pathfinding';
 import { EDGEVILLE } from './tiles';
 import { closeUi } from './movement';
 import { foodHeal, needsBankHeal } from './food-heal';
+import { installGracefulShutdown } from '../../sdk/runner';
 
 const CAMP = { x: 3216, z: 3676 };
 const DITCH_NORTH = { x: 3195, z: 3525 };
@@ -93,6 +94,8 @@ const session = new ActivitySession(sdk, bot, {
     stallMs: 180_000,
     maxRecoveryTactics: 8
 });
+
+installGracefulShutdown({ graceMs: 30_000 });
 
 let quiverEmpty = false;
 let lastRange = 0;
