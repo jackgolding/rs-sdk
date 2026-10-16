@@ -20,6 +20,8 @@ import { MAX_RESTARTS_PER_HOUR } from '../../.cursor/skills/wake-fleet/scripts/f
 import { findBot, invalidateRosterCache, ROOT, rosterBots } from '../../.cursor/skills/wake-fleet/scripts/roster';
 import { supervisorKind } from '../../.cursor/skills/wake-fleet/scripts/supervisor';
 import { areaName } from './areas';
+import { activityLabel } from './activity';
+import { buildLiteScene } from './scene';
 import { assignRosterScript, scriptError, setSkipList } from './roster-edit';
 import { tailFile } from './tail';
 
@@ -394,11 +396,14 @@ async function buildFleet(): Promise<unknown> {
     const byName = new Map(roster.map((bot) => [bot.name, bot]));
     const bots = rows.map((row) => {
         const bot = byName.get(row.name);
+        const extra = bot ? extraArgs(row.name, bot.args) : '';
+        const lastLogLine = tailFile(LOGS.grind(row.name), 1).at(-1) ?? null;
         return {
             name: row.name,
             view: bot?.view ?? '',
             script: bot?.script ?? '',
-            extra: bot ? extraArgs(row.name, bot.args) : '',
+            extra,
+            activity: activityLabel({ script: bot?.script ?? '', extra, paused: row.paused, lastLogLine }),
             command: bot?.command ?? row.restartCommand,
             paused: row.paused,
             pauseSource: bot?.pauseSource ?? null,
@@ -635,6 +640,20 @@ async function handle(req: Request): Promise<Response> {
             capturedAt,
             stale: ageMs != null && ageMs > STALE_BANK_MS,
             items: (live ?? snap?.items ?? []).map((item) => ({ name: item.name, count: item.count })),
+        });
+    }
+
+    if (req.method === 'GET' && action === 'scene') {
+        const { state, stateAge } = await readLiveState(name);
+        if (!state.player) throw new HttpError(502, `${name} has no player state. The client may be logged out.`);
+        return json({
+            name,
+            stateAge,
+            area:
+                state.player.worldX != null && state.player.worldZ != null
+                    ? areaName(state.player.worldX, state.player.worldZ)
+                    : null,
+            scene: buildLiteScene(state, { stateAgeMs: stateAge }),
         });
     }
 

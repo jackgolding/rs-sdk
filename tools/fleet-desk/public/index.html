@@ -257,6 +257,7 @@
   .note { color: var(--muted); margin: 0 0 10px; }
   .who { margin: 0 0 6px; white-space: normal; }
   .scene-line { padding: 3px 0; border-bottom: 1px solid var(--line); white-space: normal; }
+  .minimap { display: block; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; }
   .scene-line span { color: var(--muted); }
   .split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; align-items: start; }
   .block h3 { margin: 8px 0 4px; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
@@ -712,7 +713,7 @@ function visibleBots() {
     if (kind === 'producing' && bot.kind !== 'producing') return false;
     if (kind === 'paused' && bot.kind !== 'paused') return false;
     if (!q) return true;
-    return [bot.name, bot.view, bot.kind, bot.reason, bot.script, bot.extra, bot.area].join(' ').toLowerCase().includes(q);
+    return [bot.name, bot.view, bot.kind, bot.reason, bot.script, bot.extra, bot.activity, bot.area].join(' ').toLowerCase().includes(q);
   });
 }
 
@@ -830,6 +831,7 @@ function renderFleet(opts) {
     }
     const account = el('td', { class: 'account' }, [
       el('div', { class: 'name', title: `${bot.kind}: ${bot.reason}` }, nameBits),
+      bot.activity ? el('div', { class: 'sub-line', text: bot.activity, title: bot.activity }) : el('span'),
     ]);
     const rate = rates(bot);
     const effectNote = bot.minutesSinceEffect == null ? 'no effect yet' : `effect ${bot.minutesSinceEffect}m ago`;
@@ -1189,7 +1191,68 @@ function moreRows(rows, total) {
   return rows.length ? sceneRows(rows) : el('p', { class: 'note', text: 'None' });
 }
 
-function renderChrome(body) {
+function renderScene(body) {
+  if (body.error || !body.scene?.me) {
+    return el('p', { class: 'note', text: body.error ? `Map: ${body.error}` : 'Map: no player state' });
+  }
+  const scene = body.scene;
+  const RANGE = 20;
+  const SIZE = 320;
+  const scale = SIZE / (RANGE * 2 + 2);
+  const canvas = el('canvas', { class: 'minimap', width: SIZE, height: SIZE });
+  const ctx = canvas.getContext('2d');
+  const dot = (x, z) => [(x - scene.me.x + RANGE + 1) * scale, (z - scene.me.z + RANGE + 1) * scale];
+  ctx.fillStyle = '#101014';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  ctx.strokeStyle = '#2a2a33';
+  ctx.lineWidth = 1;
+  for (let g = -RANGE; g <= RANGE; g += 5) {
+    const [ax] = dot(scene.me.x + g, scene.me.z);
+    const [, bz] = dot(scene.me.x, scene.me.z + g);
+    ctx.beginPath(); ctx.moveTo(ax, 0); ctx.lineTo(ax, SIZE); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, bz); ctx.lineTo(SIZE, bz); ctx.stroke();
+  }
+  for (const loc of scene.locs || []) {
+    const [x, y] = dot(loc.x, loc.z);
+    ctx.fillStyle = '#4caf50';
+    ctx.fillRect(x - 2, y - 2, 4, 4);
+  }
+  for (const g of scene.ground || []) {
+    const [x, y] = dot(g.x, g.z);
+    ctx.fillStyle = '#ffd54f';
+    ctx.fillRect(x - 1, y - 1, 2, 2);
+  }
+  for (const o of scene.players || []) {
+    const [x, y] = dot(o.x, o.z);
+    ctx.fillStyle = '#64b5f6';
+    ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+  }
+  for (const n of scene.npcs || []) {
+    const [x, y] = dot(n.x, n.z);
+    ctx.fillStyle = n.fight ? '#ff7043' : '#e53935';
+    ctx.beginPath(); ctx.arc(x, y, 2 + Math.min(n.sz || 1, 3), 0, Math.PI * 2); ctx.fill();
+  }
+  const [mx, my] = dot(scene.me.x, scene.me.z);
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(mx, my, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(mx, my, 7, 0, Math.PI * 2); ctx.stroke();
+  const nearNames = (scene.npcs || []).slice(0, 4).map((n) => n.n);
+  const caption = [
+    `${scene.me.x}, ${scene.me.z}`,
+    `NPCs ${scene.npcs.length}`,
+    `Players ${scene.players.length}`,
+    body.stateAge > 8000 ? 'stale snapshot' : '',
+    nearNames.length ? nearNames.join(' · ') : '',
+  ].filter(Boolean).join('  ·  ');
+  canvas.title = caption;
+  return el('div', {}, [
+    canvas,
+    el('p', { class: 'note', text: caption }),
+  ]);
+}
+
+function renderChrome(body, sceneBody) {
   if (body.error) return [el('p', { text: body.error })];
   const view = body.view;
   if (!view) return [el('pre', { text: body.text || 'No state' })];
@@ -1222,6 +1285,7 @@ function renderChrome(body) {
   return [
     el('p', { class: 'who', text: where }),
     flags.length ? el('p', { class: 'note', text: flags.join(' · ') }) : el('span'),
+    block('Map', renderScene(sceneBody || {})),
     liveSkills(view.skills),
     el('div', { class: 'split' }, [
       block(`Inventory ${inventory.length}`, inventory.length ? itemTable(inventory) : el('p', { class: 'note', text: 'Empty' })),
@@ -1238,14 +1302,18 @@ function renderChrome(body) {
 }
 
 async function openState(name) {
-  const paint = (payload) => {
-    $('panel-body').replaceChildren(...renderChrome(payload));
+  const paint = (payload, scene) => {
+    $('panel-body').replaceChildren(...renderChrome(payload, scene));
   };
   const load = async () => {
     $('panel-body').replaceChildren(el('p', { class: 'note', text: 'Loading…' }));
-    const res = await fetch(`/api/bots/${encodeURIComponent(name)}/state`);
+    const [res, sceneRes] = await Promise.all([
+      fetch(`/api/bots/${encodeURIComponent(name)}/state`),
+      fetch(`/api/bots/${encodeURIComponent(name)}/scene`),
+    ]);
     const payload = await res.json();
-    paint(payload);
+    const scene = await sceneRes.json().catch(() => ({}));
+    paint(payload, sceneRes.ok ? scene : { error: scene.error || 'Map failed' });
     return payload;
   };
   let payload = null;

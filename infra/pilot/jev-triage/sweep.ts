@@ -154,6 +154,9 @@ async function routerVerdicts(
   // OpenRouter fallback: chat-shaped typesafe/jev-router, one call per sweep.
   // Key read at runtime from env (source ~/.zshrc before running) — never in
   // chat, logs, git, or compose.
+  // 2026-10-16 finding: mechanically works, but the routed backend (e.g.
+  // glm-flash, not Jev) escalates healthy bots — too cautious for triage.
+  // Native JEV_API_KEY stays the recommended live path.
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) {
     console.error("live-router requested but OPENROUTER_API_KEY is unset — falling back to dry.");
@@ -161,13 +164,16 @@ async function routerVerdicts(
   }
   const lines = bots.map(({ bot, s }) => {
     const gw = s.gw as Record<string, unknown> | null;
-    return `- ${bot}: status=${gw?.status ?? "unknown"} inGame=${gw?.inGame === true} controllers=${Array.isArray(gw?.controllers) ? (gw.controllers as unknown[]).length : 0} grindAgeS=${s.grindAge ?? "unknown"} tail=${JSON.stringify(s.tail.slice(-2))}`;
+    const ctrls = Array.isArray(gw?.controllers) ? (gw.controllers as unknown[]).length : 0;
+    const ageM = s.grindAge == null ? "unknown" : Math.round(s.grindAge / 60) + "m";
+    return `- ${bot}: status=${gw?.status ?? "unknown"} inGame=${gw?.inGame === true} controllers=${ctrls} grindAge=${ageM} tail=${JSON.stringify(s.tail.slice(-2))}`;
   });
   const sys =
     "You triage Runescape fleet bots. Reply with ONE line of JSON: an array with one object per bot, in order: " +
     '{"choice":"healthy|restartable|needs-relogin|needs-restat|escalate-human","urgency":"ignore|routine|now|critical","safe":true|false,"conf":0-1}. ' +
-    "healthy=producing leave alone. restartable=in-game no controller, safe to restart. needs-relogin=session dead. " +
-    "needs-restat=controller attached but stale log. escalate-human=capped, skipped, or unclear, never restart. No other text.";
+    "Default to healthy when inGame with >=1 controller and grindAge under 15m. " +
+    "restartable=in-game with 0 controllers, safe to restart. needs-relogin=status dead or not inGame. " +
+    "needs-restat=controller attached BUT grindAge over 15m. escalate-human=unclear data, never restart. No other text.";
   try {
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -179,13 +185,15 @@ async function routerVerdicts(
           { role: "user", content: `Triage these bots:\n${lines.join("\n")}` },
         ],
         temperature: 0,
-        max_tokens: 600,
+        max_tokens: 2000,
+        reasoning: { max_tokens: 100 },
       }),
       signal: AbortSignal.timeout(90000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const raw = data.choices?.[0]?.message?.content ?? "";
+    if (!raw || !raw.includes("[")) throw new Error("empty/non-JSON model content (reasoning model?)");
     const arr = JSON.parse(raw.slice(raw.indexOf("["), raw.lastIndexOf("]") + 1)) as {
       choice?: Choice; urgency?: Urgency; safe?: boolean; conf?: number;
     }[];
@@ -255,21 +263,40 @@ const collected = [];
 for (const bot of names) {
   collected.push({ bot, s: await botState(bot) });
 }
-let verdicts: Verdict[];
-if (live) {
-  const lv = useRouter ? await routerVerdicts(collected) : await liveVerdicts(collected);
-  if (lv) {
-    verdicts = lv;
+// Skipped/capped bots never reach the model — deterministic escalate-human.
+const gateOf = (bot: string) => ({
+  skipped: skipList.includes(bot.toLowerCase()),
+  restartsLastHour: (shepherdState.bots?.[bot]?.restarts ?? []).filter((t) => nowS - t < 3600).length,
+});
+const gated = new Map<string, Verdict>();
+const modelSet: { bot: string; s: Awaited<ReturnType<typeof botState>> }[] = [];
+for (const { bot, s } of collected) {
+  const g = gateOf(bot);
+  if (g.skipped || g.restartsLastHour >= RESTART_CAP) {
+    gated.set(bot, dryVerdict(bot, s, g.skipped, g.restartsLastHour));
   } else {
-    verdicts = collected.map(({ bot, s }) =>
-      dryVerdict(bot, s, skipList.includes(bot.toLowerCase()), (shepherdState.bots?.[bot]?.restarts ?? []).filter((t) => nowS - t < 3600).length),
-    );
-    for (const v of verdicts) v.mode = "dry";
+    modelSet.push({ bot, s });
+  }
+}
+let verdicts: Verdict[];
+if (live && modelSet.length > 0) {
+  const lv = useRouter ? await routerVerdicts(modelSet) : await liveVerdicts(modelSet);
+  if (lv) {
+    const byBot = new Map(lv.map((v) => [v.bot, v]));
+    verdicts = collected.map(({ bot }) => gated.get(bot) ?? byBot.get(bot)!);
+  } else {
+    verdicts = collected.map(({ bot, s }) => {
+      const g = gateOf(bot);
+      const v = dryVerdict(bot, s, g.skipped, g.restartsLastHour);
+      v.mode = "dry";
+      return v;
+    });
   }
 } else {
-  verdicts = collected.map(({ bot, s }) =>
-    dryVerdict(bot, s, skipList.includes(bot.toLowerCase()), (shepherdState.bots?.[bot]?.restarts ?? []).filter((t) => nowS - t < 3600).length),
-  );
+  verdicts = collected.map(({ bot, s }) => {
+    const g = gateOf(bot);
+    return dryVerdict(bot, s, g.skipped, g.restartsLastHour);
+  });
 }
 
 const logLine = verdicts.map((v) => JSON.stringify(v)).join("\n") + "\n";

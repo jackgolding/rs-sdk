@@ -43,7 +43,7 @@ const now = Date.now();
 const TAIL = { tailBytes: 2_000_000, maxRecords: 20_000 };
 
 function botFile(name: string, file: string): string {
-    return join(import.meta.dir, '../../../..', 'bots', name, file);
+    return join(process.env.FLEET_BOTS_DIR ?? join(import.meta.dir, '../../../..', 'bots'), name, file);
 }
 
 function heartbeatPath(name: string): string {
