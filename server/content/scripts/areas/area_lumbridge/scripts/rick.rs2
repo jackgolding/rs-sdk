@@ -1,0 +1,19 @@
+// Rick, portal scientist of Lumbridge. Kept in the world by ~rick_ensure
+// (called from [login,_]): respawns himself in the courtyard on any login
+// if he is missing. Talk to him for a lift to Mage Bank.
+[opnpc1,rick]
+~chatnpc("<p,neutral>Wubba lubba dub dub! Need a portal to Mage Bank, Morty?");
+def_int $option = ~p_choice2("Yes, take me to Mage Bank.", 1, "No thanks, Rick.", 2);
+if ($option = 1) {
+    ~chatplayer("<p,neutral>Yes, take me to Mage Bank.");
+    ~chatnpc("<p,happy>Way to die for! Off we go. *buuurp*");
+    p_teleport(0_39_73_44_44);
+} else {
+    ~chatplayer("<p,neutral>No thanks, Rick.");
+    ~chatnpc("<p,neutral>Your loss. Nobody exists on purpose, by the way.");
+}
+
+[proc,rick_ensure]
+if (npc_find(0_50_50_21_22, rick, 15, 0) = false) {
+    npc_add(0_50_50_21_22, rick, 2000000000);
+}

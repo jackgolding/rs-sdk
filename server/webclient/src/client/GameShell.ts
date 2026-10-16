@@ -103,6 +103,7 @@ export default abstract class GameShell {
         canvas.onpointermove = this.onpointermove.bind(this);
         window.onmouseup = this.windowMouseUp.bind(this);
         window.onmousemove = this.windowMouseMove.bind(this);
+        window.addEventListener('paste', this.onpaste.bind(this));
 
         if (this.isTouchDevice) {
             canvas.style.touchAction = 'pinch-zoom';
@@ -530,6 +531,31 @@ export default abstract class GameShell {
         if (!CanvasEnabledKeys.includes(e.key)) {
             e.preventDefault();
         }
+    }
+
+    private onpaste(e: ClipboardEvent) {
+        const text = e.clipboardData?.getData('text');
+        if (!text) {
+            return;
+        }
+        // The game reads chat off the canvas key queue, so clipboard text
+        // never arrives on its own — feed it through the same queue.
+        // keyHeld is left alone (no phantom held keys); newlines are
+        // skipped so a paste never auto-submits the chat line.
+        this.idleTimer = performance.now();
+        let n = 0;
+        for (const c of text) {
+            const ch = c.charCodeAt(0);
+            if (ch <= 4 || ch >= 128 || ch === 10 || ch === 13) {
+                continue;
+            }
+            this.keyQueue[this.keyQueueWritePos] = ch;
+            this.keyQueueWritePos = (this.keyQueueWritePos + 1) & 0x7f;
+            if (++n >= 100) {
+                break;
+            }
+        }
+        e.preventDefault();
     }
 
     protected pollKey() {

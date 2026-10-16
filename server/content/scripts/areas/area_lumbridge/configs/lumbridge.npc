@@ -371,3 +371,24 @@ recol3s=6273
 recol3d=32767
 recol4s=8599
 recol4d=4399
+
+[rick]
+vislevel=hide
+name=Rick
+desc=A reeking portal scientist. Burps a lot.
+walkanim=human_walk_f,human_walk_b,human_walk_l,human_walk_r
+readyanim=human_ready
+op1=Talk-to
+model1=man_head_spikeyhair2
+model2=man_jaw_none
+model3=man_torso_basic
+model4=man_arms_longsleeves2
+model5=man_hands_basic
+model6=man_legs_basic
+model7=man_feet_boots
+head1=chat_male_head_spikeyhair2
+recol1s=2340
+recol1d=21404
+recol2s=14724
+recol2d=32767
+wanderrange=2

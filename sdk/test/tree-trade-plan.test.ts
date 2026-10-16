@@ -102,12 +102,12 @@ describe('foodPlan', () => {
 });
 
 describe('bank 1-to-1 food pack', () => {
-    test('FOOD_MULE_FROM is the thieves plus Jackpoo3, not 01 or 06', () => {
+    test('FOOD_MULE_FROM is the thieves plus Jackpoo3, not 01', () => {
+        expect(usesFoodMule('ABGARMY06')).toBe(true);
         expect(usesFoodMule('ABGARMY07')).toBe(true);
         expect(usesFoodMule('ABGARMY20')).toBe(true);
         expect(usesFoodMule('Jackpoo3')).toBe(true);
         expect(usesFoodMule('ABGARMY01')).toBe(false);
-        expect(usesFoodMule('ABGARMY06')).toBe(false);
         expect(FOOD_MULE_FROM.test('Abgarmy10')).toBe(true);
         expect(FOOD_MULE_FROM.test('fatpig')).toBe(false);
     });
@@ -117,26 +117,26 @@ describe('bank 1-to-1 food pack', () => {
             foodPackGive([
                 { name: 'cod', count: 2000 },
                 { name: 'bass', count: 100 },
-                { name: 'swordfish', count: 25 }
+                { name: 'swordfish', count: 10 }
             ])
         ).toEqual([
-            { item: /^swordfish$/i, amount: 25 },
-            { item: /^bass$/i, amount: 75 }
+            { item: /^swordfish$/i, amount: 10 },
+            { item: /^bass$/i, amount: 15 }
         ]);
-        expect(FOOD_PER_TRADE).toBe(100);
+        expect(FOOD_PER_TRADE).toBe(25);
         expect(foodPackGive([{ name: 'cod', count: 8 }])).toEqual([{ item: /^cod$/i, amount: 8 }]);
         expect(foodPackGive([])).toEqual([]);
     });
 });
 
 describe('abg army skip', () => {
-    test('ABGARMY06 is out of the army and 01 is the food mule not a thief', () => {
-        expect(ABG_NAMES).not.toContain('ABGARMY06');
+    test('ABGARMY06 is back in the army and 01 is the food mule not a thief', () => {
+        expect(ABG_NAMES).toContain('ABGARMY06');
         expect(abgThieves()).not.toContain('ABGARMY01');
-        expect(abgThieves()).not.toContain('ABGARMY06');
+        expect(abgThieves()).toContain('ABGARMY06');
         expect(abgThieves()).toContain('ABGARMY07');
-        expect(foodPlan().flat().some((p) => p.receiver === 'ABGARMY06')).toBe(false);
-        expect(goldHolders()).not.toContain('ABGARMY06');
+        expect(foodPlan().flat().some((p) => p.receiver === 'ABGARMY06')).toBe(true);
+        expect(goldHolders()).toContain('ABGARMY06');
     });
 });
 

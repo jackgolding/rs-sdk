@@ -1,0 +1,212 @@
+{
+  "tool": "snapshot-player",
+  "version": 1,
+  "username": "jacklove5",
+  "fileKey": "jacklove5",
+  "server": "rs-sdk-demo.fly.dev",
+  "snapshotAt": "2026-10-15T14:10:18.468Z",
+  "player": {
+    "x": 6208,
+    "z": 6464,
+    "level": 0,
+    "runEnergy": 100
+  },
+  "skills": [
+    {
+      "name": "Attack",
+      "level": 99,
+      "baseLevel": 99,
+      "experience": 1172425
+    },
+    {
+      "name": "Defence",
+      "level": 99,
+      "baseLevel": 99,
+      "experience": 1008700
+    },
+    {
+      "name": "Strength",
+      "level": 99,
+      "baseLevel": 99,
+      "experience": 1500237
+    },
+    {
+      "name": "Hitpoints",
+      "level": 99,
+      "baseLevel": 99,
+      "experience": 1576990
+    },
+    {
+      "name": "Ranged",
+      "level": 99,
+      "baseLevel": 99,
+      "experience": 1087600
+    },
+    {
+      "name": "Prayer",
+      "level": 0,
+      "baseLevel": 75,
+      "experience": 189675
+    },
+    {
+      "name": "Magic",
+      "level": 31,
+      "baseLevel": 31,
+      "experience": 8125
+    },
+    {
+      "name": "Cooking",
+      "level": 99,
+      "baseLevel": 99,
+      "experience": 82117250
+    },
+    {
+      "name": "Woodcutting",
+      "level": 36,
+      "baseLevel": 36,
+      "experience": 11812
+    },
+    {
+      "name": "Fletching",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Fishing",
+      "level": 99,
+      "baseLevel": 99,
+      "experience": 60111425
+    },
+    {
+      "name": "Firemaking",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Crafting",
+      "level": 40,
+      "baseLevel": 40,
+      "experience": 15875
+    },
+    {
+      "name": "Smithing",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Mining",
+      "level": 77,
+      "baseLevel": 77,
+      "experience": 231500
+    },
+    {
+      "name": "Herblore",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Agility",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Thieving",
+      "level": 99,
+      "baseLevel": 99,
+      "experience": 60851680
+    },
+    {
+      "name": "Stat18",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Stat19",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Runecraft",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    }
+  ],
+  "inventory": [
+    {
+      "slot": 11,
+      "id": 385,
+      "name": "Shark",
+      "count": 1
+    },
+    {
+      "slot": 12,
+      "id": 385,
+      "name": "Shark",
+      "count": 1
+    },
+    {
+      "slot": 13,
+      "id": 385,
+      "name": "Shark",
+      "count": 1
+    },
+    {
+      "slot": 14,
+      "id": 385,
+      "name": "Shark",
+      "count": 1
+    },
+    {
+      "slot": 15,
+      "id": 385,
+      "name": "Shark",
+      "count": 1
+    },
+    {
+      "slot": 16,
+      "id": 385,
+      "name": "Shark",
+      "count": 1
+    },
+    {
+      "slot": 17,
+      "id": 385,
+      "name": "Shark",
+      "count": 1
+    },
+    {
+      "slot": 18,
+      "id": 385,
+      "name": "Shark",
+      "count": 1
+    },
+    {
+      "slot": 19,
+      "id": 385,
+      "name": "Shark",
+      "count": 1
+    }
+  ],
+  "equipment": [
+    {
+      "slot": 3,
+      "id": 1305,
+      "name": "Dragon longsword",
+      "count": 1
+    },
+    {
+      "slot": 5,
+      "id": 1540,
+      "name": "Dragonfire shield",
+      "count": 1
+    }
+  ]
+}

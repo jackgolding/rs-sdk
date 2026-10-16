@@ -196,69 +196,82 @@ export class WildyCourse {
      * east hops. A single sendWalk(3004,3936) pathfinds north around the lava and
      * arrives at the pipe's north end (the exit — "can't enter from this side").
      */
-    private async walkToPipeFromRocks(): Promise<void> {
+    private async walkToPipeFromRocks(): Promise<boolean> {
         const p0 = this.d.pos();
-        if (p0.z > 5000 || p0.z < 3926) return;
-        if (p0.x >= 3002 && p0.z >= 3935 && p0.z <= 3940) return;
+        if (p0.z > 5000 || p0.z < 3926) return true;
+        if (p0.x >= 3002 && p0.z >= 3935 && p0.z <= 3940) return true;
 
         if (p0.z >= 3941) {
-            await this.walkSouthAlongEastWallToPipe();
-            return;
+            return this.walkSouthAlongEastWallToPipe();
         }
 
         this.d.intent('East along ridge to pipe mouth');
-        for (let i = 0; i < 8 && this.d.pos().x < 3003; i++) {
-            const p = this.d.pos();
-            if (p.z > 5000 || p.z < 3928 || p.z > 3938) break;
-            const nextX = Math.min(3004, p.x + 2);
-            const { x: x0 } = p;
-            await this.d.sdk.sendWalk(nextX, 3934, true);
-            await this.d.sdk
-                .waitForCondition(
-                    () => this.d.pos().x > x0 || this.d.pos().z > 5000 || this.d.pos().z < 3926,
-                    4_000
-                )
-                .catch(() => {});
-            if (this.d.pos().x <= x0) {
-                await this.d.sdk.sendWalk(nextX, 3935, true);
-                await this.d.sdk.waitForTicks(3).catch(() => {});
-            }
-        }
-        if (this.d.pos().z > 5000 || this.d.pos().z < 3926) return;
-        await this.d.sdk.sendWalk(3004, 3937, true);
-        await this.d.sdk
-            .waitForCondition(() => this.d.distTo(3004, 3937) <= 2 || this.d.pos().z > 5000, 6_000)
-            .catch(() => {});
+        return this.stepToward(3004, 3937);
     }
 
     /** Recover from a north-around-lava detour: south on x=3006 to the pipe mouth. */
-    private async walkSouthAlongEastWallToPipe(): Promise<void> {
+    private async walkSouthAlongEastWallToPipe(): Promise<boolean> {
         this.d.intent('South along east wall to pipe — skip the lava loop');
-        if (this.d.pos().x < 3004) {
-            const z = this.d.pos().z;
-            await this.d.sdk.sendWalk(3006, z, true);
-            await this.d.sdk
-                .waitForCondition(
-                    () => this.d.pos().x >= 3004 || this.d.pos().z > 5000,
-                    6_000
-                )
-                .catch(() => {});
-        }
         for (const hop of [
             { x: 3006, z: 3950 },
             { x: 3006, z: 3942 },
             { x: 3004, z: 3937 }
         ]) {
-            if (this.d.pos().z > 5000) return;
-            if (this.d.pos().x >= 3002 && this.d.pos().z >= 3935 && this.d.pos().z <= 3940) return;
-            await this.d.sdk.sendWalk(hop.x, hop.z, true);
-            await this.d.sdk
-                .waitForCondition(
-                    () => this.d.distTo(hop.x, hop.z) <= 3 || this.d.pos().z > 5000,
-                    6_000
-                )
-                .catch(() => {});
+            if (this.d.isStopped() || this.d.pos().z > 5000) return false;
+            if (this.d.pos().x >= 3002 && this.d.pos().z >= 3935 && this.d.pos().z <= 3940) return true;
+            if (!(await this.stepToward(hop.x, hop.z))) return false;
         }
+        return true;
+    }
+
+    /**
+     * Step toward (tx,tz) in short hops, verifying movement each time.
+     * Opens a nearby closed gate/fence/door once when a hop makes no
+     * progress. False when stuck — caller counts a fail and retries.
+     */
+    private async stepToward(tx: number, tz: number): Promise<boolean> {
+        for (let i = 0; i < 10; i++) {
+            const p = this.d.pos();
+            if (p.z > 5000 || this.d.isStopped()) return false;
+            if (Math.hypot(p.x - tx, p.z - tz) <= 3) return true;
+            const dx = tx - p.x;
+            const dz = tz - p.z;
+            const span = Math.hypot(dx, dz);
+            const hop =
+                span > 12
+                    ? { x: Math.round(p.x + (dx / span) * 12), z: Math.round(p.z + (dz / span) * 12) }
+                    : { x: tx, z: tz };
+            await this.d.sdk.sendWalk(hop.x, hop.z, true);
+            const moved = await this.d.sdk
+                .waitForCondition(
+                    (s) => Math.hypot((s.player?.worldX ?? p.x) - p.x, (s.player?.worldZ ?? p.z) - p.z) > 2,
+                    8_000
+                )
+                .then(() => true)
+                .catch(() => false);
+            if (!moved) {
+                if (await this.openBlockingGate()) continue;
+                return false;
+            }
+        }
+        const p = this.d.pos();
+        return Math.hypot(p.x - tx, p.z - tz) <= 4;
+    }
+
+    /** Operate one nearby closed gate/fence/door. True if one was found. */
+    private async openBlockingGate(): Promise<boolean> {
+        await this.d.sdk.scanNearbyLocs(10).catch(() => {});
+        const gate = (this.d.sdk.getNearbyLocs() ?? []).find(
+            (l) =>
+                /gate|fence|door/i.test(l.name) &&
+                l.optionsWithIndex.some((o) => /open/i.test(o.text))
+        );
+        if (!gate) return false;
+        const open = gate.optionsWithIndex.find((o) => /open/i.test(o.text))!;
+        this.d.intent(`Opening ${gate.name} @ ${gate.x},${gate.z}`);
+        await this.d.sdk.sendInteractLoc(gate.x, gate.z, gate.id, open.opIndex);
+        await this.d.sdk.waitForTicks(3).catch(() => {});
+        return true;
     }
 
     private async leaveRidgeGate(): Promise<void> {
@@ -326,7 +339,9 @@ export class WildyCourse {
             await this.walkToLogFromNorth();
             return { ok: false, xpGained: 0, reachTop: false };
         }
-        if (step.id === 'pipe') await this.walkToPipeFromRocks();
+        if (step.id === 'pipe' && !(await this.walkToPipeFromRocks())) {
+            return { ok: false, xpGained: 0, reachTop: false };
+        }
         if (step.id === 'log') await this.walkToLogFromNorth();
 
         const tol = step.standTolerance ?? 4;
@@ -367,6 +382,17 @@ export class WildyCourse {
         await this.waitProgress(xp0, x0, z0, level0, step.id);
         await this.d.closeUi();
 
+        // XP can land a moment after the forcemove — wait briefly before
+        // judging, otherwise a success reads +0 and voids the lap downstream.
+        if (this.d.agilityXp() <= xp0) {
+            await this.d.sdk
+                .waitForCondition(
+                    (s) => (s.skills.find((sk) => sk.name === 'Agility')?.experience ?? 0) > xp0,
+                    3_000
+                )
+                .catch(() => {});
+        }
+
         const xp1 = this.d.agilityXp();
         const p1 = this.d.pos();
         let reachTop = this.sawReachTheTop(tick0);
@@ -395,8 +421,9 @@ export class WildyCourse {
                 reachTop
             };
         }
-        const moved = Math.hypot(p1.x - x0, p1.z - z0) > 3 || p1.level !== level0;
-        return { ok: xp1 > xp0 || moved, xpGained: Math.max(0, xp1 - xp0), reachTop };
+        // Movement alone is not success: a slip/slide displaces with +0 xp
+        // and voids the lap, so every obstacle must pay xp to count.
+        return { ok: xp1 > xp0, xpGained: Math.max(0, xp1 - xp0), reachTop };
     }
 
     private advanceStep(step: Step, xpGained: number, reachTop: boolean): void {
@@ -448,17 +475,13 @@ export class WildyCourse {
             this.fails = 0;
             return;
         }
-        // Stay on log/rocks after a miss — inferStep must not skip varp or the lap bonus.
-        if (step.id === 'log' || step.id === 'rocks') {
-            if (this.d.pos().z >= 3958) {
-                this.stepIndex = 3;
-                await this.walkToLogFromNorth();
-            }
-            this.fails = 0;
-            return;
+        // Failed mid-lap: the lap is void — walk back down to the pipe
+        // mouth and restart instead of flailing from the fail tile.
+        if (this.d.pos().z < 5000) {
+            this.d.intent(`Fail on ${step.id} — walking down to pipe`);
+            await this.stepToward(3004, 3937);
+            this.stepIndex = 0;
         }
-        await this.walkTo(step.stand.x, step.stand.z, step.standTolerance ?? 3);
-        this.stepIndex = this.inferStep();
         this.fails = 0;
     }
 }

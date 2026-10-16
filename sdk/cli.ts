@@ -13,6 +13,7 @@
 import { BotSDK, deriveGatewayUrl } from './index';
 import { formatWorldState } from './formatter';
 import type { BotWorldState } from './types';
+import { FRESH_STATE_MS, formatStateAge, LIVE_STATE_MS } from './gateway-state';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -241,9 +242,13 @@ async function fetchState(botName: string, flags: { server: string; timeout: num
         process.exit(0);
     }
 
-    const STALE_THRESHOLD = 5000;
-    if (stateAge > STALE_THRESHOLD) {
-        console.log(`⚠ STALE DATA: State is ${Math.round(stateAge / 1000)}s old (bot may not be actively connected)\n`);
+    const STALE_THRESHOLD = FRESH_STATE_MS;
+    if (stateAge > LIVE_STATE_MS) {
+        console.log(
+            `⚠ NO LIVE STATE: Gateway snapshot is ${formatStateAge(stateAge)} old — coords are unreliable; bot may be offline or held by another client\n`
+        );
+    } else if (stateAge > STALE_THRESHOLD) {
+        console.log(`⚠ STALE DATA: State is ${formatStateAge(stateAge)} old (bot may not be actively connected)\n`);
     }
 
     if (!state.inGame) {
@@ -340,9 +345,13 @@ async function main() {
         if (jsonFlag) {
             console.log(JSON.stringify(state, null, 2));
         } else {
-            const STALE_THRESHOLD = 5000;
-            if (stateAge > STALE_THRESHOLD) {
-                console.log(`⚠ STALE DATA: State is ${Math.round(stateAge / 1000)}s old (bot may not be actively connected)\n`);
+            const STALE_THRESHOLD = FRESH_STATE_MS;
+            if (stateAge > LIVE_STATE_MS) {
+                console.log(
+                    `⚠ NO LIVE STATE: Gateway snapshot is ${formatStateAge(stateAge)} old — coords are unreliable; bot may be offline or held by another client\n`
+                );
+            } else if (stateAge > STALE_THRESHOLD) {
+                console.log(`⚠ STALE DATA: State is ${formatStateAge(stateAge)} old (bot may not be actively connected)\n`);
             }
             if (!state.inGame) {
                 console.log(`Note: Bot '${username}' is not in-game (tick: ${state.tick})`);

@@ -1,0 +1,163 @@
+{
+  "tool": "snapshot-player",
+  "version": 1,
+  "username": "Jackpoo3",
+  "fileKey": "jackpoo3",
+  "server": "rs-sdk-demo.fly.dev",
+  "snapshotAt": "2026-10-15T14:54:27.997Z",
+  "player": {
+    "x": 3108,
+    "z": 3956,
+    "level": 0,
+    "runEnergy": 100
+  },
+  "skills": [
+    {
+      "name": "Attack",
+      "level": 66,
+      "baseLevel": 66,
+      "experience": 104900
+    },
+    {
+      "name": "Defence",
+      "level": 58,
+      "baseLevel": 58,
+      "experience": 60200
+    },
+    {
+      "name": "Strength",
+      "level": 65,
+      "baseLevel": 65,
+      "experience": 94700
+    },
+    {
+      "name": "Hitpoints",
+      "level": 68,
+      "baseLevel": 68,
+      "experience": 121637
+    },
+    {
+      "name": "Ranged",
+      "level": 66,
+      "baseLevel": 66,
+      "experience": 107300
+    },
+    {
+      "name": "Prayer",
+      "level": 31,
+      "baseLevel": 31,
+      "experience": 8325
+    },
+    {
+      "name": "Magic",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Cooking",
+      "level": 99,
+      "baseLevel": 99,
+      "experience": 32299750
+    },
+    {
+      "name": "Woodcutting",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Fletching",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Fishing",
+      "level": 99,
+      "baseLevel": 99,
+      "experience": 25020230
+    },
+    {
+      "name": "Firemaking",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Crafting",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Smithing",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Mining",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Herblore",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Agility",
+      "level": 52,
+      "baseLevel": 52,
+      "experience": 37750
+    },
+    {
+      "name": "Thieving",
+      "level": 99,
+      "baseLevel": 99,
+      "experience": 195162367
+    },
+    {
+      "name": "Stat18",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Stat19",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    },
+    {
+      "name": "Runecraft",
+      "level": 1,
+      "baseLevel": 1,
+      "experience": 0
+    }
+  ],
+  "inventory": [
+    {
+      "slot": 0,
+      "id": 1285,
+      "name": "Mithril sword",
+      "count": 1
+    },
+    {
+      "slot": 1,
+      "id": 385,
+      "name": "Shark",
+      "count": 1
+    },
+    {
+      "slot": 2,
+      "id": 385,
+      "name": "Shark",
+      "count": 1
+    }
+  ],
+  "equipment": []
+}

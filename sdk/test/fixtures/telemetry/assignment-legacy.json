@@ -1,0 +1,7 @@
+{
+    "name": "jacklove4",
+    "argv": ["bots/quests/converge-and-accept-trade.ts", "--accept-only", "--except", "jacklove4"],
+    "command": "bun bots/quests/converge-and-accept-trade.ts --accept-only --except jacklove4",
+    "observedAt": "2026-10-04T11:00:00.000Z",
+    "source": "observed"
+}

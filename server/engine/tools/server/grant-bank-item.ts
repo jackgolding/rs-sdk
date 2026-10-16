@@ -15,7 +15,7 @@ import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from 'f
 import { join } from 'path';
 
 const SAV_MAGIC = 0x2004;
-const SAV_VERSION = 7;
+const SAV_VERSION = 8; // v8 only appends recovery-items AFTER the inv section; bank layout unchanged (verified 2026-10-15, offline-only tool)
 const INV_BANK = 95;
 const BANK_CAPACITY = 240; // ^bank_total_slots
 const QUIET_MS = 15_000;

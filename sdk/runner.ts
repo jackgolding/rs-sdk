@@ -9,6 +9,74 @@ import type { BotWorldState } from './types';
 import { readFileSync, existsSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { recordScriptAssignment } from './assignment';
+import { ActivitySession } from './activity';
+
+// ============ Graceful shutdown ============
+
+/**
+ * Grace period for a grind to finish its stage and bank after SIGTERM
+ * (default 5 min). A law run returning from the temple needs ~3 min; the
+ * second signal always exits immediately, and launchd SIGKILLs whatever
+ * is still alive after its own timeout.
+ */
+export const SHUTDOWN_GRACE_MS = 300_000;
+
+export interface ShutdownOptions {
+    /** Ms before a first signal turns into a force-exit (default 300_000). */
+    graceMs?: number;
+    /** Called after requesting the drain (tests observe this instead of exiting). */
+    onSignal?: (signal: string) => void;
+    /** Test injection for the force-exit. Production calls process.exit. */
+    exitProcess?: (code: number) => void;
+}
+
+/**
+ * Standalone grind scripts (top-level await, no runScript) call this once
+ * after creating their ActivitySession:
+ *
+ *   installGracefulShutdown();
+ *
+ * First SIGTERM/SIGINT/SIGHUP asks every live session to drain to a bank
+ * (see ActivitySession.requestStopAll) and gives the script graceMs to get
+ * there. Second signal exits immediately with 128+signum. Never exits 0 on
+ * a forced kill: a supervisor must not read a killed run as success — a
+ * drained script sets its own exit code via finalizeStop instead.
+ */
+export function installGracefulShutdown(opts?: ShutdownOptions): () => void {
+    const graceMs = opts?.graceMs ?? SHUTDOWN_GRACE_MS;
+    const exitProcess = opts?.exitProcess ?? ((code: number) => process.exit(code));
+    let signalReceived: string | null = null;
+    let forceTimer: ReturnType<typeof setTimeout> | null = null;
+    const codes: Record<string, number> = { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 };
+    const handler = (signal: string) => {
+        if (signalReceived) {
+            if (forceTimer) clearTimeout(forceTimer);
+            exitProcess(codes[signal] ?? 143);
+            return;
+        }
+        signalReceived = signal;
+        console.error(`[Runner] Received ${signal} - draining to bank, force-exit in ${Math.round(graceMs / 1000)}s...`);
+        ActivitySession.requestStopAll(signal);
+        opts?.onSignal?.(signal);
+        forceTimer = setTimeout(() => {
+            console.error(`[Runner] Drain grace expired after ${signal} - force-exiting`);
+            exitProcess(codes[signal] ?? 143);
+        }, graceMs);
+        forceTimer.unref?.();
+    };
+    const onSigterm = () => handler('SIGTERM');
+    const onSigint = () => handler('SIGINT');
+    const onSighup = () => handler('SIGHUP');
+    process.on('SIGTERM', onSigterm);
+    process.on('SIGINT', onSigint);
+    process.on('SIGHUP', onSighup);
+    return () => {
+        if (forceTimer) clearTimeout(forceTimer);
+        process.off('SIGTERM', onSigterm);
+        process.off('SIGINT', onSigint);
+        process.off('SIGHUP', onSighup);
+    };
+}
 
 // ============ Types ============
 
@@ -356,26 +424,11 @@ export async function runScript(
         xpBefore[skill.name] = skill.experience;
     }
 
-    // Clean exit on signals - prevents orphaned processes when parent shell is killed
-    let signalReceived = false;
-    const signalCleanup = (signal: string, exitCode: number) => {
-        if (signalReceived) {
-            // Second signal: the disconnect is wedged, exit immediately.
-            process.exit(exitCode);
-        }
-        signalReceived = true;
-        console.error(`[Runner] Received ${signal} - disconnecting and exiting...`);
-        // Exit 128+signum, never 0: a supervisor must not read a killed run
-        // as success. And a wedged disconnect must not hang the process.
-        setTimeout(() => process.exit(exitCode), 5000);
-        sdk.disconnect().finally(() => process.exit(exitCode));
-    };
-    const onSigterm = () => signalCleanup('SIGTERM', 143);
-    const onSigint = () => signalCleanup('SIGINT', 130);
-    const onSighup = () => signalCleanup('SIGHUP', 129);
-    process.on('SIGTERM', onSigterm);
-    process.on('SIGINT', onSigint);
-    process.on('SIGHUP', onSighup);
+    // Graceful exit on signals: ask live sessions to drain to a bank first.
+    // A drained script returns on its own and the normal exit path below
+    // runs (finalizeStop sets the real exit code). Second signal or grace
+    // expiry force-exits 128+signum, never 0.
+    const uninstallShutdown = installGracefulShutdown();
 
     // Execute script with connection monitoring
     let result: any;
@@ -446,9 +499,7 @@ export async function runScript(
             unsubscribeConnection();
         }
         // Remove signal handlers
-        process.off('SIGTERM', onSigterm);
-        process.off('SIGINT', onSigint);
-        process.off('SIGHUP', onSighup);
+        uninstallShutdown();
     }
 
     // Get final state

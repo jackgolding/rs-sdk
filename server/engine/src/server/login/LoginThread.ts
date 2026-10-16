@@ -56,8 +56,9 @@ async function handleRequests(parentPort: ParentPort, msg: any) {
                 });
                 stopTimer();
             } else {
-                // rs-sdk: do not auto-grant dev staffmodlevel on non-production worlds (public server)
-                const staffmodlevel = 0;
+                // LOCAL-DEV-ONLY (Hermes 2026-10-14): grant admin for local cheat testing.
+                // Offline worktree only — never merge to fleet.
+                const staffmodlevel = 4;
 
                 const profile = Environment.node.profile;
                 if (!fs.existsSync(`data/players/${profile}`)) {
