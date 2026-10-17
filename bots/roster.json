@@ -83,11 +83,10 @@
         {
             "name": "jacklove2",
             "view": "fleet",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "jacklove2",
-                "--tank=jacklove5",
-                "--lead=jacklove5"
+                "--shark"
             ]
         },
         {

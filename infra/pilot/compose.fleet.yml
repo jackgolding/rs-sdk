@@ -1117,7 +1117,7 @@ services:
   quest-jacklove2:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/red-dragons.ts", "jacklove2", "--tank=jacklove5", "--lead=jacklove5"]
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove2", "--shark"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
