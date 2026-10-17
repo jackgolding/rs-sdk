@@ -104,13 +104,9 @@
         {
             "name": "jacklove4",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "jacklove4",
-                "receive",
-                "pigfat",
-                "--item=dragon longsword",
-                "--count=2"
+                "jacklove4"
             ]
         },
         {
@@ -133,14 +129,10 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "pigfat",
-                "give",
-                "jacklove4",
-                "--item=dragon longsword",
-                "--withdraw=2",
-                "--each=2"
+                "--shark"
             ]
         },
         {
