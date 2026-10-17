@@ -1627,7 +1627,7 @@ services:
   quest-pigfat:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/quest-mule.ts", "pigfat", "--stock"]
+    command: ["bun", "bots/quests/fishing-route.ts", "pigfat", "--shark"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

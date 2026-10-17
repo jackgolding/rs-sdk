@@ -126,10 +126,10 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/quest-mule.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "pigfat",
-                "--stock"
+                "--shark"
             ]
         },
         {
