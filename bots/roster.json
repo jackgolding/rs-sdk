@@ -349,7 +349,7 @@
             "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
                 "ABGARMY06",
-                "druids",
+                "thugs",
                 "--weapon=Fire battlestaff"
             ]
         },
@@ -441,7 +441,7 @@
             "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
                 "ABGARMY15",
-                "druids",
+                "thugs",
                 "--weapon=Fire battlestaff"
             ]
         },
