@@ -1,5 +1,26 @@
 export type Verdict = 'PASS' | 'FAIL' | 'UNKNOWN';
-export interface JournalSpec { buttonId: number; interfaceId: number; title: string }
+export interface JournalSpec {
+  /** Client-visible quest-list button text, e.g. "Cook's Assistant". */
+  label: string;
+  interfaceId: number;
+  /** The journal body's own heading, e.g. "The Cook's Quest". */
+  title: string;
+}
+/** The subset of a client interface option this layer needs. */
+export interface InterfaceOptionLike { componentId: number; text: string }
+
+/**
+ * Resolve the quest-list button to click from the client's live interface
+ * options. Matching is exact (case/whitespace-insensitive) and ambiguous or
+ * absent matches return null so the caller reports UNKNOWN instead of clicking
+ * a guessed component.
+ */
+export function findJournalButton(options: readonly InterfaceOptionLike[], label: string): number | null {
+  const wanted = label.trim().toLowerCase();
+  if (!wanted) return null;
+  const matches = options.filter(o => o.text.trim().toLowerCase() === wanted);
+  return matches.length === 1 ? matches[0]!.componentId : null;
+}
 export interface JournalRule { id: string; kind: 'unstarted' | 'active' | 'complete'; all: string[]; none?: string[] }
 export interface JournalText { componentId: number; type: number; rawText: string; text: string }
 export interface JournalObservation {

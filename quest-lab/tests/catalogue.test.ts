@@ -30,12 +30,11 @@ test('resolves every entry to a UI section and a real quest source directory', (
     expect(ui).toContain(`[${entry.id}]`);
     expect(entry.sourceDir).toBeTruthy();
     expect(entry.sourceDir.startsWith('server/content/scripts/quests/quest_')).toBe(true);
-    // Unresolved button ids must be declared, never invented as a positive number.
-    if (entry.journalButtonId === null) {
-      expect(entry.blockers.some(b => b.includes('button component id'))).toBe(true);
-    } else {
-      expect(entry.journalButtonId).toBeGreaterThan(0);
-    }
+    // Buttons are targeted by their client-visible label, never a hardcoded id.
+    expect(entry.name).toBeTruthy();
+    expect(entry.name).not.toBe(entry.id);
+    expect(entry.journalFile).toBeTruthy();
+    expect(entry.journalTitle).toBeTruthy();
   }
   // fortress is the quest-list id for Black Knights' Fortress, whose dir is not quest_fortress
   expect(mod!.buildCatalogue(repoRoot).find(e => e.id === 'fortress')!.sourceDir)
@@ -77,10 +76,17 @@ test('titles come from questlist.if, not from the component id', () => {
   mod!.resolveSourceDirs(repoRoot, entries);
   mod!.resolveTitles(repoRoot, entries);
   const cook = entries.find(e => e.id === 'cook')!;
-  // questlist.if shows the UI name; the journal handler's own title differs
-  expect(cook.title).toBe("Cook's Assistant");
+  // The UI button label and the journal's own heading are different strings.
+  expect(cook.name).toBe("Cook's Assistant");
+  expect(cook.journalTitle).toBe("The Cook's Quest");
   const fortress = entries.find(e => e.id === 'fortress')!;
-  expect(fortress.title).toBe("Black Knight's Fortress");
+  expect(fortress.name).toBe("Black Knight's Fortress");
+  const druid = entries.find(e => e.id === 'druid')!;
+  expect(druid.journalTitle).toBe('Druidic Ritual');
+  // variable-assigned heading form: def_string $n = "Heroes' Quest";
+  const hero = entries.find(e => e.id === 'hero')!;
+  expect(hero.journalTitle).toBe("Heroes' Quest");
+  expect(hero.name).toBe("Hero's Quest");
 });
 
 test('orders reviewed dependencies so prerequisites precede dependants', () => {

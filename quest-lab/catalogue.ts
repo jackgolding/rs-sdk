@@ -29,12 +29,18 @@ export interface QuestRegistration {
 export interface QuestEntry {
   /** Quest-list component id, e.g. `cook`, `fortress`. */
   id: string;
-  /** Display title from questlist.if (the `option=`/`text=` line). */
-  title: string;
+  /**
+   * Client-visible quest-list button text (questlist.if `text=`). Scripts click
+   * the button by this label rather than a hardcoded component id, so the same
+   * code works across content revisions.
+   */
+  name: string;
+  /** The journal body's own heading, e.g. "The Cook's Quest". Verifies identity. */
+  journalTitle: string | null;
   /** Quest source directory, resolved from the journal handler. */
   sourceDir: string;
-  /** Interface component id of this quest's quest-list button. */
-  journalButtonId: number | null;
+  /** The journal handler file that registered this quest-list id. */
+  journalFile: string | null;
   registrations: QuestRegistration[];
   /** Existing primary bot script, or null when none is written yet. */
   primaryScript: string | null;
@@ -139,9 +145,10 @@ export function parseQuestList(rs2Source: string): QuestEntry[] {
     else {
       byId.set(id, {
         id,
-        title: id,
+        name: id,
+        journalTitle: null,
         sourceDir: '',
-        journalButtonId: null,
+        journalFile: null,
         registrations: [registration],
         primaryScript: null,
         reviewStatus: 'unreviewed',
@@ -162,31 +169,51 @@ export function parseQuestList(rs2Source: string): QuestEntry[] {
   return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
+/**
+ * Read a journal handler's own heading. Some handlers pass the title inline
+ * (`~quest_journal("The Cook's Quest", $text)`), others assign it to a string
+ * variable first (`def_string $n = "Heroes' Quest"; ~quest_journal($n, $x)`).
+ */
+export function parseJournalTitle(handlerSource: string): string | null {
+  const call = /~quest_journal\(\s*(?:"([^"]+)"|\$(\w+))\s*,/.exec(handlerSource);
+  if (!call) return null;
+  if (call[1]) return call[1];
+  const variable = call[2]!;
+  const assigned = new RegExp(`def_string\\s+\\$${variable}\\s*=\\s*"([^"]+)"`).exec(handlerSource);
+  return assigned?.[1] ?? null;
+}
+
 /** Map `questlist:<id>` -> `server/content/scripts/quests/<dir>` from journal handlers. */
 export function resolveSourceDirs(repoRoot: string, entries: QuestEntry[]): void {
   const questsRoot = resolve(repoRoot, QUESTS_ROOT);
-  const byId = new Map<string, string>();
+  const byId = new Map<string, { dir: string; file: string; title: string | null }>();
   for (const dir of readdirSync(questsRoot)) {
     const scriptsDir = join(questsRoot, dir, 'scripts');
     if (!existsSync(scriptsDir)) continue;
     for (const file of readdirSync(scriptsDir)) {
       if (!file.endsWith('.rs2')) continue;
+      const rel = `${QUESTS_ROOT}/${dir}/scripts/${file}`;
       const source = readFileSync(join(scriptsDir, file), 'utf-8');
       for (const match of source.matchAll(/\[if_button,questlist:([a-z_]+)\]/g)) {
         const id = match[1]!;
-        const rel = `${QUESTS_ROOT}/${dir}`;
         const previous = byId.get(id);
-        if (previous && previous !== rel) {
-          throw new Error(`quest-list id '${id}' claimed by both ${previous} and ${rel}`);
+        if (previous && previous.dir !== rel.slice(0, previous.dir.length)) {
+          throw new Error(`quest-list id '${id}' claimed by both ${previous.dir} and ${rel}`);
         }
-        byId.set(id, rel);
+        const title = parseJournalTitle(source);
+        byId.set(id, { dir: `${QUESTS_ROOT}/${dir}`, file: rel, title });
       }
     }
   }
   for (const entry of entries) {
-    const dir = byId.get(entry.id);
-    if (dir) entry.sourceDir = dir;
-    else entry.blockers.push('no [if_button,questlist:<id>] journal handler found');
+    const found = byId.get(entry.id);
+    if (found) {
+      entry.sourceDir = found.dir;
+      entry.journalFile = found.file;
+      entry.journalTitle = found.title;
+    } else {
+      entry.blockers.push('no [if_button,questlist:<id>] journal handler found');
+    }
   }
 }
 
@@ -194,6 +221,7 @@ export function resolveSourceDirs(repoRoot: string, entries: QuestEntry[]): void
 export function resolveTitles(repoRoot: string, entries: QuestEntry[]): void {
   const ui = readFileSync(resolve(repoRoot, QUESTLIST_IF), 'utf-8');
   const sections = new Map<string, string>();
+  // questlist.if `text=` is what the client exposes as the clickable option.
   const parts = ui.split(/^\[([a-z0-9_]+)\]\s*$/m);
   for (let i = 1; i < parts.length; i += 2) {
     const id = parts[i]!;
@@ -202,9 +230,10 @@ export function resolveTitles(repoRoot: string, entries: QuestEntry[]): void {
     if (named) sections.set(id, named.trim());
   }
   for (const entry of entries) {
-    const title = sections.get(entry.id);
-    if (title) entry.title = title;
+    const name = sections.get(entry.id);
+    if (name) entry.name = name;
     else entry.blockers.push('no questlist.if UI section found');
+    if (!entry.journalTitle) entry.blockers.push('journal heading not parsed from handler');
   }
 }
 
@@ -229,10 +258,6 @@ export function buildCatalogue(repoRoot: string): QuestEntry[] {
   resolveTitles(repoRoot, entries);
   resolvePrimaryScripts(repoRoot, entries);
   for (const entry of entries) {
-    if (entry.journalButtonId === null) {
-      // Resolvable from the packed interface (engine IfType loader); not yet done.
-      entry.blockers.push('quest-list button component id unresolved');
-    }
     if (!entry.primaryScript) entry.blockers.push('no primary quest script yet');
     entry.blockers.push('no reviewed manifest (prerequisites/items/checkpoints)');
   }
