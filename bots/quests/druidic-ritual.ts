@@ -122,18 +122,43 @@ await runScript(async ({ bot, sdk }) => {
      * (server/content/scripts/quests/quest_druid/scripts/druid_journal.rs2).
      */
     const JOURNAL = { label: 'Druidic Ritual', title: 'Druidic Ritual' };
+    // Every stage the journal can be in (druid_journal.rs2), each keyed on a
+    // sentence UNIQUE to that stage. Recognising only the two endpoints made a
+    // mid-quest account read as 'unknown' and threw, even though the loop below
+    // already knows how to resume from any of them.
     const STAGE_RULES: Record<string, JournalRule> = {
-        unstarted: {
-            id: 'druid:unstarted',
+        not_started: {
+            id: 'druid:not_started',
             kind: 'unstarted',
             all: ['I can start this quest by speaking to Kaqemeex'],
+        },
+        started: {
+            id: 'druid:started',
+            kind: 'active',
+            all: ['I should speak to Sanfew in the village to the South'],
+        },
+        spoken_sanfew: {
+            id: 'druid:spoken_sanfew',
+            kind: 'active',
+            all: ['Sanfew told me for the ritual they would need me to place'],
+        },
+        given_ingredients: {
+            id: 'druid:given_ingredients',
+            kind: 'active',
+            all: ['I should speak to Kaqemeex again and claim my reward'],
         },
         complete: { id: 'druid:complete', kind: 'complete', all: ['QUEST COMPLETE'] },
     };
 
     /** The first stage rule that passes is the account's real stage. */
-    async function readStage(): Promise<'unstarted' | 'complete' | 'unknown'> {
-        for (const name of ['complete', 'unstarted'] as const) {
+    async function readStage(): Promise<string> {
+        for (const name of [
+            'complete',
+            'given_ingredients',
+            'spoken_sanfew',
+            'started',
+            'not_started',
+        ] as const) {
             const read = await readJournalCheckpoint(sdk, JOURNAL, STAGE_RULES[name]!);
             log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
             if (read.verdict?.verdict === 'PASS') return name;
@@ -422,11 +447,31 @@ await runScript(async ({ bot, sdk }) => {
         await walkNear(SANFEW.x, SANFEW.z, 3);
     }
 
+    /**
+     * Find Sanfew once the scene has actually caught up.
+     *
+     * Climbing a staircase rebuilds the client scene asynchronously and
+     * `nearbyNpcs` stays EMPTY for the new plane until it lands. Scanning once
+     * straight after the climb reported "Sanfew missing" while the bot stood a
+     * tile from him — which skipped his dialog, so the quest varp never reached
+     * `druid_spoken_sanfew`, so the Cauldron of Thunder then silently refused
+     * every dip. The whole quest hung off this one one-shot scan.
+     */
+    async function findSanfew(settleMs = 8_000) {
+        const deadline = Date.now() + settleMs;
+        for (;;) {
+            const npc = sdk.findNearbyNpc(/^sanfew$/i) ?? sdk.findNearbyNpc(/sanfew/i);
+            if (npc) return npc;
+            if (Date.now() >= deadline) return null;
+            await sdk.waitForTicks(4);
+        }
+    }
+
     async function talkSanfew(): Promise<string[]> {
         await goSanfew();
-        const npc = sdk.findNearbyNpc(/^sanfew$/i) ?? sdk.findNearbyNpc(/sanfew/i);
+        const npc = await findSanfew();
         if (!npc) {
-            log(`Sanfew missing @ ${pos().x},${pos().z} floor=${pos().level}`);
+            log(`Sanfew missing @ ${pos().x},${pos().z} floor=${pos().level} (after settling)`);
             return [];
         }
         const talk = await bot.talkTo(npc);
