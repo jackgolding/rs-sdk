@@ -49,12 +49,10 @@ import {
     walkSendHops
 } from './movement';
 import { foodHeal, foodHp } from './food-heal';
-import { FOOD_MULE, usesFoodMule } from './tree-trade-plan';
 import { installGracefulShutdown } from '../../sdk/runner';
 
 const TARGET_LEVEL = 99;
 const RESTOCK_FOOD_BELOW = 1;
-const INV_PACK_LOOT_AT = 26;
 const INV_KEEP_FREE = 3;
 const EAT_MISSING_HP = 14;
 /** Un-noted fish this route will eat. Withdraw and eat lowest heal first. */
@@ -66,10 +64,9 @@ const WINE = /^jug of wine$/i;
 const EMPTY_JUG = /^jug$/i;
 const FOOD = /kebab|cake|bread|chocolate|slice|meat|shrimp|anchov|tuna|swordfish|lobster|shark|salmon|trout|pike|bass|cod|herring|sardine|mackerel|wine/i;
 /**
- * Non-fish edibles. The mule swap is 1-for-1 loot -> fish, so a bot that
- * banked its whole inventory has nothing to offer and no fish to withdraw:
- * it starves at the bank forever. Any of these heals enough to earn loot
- * again and re-enter the swap.
+ * Non-fish edibles. If the bank has no thieving fish at all, the bot fishes
+ * a cooking supply at Catherby (see handoffToThieveSupply) instead of
+ * starving at the bank. Any of these heals enough to earn loot again.
  */
 const BACKUP_FOOD =
     /^(bread|(?:\d\/\d )?cake|slice of cake|chocolate (?:slice|bar|cake)|cooked (?:meat|chicken)|meat pie|apple pie|stew|kebab)$/i;
@@ -539,187 +536,6 @@ function notedFood() {
     return sdk.getInventory().filter((i) => MULE_FOOD.test(i.name) && i.count > 1);
 }
 
-function isMuleKeep(name: string): boolean {
-    return (
-        THIEVE_FISH_RE.test(name) ||
-        MULE_FOOD.test(name) ||
-        WINE.test(name) ||
-        EMPTY_JUG.test(name) ||
-        SLASH.test(name) ||
-        /^kebab$/i.test(name) ||
-        /^shark$/i.test(name) ||
-        BACKUP_FOOD.test(name)
-    );
-}
-
-function muleLootGiveList(): { item: RegExp; amount: number }[] {
-    const give: { item: RegExp; amount: number }[] = [];
-    const seen = new Set<string>();
-    for (const item of sdk.getInventory()) {
-        const count = item.count ?? 0;
-        if (count <= 0 || isMuleKeep(item.name)) continue;
-        const key = item.name.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        give.push({
-            item: new RegExp(`^${item.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
-            amount: -1
-        });
-    }
-    return give;
-}
-
-async function packNotedLootForMule(): Promise<void> {
-    await bot.closeInterface();
-    await leaveHouse();
-    intent('Noting banked loot for ABGARMY01');
-    await walkNear(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 3);
-    const opened = await bot.openBank();
-    if (!opened.success && !sdk.getState()?.bank?.isOpen) {
-        log(`Bank open failed for mule loot: ${opened.message}`);
-        return;
-    }
-    await sdk
-        .waitForCondition((s) => s.bank?.isOpen === true && (s.bank.items?.length ?? 0) > 0, 5_000)
-        .catch(() => {});
-
-    for (let n = 0; n < 28; n++) {
-        const item = sdk.getInventory().find((i) => (i.count ?? 0) > 0 && !isMuleKeep(i.name));
-        if (!item) break;
-        const r = await bot.depositItem(item, -1);
-        if (!r.success && !r.partial) break;
-    }
-    await sdk.waitForTicks(1);
-
-    const lootNames = [
-        ...new Set(
-            sdk
-                .getBankItems()
-                .filter(
-                    (i) =>
-                        (i.count ?? 0) > 0 &&
-                        !isMuleKeep(i.name) &&
-                        !/^coins$/i.test(i.name)
-                )
-                .map((i) => i.name)
-        )
-    ];
-    const packed: string[] = [];
-    for (const name of lootNames) {
-        const re = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
-        const bankItem = sdk.findBankItem(re);
-        if (!bankItem || (bankItem.count ?? 0) <= 0) continue;
-        const count = bankItem.count ?? 0;
-        const r = await bot.withdrawItem(bankItem, -1, { asNote: true });
-        packed.push(`${count} ${name}${r.success || r.partial ? '' : ` (${r.message})`}`);
-    }
-
-    const bankCoins = sdk.findBankItem(/^coins$/i)?.count ?? 0;
-    if (bankCoins > 0) {
-        const before = coinCount();
-        const r = await bot.withdrawItem(/^coins$/i, bankCoins);
-        await sdk.waitForCondition(() => coinCount() > before, 5_000).catch(() => {});
-        packed.push(`${coinCount()} coins${r.success ? '' : ` (${r.message})`}`);
-    }
-    await bot.closeBank();
-    log(`Packed mule loot: ${packed.join(', ') || `inv ${coinCount()} gp`}`);
-}
-
-function hasUnpackagedLoot(): boolean {
-    return sdk.getInventory().some((i) => (i.count ?? 0) > 0 && !isMuleKeep(i.name));
-}
-
-/** Note loot at the bank during the grind so the mule visit is trade-only. */
-async function maybePackLootWhileGrinding(): Promise<void> {
-    if (!usesFoodMule(username) || !inArdougne()) return;
-    if (occupiedSlots() < INV_PACK_LOOT_AT) return;
-    if (muleLootGiveList().length > 0) return;
-    if (!hasUnpackagedLoot()) return;
-    intent('Inv full — noting loot at bank (off swap window)');
-    log(`Pack loot trigger inv=${occupiedSlots()}/28 @ ${pos().x},${pos().z}`);
-    await packNotedLootForMule();
-    await walkNear(KNIGHTS.x, KNIGHTS.z, 4);
-}
-
-/** Spread bank arrivals so ABGARMY01 is not serving a full crowd at once. */
-function muleBankStaggerMs(): number {
-    const n = Number.parseInt(username.match(/\d+/)?.[0] ?? '', 10);
-    if (!Number.isFinite(n)) return 0;
-    return Math.max(0, (n - 2) % 19) * 5_000;
-}
-
-/** Walk to 01 at the Ardougne bank, give loot, take noted fish. */
-async function swapFoodWithMule(): Promise<boolean> {
-    if (!usesFoodMule(username) || !inArdougne()) return false;
-    const swapStart = Date.now();
-    let stepMs = swapStart;
-    const mark = (label: string) => {
-        const now = Date.now();
-        log(`Mule swap +${now - swapStart}ms ${label} (+${now - stepMs}ms)`);
-        stepMs = now;
-    };
-
-    await leaveHouse();
-    await leaveHandelmortMansion();
-    mark('left house/mansion');
-    const stagger = muleBankStaggerMs();
-    if (stagger > 0) {
-        log(`Mule swap stagger ${stagger}ms`);
-        await new Promise((r) => setTimeout(r, stagger));
-    }
-    intent(`Trading loot → ${FOOD_MULE} for food at bank`);
-    await walkNear(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 3);
-    mark(`walked to bank @ ${pos().x},${pos().z}`);
-    await bot.closeInterface();
-    await bot.declineTrade().catch(() => {});
-    if (muleLootGiveList().length === 0) {
-        if (hasUnpackagedLoot()) {
-            session.log('warn', 'Mule swap: no noted loot — pack during grind, not at trade tile');
-            return false;
-        }
-        log('Mule swap: nothing to offer — skipping');
-        return false;
-    }
-    mark(`loot ready (${muleLootGiveList().length} stacks)`);
-    const give = muleLootGiveList().slice(0, 12);
-    const loot = give.length
-        ? sdk
-              .getInventory()
-              .filter((i) => (i.count ?? 0) > 0 && !isMuleKeep(i.name))
-              .map((i) => `${i.count} ${i.name}`)
-              .join(', ')
-        : 'nothing';
-    log(`Mule swap → ${FOOD_MULE} offering ${loot}`);
-    const tradeStart = Date.now();
-    const result = await bot.trade(FOOD_MULE, {
-        give,
-        want: [{ item: MULE_FOOD, amount: 1 }],
-        requestTimeout: 30_000,
-        timeout: 75_000,
-        retryOnBusy: true
-    });
-    const t = result.timingsMs;
-    const timing =
-        t != null
-            ? ` request=${t.requestMs ?? '?'} offer=${t.offerMs ?? '?'} accept=${t.acceptWaitMs ?? '?'} confirm=${t.confirmMs ?? '?'} session=${t.sessionMs ?? '?'}`
-            : '';
-    log(`Mule swap trade +${Date.now() - tradeStart}ms${timing}`);
-    const noted = notedFood()
-        .map((i) => `${i.count} ${i.name}`)
-        .join(', ') || 'none';
-    if (result.success) {
-        log(
-            `Mule swap ok got ${result.received.map((i) => `${i.count} ${i.name}`).join(', ') || 'nothing'} | eat-food=${foodCount()} notes=${noted} total=${Date.now() - swapStart}ms`
-        );
-        session.noteProgress('inventory', 'mule food');
-    } else {
-        session.log(
-            'warn',
-            `Mule swap failed ${result.reason} ${result.message} | notes=${noted} total=${Date.now() - swapStart}ms${timing}`
-        );
-    }
-    return result.success;
-}
 
 const SHARK_EAT_BELOW_HP = 10;
 const KEEP_EMERGENCY_SHARKS = 4;
@@ -1453,17 +1269,9 @@ async function unnoteFood(): Promise<number> {
 async function ensureFood(): Promise<{ opened: boolean; ok: boolean }> {
     if (hasThieveFood() && notedFood().length === 0) return { opened: true, ok: true };
     await recoverStun();
-    if (usesFoodMule(username) && inArdougne()) {
-        if (hasUnpackagedLoot() && muleLootGiveList().length === 0) {
-            log('ensureFood: unpackaged loot — noting at bank before mule swap');
-            await packNotedLootForMule();
-        }
-        await swapFoodWithMule();
-        if (hasThieveFood()) return { opened: true, ok: true };
-        if (notedFood().length > 0) {
-            const unnoted = await withdrawBankFood();
-            if (hasThieveFood()) return { opened: unnoted.opened, ok: true };
-        }
+    if (notedFood().length > 0) {
+        const unnoted = await withdrawBankFood();
+        if (hasThieveFood()) return { opened: unnoted.opened, ok: true };
     }
     const bank = await withdrawBankFood();
     if (hasThieveFood()) return { opened: bank.opened, ok: true };
@@ -1695,8 +1503,26 @@ function patchRosterJob(script: string, args: string[]): string | null {
  * Bank has no thieving fish. Net at Catherby under Fishing 35, otherwise
  * harpoon. fishing-route cooks 500 tuna/swordfish, then puts this bot back
  * on thieving-route.
+ *
+ * On the VPS box the roster file is deploy-managed and the container command
+ * is compose-pinned, so a self-rewrite would desync live state from git and
+ * restart-loop on the old script: stop with a clear verdict and let the
+ * operator switch via roster PR instead.
  */
+function runsOnVpsBox(): boolean {
+    if (process.env.FLEET_SUPERVISOR === 'docker') return true;
+    try {
+        return existsSync('/.dockerenv');
+    } catch {
+        return false;
+    }
+}
+
 function handoffToThieveSupply(): void {
+    if (runsOnVpsBox()) {
+        session.stop('out_of_food', 'no food in bank — needs roster switch to fishing-route --thieve-supply');
+        return;
+    }
     const net = fishingLevel() < 35;
     const args = [username];
     if (net) args.push('--smallnet');
@@ -3036,12 +2862,7 @@ session.registerRecovery([
 try {
     lastLoggedLevel = thievingLevel();
     session.log('log', `Thieving ${lastLoggedLevel} @ ${pos().x},${pos().z} gp=${coinCount()} food=${foodCount()}`);
-    if (usesFoodMule(username)) {
-        session.log(
-            'log',
-            `Food restock: own bank, then 1-to-1 with ${FOOD_MULE} @ ${ARDOUGNE_BANK.x},${ARDOUGNE_BANK.z}`
-        );
-    }
+    session.log('log', 'Food restock: own bank, then Catherby fishing supply if the bank runs dry');
     await clickYesOrContinue();
     const p0 = pos();
     if (p0.x >= 3050 && p0.x <= 3150 && p0.z >= 3050 && p0.z <= 3135) {
@@ -3143,11 +2964,6 @@ try {
                     handoffToThieveSupply();
                     break;
                 }
-                if (usesFoodMule(username)) {
-                    log(`Still no food after mule/bank — waiting on ${FOOD_MULE}`);
-                    await sdk.waitForTicks(15);
-                    continue;
-                }
                 continue;
             }
             if (shopKind()) await buyAndBankShopStock();
@@ -3159,7 +2975,6 @@ try {
         if (result === 'ok') {
             nonOkStreak = 0;
             session.noteProgress('xp', 'pickpocket');
-            await maybePackLootWhileGrinding();
             continue;
         }
         if (result === 'stunned' || result === 'fail') {

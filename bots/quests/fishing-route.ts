@@ -2300,6 +2300,15 @@ function invTunaSword(): number {
 }
 
 const THIEVE_SUPPLY_PATH = () => join(process.cwd(), 'bots', username, 'thieve-supply.json');
+/** VPS box detection (see thieving-route.ts): roster is deploy-managed there. */
+function runsOnVpsBox(): boolean {
+    if (process.env.FLEET_SUPERVISOR === 'docker') return true;
+    try {
+        return existsSync('/.dockerenv');
+    } catch {
+        return false;
+    }
+}
 let thieveSupplyCooked = 0;
 
 function loadThieveSupply(): void {
@@ -2325,6 +2334,12 @@ function returnToThieving(): void {
         unlinkSync(THIEVE_SUPPLY_PATH());
     } catch {
         /* already gone */
+    }
+    if (runsOnVpsBox()) {
+        // Box roster is deploy-managed and the container command is
+        // compose-pinned: stop and let the operator switch back via roster PR.
+        session.stop('thieve_supply_done', 'cooked tuna/swordfish quota — needs roster switch to thieving-route');
+        return;
     }
     const rosterPath = join(process.cwd(), 'bots', 'roster.json');
     const raw = readFileSync(rosterPath, 'utf-8');
