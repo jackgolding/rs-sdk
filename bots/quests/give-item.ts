@@ -1,10 +1,11 @@
 /**
- * Mule handoff protocol: both sides meet at Catherby bank with EMPTY bags,
+ * Mule handoff protocol: both sides meet at a fleet bank with EMPTY bags,
  * trade verified stock (banknotes by default), bank the result, then hold
  * DONE for the operator to switch them back to their grind.
  *
  *   bun bots/quests/give-item.ts pigfat give jacklove1 jacklove4 --item='dragonfire shield'
  *   bun bots/quests/give-item.ts jacklove1 receive pigfat --item='dragonfire shield' --count=3
+ *   bun bots/quests/give-item.ts jacklove1 give ABGARMY03 --item='Fire battlestaff' --bank=falador-east
  *
  * Flags:
  *   --item=NAME    what moves (default 'big fishing net')
@@ -12,6 +13,9 @@
  *   --count=N      receiver: N items expected (default 1)
  *   --withdraw=N   giver: cap the bank withdrawal (default: exactly the shortfall)
  *   --noted=false  giver: withdraw unnoted, trade 1-by-1 (default noted)
+ *   --bank=NAME    meet bank (default 'catherby'; e.g. falador-east,
+ *                  falador-west, draynor, seers, ardougne, yanille,
+ *                  varrock-east, varrock-west, al-kharid, lumbridge, edgeville)
  *
  * Completion is a DONE line plus an idle heartbeat — the container stays Up
  * doing nothing, so a restart can never over-deliver. Genuine stalls (short
@@ -21,7 +25,7 @@
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
 import { appendGrindLog } from '../../sdk/grind-log';
-import { CATHERBY_BANK } from './tiles';
+import { FLEET_BANKS } from './tiles';
 import { closeUi, playerPos, walkNear } from './movement';
 
 const positional: string[] = [];
@@ -45,6 +49,14 @@ const partners = [...new Set(positional.slice(2).map(canon))];
 const itemLabel = flags.get('item') ?? 'big fishing net';
 const asNote = (flags.get('noted') ?? 'true') === 'true';
 const ITEM = new RegExp(`^${itemLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+const bankRaw = (flags.get('bank') ?? 'catherby').toLowerCase().replace(/[_\s]+/g, '-').replace(/-bank$/, '');
+const MEET_BANK =
+    FLEET_BANKS.find((b) => b.name.toLowerCase().replace(/\s+/g, '-') === bankRaw) ?? null;
+if (!MEET_BANK) {
+    throw new Error(
+        `Unknown --bank=${flags.get('bank')!}: valid: ${FLEET_BANKS.map((b) => b.name.toLowerCase().replace(/\s+/g, '-')).join(', ')}`
+    );
+}
 const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
 
 if (!botName || (role !== 'give' && role !== 'receive') || partners.length === 0) {
@@ -65,8 +77,8 @@ await runScript(async ({ bot, sdk }) => {
     };
 
     await closeUi(bot, sdk);
-    await walkNear(bot, sdk, CATHERBY_BANK.x, CATHERBY_BANK.z, 6);
-    log('LOG', `give-item ${role} ${itemLabel} partners=${partners.join(',')} have=${itemCount(sdk)} @ ${playerPos(sdk).x},${playerPos(sdk).z}`);
+    await walkNear(bot, sdk, MEET_BANK.x, MEET_BANK.z, 6);
+    log('LOG', `give-item ${role} ${itemLabel} bank=${MEET_BANK.name} partners=${partners.join(',')} have=${itemCount(sdk)} @ ${playerPos(sdk).x},${playerPos(sdk).z}`);
 
     async function openBank(why: string): Promise<void> {
         for (let attempt = 0; attempt < 2; attempt++) {
