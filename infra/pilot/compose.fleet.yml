@@ -641,7 +641,7 @@ services:
   quest-abgarmy19:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/gear-kit.ts", "ABGARMY19", "--bank=varrock-east", "--item=Dragon longsword", "--item=Dragonfire shield", "--item=Dragon vambraces", "--item=Dragonhide chaps"]
+    command: ["bun", "bots/quests/sheep-shearer.ts", "ABGARMY19", "--quest-only"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1525,7 +1525,7 @@ services:
   quest-jackpoo4:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/gear-kit.ts", "Jackpoo4", "--bank=varrock-east", "--item=Dragon longsword", "--item=Dragonfire shield", "--item=Dragon vambraces", "--item=Dragonhide chaps"]
+    command: ["bun", "bots/quests/sheep-shearer.ts", "Jackpoo4", "--quest-only"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

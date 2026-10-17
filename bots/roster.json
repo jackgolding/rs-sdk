@@ -51,14 +51,10 @@
         {
             "name": "Jackpoo4",
             "view": "fleet",
-            "script": "bots/quests/gear-kit.ts",
+            "script": "bots/quests/sheep-shearer.ts",
             "args": [
                 "Jackpoo4",
-                "--bank=varrock-east",
-                "--item=Dragon longsword",
-                "--item=Dragonfire shield",
-                "--item=Dragon vambraces",
-                "--item=Dragonhide chaps"
+                "--quest-only"
             ]
         },
         {
@@ -443,14 +439,10 @@
         {
             "name": "ABGARMY19",
             "view": "army",
-            "script": "bots/quests/gear-kit.ts",
+            "script": "bots/quests/sheep-shearer.ts",
             "args": [
                 "ABGARMY19",
-                "--bank=varrock-east",
-                "--item=Dragon longsword",
-                "--item=Dragonfire shield",
-                "--item=Dragon vambraces",
-                "--item=Dragonhide chaps"
+                "--quest-only"
             ]
         },
         {
