@@ -10,6 +10,9 @@
 import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
+import { ActivitySession } from '../../sdk/activity';
+import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
+import type { JournalRule } from '../../quest-lab/evidence';
 
 const KAQEMEEX = { x: 2925, z: 3486 };
 const SANFEW = { x: 2899, z: 3428 };
@@ -106,10 +109,48 @@ await runScript(async ({ bot, sdk }) => {
         return sdk.getSkill('Herblore')?.experience ?? 0;
     }
 
-    function questDone(): boolean {
-        if (herbXp() >= 250) return true;
-        const msgs = sdk.getState()?.gameMessages ?? [];
-        return msgs.some((m) => /completed the.*druidic ritual/i.test(m.text));
+    /**
+     * Completion comes from the QUEST JOURNAL — never from XP, and never from a
+     * chat line.
+     *
+     * This used to be `herbXp() >= 250`, which made the quest read as DONE for
+     * any account with Herblore levelled: the best-case maxed fixture finished
+     * instantly without doing anything, and a mid-quest restart could not be
+     * told apart from a finished one.
+     *
+     * Rules are read from the quest's own journal script
+     * (server/content/scripts/quests/quest_druid/scripts/druid_journal.rs2).
+     */
+    const JOURNAL = { label: 'Druidic Ritual', title: 'Druidic Ritual' };
+    const STAGE_RULES: Record<string, JournalRule> = {
+        unstarted: {
+            id: 'druid:unstarted',
+            kind: 'unstarted',
+            all: ['I can start this quest by speaking to Kaqemeex'],
+        },
+        complete: { id: 'druid:complete', kind: 'complete', all: ['QUEST COMPLETE'] },
+    };
+
+    /** The first stage rule that passes is the account's real stage. */
+    async function readStage(): Promise<'unstarted' | 'complete' | 'unknown'> {
+        for (const name of ['complete', 'unstarted'] as const) {
+            const read = await readJournalCheckpoint(sdk, JOURNAL, STAGE_RULES[name]!);
+            log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
+            if (read.verdict?.verdict === 'PASS') return name;
+        }
+        return 'unknown';
+    }
+
+    let complete = false;
+    let lastCompleteCheck = 0;
+    /** Journal-backed completion, throttled: opening the journal is not free. */
+    async function questDone(): Promise<boolean> {
+        if (Date.now() - lastCompleteCheck < 5_000) return complete;
+        lastCompleteCheck = Date.now();
+        const read = await readJournalCheckpoint(sdk, JOURNAL, STAGE_RULES.complete!);
+        complete = read.verdict?.verdict === 'PASS';
+        if (complete) log(`Journal confirms completion: ${read.reason}`);
+        return complete;
     }
 
     function hasType(raw: RegExp, enchanted: RegExp): boolean {
@@ -476,8 +517,32 @@ await runScript(async ({ bot, sdk }) => {
     );
     await closeUi();
 
+    // ActivitySession carries grindLogPath so fleet verdicts can see this run at
+    // all; without it the bot reads as silent however well it plays.
+    const session = new ActivitySession(sdk, bot, {
+        name: 'druidic ritual',
+        grindLogPath: GRIND_LOG,
+        maxRecoveryTactics: 8
+    });
+    await session.setPhase('inspect');
+
+    // Ask the journal what state this account is in BEFORE acting. With the old
+    // XP test a maxed account fell straight through as "already complete".
+    const stage = await readStage();
+    log(`Druidic Ritual stage at start: ${stage}`);
+    if (stage === 'complete') {
+        log('Druidic Ritual is already complete — nothing to do');
+        await session.setPhase('done');
+        return;
+    }
+    if (stage === 'unknown') {
+        session.log('warn', 'could not determine quest stage from the journal');
+        throw new Error('could not determine the Druidic Ritual stage from the journal');
+    }
+    session.log('log', `stage=${stage} herbXp=${startXp}`);
+
     const until = Date.now() + 20 * 60_000;
-    while (Date.now() < until && !questDone()) {
+    while (Date.now() < until && !(await questDone())) {
         await closeUi();
         if (pos().isDead) {
             await sdk.waitForTicks(3);
@@ -489,7 +554,7 @@ await runScript(async ({ bot, sdk }) => {
             log(`Sanfew: ${seen || '(no dialog)'}`);
             await chat();
             await closeUi();
-            if (questDone()) break;
+            if (await questDone()) break;
         }
 
         if (!allRawOrEnchanted()) {
@@ -497,7 +562,7 @@ await runScript(async ({ bot, sdk }) => {
             log(`Kaqemeex: ${fin || '(no dialog)'}`);
             await chat();
             await closeUi();
-            if (questDone()) break;
+            if (await questDone()) break;
             await gatherMeats();
             continue;
         }
@@ -506,17 +571,17 @@ await runScript(async ({ bot, sdk }) => {
         log(`Kaqemeex: ${startSeen || '(no dialog)'}`);
         await chat();
         await closeUi();
-        if (questDone()) break;
+        if (await questDone()) break;
 
         const san = (await talkSanfew()).join(' | ');
         log(`Sanfew: ${san || '(no dialog)'}`);
         await chat();
         await closeUi();
-        if (questDone()) break;
+        if (await questDone()) break;
 
         await dipMeats();
     }
 
-    if (questDone()) log(`Druidic Ritual complete herbloreXp=${herbXp()} (+${herbXp() - startXp})`);
+    if (await questDone()) log(`Druidic Ritual complete (journal-verified) herbloreXp=${herbXp()} (+${herbXp() - startXp})`);
     else throw new Error(`Quest unfinished @ ${pos().x},${pos().z} herbXp=${herbXp()}`);
 });
