@@ -167,10 +167,19 @@ await runScript(async ({ bot, sdk }) => {
     async function chat(choices: RegExp[] = [], max = 32): Promise<string[]> {
         const seen: string[] = [];
         for (let i = 0; i < max; i++) {
-            const dialog = sdk.getDialog();
-            if (!dialog?.isOpen) {
-                await sdk.waitForTicks(1);
-                if (!sdk.getDialog()?.isOpen) break;
+            if (!sdk.getDialog()?.isOpen) {
+                // The dialog does not always open within ONE tick of talkTo. The
+                // old one-tick check then broke out with an empty option list,
+                // which reads exactly like "this NPC has nothing to say" and
+                // silently skipped the choice that starts the quest (observed as
+                // `Morgan: ` with no options, and as a quest that stayed
+                // unstarted while the run cycled). Poll instead of sampling once.
+                let opened = false;
+                for (let t = 0; t < 12 && !opened; t++) {
+                    await sdk.waitForTicks(2);
+                    opened = sdk.getDialog()?.isOpen ?? false;
+                }
+                if (!opened) break;
             }
             const opts = sdk.getDialog()?.options ?? [];
             for (const o of opts) seen.push(o.text);
