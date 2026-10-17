@@ -1,29 +1,30 @@
 /**
- * Red dragon isle melee for 90+ attack accounts.
+ * Red dragon isle melee for 90+ attack accounts — SOLO hunters, no tank.
  *
- * Tank-first pack: jacklove1 (the tank) grabs aggro on a fresh dragon, DPS
- * (the rest of the pack) piles the tank's dragon ~2 ticks later so the
- * dragon sticks on the tank instead of bouncing between attackers. DPS never
- * starts a fresh fight — if the tank has no target they hold position.
+ * Each bot fights alone: join a dragon already engaged by anyone nearby
+ * (shared DPS either way), else the nearest fresh dragon. No delays, no
+ * waiting for a pack, no --tank/--lead (accepted but ignored).
  *
  * Hunters bring their own dragonfire/anti-dragon shield and dragon longsword:
  * they take 20 sharks, swordfish, or tuna and kill red dragons
- * south of the gate at (3201, 3856). They clump on jacklove1, pile the same
- * dragon, then walk the isle together for the next. Spec on cooldown, bury
- * bones, and pick up drops on the stack.
+ * south of the gate at (3201, 3856). Spec on cooldown, bury
+ * bones, pick up drops on the stack, and wear armour upgrades better than
+ * what's worn (helm/body/legs tier ladder — weapon and shield stay locked).
+ * Death piles are swept for shields first (pack mates' kit survives).
  *
  * Banks are one shared bank. Before the ditch they empty the whole bag at
- * Varrock east (3253, 3420), unequip whatever they are wearing and deposit
+ * Edgeville (3094, 3492), unequip whatever they are wearing and deposit
  * it, equip a dragon longsword and a dragonfire shield, and withdraw 20
  * sharks (swordfish, then tuna). The inventory that crosses into the
  * wilderness is only those 20 food. None of those in the bank: cook raw
- * food at Catherby, or harpoon sharks there, then return to Varrock east
- * and withdraw again. A full bag or an empty belly restocks at the Mage
- * Arena the same way. A player attack: Protect from Melee, run south, log out.
+ * food at Catherby, or harpoon sharks there, then return to Edgeville
+ * and withdraw again. A full bag restocks at Edgeville the same way.
+ * Out of food everywhere with --then set: hand off to bignet fishing
+ * instead of looping back. A player attack: Protect from Melee, run south,
+ * log out.
  *
  *   bun bots/quests/red-dragons.ts jacklove1
- * DPS (default) piles the tank's dragon 2 ticks after it engages. Tune with
- *   bun bots/quests/red-dragons.ts jacklove2 --tank=jacklove1 --dps-delay=3
+ *   bun bots/quests/red-dragons.ts jacklove2 --then bots/quests/fishing-route.ts jacklove2 --bignet
  */
 import { spawn } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
@@ -33,6 +34,7 @@ import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
 import {
     CATHERBY_BANK,
+    EDGEVILLE,
     VARROCK_EAST_BANK,
     WHITE_WOLF_TO_CATHERBY,
     type Tile
@@ -45,6 +47,7 @@ import {
     walkSendHops
 } from './movement';
 import { foodHeal } from './food-heal';
+import { scheduleHandoff } from './handoff';
 import { installGracefulShutdown } from '../../sdk/runner';
 
 const FOOD_PACK = 20;
@@ -868,6 +871,9 @@ async function leaveWildySouth(): Promise<void> {
             { x: 3124, z: 3851 },
             { x: 3110, z: 3700 },
             { x: 3102, z: 3610 },
+            // Skirt EAST of the earth altar ruins (~3097,3577): the direct
+            // 3610->3550 leg clips them and the pathfinder ping-pongs.
+            { x: 3115, z: 3575 },
             { x: 3088, z: 3550 },
             DITCH_NORTH
         ]);
@@ -1318,6 +1324,31 @@ async function mageBankTrip(): Promise<void> {
     log(`Leaving Mage Arena food=${tripFoodCount()} bag=${bagSummary()}`);
 }
 
+/** Empty the bag at Edgeville, wear sword and shield, withdraw sharks, swordfish, or tuna. */
+async function prepareAtEdgeville(): Promise<void> {
+    await descendCastle();
+    if (inMageBank() || wildySurface()) await leaveWildySouth();
+    intent('Depositing everything at Edgeville');
+    if (distTo(EDGEVILLE.x, EDGEVILLE.z) > 6) {
+        await walkSafe(EDGEVILLE.x, EDGEVILLE.z, 4);
+    }
+    if (!(await openBooth(EDGEVILLE))) {
+        session.log('warn', 'Edgeville bank did not open');
+        return;
+    }
+    await fillTripBag();
+    if (sdk.getState()?.bank?.isOpen) await bot.closeBank();
+    await equipWorn();
+    if (!bagIsTripFood() && (await openBooth(EDGEVILLE))) {
+        await depositExcept((name) => isTripFood(name));
+        await bot.closeBank();
+    }
+    log(
+        `Edgeville kit food=${tripFoodCount()} dlong=${wearingDlong() ? 'worn' : 'no'} ` +
+            `shield=${wearingShield() ? 'worn' : 'no'} bag=${bagSummary()}`
+    );
+}
+
 /** Empty the bag at Varrock east, wear sword and shield, withdraw sharks, swordfish, or tuna. */
 async function prepareAtVarrockEast(): Promise<void> {
     await descendCastle();
@@ -1408,6 +1439,60 @@ async function recoverDeathShield(): Promise<void> {
         session.noteProgress('inventory', item.name);
     }
     await buryBones();
+    await equipBetter();
+}
+
+/**
+ * Equip-better rule: after looting, wear any picked-up armour that outranks
+ * what is worn — helm / body / legs only. Weapon (dlong) and shield (dfs)
+ * are locked: never swapped by loot. Rank is pure metal tier, so no stats
+ * DB is needed. Failures are silent no-ops engine-side, so every equip is
+ * verified and logged; the old piece rides home to the bank next trip.
+ */
+const METAL_TIER: [RegExp, number][] = [
+    [/dragon(?!hide)/i, 8],
+    [/rune/i, 7],
+    [/adamant|addy/i, 6],
+    [/mithril|mith/i, 5],
+    [/black/i, 4],
+    [/dragonhide/i, 4],
+    [/steel/i, 3],
+    [/iron/i, 2],
+    [/bronze/i, 1],
+];
+const SLOT_PATS = {
+    helm: /helm|coif/i,
+    body: /platebody|chainbody|leather body|robe top|shirt/i,
+    legs: /platelegs|plateskirt|chaps|legs|skirt/i,
+};
+
+function metalTier(name: string): number {
+    for (const [re, tier] of METAL_TIER) if (re.test(name)) return tier;
+    return 0;
+}
+
+async function equipBetter(): Promise<void> {
+    const worn = sdk.getEquipment() ?? [];
+    for (const [slot, pat] of Object.entries(SLOT_PATS)) {
+        const wornPiece = worn.find((w) => pat.test(w.name));
+        const wornTier = wornPiece ? metalTier(wornPiece.name) : -1;
+        if (wornTier < 0) continue; // nothing worn and nothing to compare — skip
+        const cands = sdk
+            .getInventory()
+            .filter((i) => pat.test(i.name) && metalTier(i.name) > wornTier)
+            .sort((a, b) => metalTier(b.name) - metalTier(a.name));
+        if (cands.length === 0) continue;
+        const best = cands[0]!;
+        const r = await bot.equipItem(best);
+        await sdk.waitForTicks(1).catch(() => {});
+        const still = (sdk.getEquipment() ?? []).some((w) => pat.test(w.name) && w.name === best.name);
+        if (still) {
+            session.noteProgress('inventory', `upgraded ${slot}: ${wornPiece?.name ?? 'bare'} -> ${best.name}`);
+            log(`Equip-better ${slot}: ${wornPiece?.name ?? 'bare'} -> ${best.name} ok`);
+        } else {
+            session.log('warn', `Equip-better ${slot} ${best.name} failed: ${r.message}`);
+        }
+    }
 }
 
 async function lootGround(): Promise<void> {
@@ -1430,6 +1515,7 @@ async function lootGround(): Promise<void> {
         session.noteProgress('inventory', item.name);
         if (BONES.test(item.name)) await buryBones();
     }
+    await equipBetter();
 }
 
 function findFreshDragon() {
@@ -1574,80 +1660,58 @@ async function engageDragon(
     await waitFight();
 }
 
+/**
+ * Solo target selection: join a dragon already engaged by anyone nearby
+ * (pack mate or stranger — shared DPS either way), else the nearest fresh
+ * dragon. No tank, no delays, no waiting for a pack.
+ */
+function findSoloDragon() {
+    const mine = pos().targetIndex;
+    const cands = (sdk.getNearbyNpcs() ?? []).filter(
+        (n) =>
+            DRAGON.test(n.name) &&
+            (n.hp === null || n.hp > 0) &&
+            n.optionsWithIndex.some((o) => /attack/i.test(o.text)) &&
+            inHuntBox(n.x, n.z)
+    );
+    const engaged = cands
+        .filter((n) => typeof n.targetIndex === 'number' && n.targetIndex >= 0 && n.index !== mine)
+        .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+    if (engaged) return engaged;
+    return findFreshDragon();
+}
+
 async function attackDragon(): Promise<void> {
     if (hasDragonTarget()) {
         await waitFight();
         return;
     }
-    if (isTank()) {
-        // Tank grabs aggro first: closest fresh dragon, immediately.
-        const target = findFreshDragon() ?? findDragon();
-        if (!target || (target.distance ?? 99) > 1) return;
-        await engageDragon(target, 'Tank attack');
+    const target = findSoloDragon();
+    if (!target) return;
+    if ((target.distance ?? 99) > 1) {
+        session.setAnchor(target.x, target.z);
+        intent(`To red dragon @ ${target.x},${target.z}`);
+        await hopToward(target.x, target.z, 1);
         return;
     }
-    // DPS piles only the tank's dragon, ~2 ticks after it engages, so the
-    // dragon sticks on the tank. No tank fight yet: hold, don't pull.
-    const tankDragon = findTankDragon();
-    if (!tankDragon) return;
-    if ((tankDragon.distance ?? 99) > 1) {
-        session.setAnchor(tankDragon.x, tankDragon.z);
-        intent(`To tank's dragon @ ${tankDragon.x},${tankDragon.z}`);
-        await hopToward(tankDragon.x, tankDragon.z, 1);
-        return;
-    }
-    if (DPS_DELAY_TICKS > 0 && findLead()) {
-        await sdk.waitForTicks(DPS_DELAY_TICKS).catch(() => {});
-        const still = (sdk.getNearbyNpcs() ?? []).find(
-            (n) => n.index === tankDragon.index && (n.hp === null || n.hp > 0)
-        );
-        if (!still) return;
-        if (hasDragonTarget()) {
-            await waitFight();
-            return;
-        }
-    }
-    await engageDragon(tankDragon, 'DPS pile');
+    await engageDragon(target, 'Solo attack');
 }
 
 async function huntPack(): Promise<void> {
-    if (!isLead()) {
-        await stickTogether();
-        if (!stackedWithLead()) return;
-        if (hasDragonTarget()) {
-            await waitFight();
-            return;
-        }
-        await attackDragon();
-        return;
-    }
-
-    const stacked = packStacked();
+    // Solo hunter: no pack, no rally, no waiting. Fight what's targeted,
+    // walk to what's close, patrol when the isle is empty.
     if (hasDragonTarget()) {
         await waitFight();
         return;
     }
-    // Tank holds for the pack before engaging, so DPS is stacked and ready
-    // for the 2-tick follow. No solo pulls while the pack catches up.
-    if (stacked < MIN_PACK) {
-        if (distTo(CAMP.x, CAMP.z) > 1) {
-            intent(`Rally camp (${stacked}/${MIN_PACK})`);
-            await hopToward(CAMP.x, CAMP.z, 1);
-        } else {
-            intent(`Waiting for pack (${stacked}/${MIN_PACK})`);
-            await sdk.waitForTicks(2);
-        }
-        return;
-    }
-
-    const target = findDragon();
+    const target = findSoloDragon();
     if (!target) {
         await patrolIsle();
         return;
     }
     if ((target.distance ?? 99) > 1) {
         session.setAnchor(target.x, target.z);
-        intent(`Pack to red dragon @ ${target.x},${target.z}`);
+        intent(`To red dragon @ ${target.x},${target.z}`);
         await hopToward(target.x, target.z, 1);
     }
     await attackDragon();
@@ -1671,15 +1735,9 @@ async function waitFight(): Promise<void> {
         await flickMelee();
         if (await fleePlayer()) return;
         if (foodCount() === 0 && pos().hp <= 50) return;
-        if (!isLead() && !stackedWithLead()) {
-            await stickTogether();
-            break;
-        }
         const target = sdk.getNearbyNpcs().find((n) => n.index === pos().targetIndex);
-        if (isLead() && target && (target.distance ?? 99) > 1) {
+        if (target && (target.distance ?? 99) > 1) {
             await hopToward(target.x, target.z, 1);
-        } else if (!isLead()) {
-            await stickTogether();
         }
         await swingSpec();
         await sdk.waitForTicks(1);
@@ -1772,13 +1830,28 @@ try {
     await bot.skipTutorial();
     await ui();
     log(
-        `Red dragons (${role()}${isTank() ? '' : ` delay=${DPS_DELAY_TICKS}`}) @ ${pos().x},${pos().z} | ` +
+        `Red dragons (solo) @ ${pos().x},${pos().z} | ` +
             `Atk ${sdk.getSkill('Attack')?.baseLevel ?? '?'} food=${foodCount()} shields=${shieldsOnPerson()} ` +
             `dlong=${wearingDlong() ? 'worn' : 'no'}`
     );
 
     while (!session.isStopped()) {
         session.maybeHeartbeat();
+        // Never act while disconnected: walks/attacks throw Not connected
+        // and burn the run (pre-empted or stale controller). Player presence
+        // alone lies — a stale feed still has a player — so gate on transport
+        // (sdk.isConnected) AND state freshness. Wait bounded, then re-loop;
+        // the session's own reconnect deadline owns recovery.
+        const ctrlLive = () =>
+            sdk.isConnected() &&
+            !!sdk.getState()?.player &&
+            (sdk.getStateAge?.() ?? Number.MAX_SAFE_INTEGER) <= 15_000;
+        if (!ctrlLive()) {
+            await sdk
+                .waitForCondition(() => ctrlLive(), 15_000)
+                .catch(() => {});
+            continue;
+        }
         await ui();
         if (pos().isDead) {
             await waitRespawn();
@@ -1789,37 +1862,33 @@ try {
             continue;
         }
 
-        const hunting = onIsle() || wildySurface() || inMageBank();
+        const hunting = onIsle() || wildySurface();
         const needBank = bagFull() && hunting;
         const needGear = !wearingDlong() || !wearingShield();
         const needPack = !hunting && !wildyKitReady();
         if (tripFoodCount() < 1 || needGear || needBank || needPack) {
-            if (hunting && (onIsle() || inMageBank() || bagIsTripFood())) {
-                await mageBankTrip();
-                if (tripFoodCount() < 1 || !bagIsTripFood()) {
-                    const fed = await resupplyFood();
-                    packed = false;
-                    if (!fed) {
-                        session.log('warn', 'Still no sharks, swordfish, or tuna after cooking and fishing');
-                        await sdk.waitForTicks(8);
+            await prepareAtEdgeville();
+            if (!wildyKitReady()) {
+                const fed = await resupplyFood();
+                if (!fed) {
+                    // Out of food everywhere: hand off to bignet fishing when
+                    // launched with --then (Mac restarts into it; VPS parks
+                    // as finished for the operator/desk to switch).
+                    // Launch shape: bun bots/quests/red-dragons.ts <name> --then bots/quests/fishing-route.ts <name> --bignet
+                    if (scheduleHandoff(username)) {
+                        session.stop('food_to_fishing', 'Out of trip food — handed off to fishing');
+                        break;
                     }
+                    session.log('warn', 'Still no sharks, swordfish, or tuna after cooking and fishing (no --then fishing handoff set)');
+                    await sdk.waitForTicks(8);
+                } else {
+                    await prepareAtEdgeville();
                 }
-            } else {
-                await prepareAtVarrockEast();
-                if (!wildyKitReady()) {
-                    const fed = await resupplyFood();
-                    if (!fed) {
-                        session.log('warn', 'Still no sharks, swordfish, or tuna after cooking and fishing');
-                        await sdk.waitForTicks(8);
-                    } else {
-                        await prepareAtVarrockEast();
-                    }
-                }
-                packed = wildyKitReady();
-                if (!packed) {
-                    session.log('warn', `Not entering the wilderness. Bag: ${bagSummary()}`);
-                    await sdk.waitForTicks(6);
-                }
+            }
+            packed = wildyKitReady();
+            if (!packed) {
+                session.log('warn', `Not entering the wilderness. Bag: ${bagSummary()}`);
+                await sdk.waitForTicks(6);
             }
             await equipWorn();
             continue;
@@ -1848,7 +1917,7 @@ try {
         session.setAnchor(pos().x, pos().z);
         await eatIfNeeded();
         await flickMelee();
-        if (isLead() || stackedWithLead()) await lootGround();
+        await lootGround();
         await huntPack();
     }
 } catch (err) {

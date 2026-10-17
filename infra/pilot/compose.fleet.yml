@@ -131,7 +131,7 @@ services:
   quest-abgarmy04:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/gear-kit.ts", "ABGARMY04", "--bank=varrock-east", "--item=Dragon longsword", "--item=Dragonfire shield", "--item=Dragon vambraces", "--item=Dragonhide chaps"]
+    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY04"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -165,7 +165,7 @@ services:
   quest-abgarmy05:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/gear-kit.ts", "ABGARMY05", "--bank=varrock-east", "--item=Dragon longsword", "--item=Dragonfire shield", "--item=Dragon vambraces", "--item=Dragonhide chaps"]
+    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY05"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -267,7 +267,7 @@ services:
   quest-abgarmy08:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/gear-kit.ts", "ABGARMY08", "--bank=varrock-east", "--item=Dragon longsword", "--item=Dragonfire shield", "--item=Dragon vambraces", "--item=Dragonhide chaps"]
+    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY08"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -301,7 +301,7 @@ services:
   quest-abgarmy09:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/gear-kit.ts", "ABGARMY09", "--bank=varrock-east", "--item=Dragon longsword", "--item=Dragonfire shield", "--item=Dragon vambraces", "--item=Dragonhide chaps"]
+    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY09"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -369,7 +369,7 @@ services:
   quest-abgarmy11:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/gear-kit.ts", "ABGARMY11", "--bank=varrock-east", "--item=Dragon longsword", "--item=Dragonfire shield", "--item=Dragon vambraces", "--item=Dragonhide chaps"]
+    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY11"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -573,7 +573,7 @@ services:
   quest-abgarmy17:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/gear-kit.ts", "ABGARMY17", "--bank=varrock-east", "--item=Dragon longsword", "--item=Dragonfire shield", "--item=Dragon vambraces", "--item=Dragonhide chaps"]
+    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY17"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -675,7 +675,7 @@ services:
   quest-abgarmy20:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/gear-kit.ts", "ABGARMY20", "--bank=varrock-east", "--item=Dragon longsword", "--item=Dragonfire shield", "--item=Dragon vambraces", "--item=Dragonhide chaps"]
+    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY20"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1117,7 +1117,7 @@ services:
   quest-jacklove2:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/gear-kit.ts", "jacklove2", "--bank=varrock-east", "--item=Dragon longsword", "--item=Dragonfire shield", "--item=Dragon vambraces", "--item=Dragonhide chaps"]
+    command: ["bun", "bots/quests/red-dragons.ts", "jacklove2"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1185,7 +1185,7 @@ services:
   quest-jacklove3:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/gear-kit.ts", "jacklove3", "--bank=varrock-east", "--item=Dragon longsword", "--item=Dragonfire shield", "--item=Dragon vambraces", "--item=Dragonhide chaps"]
+    command: ["bun", "bots/quests/red-dragons.ts", "jacklove3"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1253,7 +1253,7 @@ services:
   quest-jacklove5:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/gear-kit.ts", "jacklove5", "--bank=varrock-east", "--item=Dragon longsword", "--item=Dragonfire shield", "--item=Dragon vambraces", "--item=Dragonhide chaps"]
+    command: ["bun", "bots/quests/red-dragons.ts", "jacklove5"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1423,7 +1423,7 @@ services:
   quest-jackpoo1:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/gear-kit.ts", "Jackpoo1", "--bank=varrock-east", "--item=Dragon longsword", "--item=Dragonfire shield", "--item=Dragon vambraces", "--item=Dragonhide chaps"]
+    command: ["bun", "bots/quests/red-dragons.ts", "Jackpoo1"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1559,7 +1559,7 @@ services:
   quest-jackpoo5:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/gear-kit.ts", "Jackpoo5", "--bank=varrock-east", "--item=Dragon longsword", "--item=Dragonfire shield", "--item=Dragon vambraces", "--item=Dragonhide chaps"]
+    command: ["bun", "bots/quests/red-dragons.ts", "Jackpoo5"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

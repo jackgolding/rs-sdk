@@ -226,6 +226,10 @@ await runScript(async ({ bot, sdk }) => {
             if (!(sdk.isBankOpen() || (await bot.openBank()).success)) {
                 throw new Error(`Bank did not open at ${MEET_BANK.name} (needed ${itemLabel})`);
             }
+            for (const it of sdk.getInventory()) {
+                await bot.depositItem(it.name, -1).catch(() => {});
+            }
+            log('LOG', `Banked full bag at ${MEET_BANK.name} before kitting ${itemLabel}`);
             const bankStock: number = sdk
                 .getBankItems()
                 .filter((i) => rx.test(i.name))

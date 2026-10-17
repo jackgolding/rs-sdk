@@ -26,14 +26,9 @@
         {
             "name": "Jackpoo1",
             "view": "fleet",
-            "script": "bots/quests/gear-kit.ts",
+            "script": "bots/quests/red-dragons.ts",
             "args": [
-                "Jackpoo1",
-                "--bank=varrock-east",
-                "--item=Dragon longsword",
-                "--item=Dragonfire shield",
-                "--item=Dragon vambraces",
-                "--item=Dragonhide chaps"
+                "Jackpoo1"
             ]
         },
         {
@@ -69,14 +64,9 @@
         {
             "name": "Jackpoo5",
             "view": "fleet",
-            "script": "bots/quests/gear-kit.ts",
+            "script": "bots/quests/red-dragons.ts",
             "args": [
-                "Jackpoo5",
-                "--bank=varrock-east",
-                "--item=Dragon longsword",
-                "--item=Dragonfire shield",
-                "--item=Dragon vambraces",
-                "--item=Dragonhide chaps"
+                "Jackpoo5"
             ]
         },
         {
@@ -104,27 +94,17 @@
         {
             "name": "jacklove2",
             "view": "fleet",
-            "script": "bots/quests/gear-kit.ts",
+            "script": "bots/quests/red-dragons.ts",
             "args": [
-                "jacklove2",
-                "--bank=varrock-east",
-                "--item=Dragon longsword",
-                "--item=Dragonfire shield",
-                "--item=Dragon vambraces",
-                "--item=Dragonhide chaps"
+                "jacklove2"
             ]
         },
         {
             "name": "jacklove3",
             "view": "fleet",
-            "script": "bots/quests/gear-kit.ts",
+            "script": "bots/quests/red-dragons.ts",
             "args": [
-                "jacklove3",
-                "--bank=varrock-east",
-                "--item=Dragon longsword",
-                "--item=Dragonfire shield",
-                "--item=Dragon vambraces",
-                "--item=Dragonhide chaps"
+                "jacklove3"
             ]
         },
         {
@@ -138,14 +118,9 @@
         {
             "name": "jacklove5",
             "view": "fleet",
-            "script": "bots/quests/gear-kit.ts",
+            "script": "bots/quests/red-dragons.ts",
             "args": [
-                "jacklove5",
-                "--bank=varrock-east",
-                "--item=Dragon longsword",
-                "--item=Dragonfire shield",
-                "--item=Dragon vambraces",
-                "--item=Dragonhide chaps"
+                "jacklove5"
             ]
         },
         {
@@ -331,27 +306,17 @@
         {
             "name": "ABGARMY04",
             "view": "army",
-            "script": "bots/quests/gear-kit.ts",
+            "script": "bots/quests/red-dragons.ts",
             "args": [
-                "ABGARMY04",
-                "--bank=varrock-east",
-                "--item=Dragon longsword",
-                "--item=Dragonfire shield",
-                "--item=Dragon vambraces",
-                "--item=Dragonhide chaps"
+                "ABGARMY04"
             ]
         },
         {
             "name": "ABGARMY05",
             "view": "army",
-            "script": "bots/quests/gear-kit.ts",
+            "script": "bots/quests/red-dragons.ts",
             "args": [
-                "ABGARMY05",
-                "--bank=varrock-east",
-                "--item=Dragon longsword",
-                "--item=Dragonfire shield",
-                "--item=Dragon vambraces",
-                "--item=Dragonhide chaps"
+                "ABGARMY05"
             ]
         },
         {
@@ -376,27 +341,17 @@
         {
             "name": "ABGARMY08",
             "view": "army",
-            "script": "bots/quests/gear-kit.ts",
+            "script": "bots/quests/red-dragons.ts",
             "args": [
-                "ABGARMY08",
-                "--bank=varrock-east",
-                "--item=Dragon longsword",
-                "--item=Dragonfire shield",
-                "--item=Dragon vambraces",
-                "--item=Dragonhide chaps"
+                "ABGARMY08"
             ]
         },
         {
             "name": "ABGARMY09",
             "view": "army",
-            "script": "bots/quests/gear-kit.ts",
+            "script": "bots/quests/red-dragons.ts",
             "args": [
-                "ABGARMY09",
-                "--bank=varrock-east",
-                "--item=Dragon longsword",
-                "--item=Dragonfire shield",
-                "--item=Dragon vambraces",
-                "--item=Dragonhide chaps"
+                "ABGARMY09"
             ]
         },
         {
@@ -412,14 +367,9 @@
         {
             "name": "ABGARMY11",
             "view": "army",
-            "script": "bots/quests/gear-kit.ts",
+            "script": "bots/quests/red-dragons.ts",
             "args": [
-                "ABGARMY11",
-                "--bank=varrock-east",
-                "--item=Dragon longsword",
-                "--item=Dragonfire shield",
-                "--item=Dragon vambraces",
-                "--item=Dragonhide chaps"
+                "ABGARMY11"
             ]
         },
         {
@@ -476,14 +426,9 @@
         {
             "name": "ABGARMY17",
             "view": "army",
-            "script": "bots/quests/gear-kit.ts",
+            "script": "bots/quests/red-dragons.ts",
             "args": [
-                "ABGARMY17",
-                "--bank=varrock-east",
-                "--item=Dragon longsword",
-                "--item=Dragonfire shield",
-                "--item=Dragon vambraces",
-                "--item=Dragonhide chaps"
+                "ABGARMY17"
             ]
         },
         {
@@ -511,14 +456,9 @@
         {
             "name": "ABGARMY20",
             "view": "army",
-            "script": "bots/quests/gear-kit.ts",
+            "script": "bots/quests/red-dragons.ts",
             "args": [
-                "ABGARMY20",
-                "--bank=varrock-east",
-                "--item=Dragon longsword",
-                "--item=Dragonfire shield",
-                "--item=Dragon vambraces",
-                "--item=Dragonhide chaps"
+                "ABGARMY20"
             ]
         }
     ]
