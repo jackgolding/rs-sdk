@@ -383,14 +383,9 @@
         {
             "name": "ABGARMY13",
             "view": "army",
-            "script": "bots/quests/gear-kit.ts",
+            "script": "bots/quests/red-dragons.ts",
             "args": [
-                "ABGARMY13",
-                "--bank=varrock-east",
-                "--item=Dragon longsword",
-                "--item=Dragonfire shield",
-                "--item=Dragon vambraces",
-                "--item=Dragonhide chaps"
+                "ABGARMY13"
             ]
         },
         {
