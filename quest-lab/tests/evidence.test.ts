@@ -109,3 +109,26 @@ describe('quest journal evidence', () => {
     expect(evaluateJournal(journal, { id: 'complete', kind: 'complete', all: ['QUEST COMPLETE!'] }, observed, 11).verdict).toBe('PASS');
   });
 });
+
+describe("journal predicates survive the client's line wrapping", () => {
+  // The client wraps prose into separate components by PIXEL WIDTH, so a
+  // sentence can be split mid-phrase and where the split lands depends on the
+  // quest's wording, not on any rule. Observed on Rune Mysteries:
+  //   [8145] "I can start this quest by speaking to Duke Horacio of"
+  //   [8147] "Lumbridge, upstairs in Lumbridge Castle"
+  // A predicate must match the sentence as the CONTENT wrote it, not as the
+  // renderer happened to break it.
+  const runeJournal = { label: 'Rune Mysteries Quest', interfaceId: 8134, title: 'Rune Mysteries' };
+  const wrapped = { ...observed, textComponents: [
+    { componentId: 8144, type: 4, rawText: '@dre@Rune Mysteries', text: 'Rune Mysteries' },
+    { componentId: 8145, type: 4, rawText: '@dbl@I can start this quest by speaking to @dre@Duke Horacio of', text: 'I can start this quest by speaking to Duke Horacio of' },
+    { componentId: 8147, type: 4, rawText: '@dre@Lumbridge@dbl@, upstairs in @dre@Lumbridge Castle@dbl@', text: 'Lumbridge, upstairs in Lumbridge Castle' },
+  ] };
+
+  test('matches a sentence the renderer split across components', async () => {
+    const { evaluateJournal } = await import(modulePath);
+    const rule = { id: 'rune:not_started', kind: 'unstarted' as const,
+      all: ['I can start this quest by speaking to Duke Horacio of Lumbridge'] };
+    expect(evaluateJournal(runeJournal, rule, wrapped, 11).verdict).toBe('PASS');
+  });
+});

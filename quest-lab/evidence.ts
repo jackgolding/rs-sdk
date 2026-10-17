@@ -48,6 +48,14 @@ export interface JournalVerdict {
 export function evaluateJournal(spec: JournalSpec, rule: JournalRule, observation: JournalObservation, afterRevision: number): JournalVerdict {
   const rawLines = observation.textComponents ?? [];
   const journalText = rawLines.map(line => line.text).join('\n');
+  // The client wraps prose into separate components by PIXEL WIDTH, so a
+  // sentence can be split mid-phrase and where the break lands depends on the
+  // quest's wording, not on any rule (Rune Mysteries renders "...Duke Horacio
+  // of" in one component and "Lumbridge, upstairs in ..." in the next). Those
+  // boundaries are a rendering artifact, so a predicate is accepted against the
+  // sentence however it is rejoined: as one prose stream (spaces) or with the
+  // newlines the client actually sent.
+  const journalProse = rawLines.map(line => line.text).join(' ');
   const result = (verdict: Verdict, reason: string): JournalVerdict => ({ checkpointId: rule.id, verdict, reason, journalText, rawLines });
   if (!observation.inGame || !observation.isOpen || observation.interfaceId !== spec.interfaceId) return result('UNKNOWN', 'quest journal not open');
   if (!Number.isFinite(observation.revision) || !Number.isFinite(afterRevision) || observation.revision <= afterRevision || !Number.isFinite(observation.stateAgeMs) || observation.stateAgeMs < 0 || observation.stateAgeMs > 5000) return result('UNKNOWN', 'stale journal publication');
@@ -70,12 +78,15 @@ export function evaluateJournal(spec: JournalSpec, rule: JournalRule, observatio
     rawForbidden = (rule.rawNone ?? []).map(pattern => new RegExp(pattern, 'i'));
   } catch { return result('UNKNOWN', 'invalid raw checkpoint predicate'); }
   const rawText = rawLines.map(line => line.rawText).join('\n');
+  const rawProse = rawLines.map(line => line.rawText).join(' ');
   const complete = /QUEST COMPLETE!/i.test(journalText) || /QUEST COMPLETE!/i.test(rawText);
   if (rule.kind === 'complete' && !complete) return result('FAIL', 'explicit quest completion absent');
   if (rule.kind !== 'complete' && complete) return result('FAIL', 'quest already complete');
-  if (!required.every(pattern => pattern.test(journalText))) return result('FAIL', 'required journal statement absent');
-  if (forbidden.some(pattern => pattern.test(journalText))) return result('FAIL', 'forbidden journal statement present');
-  if (!rawRequired.every(pattern => pattern.test(rawText))) return result('FAIL', 'required raw journal emphasis absent');
-  if (rawForbidden.some(pattern => pattern.test(rawText))) return result('FAIL', 'forbidden raw journal emphasis present');
+  // Match a pattern if it fits either rejoining of the same lines.
+  const matches = (pattern: RegExp, joined: string, prose: string) => pattern.test(joined) || pattern.test(prose);
+  if (!required.every(p => matches(p, journalText, journalProse))) return result('FAIL', 'required journal statement absent');
+  if (forbidden.some(p => matches(p, journalText, journalProse))) return result('FAIL', 'forbidden journal statement present');
+  if (!rawRequired.every(p => matches(p, rawText, rawProse))) return result('FAIL', 'required raw journal emphasis absent');
+  if (rawForbidden.some(p => matches(p, rawText, rawProse))) return result('FAIL', 'forbidden raw journal emphasis present');
   return result('PASS', 'journal predicate satisfied');
 }
