@@ -22,6 +22,25 @@ export interface RunHandle { directory: string; identity: RunIdentity }
 
 const RUN_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
+/**
+ * Build a filesystem-safe run id from free-form parts (quest name, account,
+ * an ISO timestamp). Callers naturally pass stamps like
+ * `2026-10-17T16:29:44.743Z`, whose uppercase T/Z and dots are not safe run-id
+ * characters, so normalising here keeps every caller from having to know the
+ * rules — and makes separator or traversal input impossible to smuggle through.
+ */
+export function safeRunId(...parts: string[]): string {
+  const id = parts
+    .join('-')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64)
+    .replace(/-+$/g, '');
+  assertSafeRunId(id);
+  return id;
+}
+
 function assertSafeRunId(runId: string): void {
   if (!RUN_ID.test(runId) || runId.includes('..')) throw new Error(`unsafe run id: ${runId}`);
 }

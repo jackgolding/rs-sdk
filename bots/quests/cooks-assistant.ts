@@ -28,6 +28,7 @@ import { BotActions } from '../../sdk/actions';
 import { initPathfinding, findLongPath, isTileWalkable } from '../../sdk/pathfinding';
 import { ActivitySession } from '../../sdk/activity';
 import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
+import { createRun, appendCheckpoint, summarizeRun, safeRunId } from '../../quest-lab/records';
 import type { JournalRule } from '../../quest-lab/evidence';
 
 // ── args / env ──────────────────────────────────────────────────────────────
@@ -142,10 +143,32 @@ const distTo = (t: { x: number; z: number }) => Math.hypot(pos().x - t.x, pos().
 const invCount = (pattern: RegExp) =>
     sdk.getInventory().filter(i => pattern.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0);
 
+// ── durable run record ──────────────────────────────────────────────────────
+// Checkpoint evidence is written verbatim as the run proceeds, so an audit does
+// not depend on the script's own stdout or on telemetry that sampling truncates.
+const MODE = process.env.QUEST_LAB_MODE === 'staging' ? 'staging' : 'development';
+const run = createRun(join(process.cwd(), 'quest-lab', 'runs'), safeRunId('cook', username, new Date().toISOString()), {
+    questId: 'cook',
+    account: username,
+    mode: MODE,
+    scriptHash: Bun.hash(await Bun.file(import.meta.path).text()).toString(16),
+    fixtureHash: process.env.QUEST_LAB_FIXTURE_HASH ?? 'unrecorded',
+    contentHash: process.env.QUEST_LAB_CONTENT_HASH ?? 'unrecorded',
+    requiredCheckpoints: ['unstarted', 'active', 'complete'],
+});
+log(`Run record: ${run.directory} (mode=${MODE})`);
+
 /** Checkpoint gate. UNKNOWN is a failure like any other here: proceed on nothing. */
 async function checkpoint(name: keyof typeof RULES, label: string): Promise<boolean> {
     const read = await readJournalCheckpoint(sdk, JOURNAL, RULES[name]!);
     const verdict = read.verdict?.verdict ?? 'UNKNOWN';
+    appendCheckpoint(run.directory, {
+        checkpointId: name,
+        verdict,
+        reason: read.reason,
+        kind: RULES[name]!.kind,
+        rawLines: read.rawLines,
+    });
     if (verdict !== 'PASS') {
         log(`CHECKPOINT ${name} ${verdict}: ${read.reason}`);
         if (read.rawLines.length) {
@@ -306,6 +329,12 @@ if (!(await checkpoint('complete', 'journal reports QUEST COMPLETE'))) {
 
 session.log('log', "Cook's Assistant verified complete");
 session.noteProgress('inventory', 'quest complete (journal-verified)');
+const summary = summarizeRun(run.directory);
+if (!summary.ok) {
+    // Every declared checkpoint must carry a PASS before this counts as done.
+    throw new Error(`promotion gate failed: missing/unpassed ${JSON.stringify(summary.missing)}`);
+}
+log(`Run record verified: ${summary.ok} (${summary.missing.length} outstanding)`);
 log(`DONE Cook's Assistant verified via journal at (${pos().x},${pos().z})`);
 log(`Metrics: ${JSON.stringify(session.metrics())}`);
 

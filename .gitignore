@@ -45,3 +45,6 @@ server/engine/data/market.sqlite*
 # Agent session scratch. Monthly notes under .cursor/session-notes/*.md are tracked.
 .cursor/session-notes/pending/
 .cursor/offline-worktree
+
+# quest-lab run output is evidence, not source
+quest-lab/runs/
