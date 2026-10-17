@@ -13,6 +13,8 @@ import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
 import { existsSync, readFileSync, appendFileSync } from 'fs';
 import { dirname, join } from 'path';
+import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
+import type { JournalRule } from '../../quest-lab/evidence';
 
 const DUKE = { x: 3212, z: 3220 };
 const CASTLE_STAIRS = { x: 3205, z: 3208 };
@@ -169,20 +171,95 @@ function npcHas(pattern: RegExp, option: RegExp): boolean {
     return !!npc?.optionsWithIndex.some((o) => option.test(o.text));
 }
 
+/**
+ * Rune Mysteries stage and completion, read from the QUEST JOURNAL.
+ *
+ * Completion used to be a chat regex plus `mining() >= 20`. Mining 20 is
+ * trivially true for a maxed or trained account, so the script declared the
+ * quest done having done none of it, and a mid-quest restart was
+ * indistinguishable from a finish.
+ *
+ * Rules come from the quest's own handler
+ * (quest_runemysteries/scripts/runemysteries_journal.rs2), each keyed on a
+ * sentence UNIQUE to that stage.
+ */
+// NOTE the label/title difference: the quest LIST entry is "Rune Mysteries
+// Quest" (questlist.if `option=`), while the journal heading is "Rune
+// Mysteries" (`~quest_journal("Rune Mysteries", ...)`). The reader clicks the
+// list entry by `label` and verifies by `title`, so a mismatched label finds no
+// button, yields no text, and fails every rule as 'unknown'.
+const RUNE_JOURNAL = { label: 'Rune Mysteries Quest', title: 'Rune Mysteries' };
+const RUNE_STAGES: Record<string, JournalRule> = {
+    not_started: {
+        id: 'rune:not_started',
+        kind: 'unstarted',
+        all: ['I can start this quest by speaking to Duke Horacio of Lumbridge'],
+    },
+    started: {
+        id: 'rune:started',
+        kind: 'active',
+        all: ['I need to find the Head Wizard and give him the Talisman'],
+    },
+    given_talisman: {
+        id: 'rune:given_talisman',
+        kind: 'active',
+        all: ['I should talk to the Head Wizard again'],
+    },
+    received_package: {
+        id: 'rune:received_package',
+        kind: 'active',
+        all: ['I should take this Research Package to Aubury in Varrock'],
+    },
+    given_package: {
+        id: 'rune:given_package',
+        kind: 'active',
+        all: ['I should speak to Aubury again when he has finished examining the research package'],
+    },
+    received_notes: {
+        id: 'rune:received_notes',
+        kind: 'active',
+        all: ['I should take the notes to Sedridor and see what he says'],
+    },
+    complete: { id: 'rune:complete', kind: 'complete', all: ['QUEST COMPLETE'] },
+};
+
+let lastJournalCheck = 0;
+let journalComplete = false;
+
+/** The first stage rule that passes is the account's real stage. */
+async function readRuneStage(): Promise<string> {
+    for (const name of [
+        'complete',
+        'received_notes',
+        'given_package',
+        'received_package',
+        'given_talisman',
+        'started',
+        'not_started',
+    ]) {
+        const read = await readJournalCheckpoint(sdk, RUNE_JOURNAL, RUNE_STAGES[name]!);
+        log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
+        if (read.verdict?.verdict === 'PASS') return name;
+    }
+    return 'unknown';
+}
+
+/** Journal-backed completion, throttled — opening the journal is not free. */
+async function refreshJournal(): Promise<boolean> {
+    if (Date.now() - lastJournalCheck < 5_000) return journalComplete;
+    lastJournalCheck = Date.now();
+    const read = await readJournalCheckpoint(sdk, RUNE_JOURNAL, RUNE_STAGES.complete!);
+    journalComplete = read.verdict?.verdict === 'PASS';
+    if (journalComplete) questComplete = true;
+    return journalComplete;
+}
+
 function questDone(): boolean {
-    // Teleport is on the NPC before the quest is finished; using it prints
-    // "need to have completed the Rune Mysteries". Notes/package mean we are not done.
-    if (has(NOTES) || has(PACKAGE)) {
-        questComplete = false;
-        return false;
-    }
-    if (questComplete) return true;
-    const msgs = sdk.getState()?.gameMessages ?? [];
-    if (msgs.some((m) => /you have completed the.*mysteries of the runes/i.test(m.text))) {
-        questComplete = true;
-        return true;
-    }
-    return false;
+    // Notes/package in hand mean demonstrably mid-quest. Completion itself is
+    // the journal's answer (refreshJournal) merged with the in-flow dialog
+    // signals, which are content-gated and so legitimate.
+    if (has(NOTES) || has(PACKAGE)) return false;
+    return questComplete;
 }
 
 function inKandarin(): boolean {
@@ -928,17 +1005,16 @@ try {
     lastLoggedMine = mining();
     await bot.skipTutorial();
     await closeUi();
-    questDone();
-    if (!questComplete && !has(NOTES) && !has(PACKAGE)) {
-        if (inEssenceMine() || count(ESSENCE) > 0) {
-            questComplete = true;
-            log('Quest already done (in essence mine or carrying essence)');
-        } else if (mining() >= 20) {
-            // Empty at the bank after a restart — do not walk back to the Duke.
-            questComplete = true;
-            log(`Quest already done (Mining ${mining()}, no package/notes)`);
-        }
+    // Ask the JOURNAL before deciding anything. `mining() >= 20` stood here —
+    // true for any maxed or trained account, so a fixture skipped the entire
+    // quest and logged "Quest already done".
+    const startStage = await readRuneStage();
+    log(`Rune Mysteries journal stage at start: ${startStage}`);
+    if (startStage === 'unknown') {
+        throw new Error('could not determine the Rune Mysteries stage from the journal');
     }
+    await refreshJournal();
+    if (journalComplete) log('Journal confirms Rune Mysteries already complete');
     log(
         `Rune Mysteries start Mining ${lastLoggedMine} (${miningXp()} xp) @ ${pos().x},${pos().z} lv${pos().level} ` +
             `gp=${coinCount()} pick=${sdk.findEquipmentItem(PICKAXE)?.name ?? sdk.findInventoryItem(PICKAXE)?.name ?? 'none'} ` +
@@ -961,10 +1037,10 @@ try {
             log(`LEVEL UP Mining ${mining()}`);
             lastLoggedMine = mining();
         }
-        questDone();
-        if (!questComplete && !has(NOTES) && !has(PACKAGE) && mining() >= 20) {
-            questComplete = true;
-        }
+        // Journal replaces the old `mining() >= 20` shortcut. The in-flow
+        // dialog signals (Duke "all is well", Sedridor's essence-teleport offer)
+        // still set questComplete legitimately, since they are content-gated.
+        await refreshJournal();
 
         if (!questComplete) {
             if (inKandarin() || onKaramja()) {
