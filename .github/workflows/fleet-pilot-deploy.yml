@@ -78,7 +78,7 @@ jobs:
               for q in $ALL_FILES; do
                 [ -f "/srv/fleet/repo/bots/quests/$q" ] || continue
                 docker run --rm -v /srv/fleet/repo:/r -w /r oven/bun:debian \
-                  bun build "/r/bots/quests/$q" --outdir /tmp/preflight >/dev/null
+                  bun build --target=bun "/r/bots/quests/$q" --outdir /tmp/preflight >/dev/null
               done
               echo "PREFLIGHT OK"
             fi

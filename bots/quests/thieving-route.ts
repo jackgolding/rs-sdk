@@ -1069,6 +1069,10 @@ async function clickPickpocket(npc: { index: number; name: string }): Promise<'o
     const coinsBefore = coinCount();
     await sdk.sendInteractNpc(fresh.index, pickOpt.opIndex);
 
+    // True stun evidence vs a plain RNG fail: only stun messages mean
+    // 'stunned'. A fail with no stun text is just 'fail' — collapsing both
+    // inflated stun counters ~60-90/hr and made verdicts unreadable.
+    let seenStun = false;
     try {
         await sdk.waitForCondition((s) => {
             const xp = s.skills.find((sk) => sk.name === 'Thieving')?.experience ?? 0;
@@ -1079,11 +1083,12 @@ async function clickPickpocket(npc: { index: number; name: string }): Promise<'o
                 if (
                     t.includes('stunned') ||
                     t.includes('caught') ||
-                    t.includes('you fail to pick') ||
                     t.includes("you're stunned")
                 ) {
+                    seenStun = true;
                     return true;
                 }
+                if (t.includes('you fail to pick')) return true;
             }
             return false;
         }, 3_500);
@@ -1091,11 +1096,13 @@ async function clickPickpocket(npc: { index: number; name: string }): Promise<'o
         return 'fail';
     }
 
-    if ((sdk.getSkill('Thieving')?.experience ?? 0) > xpBefore) {
+    const xpAfter = sdk.getSkill('Thieving')?.experience ?? 0;
+    if (xpAfter > xpBefore) {
         noteCoinDelta(coinsBefore);
+        log(`Pickpocket ${fresh.name}: ok (+${xpAfter - xpBefore} thieving xp)`);
         return 'ok';
     }
-    return 'stunned';
+    return seenStun ? 'stunned' : 'fail';
 }
 
 async function spamPickpocket(
@@ -1106,6 +1113,11 @@ async function spamPickpocket(
     if (!npc) return 'none';
     intent(`Spamming ${label}`);
     let last: 'ok' | 'stunned' | 'fail' = 'fail';
+    // Window tally so success rate is measurable from logs (before this,
+    // only warns were emitted and verdicts could not see successes).
+    let okCount = 0;
+    let stunCount = 0;
+    let failCount = 0;
     const until = Date.now() + 20_000;
     while (Date.now() < until) {
         maybeFlushCoins();
@@ -1134,13 +1146,19 @@ async function spamPickpocket(
         );
 
         if (last === 'ok') {
+            okCount++;
             await eatIfNeeded();
             continue;
         }
         if (last === 'stunned') {
+            stunCount++;
             await recoverStun();
             continue;
         }
+        failCount++;
+    }
+    if (okCount + stunCount + failCount > 0) {
+        log(`Pickpocket ${label}: ${okCount} ok / ${stunCount} stunned / ${failCount} fail in 20s`);
     }
     return last;
 }
