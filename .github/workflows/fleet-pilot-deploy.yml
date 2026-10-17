@@ -1,15 +1,23 @@
 name: fleet-pilot-deploy
 
-# Push-to-deploy for the VPS pilot. No container registry: the box builds
-# from git (build on deploy keeps the pilot to SSH + Compose fundamentals;
-# ghcr.io push/pull is the phase-2 upgrade — see infra/pilot/README.md).
+# Selective push-to-deploy for the VPS pilot. No container registry: the box
+# builds from git (build on deploy keeps the pilot to SSH + Compose
+# fundamentals; ghcr.io push/pull is the phase-2 upgrade).
+#
+# Blast radius is scoped per push: quest/roster-only changes restart ONLY the
+# affected quest services (lite runners are never touched — they don't import
+# quest code). Only sdk/server/Dockerfile/support-code changes rebuild the
+# image and roll the whole fleet.
 on:
   push:
     branches: [infra/vps-pilot]
     paths:
       - "bots/quests/**"
+      - "bots/roster.json"
       - "sdk/**"
       - "server/webclient/**"
+      - "tools/fleet-desk/**"
+      - ".cursor/skills/wake-fleet/scripts/**"
       - "infra/pilot/**"
       - ".github/workflows/fleet-pilot-deploy.yml"
 
@@ -43,12 +51,70 @@ jobs:
             # Fail fast on a dirty box tree instead of dying mid-rollout.
             test -z "$(git status --porcelain)" || { git status --porcelain; echo "BOX TREE DIRTY — refusing rollout"; exit 1; }
             git fetch origin
+            BEFORE=$(git rev-parse HEAD)
             git checkout infra/vps-pilot
             git pull --ff-only origin infra/vps-pilot
+            NOW=$(git rev-parse HEAD)
+            if [ "$BEFORE" = "$NOW" ]; then echo "NO-OP: already at $NOW"; exit 0; fi
             cd infra/pilot
-            # One build, not 96: every service shares the same image, and a
-            # per-service build fans out 96 concurrent buildx jobs that
-            # cancel each other on a small box.
-            docker build -t fleet-pilot:latest -f Dockerfile ../..
-            docker compose -f compose.fleet.yml up -d --remove-orphans
+            # Quest files the live bind-mount is missing/behind on (deploys used
+            # to rebuild an image the /srv/fleet/bots mount shadows, so running
+            # code drifted from git). These must restart after the sync even
+            # when the push itself didn't touch them.
+            DRIFT=""
+            for f in /srv/fleet/repo/bots/quests/*.ts; do
+              base=$(basename "$f")
+              diff -q "$f" "/srv/fleet/bots/quests/$base" >/dev/null 2>&1 || DRIFT="$DRIFT $base"
+            done
+            echo "DRIFT:$DRIFT"
+            # shellcheck disable=SC1090
+            eval "$(python3 rollout.py "$BEFORE" "$NOW" $DRIFT)"
+            echo "NEED_BUILD=$NEED_BUILD CONFIG_UP=[$CONFIG_UP] CODE_UP=[$CODE_UP] LITE_UP=[$LITE_UP] REMOVED=[$REMOVED]"
+            if [ -n "$REMOVED" ]; then echo "NOTE: removed bots need manual cleanup: $REMOVED"; fi
+            # Pre-flight: a quest typo must fail HERE, not inside 48 containers.
+            ALL_FILES="$(git diff --name-only "$BEFORE" "$NOW" -- 'bots/quests/*.ts' | xargs -n1 basename 2>/dev/null)$DRIFT"
+            if [ -n "$(echo "$ALL_FILES" | tr -d ' ')" ]; then
+              for q in $ALL_FILES; do
+                [ -f "/srv/fleet/repo/bots/quests/$q" ] || continue
+                docker run --rm -v /srv/fleet/repo:/r -w /r oven/bun:debian \
+                  bun build "/r/bots/quests/$q" --outdir /tmp/preflight >/dev/null
+              done
+              echo "PREFLIGHT OK"
+            fi
+            # Sync the bind-mounted live tree IN PLACE (roster.json is a
+            # single-file mount — cat, never rename; quests ride a dir mount).
+            # Per-bot dirs (bot.env, grind.log, state) are never touched.
+            rsync -a /srv/fleet/repo/bots/quests/ /srv/fleet/bots/quests/
+            cat /srv/fleet/repo/bots/roster.json > /srv/fleet/bots/roster.json
+            if [ "$NEED_BUILD" = 1 ]; then
+              echo "FULL ROLL: runtime code changed — rebuilding and rolling all services"
+              # One build, not 96: every service shares the same image, and a
+              # per-service build fans out 96 concurrent buildx jobs that
+              # cancel each other on a small box.
+              docker build -t fleet-pilot:latest -f Dockerfile ../..
+              docker compose -f compose.fleet.yml up -d --timeout 90 --remove-orphans
+            else
+              # Selective roll: only affected quest services. Lite runners are
+              # never in these sets — game sessions stay connected.
+              # shellcheck disable=SC2086
+              if [ -n "$LITE_UP" ]; then
+                docker compose -f compose.fleet.yml up -d --timeout 90 --no-deps $LITE_UP
+              fi
+              ALL_QUEST="$CONFIG_UP $CODE_UP"
+              if [ -z "$(echo "$ALL_QUEST" | tr -d ' ')" ]; then echo "NO-OP: no service affected"; fi
+              FIRST=1
+              for svc in $CONFIG_UP $CODE_UP; do
+                case " $CONFIG_UP " in *" $svc "*) FORCE="";; *) FORCE="--force-recreate";; esac
+                # shellcheck disable=SC2086
+                docker compose -f compose.fleet.yml up -d --timeout 90 --no-deps $FORCE "$svc"
+                if [ "$FIRST" = 1 ]; then
+                  FIRST=0
+                  echo "CANARY $svc up — waiting 45s before the rest"
+                  sleep 45
+                  STATE=$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "fleet-$svc-1" 2>/dev/null || echo MISSING)
+                  echo "CANARY $svc: $STATE"
+                  case "$STATE" in true*) ;; *) echo "CANARY FAILED — aborting, remainder untouched"; exit 1;; esac
+                fi
+              done
+            fi
             docker compose -f compose.fleet.yml ps
