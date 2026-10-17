@@ -1,21 +1,51 @@
 /**
- * Fleet shepherd: classify → wake idle bots → enforce restart cap → notify.
- * Installed as com.rs-sdk.fleet-shepherd (StartInterval 600s) by fleet-launchd install.
+ * Fleet shepherd: classify → plan one action per bot → execute → notify.
+ * Mac: installed as com.rs-sdk.fleet-shepherd (StartInterval 600s) by
+ * fleet-launchd install. VPS: systemd timer with FLEET_SUPERVISOR=docker,
+ * FLEET_BOTS_DIR=/srv/fleet/bots, FLEET_STATE_DIR=/srv/fleet/state
+ * (see infra/pilot/observability/README.md).
+ *
+ * A cycle never starts and stops the same bot. `canStart` is checked before any start.
  */
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, appendFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { spawnSync } from 'child_process';
 import { ROOT, rosterBots, type RosterBot } from './roster';
+import { dockerContainerId, supervisorInfo, supervisorKind } from './supervisor';
 
 export const MAX_RESTARTS_PER_HOUR = 4;
 export const ROLLING_WINDOW_MS = 60 * 60 * 1000;
+export const RENOTIFY_MS = 2 * 60 * 60 * 1000;
 export const LOCK_STALE_MS = 5 * 60 * 1000;
+const ACTION_KEEP_MS = 2 * 60 * 60 * 1000;
+/**
+ * Gap between shepherd cycles that means the Mac slept, rebooted, or the
+ * shepherd starved (normal gap is ~StartInterval 600s + runtime). On wake
+ * every bot looks stuck at once; treat it as a fresh episode instead of
+ * waiting out per-bot backoff.
+ */
+export const WAKE_GAP_MS = 20 * 60 * 1000;
 
-const LOG_DIR = join(homedir(), 'Library', 'Logs', 'rs-sdk-fleet');
-export const STATE_PATH = join(LOG_DIR, 'shepherd-state.json');
-const LOCK_PATH = join(LOG_DIR, 'shepherd.lock');
-const HUB_LOCK_PATH = join(LOG_DIR, 'abg-food-hub.lock');
+/** True when the shepherd itself was quiet long enough to imply sleep/reboot. */
+export function detectWake(state: ShepherdState, now: number): boolean {
+    if (!state.lastRun) return false;
+    return now - state.lastRun > WAKE_GAP_MS;
+}
+
+const DEFAULT_STATE_DIR = join(homedir(), 'Library', 'Logs', 'rs-sdk-fleet');
+/**
+ * State home. Mac default is the historical log dir; the VPS host sets
+ * FLEET_STATE_DIR=/srv/fleet/state (host dir, survives redeploys, never git).
+ * fleet-status reads shepherd state through loadState(), so capped/churning
+ * verdicts light up wherever this points.
+ */
+export const STATE_DIR = process.env.FLEET_STATE_DIR ?? DEFAULT_STATE_DIR;
+export const STATE_PATH = join(STATE_DIR, 'shepherd-state.json');
+const LOCK_PATH = join(STATE_DIR, 'shepherd.lock');
+/** Docker-mode notification sink (replaces the Mac osascript popup). */
+const SHEPHERD_LOG = join(STATE_DIR, 'shepherd.log');
+const HUB_LOCK_PATH = join(DEFAULT_STATE_DIR, 'abg-food-hub.lock');
 
 function isHubLocked(): boolean {
     if (!existsSync(HUB_LOCK_PATH)) return false;
@@ -30,10 +60,19 @@ function isHubLocked(): boolean {
     }
 }
 
+export interface ShepherdActionRecord {
+    t: number;
+    action: 'start' | 'restart' | 'cap' | 'uncap' | 'skip-foreign' | 'skip-finished';
+}
+
 export interface ShepherdBotState {
     restarts: number[];
     capped: boolean;
+    cappedAt?: number | null;
     notified: Record<string, number>;
+    actions?: ShepherdActionRecord[];
+    runsSamples?: { t: number; runs: number }[];
+    episodeRestarted?: boolean;
 }
 
 export interface ShepherdState {
@@ -41,29 +80,63 @@ export interface ShepherdState {
     lastRun: number;
 }
 
-export interface ClassifiedBot {
+export interface ShepherdRow {
     name: string;
-    kind: 'running' | 'wake' | 'intervene' | 'paused';
-    reason: string;
-    bunPid: number | null;
-    x: number | null;
-    z: number | null;
+    kind: string;
+    owner?: { pid?: number; supervised?: boolean } | null;
+}
+
+export interface PlanAction {
+    name: string;
+    op: 'start' | 'restart' | 'stop';
+}
+
+export interface CyclePlan {
+    actions: PlanAction[];
+    state: ShepherdState;
+    notifications: string[];
+    woke: string[];
+    capped: string[];
 }
 
 export function emptyState(): ShepherdState {
     return { bots: {}, lastRun: 0 };
 }
 
+/** Drops legacy `intervene:*` keys and fills fields added by this feature. */
+export function migrateShepherdState(raw: Partial<ShepherdState> | null | undefined): ShepherdState {
+    const bots: Record<string, ShepherdBotState> = {};
+    for (const [name, bot] of Object.entries(raw?.bots ?? {})) {
+        if (!bot) continue;
+        const notified: Record<string, number> = {};
+        for (const [key, value] of Object.entries(bot.notified ?? {})) {
+            if (key.startsWith('intervene:')) continue;
+            if (typeof value === 'number') notified[key] = value;
+        }
+        bots[name] = {
+            restarts: Array.isArray(bot.restarts) ? bot.restarts : [],
+            capped: bot.capped === true,
+            cappedAt: bot.cappedAt ?? null,
+            notified,
+            actions: Array.isArray(bot.actions) ? bot.actions : [],
+            runsSamples: Array.isArray(bot.runsSamples) ? bot.runsSamples : [],
+            episodeRestarted: bot.episodeRestarted === true,
+        };
+    }
+    return { bots, lastRun: raw?.lastRun ?? 0 };
+}
+
 export function loadState(): ShepherdState {
     if (!existsSync(STATE_PATH)) return emptyState();
     try {
-        return JSON.parse(readFileSync(STATE_PATH, 'utf-8')) as ShepherdState;
+        return migrateShepherdState(JSON.parse(readFileSync(STATE_PATH, 'utf-8')) as ShepherdState);
     } catch {
         return emptyState();
     }
 }
 
 export function saveState(state: ShepherdState): void {
+    mkdirSync(STATE_DIR, { recursive: true });
     const tmp = `${STATE_PATH}.tmp`;
     writeFileSync(tmp, JSON.stringify(state, null, 2));
     writeFileSync(STATE_PATH, readFileSync(tmp));
@@ -80,8 +153,10 @@ export function pruneRestarts(restarts: number[], now: number): number[] {
 
 export function recordRestart(state: ShepherdState, name: string, now: number): ShepherdState {
     const bots = { ...state.bots };
-    const bot = bots[name] ?? { restarts: [], capped: false, notified: {} };
-    bot.restarts = pruneRestarts([...bot.restarts, now], now);
+    const bot = {
+        ...(bots[name] ?? { restarts: [], capped: false, notified: {} }),
+    };
+    bot.restarts = pruneRestarts([...(bot.restarts ?? []), now], now);
     bots[name] = bot;
     return { ...state, bots };
 }
@@ -99,26 +174,10 @@ export function shouldRecordWake(result: LaunchdStartResult): boolean {
     return result === 'started';
 }
 
-/** `start` is a no-op while a controller is attached — bounce the job instead. */
-export function shouldRestartZeroRate(
-    row: Pick<ClassifiedBot, 'kind' | 'reason'>,
-    bot: Pick<RosterBot, 'script' | 'bursty'> | undefined
-): boolean {
-    if (!bot || bot.bursty) return false;
-    if (row.kind !== 'intervene') return false;
-    return row.reason.startsWith('zero_rate');
-}
-
-/** @deprecated use shouldRestartZeroRate */
-export const shouldRestartStuckThief = shouldRestartZeroRate;
-
-export function expireCap(state: ShepherdState, name: string, now: number): ShepherdState {
-    const bot = state.bots[name];
-    if (!bot?.capped) return state;
-    if (pruneRestarts(bot.restarts, now).length > MAX_RESTARTS_PER_HOUR) return state;
-    const bots = { ...state.bots };
-    bots[name] = { ...bot, capped: false };
-    return { ...state, bots };
+/** True when one more start still fits in the rolling hour. */
+export function canStart(state: ShepherdState, name: string, now: number): boolean {
+    const restarts = state.bots[name]?.restarts ?? [];
+    return pruneRestarts(restarts, now).length + 1 <= MAX_RESTARTS_PER_HOUR;
 }
 
 export function shouldCap(state: ShepherdState, name: string, now: number): boolean {
@@ -127,34 +186,149 @@ export function shouldCap(state: ShepherdState, name: string, now: number): bool
     return pruneRestarts(bot.restarts, now).length > MAX_RESTARTS_PER_HOUR;
 }
 
-export function clearCappedOnStart(state: ShepherdState, name: string, hadController: boolean, hasController: boolean): ShepherdState {
-    if (!hadController && hasController) {
-        const bots = { ...state.bots };
-        const bot = bots[name] ?? { restarts: [], capped: false, notified: {} };
-        bot.capped = false;
-        bot.restarts = [];
-        bots[name] = bot;
-        return { ...state, bots };
-    }
-    return state;
-}
-
-export function shouldNotify(
-    bot: ShepherdBotState | undefined,
-    conditionKey: string,
-    now: number
-): boolean {
+export function shouldNotify(bot: ShepherdBotState | undefined, conditionKey: string, now: number): boolean {
     if (!bot) return true;
     const last = bot.notified[conditionKey];
-    return last == null;
+    if (last == null) return true;
+    return now - last >= RENOTIFY_MS;
 }
 
 export function markNotified(state: ShepherdState, name: string, conditionKey: string, now: number): ShepherdState {
     const bots = { ...state.bots };
-    const bot = bots[name] ?? { restarts: [], capped: false, notified: {} };
+    const bot = { ...(bots[name] ?? { restarts: [], capped: false, notified: {} }) };
     bot.notified = { ...bot.notified, [conditionKey]: now };
     bots[name] = bot;
     return { ...state, bots };
+}
+
+function conditionOf(kind: string): string | null {
+    switch (kind) {
+        case 'capped':
+            return 'capped';
+        case 'alive-not-producing':
+            return 'not_producing';
+        case 'churning':
+            return 'churning';
+        case 'needs-supplies':
+            return 'needs_supplies';
+        case 'needs-client':
+            return 'needs_client';
+        case 'foreign-owner':
+            return 'foreign_owner';
+        case 'finished':
+            return 'finished';
+        default:
+            return null;
+    }
+}
+
+function cloneState(state: ShepherdState): ShepherdState {
+    return migrateShepherdState(JSON.parse(JSON.stringify(state)) as ShepherdState);
+}
+
+function ensure(state: ShepherdState, name: string): ShepherdBotState {
+    const existing = state.bots[name];
+    if (existing) return existing;
+    const created: ShepherdBotState = {
+        restarts: [],
+        capped: false,
+        cappedAt: null,
+        notified: {},
+        actions: [],
+        runsSamples: [],
+        episodeRestarted: false,
+    };
+    state.bots[name] = created;
+    return created;
+}
+
+function logAction(bot: ShepherdBotState, action: ShepherdActionRecord['action'], now: number): void {
+    bot.actions = [...(bot.actions ?? []), { t: now, action }].filter((entry) => now - entry.t < ACTION_KEEP_MS);
+}
+
+/**
+ * Pure cycle plan. `actions` is what launchd should run. A bot is never both
+ * started and stopped. `woke` lists starts that this plan does not undo.
+ */
+export function planCycle(
+    state: ShepherdState,
+    rows: ShepherdRow[],
+    _rosterMap: Map<string, RosterBot>,
+    now: number,
+    opts?: { wake?: boolean }
+): CyclePlan {
+    const next = cloneState(state);
+    const actions: PlanAction[] = [];
+    const notifications: string[] = [];
+    const woke: string[] = [];
+    const capped: string[] = [];
+
+    if (opts?.wake) {
+        for (const bot of Object.values(next.bots)) bot.episodeRestarted = false;
+        const quietMin = state.lastRun ? Math.round((now - state.lastRun) / 60_000) : 0;
+        notifications.push(`wake after ${quietMin}m quiet — fresh episode`);
+    }
+
+    for (const row of rows) {
+        const bot = ensure(next, row.name);
+        if (row.kind === 'paused') {
+            bot.notified = {};
+            continue;
+        }
+
+        const code = conditionOf(row.kind);
+        for (const key of Object.keys(bot.notified)) {
+            if (key !== code) delete bot.notified[key];
+        }
+
+        if (row.kind === 'restartable' || row.kind === 'capped') {
+            if (canStart(next, row.name, now)) {
+                actions.push({ name: row.name, op: 'start' });
+                woke.push(row.name);
+                bot.restarts = pruneRestarts([...(bot.restarts ?? []), now], now);
+                if (bot.capped) {
+                    bot.capped = false;
+                    bot.cappedAt = null;
+                    logAction(bot, 'uncap', now);
+                }
+                logAction(bot, 'start', now);
+            } else if (!bot.capped) {
+                bot.capped = true;
+                bot.cappedAt = now;
+                capped.push(row.name);
+                logAction(bot, 'cap', now);
+            }
+        } else if (row.kind === 'alive-not-producing') {
+            const supervised = row.owner?.supervised === true;
+            if (supervised && canStart(next, row.name, now) && !bot.episodeRestarted) {
+                actions.push({ name: row.name, op: 'restart' });
+                woke.push(row.name);
+                bot.restarts = pruneRestarts([...(bot.restarts ?? []), now], now);
+                bot.episodeRestarted = true;
+                logAction(bot, 'restart', now);
+            }
+        } else if (row.kind === 'foreign-owner') {
+            logAction(bot, 'skip-foreign', now);
+        } else if (row.kind === 'finished') {
+            logAction(bot, 'skip-finished', now);
+        } else if (row.kind === 'producing') {
+            bot.episodeRestarted = false;
+        }
+
+        if (code && shouldNotify(bot, code, now)) {
+            notifications.push(`${row.name}: ${code}`);
+            bot.notified = { ...bot.notified, [code]: now };
+        }
+    }
+
+    const started = new Set(actions.filter((action) => action.op !== 'stop').map((action) => action.name));
+    return {
+        actions: actions.filter((action) => !(action.op === 'stop' && started.has(action.name))),
+        state: next,
+        notifications,
+        woke,
+        capped,
+    };
 }
 
 export function acquireLock(now: number): boolean {
@@ -180,35 +354,56 @@ export function releaseLock(): void {
 }
 
 function notifyMac(body: string): void {
+    if (supervisorKind() === 'docker') {
+        try {
+            appendFileSync(SHEPHERD_LOG, `${new Date().toISOString()} ${body}\n`);
+        } catch {
+            console.error(`shepherd notify: ${body}`);
+        }
+        return;
+    }
     const safe = body.slice(0, 200).replace(/"/g, "'");
     spawnSync('osascript', ['-e', `display notification "${safe}" with title "rs-sdk fleet"`], {
         stdio: 'ignore',
     });
 }
 
-async function classifyFleet(): Promise<ClassifiedBot[]> {
+function sampleRuns(state: ShepherdState, now: number): ShepherdState {
+    const next = cloneState(state);
+    for (const bot of rosterBots()) {
+        const info = supervisorInfo(bot.name);
+        if (!info.loaded || info.runs == null) continue;
+        const entry = ensure(next, bot.name);
+        entry.runsSamples = [...(entry.runsSamples ?? []), { t: now, runs: info.runs }].filter(
+            (sample) => now - sample.t < ACTION_KEEP_MS
+        );
+    }
+    return next;
+}
+
+async function classifyFleet(): Promise<ShepherdRow[] | null> {
     const proc = spawnSync('bun', [join(ROOT, '.cursor/skills/wake-fleet/scripts/fleet-status.ts')], {
         cwd: ROOT,
         encoding: 'utf-8',
     });
-    const payload = JSON.parse(proc.stdout) as {
-        bots: Array<{
-            name: string;
-            kind: ClassifiedBot['kind'];
-            reason: string;
-            bunPid: number | null;
-            x: number | null;
-            z: number | null;
-        }>;
-    };
-    return payload.bots.map((b) => ({
-        name: b.name,
-        kind: b.kind,
-        reason: b.reason,
-        bunPid: b.bunPid,
-        x: b.x,
-        z: b.z,
-    }));
+    const stdout = proc.stdout ?? '';
+    const stderr = (proc.stderr ?? '').trim();
+    try {
+        if (!stdout.trim()) throw new Error('empty stdout');
+        const payload = JSON.parse(stdout) as {
+            bots: Array<{ name: string; kind: string; owner?: ShepherdRow['owner'] }>;
+        };
+        return payload.bots.map((bot) => ({
+            name: bot.name,
+            kind: bot.kind,
+            owner: bot.owner ?? null,
+        }));
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`ERROR fleet-status JSON parse failed: ${message}`);
+        if (stderr) console.error(stderr);
+        return null;
+    }
 }
 
 function launchdRestart(name: string): boolean {
@@ -240,122 +435,108 @@ function launchdStop(name: string): boolean {
     return proc.status === 0;
 }
 
-export async function runShepherdCycle(now = Date.now()): Promise<{
+/**
+ * Docker executors. Act on the container ID (compose names carry the
+ * fleet- prefix, so the bare quest-<slug> name never matches).
+ *
+ * STOP_GRACE: `docker restart`/`stop` wait up to the compose stop grace
+ * (700s quest drain) for SIGTERM handlers. A full drain per bot stalls a
+ * 10-minute cycle when several bots need restarts, so cap the wait: stuck
+ * bots are restarted BECAUSE they are stuck, and producing bots are never
+ * touched, so SIGKILL after the grace is the right tradeoff.
+ * NOTE: a manual restart resets Docker's RestartCount — loop detection must
+ * use the shepherd's own restarts[] timestamps, never the counter alone.
+ */
+const STOP_GRACE_SECS = 90;
+
+function dockerAct(name: string, op: 'start' | 'stop' | 'restart'): boolean {
+    const id = dockerContainerId(name);
+    if (!id) {
+        console.error(`shepherd: no quest container for ${name}`);
+        return false;
+    }
+    console.log(`shepherd: docker ${op} ${name} (grace ${STOP_GRACE_SECS}s)`);
+    const args = op === 'start' ? [op, id] : [op, '-t', String(STOP_GRACE_SECS), id];
+    const proc = spawnSync('docker', args, { encoding: 'utf-8' });
+    if ((proc.stdout ?? '').trim()) console.log((proc.stdout ?? '').trim());
+    if (proc.status !== 0) console.error(`shepherd: docker ${op} ${name}: ${(proc.stderr ?? '').trim()}`);
+    return proc.status === 0;
+}
+
+function botStart(name: string): LaunchdStartResult {
+    if (supervisorKind() === 'docker') return dockerAct(name, 'start') ? 'started' : 'failed';
+    return launchdStart(name);
+}
+
+function botRestart(name: string): boolean {
+    if (supervisorKind() === 'docker') return dockerAct(name, 'restart');
+    return launchdRestart(name);
+}
+
+function botStop(name: string): boolean {
+    if (supervisorKind() === 'docker') return dockerAct(name, 'stop');
+    return launchdStop(name);
+}
+
+export async function runShepherdCycle(now = Date.now(), opts?: { dryRun?: boolean; only?: string }): Promise<{
     woke: string[];
     capped: string[];
     notified: string[];
 }> {
-    if (isHubLocked()) {
+    // The food-hub lock is Mac orchestration; the VPS runs roster jobs only.
+    if (supervisorKind() !== 'docker' && isHubLocked()) {
         console.log('shepherd: abg-food-hub lock active — skip cycle');
         return { woke: [], capped: [], notified: [] };
     }
 
-    if (!acquireLock(now)) {
+    if (!opts?.dryRun && !acquireLock(now)) {
         console.log('shepherd: previous cycle still running — skip');
         return { woke: [], capped: [], notified: [] };
     }
 
-    const woke: string[] = [];
-    const capped: string[] = [];
-    const notified: string[] = [];
-
     try {
-        let state = loadState();
+        let state = sampleRuns(loadState(), now);
         const rows = await classifyFleet();
-        const roster = rosterBots();
-        const rosterMap = new Map(roster.map((b) => [b.name, b]));
-
-        for (const row of rows) {
-            const prev = state.bots[row.name];
-            const hadBun = prev?.restarts.length ? false : false; // simplified: detect via pid change below
-
-            // Detect restart: new bun pid when we had none before in last cycle is handled by wake path
-            state = expireCap(state, row.name, now);
-
-            if (row.kind === 'paused') {
-                continue;
-            }
-
-            if (row.kind === 'running' && row.bunPid) {
-                if (prev?.capped || state.bots[row.name]?.capped) {
-                    state = clearCappedOnStart(state, row.name, false, true);
-                }
-            }
-
-            if (row.kind === 'wake') {
-                const botState = state.bots[row.name];
-                if (botState?.capped || shouldCap(state, row.name, now)) {
-                    continue;
-                }
-                const started = launchdStart(row.name);
-                if (shouldRecordWake(started)) {
-                    woke.push(row.name);
-                    state = recordRestart(state, row.name, now);
-                }
-            }
-
-            const rosterBot = rosterMap.get(row.name);
-            if (
-                shouldRestartZeroRate(row, rosterBot) &&
-                !state.bots[row.name]?.capped
-            ) {
-                if (launchdRestart(row.name)) {
-                    woke.push(row.name);
-                    state = recordRestart(state, row.name, now);
-                }
-            }
-
-            if (shouldCap(state, row.name, now) && row.kind !== 'running') {
-                const botState = state.bots[row.name] ?? { restarts: [], capped: false, notified: {} };
-                if (!botState.capped) {
-                    launchdStop(row.name);
-                    botState.capped = true;
-                    state.bots[row.name] = botState;
-                    capped.push(row.name);
-                }
-            }
-
-            if (row.kind === 'intervene') {
-                const key = `intervene:${row.reason}`;
-                if (shouldNotify(state.bots[row.name], key, now)) {
-                    notified.push(`${row.name}: ${row.reason}`);
-                    state = markNotified(state, row.name, key, now);
-                }
-            }
-
-            if (state.bots[row.name]?.capped) {
-                const key = 'capped';
-                if (shouldNotify(state.bots[row.name], key, now)) {
-                    notified.push(`${row.name}: restart cap exceeded`);
-                    state = markNotified(state, row.name, key, now);
-                }
-            }
+        if (!rows) {
+            console.error('ERROR shepherd skipped cycle after fleet-status JSON parse failed');
+            return { woke: [], capped: [], notified: [] };
         }
-
-        state.lastRun = now;
-        saveState(state);
-
-        if (notified.length > 0) {
-            notifyMac(notified.join('; '));
+        const rosterMap = new Map(rosterBots().map((bot) => [bot.name, bot]));
+        const wake = detectWake(state, now);
+        if (wake) console.log(`shepherd: wake after ${Math.round((now - state.lastRun) / 60_000)}m quiet`);
+        const scoped = opts?.only ? rows.filter((row) => row.name.toLowerCase() === opts.only!.toLowerCase()) : rows;
+        if (opts?.only && scoped.length === 0) console.log(`shepherd: no such bot ${opts.only}`);
+        const plan = planCycle(state, scoped, rosterMap, now, { wake });
+        if (opts?.dryRun) {
+            for (const action of plan.actions) console.log(`plan: ${action.op} ${action.name}`);
+            console.log(`plan: woke=${plan.woke.length} capped=${plan.capped.length} notified=${plan.notifications.length}`);
+            return { woke: plan.woke, capped: plan.capped, notified: plan.notifications };
         }
-
-        console.log(
-            `shepherd: woke=${woke.length} capped=${capped.length} notified=${notified.length}`
-        );
-        return { woke, capped, notified };
+        for (const action of plan.actions) {
+            if (action.op === 'start') botStart(action.name);
+            else if (action.op === 'restart') botRestart(action.name);
+            else if (action.op === 'stop') botStop(action.name);
+        }
+        plan.state.lastRun = now;
+        saveState(plan.state);
+        if (plan.notifications.length > 0) notifyMac(plan.notifications.join('; '));
+        console.log(`shepherd: woke=${plan.woke.length} capped=${plan.capped.length} notified=${plan.notifications.length}`);
+        return { woke: plan.woke, capped: plan.capped, notified: plan.notifications };
     } finally {
-        releaseLock();
+        if (!opts?.dryRun) releaseLock();
     }
 }
 
 if (import.meta.main) {
-    runShepherdCycle()
-        .then((r) => {
-            if (r.woke.length) console.log('woke:', r.woke.join(', '));
-            if (r.capped.length) console.log('capped:', r.capped.join(', '));
+    const dryRun = process.argv.includes('--plan');
+    const only = process.argv.slice(2).find((a) => !a.startsWith('-'));
+    runShepherdCycle(Date.now(), { dryRun, only })
+        .then((result) => {
+            if (result.woke.length) console.log('woke:', result.woke.join(', '));
+            if (result.capped.length) console.log('capped:', result.capped.join(', '));
         })
-        .catch((e) => {
-            console.error(e);
+        .catch((error) => {
+            console.error(error);
             process.exitCode = 1;
         });
 }

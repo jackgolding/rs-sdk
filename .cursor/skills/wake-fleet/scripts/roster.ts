@@ -2,10 +2,9 @@
  * Fleet roster: the one place that knows which bots exist and what each one
  * is supposed to run. Backed by bots/roster.json.
  *
- * Also owns the per-bot assignment cache (bots/{name}/assignment.json), which
- * records the last command a bot was actually observed running. A live bot's
- * argv is ground truth; the cache is how a *stopped* bot is restarted onto the
- * job it was doing rather than a guess derived from its log text.
+ * Ownership records (bots/{name}/assignment.json) are written by BotSDK.connect
+ * and re-exported here so fleet scripts share one import site. They are not a
+ * restart source: the roster command always wins.
  *
  *   bun .cursor/skills/wake-fleet/scripts/roster.ts          # table
  *   bun .cursor/skills/wake-fleet/scripts/roster.ts json
@@ -16,17 +15,30 @@ import { homedir } from 'os';
 import { dirname, join, resolve } from 'path';
 import {
     assignmentPath,
-    readAssignment,
-    writeAssignment,
-    type Assignment
+    isOwnerLive,
+    readOwnership,
+    recordOwnership,
+    resolveOwner,
+    type OwnershipRecord,
+    type ResolvedOwner,
 } from '../../../../sdk/assignment';
 
-export { assignmentPath, readAssignment, writeAssignment };
-export type { Assignment };
+export { assignmentPath, isOwnerLive, readOwnership, recordOwnership, resolveOwner };
+export type { OwnershipRecord, ResolvedOwner };
 
 export const ROOT = resolve(dirname(import.meta.path), '../../../..');
 const ROSTER_PATH = join(ROOT, 'bots', 'roster.json');
-const SKIP_PATH = join(ROOT, '.cursor/skills/wake-fleet/skip-bots.txt');
+
+/**
+ * Live per-bot directory. On the VPS host the code checkout and the bot
+ * state (grind.log, heartbeat.log, assignment.json, bot.env) live in
+ * different trees, so FLEET_BOTS_DIR points at the state (/srv/fleet/bots).
+ * Defaults to the repo's bots/ on the Mac.
+ */
+export function botsDir(): string {
+    return process.env.FLEET_BOTS_DIR ? resolve(process.env.FLEET_BOTS_DIR) : join(ROOT, 'bots');
+}
+const SKIP_PATH = process.env.FLEET_SKIP_FILE ?? join(ROOT, '.cursor/skills/wake-fleet/skip-bots.txt');
 const HUB_LOCK_PATH = join(homedir(), 'Library', 'Logs', 'rs-sdk-fleet', 'abg-food-hub.lock');
 
 export interface RosterView {
@@ -46,8 +58,13 @@ export interface RosterBot {
     paused: boolean;
     /** skip-bots.txt (operator) or a live abg-food-hub.lock (pid still running). */
     pauseSource: 'skip-bots' | 'food-hub' | null;
-    /** Mule/orchestrator jobs with legitimately bursty output — widens zero-rate window. */
+    /** Mule/orchestrator jobs with legitimately bursty output — widens the no-effect window. */
     bursty: boolean;
+    /**
+     * Minutes without an effect before the bot is not producing.
+     * Roster override when set, else 90 when bursty, else 15.
+     */
+    noEffectMinutes: number;
 }
 
 interface RawBot {
@@ -56,6 +73,7 @@ interface RawBot {
     script?: unknown;
     args?: unknown;
     bursty?: unknown;
+    noEffectMinutes?: unknown;
 }
 
 function commandOf(script: string, args: string[]): string {
@@ -153,6 +171,14 @@ export function loadRoster(): { views: RosterView[]; bots: RosterBot[] } {
         }
 
         const bursty = b.bursty === true;
+        let noEffectMinutes: number;
+        if (b.noEffectMinutes == null) {
+            noEffectMinutes = bursty ? 90 : 15;
+        } else if (typeof b.noEffectMinutes !== 'number' || !Number.isInteger(b.noEffectMinutes) || b.noEffectMinutes < 1) {
+            throw new Error(`${ROSTER_PATH}: ${name} noEffectMinutes must be an integer >= 1`);
+        } else {
+            noEffectMinutes = b.noEffectMinutes;
+        }
         return {
             name,
             view,
@@ -160,12 +186,18 @@ export function loadRoster(): { views: RosterView[]; bots: RosterBot[] } {
             args,
             command: commandOf(script, args),
             ...pauseOf(name, skip, hubPause),
-            bursty
+            bursty,
+            noEffectMinutes,
         };
     });
 
     cached = { views, bots };
     return cached;
+}
+
+/** Drop the in-process roster so the next read sees a just-written roster.json. */
+export function invalidateRosterCache(): void {
+    cached = null;
 }
 
 export function rosterBots(): RosterBot[] {
@@ -180,24 +212,6 @@ export function botNames(): string[] {
 export function findBot(rawName: string): RosterBot | undefined {
     const wanted = rawName.trim().toLowerCase();
     return rosterBots().find((b) => b.name.toLowerCase() === wanted);
-}
-
-/**
- * Resolves the command to (re)start a bot, most-trusted source first:
- *   1. the argv of the process currently running it
- *   2. the last observed assignment
- *   3. the roster default
- */
-export function resolveCommand(
-    bot: RosterBot,
-    liveArgv: string[] | null
-): { command: string; source: 'live' | 'assignment' | 'roster' } {
-    if (liveArgv && liveArgv.length > 0) {
-        return { command: ['bun', ...liveArgv].join(' '), source: 'live' };
-    }
-    const cachedAssignment = readAssignment(bot.name);
-    if (cachedAssignment) return { command: cachedAssignment.command, source: 'assignment' };
-    return { command: bot.command, source: 'roster' };
 }
 
 /** Chunks a view's bots column-major, matching the tmux pane layout. */

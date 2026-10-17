@@ -11,7 +11,8 @@
     "views": [
         { "name": "fleet", "columns": 4 },
         { "name": "loves", "columns": 5 },
-        { "name": "army", "columns": 5 }
+        { "name": "army", "columns": 5 },
+        { "name": "lab", "columns": 2 }
     ],
     "bots": [
         { "name": "Jackpoo1", "view": "fleet", "script": "bots/quests/magic-trees.ts", "args": ["Jackpoo1"] },
@@ -70,6 +71,9 @@
         { "name": "ABGARMY17", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY17"] },
         { "name": "ABGARMY18", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY18"] },
         { "name": "ABGARMY19", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY19"] },
-        { "name": "ABGARMY20", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY20"] }
+        { "name": "ABGARMY20", "view": "army", "script": "bots/quests/thieving-route.ts", "args": ["ABGARMY20"] },
+
+        { "name": "qlcook2", "view": "lab", "script": "bots/qlcook2/script.ts", "args": [] },
+        { "name": "qlcook3", "view": "lab", "script": "bots/qlcook3/script.ts", "args": [] }
     ]
 }
