@@ -445,7 +445,15 @@ await runScript(async ({ bot, sdk }) => {
             continue;
         }
 
-        if (count(MAGNET) > 0 || count(CHEESE) > 0) {
+        // Gate on the MAGNET, not the cheese. ensureSupplies() obtains the
+        // cheese up front, so `count(CHEESE) > 0` was true from the first
+        // lap: the bot took this branch forever, never reached startBoy() ->
+        // door key -> house -> magnet, and the quest sat at `not_started`
+        // for a whole run (verified: Inv held Cheese, no magnet, no door
+        // key; journal stage not_started). The magnet is what only the house
+        // supplies and what the puzzle needs to finish, so it is the real
+        // readiness signal.
+        if (count(MAGNET) > 0) {
             await mousePuzzle();
             await getShedKey();
             continue;
