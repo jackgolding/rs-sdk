@@ -26,10 +26,14 @@
         {
             "name": "Jackpoo1",
             "view": "fleet",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/gear-kit.ts",
             "args": [
                 "Jackpoo1",
-                "--shark"
+                "--bank=varrock-east",
+                "--item=Dragon longsword",
+                "--item=Dragonfire shield",
+                "--item=Dragon vambraces",
+                "--item=Dragonhide chaps"
             ]
         },
         {
@@ -52,31 +56,40 @@
         {
             "name": "Jackpoo4",
             "view": "fleet",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/gear-kit.ts",
             "args": [
                 "Jackpoo4",
-                "--shark"
+                "--bank=varrock-east",
+                "--item=Dragon longsword",
+                "--item=Dragonfire shield",
+                "--item=Dragon vambraces",
+                "--item=Dragonhide chaps"
             ]
         },
         {
             "name": "Jackpoo5",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/gear-kit.ts",
             "args": [
                 "Jackpoo5",
-                "receive",
-                "pigfat",
+                "--bank=varrock-east",
+                "--item=Dragon longsword",
                 "--item=Dragonfire shield",
-                "--count=1",
-                "--bank=varrock-east"
+                "--item=Dragon vambraces",
+                "--item=Dragonhide chaps"
             ]
         },
         {
             "name": "fatpig",
             "view": "fleet",
-            "script": "bots/quests/lost-city.ts",
+            "script": "bots/quests/gear-kit.ts",
             "args": [
-                "fatpig"
+                "fatpig",
+                "--bank=varrock-east",
+                "--item=Dragon longsword",
+                "--item=Dragonfire shield",
+                "--item=Dragon vambraces",
+                "--item=Dragonhide chaps"
             ]
         },
         {
@@ -91,27 +104,27 @@
         {
             "name": "jacklove2",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/gear-kit.ts",
             "args": [
                 "jacklove2",
-                "receive",
-                "pigfat",
+                "--bank=varrock-east",
+                "--item=Dragon longsword",
                 "--item=Dragonfire shield",
-                "--count=1",
-                "--bank=varrock-east"
+                "--item=Dragon vambraces",
+                "--item=Dragonhide chaps"
             ]
         },
         {
             "name": "jacklove3",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/gear-kit.ts",
             "args": [
                 "jacklove3",
-                "receive",
-                "pigfat",
+                "--bank=varrock-east",
+                "--item=Dragon longsword",
                 "--item=Dragonfire shield",
-                "--count=1",
-                "--bank=varrock-east"
+                "--item=Dragon vambraces",
+                "--item=Dragonhide chaps"
             ]
         },
         {
@@ -125,14 +138,14 @@
         {
             "name": "jacklove5",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/gear-kit.ts",
             "args": [
                 "jacklove5",
-                "receive",
-                "pigfat",
+                "--bank=varrock-east",
+                "--item=Dragon longsword",
                 "--item=Dragonfire shield",
-                "--count=1",
-                "--bank=varrock-east"
+                "--item=Dragon vambraces",
+                "--item=Dragonhide chaps"
             ]
         },
         {
@@ -146,20 +159,10 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "pigfat",
-                "give",
-                "ABGARMY09",
-                "ABGARMY11",
-                "ABGARMY20",
-                "jacklove2",
-                "jacklove3",
-                "jacklove5",
-                "Jackpoo5",
-                "--item=Dragonfire shield",
-                "--each=1",
-                "--bank=varrock-east"
+                "--shark"
             ]
         },
         {
@@ -328,19 +331,27 @@
         {
             "name": "ABGARMY04",
             "view": "army",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/gear-kit.ts",
             "args": [
                 "ABGARMY04",
-                "--knights"
+                "--bank=varrock-east",
+                "--item=Dragon longsword",
+                "--item=Dragonfire shield",
+                "--item=Dragon vambraces",
+                "--item=Dragonhide chaps"
             ]
         },
         {
             "name": "ABGARMY05",
             "view": "army",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/gear-kit.ts",
             "args": [
                 "ABGARMY05",
-                "--knights"
+                "--bank=varrock-east",
+                "--item=Dragon longsword",
+                "--item=Dragonfire shield",
+                "--item=Dragon vambraces",
+                "--item=Dragonhide chaps"
             ]
         },
         {
@@ -365,23 +376,27 @@
         {
             "name": "ABGARMY08",
             "view": "army",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/gear-kit.ts",
             "args": [
                 "ABGARMY08",
-                "--knights"
+                "--bank=varrock-east",
+                "--item=Dragon longsword",
+                "--item=Dragonfire shield",
+                "--item=Dragon vambraces",
+                "--item=Dragonhide chaps"
             ]
         },
         {
             "name": "ABGARMY09",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/gear-kit.ts",
             "args": [
                 "ABGARMY09",
-                "receive",
-                "pigfat",
+                "--bank=varrock-east",
+                "--item=Dragon longsword",
                 "--item=Dragonfire shield",
-                "--count=1",
-                "--bank=varrock-east"
+                "--item=Dragon vambraces",
+                "--item=Dragonhide chaps"
             ]
         },
         {
@@ -397,14 +412,14 @@
         {
             "name": "ABGARMY11",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/gear-kit.ts",
             "args": [
                 "ABGARMY11",
-                "receive",
-                "pigfat",
+                "--bank=varrock-east",
+                "--item=Dragon longsword",
                 "--item=Dragonfire shield",
-                "--count=1",
-                "--bank=varrock-east"
+                "--item=Dragon vambraces",
+                "--item=Dragonhide chaps"
             ]
         },
         {
@@ -420,10 +435,14 @@
         {
             "name": "ABGARMY13",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/gear-kit.ts",
             "args": [
                 "ABGARMY13",
-                "--bignet"
+                "--bank=varrock-east",
+                "--item=Dragon longsword",
+                "--item=Dragonfire shield",
+                "--item=Dragon vambraces",
+                "--item=Dragonhide chaps"
             ]
         },
         {
@@ -457,10 +476,14 @@
         {
             "name": "ABGARMY17",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/gear-kit.ts",
             "args": [
                 "ABGARMY17",
-                "--bignet"
+                "--bank=varrock-east",
+                "--item=Dragon longsword",
+                "--item=Dragonfire shield",
+                "--item=Dragon vambraces",
+                "--item=Dragonhide chaps"
             ]
         },
         {
@@ -475,23 +498,27 @@
         {
             "name": "ABGARMY19",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/gear-kit.ts",
             "args": [
                 "ABGARMY19",
-                "--bignet"
+                "--bank=varrock-east",
+                "--item=Dragon longsword",
+                "--item=Dragonfire shield",
+                "--item=Dragon vambraces",
+                "--item=Dragonhide chaps"
             ]
         },
         {
             "name": "ABGARMY20",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/gear-kit.ts",
             "args": [
                 "ABGARMY20",
-                "receive",
-                "pigfat",
+                "--bank=varrock-east",
+                "--item=Dragon longsword",
                 "--item=Dragonfire shield",
-                "--count=1",
-                "--bank=varrock-east"
+                "--item=Dragon vambraces",
+                "--item=Dragonhide chaps"
             ]
         }
     ]
