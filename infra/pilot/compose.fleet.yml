@@ -1423,7 +1423,7 @@ services:
   quest-jackpoo1:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/agility-route.ts", "Jackpoo1"]
+    command: ["bun", "bots/quests/fishing-route.ts", "Jackpoo1", "--shark"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1457,7 +1457,7 @@ services:
   quest-jackpoo2:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/agility-route.ts", "Jackpoo2"]
+    command: ["bun", "bots/quests/fishing-route.ts", "Jackpoo2", "--shark"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1525,7 +1525,7 @@ services:
   quest-jackpoo4:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/agility-route.ts", "Jackpoo4"]
+    command: ["bun", "bots/quests/fishing-route.ts", "Jackpoo4", "--shark"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

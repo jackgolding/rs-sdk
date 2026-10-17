@@ -26,17 +26,19 @@
         {
             "name": "Jackpoo1",
             "view": "fleet",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "Jackpoo1"
+                "Jackpoo1",
+                "--shark"
             ]
         },
         {
             "name": "Jackpoo2",
             "view": "fleet",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "Jackpoo2"
+                "Jackpoo2",
+                "--shark"
             ]
         },
         {
@@ -50,9 +52,10 @@
         {
             "name": "Jackpoo4",
             "view": "fleet",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "Jackpoo4"
+                "Jackpoo4",
+                "--shark"
             ]
         },
         {
