@@ -1,7 +1,9 @@
 /**
  * Hand one inventory item to a partner already nearby (Catherby bank).
+ * Giver can pull stock from its own bank first with --withdraw=N.
  *
  *   bun bots/quests/give-item.ts jacklove6 give jacklove10 --item='big fishing net'
+ *   bun bots/quests/give-item.ts pigfat give jacklove1 --item='dragonfire shield' --withdraw=1
  *   bun bots/quests/give-item.ts jacklove10 receive jacklove6
  */
 import { join } from 'path';
@@ -34,7 +36,7 @@ const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
 
 if (!botName || (role !== 'give' && role !== 'receive') || partners.length === 0) {
     throw new Error(
-        'Usage: bun bots/quests/give-item.ts {name} give {partner…} [--item=big fishing net]\n' +
+        'Usage: bun bots/quests/give-item.ts {name} give {partner…} [--item=big fishing net] [--withdraw=N]\n' +
             '       bun bots/quests/give-item.ts {name} receive {giver}'
     );
 }
@@ -52,6 +54,19 @@ await runScript(async ({ bot, sdk }) => {
     await closeUi(bot, sdk);
     await walkNear(bot, sdk, CATHERBY_BANK.x, CATHERBY_BANK.z, 6);
     log('LOG', `give-item ${role} ${itemLabel} partners=${partners.join(',')} have=${itemCount(sdk)} @ ${playerPos(sdk).x},${playerPos(sdk).z}`);
+
+    if (role === 'give') {
+        const withdrawN = Math.max(0, parseInt(flags.get('withdraw') ?? '0', 10) || 0);
+        if (withdrawN > 0) {
+            const opened = await bot.openBank();
+            if (!opened.success) throw new Error(`Bank did not open: ${opened.message}`);
+            const w = await bot.withdrawItem(ITEM, withdrawN);
+            if (!w.success && !w.partial)
+                throw new Error(`Withdraw ${withdrawN} ${itemLabel} failed: ${w.message}`);
+            await closeUi(bot, sdk);
+            log('LOG', `Withdrew ${itemLabel} have=${itemCount(sdk)} (${w.message})`);
+        }
+    }
 
     if (role === 'receive') {
         const giver = partners[0]!;
