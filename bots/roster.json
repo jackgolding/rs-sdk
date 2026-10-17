@@ -44,10 +44,9 @@
         {
             "name": "Jackpoo3",
             "view": "fleet",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/lost-city.ts",
             "args": [
-                "Jackpoo3",
-                "--until-wc=36"
+                "Jackpoo3"
             ]
         },
         {
@@ -70,10 +69,9 @@
         {
             "name": "fatpig",
             "view": "fleet",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/lost-city.ts",
             "args": [
-                "fatpig",
-                "--until-wc=36"
+                "fatpig"
             ]
         },
         {
