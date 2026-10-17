@@ -41,7 +41,7 @@
                 "receive",
                 "pigfat",
                 "--item=dragonfire shield",
-                "--count=3"
+                "--count=1"
             ]
         },
         {
@@ -86,7 +86,7 @@
                 "receive",
                 "pigfat",
                 "--item=dragonfire shield",
-                "--count=3"
+                "--count=1"
             ]
         },
         {
@@ -116,7 +116,7 @@
                 "receive",
                 "pigfat",
                 "--item=dragonfire shield",
-                "--count=3"
+                "--count=1"
             ]
         },
         {
@@ -147,9 +147,9 @@
                 "jacklove4",
                 "Jackpoo2",
                 "ABGARMY14",
+                "ABGARMY14",
                 "--item=dragonfire shield",
-                "--withdraw=12",
-                "--each=3"
+                "--withdraw=4"
             ]
         },
         {
@@ -413,7 +413,7 @@
                 "receive",
                 "pigfat",
                 "--item=dragonfire shield",
-                "--count=3"
+                "--count=2"
             ]
         },
         {
