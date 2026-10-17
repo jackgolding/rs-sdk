@@ -1518,6 +1518,29 @@ async function lootGround(): Promise<void> {
     await equipBetter();
 }
 
+function findFreshDragonIn<T extends { index: number; x: number; z: number; inCombat?: boolean; targetIndex?: number }>(
+    cands: T[],
+    mine: number
+): T | null {
+    const lead = findLead();
+    const ax = isLead() ? pos().x : (lead?.x ?? pos().x);
+    const az = isLead() ? pos().z : (lead?.z ?? pos().z);
+    return (
+        cands
+            .filter(
+                (n) =>
+                    !n.inCombat &&
+                    (typeof n.targetIndex !== 'number' || n.targetIndex < 0)
+            )
+            .sort((a, b) => {
+                const aMine = a.index === mine ? 0 : 1;
+                const bMine = b.index === mine ? 0 : 1;
+                if (aMine !== bMine) return aMine - bMine;
+                return Math.hypot(a.x - ax, a.z - az) - Math.hypot(b.x - ax, b.z - az);
+            })[0] ?? null
+    );
+}
+
 function findFreshDragon() {
     const mine = pos().targetIndex;
     const lead = findLead();
@@ -1532,7 +1555,8 @@ function findFreshDragon() {
                     !n.inCombat &&
                     (typeof n.targetIndex !== 'number' || n.targetIndex < 0) &&
                     n.optionsWithIndex.some((o) => /attack/i.test(o.text)) &&
-                    inHuntBox(n.x, n.z)
+                    inHuntBox(n.x, n.z) &&
+                    !blacklistedUntil(n.index)
             )
             .sort((a, b) => {
                 const aMine = a.index === mine ? 0 : 1;
@@ -1661,10 +1685,18 @@ async function engageDragon(
 }
 
 /**
- * Solo target selection: join a dragon already engaged by anyone nearby
- * (pack mate or stranger — shared DPS either way), else the nearest fresh
- * dragon. No tank, no delays, no waiting for a pack.
+ * Solo target selection: FRESH dragons first so the pack spreads across the
+ * isle instead of piling onto one engaged dragon (single-combat: only one
+ * bot can hit it, the rest stand around). Fall back to an engaged dragon
+ * only when nothing fresh is visible. Blacklisted (unreachable/stuck)
+ * targets are skipped until their expiry.
  */
+const STUCK_BLACKLIST = new Map<number, number>();
+function blacklistedUntil(index: number): number {
+    const until = STUCK_BLACKLIST.get(index) ?? 0;
+    if (until <= Date.now()) STUCK_BLACKLIST.delete(index);
+    return until <= Date.now() ? 0 : until;
+}
 function findSoloDragon() {
     const mine = pos().targetIndex;
     const cands = (sdk.getNearbyNpcs() ?? []).filter(
@@ -1672,8 +1704,11 @@ function findSoloDragon() {
             DRAGON.test(n.name) &&
             (n.hp === null || n.hp > 0) &&
             n.optionsWithIndex.some((o) => /attack/i.test(o.text)) &&
-            inHuntBox(n.x, n.z)
+            inHuntBox(n.x, n.z) &&
+            !blacklistedUntil(n.index)
     );
+    const fresh = findFreshDragonIn(cands, mine);
+    if (fresh) return fresh;
     const engaged = cands
         .filter((n) => typeof n.targetIndex === 'number' && n.targetIndex >= 0 && n.index !== mine)
         .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
@@ -1697,17 +1732,39 @@ async function attackDragon(): Promise<void> {
     await engageDragon(target, 'Solo attack');
 }
 
+let stuckTarget = -1;
+let stuckPos = '';
+let stuckSince = 0;
 async function huntPack(): Promise<void> {
     // Solo hunter: no pack, no rally, no waiting. Fight what's targeted,
     // walk to what's close, patrol when the isle is empty.
     if (hasDragonTarget()) {
+        stuckTarget = -1;
         await waitFight();
         return;
     }
     const target = findSoloDragon();
     if (!target) {
+        stuckTarget = -1;
         await patrolIsle();
         return;
+    }
+    // Stuck watch: same target + no movement for 25s = unreachable or
+    // unattackable (single-combat taken). Blacklist it 90s and patrol so
+    // the bot keeps moving around the isle instead of standing still.
+    const here = `${pos().x},${pos().z}`;
+    if (target.index === stuckTarget && here === stuckPos) {
+        if (Date.now() - stuckSince > 25_000) {
+            STUCK_BLACKLIST.set(target.index, Date.now() + 90_000);
+            log(`Stuck on red dragon @ ${target.x},${target.z} — blacklist 90s, patrol`);
+            stuckTarget = -1;
+            await patrolIsle();
+            return;
+        }
+    } else {
+        stuckTarget = target.index;
+        stuckPos = here;
+        stuckSince = Date.now();
     }
     if ((target.distance ?? 99) > 1) {
         session.setAnchor(target.x, target.z);
