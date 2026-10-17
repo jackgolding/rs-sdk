@@ -16,7 +16,8 @@
  * If all three are 99, stays on Aggressive. `--herb-swap` trades banked herbs to
  * jackthief for a dragon longsword when none is owned.
  * `--weapon "mithril sword"` withdraws and wields that bank item only, and skips
- * the Varrock swordshop upgrade.
+ * the Varrock swordshop upgrade. `--weapon "Fire battlestaff"` pins the staff
+ * (ranked adamant-tier, Attack 30) so mages can melee-train with it.
  */
 import { join } from 'path';
 import { ActivitySession } from '../../sdk/index';
@@ -93,7 +94,7 @@ const DLONG = /^dragon longsword$/i;
 const DDAGGER = /^dragon dagger/i;
 const ESSENCE = /^(pure essence|rune essence)$/i;
 const WEAPON =
-    /^(dragon longsword|rune (axe|pickaxe)|(adamant|mithril|black|steel|iron|bronze) (longsword|scimitar|sword|battleaxe))$/i;
+    /^(dragon longsword|rune (axe|pickaxe)|(adamant|mithril|black|steel|iron|bronze) (longsword|scimitar|sword|battleaxe)|fire battlestaff)$/i;
 const METALS = ['bronze', 'iron', 'steel', 'black', 'mithril', 'adamant', 'rune', 'dragon'] as const;
 const METAL_ATTACK: Record<(typeof METALS)[number], number> = {
     bronze: 1,
@@ -112,12 +113,14 @@ const CYCLE = ['Attack', 'Strength', 'Defence'] as const;
 
 function weaponRank(name: string): number {
     if (!WEAPON.test(name)) return -1;
+    if (/^fire battlestaff$/i.test(name)) return 52;
     const metal = METALS.findIndex((m) => name.toLowerCase().startsWith(m));
     const shape = /longsword|scimitar/i.test(name) ? 2 : /pickaxe|axe$/i.test(name) && /^rune/i.test(name) ? 1 : /sword/i.test(name) ? 1 : 0;
     return metal * 10 + shape;
 }
 
 function weaponAttackReq(name: string): number {
+    if (/^fire battlestaff$/i.test(name)) return 30;
     const metal = METALS.find((m) => name.toLowerCase().startsWith(m));
     return metal ? METAL_ATTACK[metal] : 1;
 }
