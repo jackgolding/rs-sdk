@@ -68,14 +68,14 @@
         {
             "name": "fatpig",
             "view": "fleet",
-            "script": "bots/quests/gear-kit.ts",
+            "script": "bots/quests/give-item.ts",
             "args": [
                 "fatpig",
-                "--bank=varrock-east",
-                "--item=Dragon longsword",
-                "--item=Dragonfire shield",
-                "--item=Dragon vambraces",
-                "--item=Dragonhide chaps"
+                "receive",
+                "pigfat",
+                "--item=Fire battlestaff",
+                "--count=1",
+                "--bank=varrock-east"
             ]
         },
         {
@@ -130,11 +130,14 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/give-item.ts",
             "args": [
                 "pigfat",
-                "thugs",
-                "--weapon=Fire battlestaff"
+                "give",
+                "fatpig",
+                "--item=Fire battlestaff",
+                "--each=1",
+                "--bank=varrock-east"
             ]
         },
         {
