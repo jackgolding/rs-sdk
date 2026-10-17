@@ -589,6 +589,17 @@ export interface BotWorldState {
     recentDialogs: DialogEntry[];
     dialog: DialogState;
     interface: InterfaceState;
+    /**
+     * Side-tab interface the server has sent for the currently selected tab.
+     * These are not main modals, so `interface` never covers them — the quest
+     * list and combat tab live here. Absent on older clients.
+     */
+    sideInterface?: {
+        tabIndex: number;
+        interfaceId: number;
+        options: InterfaceOption[];
+        debugInfo: string[];
+    };
     shop: ShopState;
     bank: BankState;
     /** Absent when the connected client predates trade support. */

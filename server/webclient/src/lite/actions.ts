@@ -586,8 +586,18 @@ export function getDialogText(c: LiteClient): string[] {
 }
 
 export function getInterfaceOptions(c: LiteClient): Array<{ index: number; text: string; componentId: number }> {
+    return getInterfaceOptionsFor(c, c.mainModalId);
+}
+
+/**
+ * Clickable options of an arbitrary interface root.
+ *
+ * Side-tab interfaces (the quest list, combat tab, ...) are NOT main modals, so
+ * `mainModalId` never covers them; callers pass the root id they care about.
+ */
+export function getInterfaceOptionsFor(c: LiteClient, rootId: number): Array<{ index: number; text: string; componentId: number }> {
     const options: Array<{ index: number; text: string; componentId: number }> = [];
-    if (c.mainModalId === -1) {
+    if (rootId === -1) {
         return options;
     }
 
@@ -611,7 +621,7 @@ export function getInterfaceOptions(c: LiteClient): Array<{ index: number; text:
         }
     };
 
-    scan(c.mainModalId);
+    scan(rootId);
     return options;
 }
 
