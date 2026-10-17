@@ -1491,7 +1491,7 @@ services:
   quest-jackpoo3:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/lost-city.ts", "Jackpoo3"]
+    command: ["bun", "bots/quests/rune-mysteries.ts", "Jackpoo3"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

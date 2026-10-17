@@ -42,7 +42,7 @@
         {
             "name": "Jackpoo3",
             "view": "fleet",
-            "script": "bots/quests/lost-city.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
                 "Jackpoo3"
             ]
