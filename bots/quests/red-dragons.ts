@@ -1408,6 +1408,60 @@ async function recoverDeathShield(): Promise<void> {
         session.noteProgress('inventory', item.name);
     }
     await buryBones();
+    await equipBetter();
+}
+
+/**
+ * Equip-better rule: after looting, wear any picked-up armour that outranks
+ * what is worn — helm / body / legs only. Weapon (dlong) and shield (dfs)
+ * are locked: never swapped by loot. Rank is pure metal tier, so no stats
+ * DB is needed. Failures are silent no-ops engine-side, so every equip is
+ * verified and logged; the old piece rides home to the bank next trip.
+ */
+const METAL_TIER: [RegExp, number][] = [
+    [/dragon(?!hide)/i, 8],
+    [/rune/i, 7],
+    [/adamant|addy/i, 6],
+    [/mithril|mith/i, 5],
+    [/black/i, 4],
+    [/dragonhide/i, 4],
+    [/steel/i, 3],
+    [/iron/i, 2],
+    [/bronze/i, 1],
+];
+const SLOT_PATS = {
+    helm: /helm|coif/i,
+    body: /platebody|chainbody|leather body|robe top|shirt/i,
+    legs: /platelegs|plateskirt|chaps|legs|skirt/i,
+};
+
+function metalTier(name: string): number {
+    for (const [re, tier] of METAL_TIER) if (re.test(name)) return tier;
+    return 0;
+}
+
+async function equipBetter(): Promise<void> {
+    const worn = sdk.getEquipment() ?? [];
+    for (const [slot, pat] of Object.entries(SLOT_PATS)) {
+        const wornPiece = worn.find((w) => pat.test(w.name));
+        const wornTier = wornPiece ? metalTier(wornPiece.name) : -1;
+        if (wornTier < 0) continue; // nothing worn and nothing to compare — skip
+        const cands = sdk
+            .getInventory()
+            .filter((i) => pat.test(i.name) && metalTier(i.name) > wornTier)
+            .sort((a, b) => metalTier(b.name) - metalTier(a.name));
+        if (cands.length === 0) continue;
+        const best = cands[0]!;
+        const r = await bot.equipItem(best);
+        await sdk.waitForTicks(1).catch(() => {});
+        const still = (sdk.getEquipment() ?? []).some((w) => pat.test(w.name) && w.name === best.name);
+        if (still) {
+            session.noteProgress('inventory', `upgraded ${slot}: ${wornPiece?.name ?? 'bare'} -> ${best.name}`);
+            log(`Equip-better ${slot}: ${wornPiece?.name ?? 'bare'} -> ${best.name} ok`);
+        } else {
+            session.log('warn', `Equip-better ${slot} ${best.name} failed: ${r.message}`);
+        }
+    }
 }
 
 async function lootGround(): Promise<void> {
@@ -1430,6 +1484,7 @@ async function lootGround(): Promise<void> {
         session.noteProgress('inventory', item.name);
         if (BONES.test(item.name)) await buryBones();
     }
+    await equipBetter();
 }
 
 function findFreshDragon() {
