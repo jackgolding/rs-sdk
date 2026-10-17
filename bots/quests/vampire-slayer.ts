@@ -9,8 +9,9 @@
 import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
+import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
+import type { JournalRule } from '../../quest-lab/evidence';
 import {
-    buyAtShop,
     ensureCoins,
     ensureItem,
     SHOPS,
@@ -89,10 +90,59 @@ await runScript(async ({ bot, sdk }) => {
         return p.x >= 3088 && p.x <= 3130 && p.z >= 3348 && p.z <= 3380 && p.z < 6400;
     }
 
-    function questDone(xpBefore: number): boolean {
-        if (attackXp() >= xpBefore + 4000) return true;
-        const msgs = sdk.getState()?.gameMessages ?? [];
-        return msgs.some((m) => /completed the.*vampire slayer/i.test(m.text));
+    /**
+     * Vampire Slayer stage and completion, read from the QUEST JOURNAL.
+     *
+     * This used to be `attackXp() >= xpBefore + 4000` plus a chat regex. Attack
+     * XP is this quest's REWARD, so ANY Attack XP — combat on the way to the
+     * manor, or during the fight itself — read as completion, and a restart was
+     * indistinguishable from a finish.
+     *
+     * Rules come from the quest's own handler
+     * (quest_vampire/scripts/vampire_journal.rs2), each on a sentence unique to
+     * its stage.
+     */
+    const VAMP_JOURNAL = { label: 'Vampire Slayer', title: 'Vampire Slayer' };
+    const VAMP_STAGES: Record<string, JournalRule> = {
+        not_started: {
+            id: 'vamp:not_started',
+            kind: 'unstarted',
+            all: ['I can start this quest by speaking to Morgan who is in Draynor Village'],
+        },
+        started: {
+            id: 'vamp:started',
+            kind: 'active',
+            all: ['I need to speak to Dr Harlow who can normally be found in the Jolly Boar Inn'],
+        },
+        // The spoke_to_harlow branch rewrites itself by inventory (stake /
+        // garlic / hammer), so key it on the line present in EVERY variant.
+        spoke_to_harlow: {
+            id: 'vamp:spoke_to_harlow',
+            kind: 'active',
+            all: ['I have spoken to Dr Harlow. He seemed terribly drunk'],
+        },
+        complete: { id: 'vamp:complete', kind: 'complete', all: ['QUEST COMPLETE'] },
+    };
+
+    /** The first stage rule that passes is the account's real stage. */
+    async function readStage(): Promise<string> {
+        for (const name of ['complete', 'spoke_to_harlow', 'started', 'not_started']) {
+            const read = await readJournalCheckpoint(sdk, VAMP_JOURNAL, VAMP_STAGES[name]!);
+            log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
+            if (read.verdict?.verdict === 'PASS') return name;
+        }
+        return 'unknown';
+    }
+
+    let journalComplete = false;
+    let lastJournalCheck = 0;
+    /** Journal-backed completion, throttled: opening the journal is not free. */
+    async function questDone(): Promise<boolean> {
+        if (Date.now() - lastJournalCheck < 5_000) return journalComplete;
+        lastJournalCheck = Date.now();
+        const read = await readJournalCheckpoint(sdk, VAMP_JOURNAL, VAMP_STAGES.complete!);
+        journalComplete = read.verdict?.verdict === 'PASS';
+        return journalComplete;
     }
 
     async function closeUi(): Promise<void> {
@@ -214,13 +264,13 @@ await runScript(async ({ bot, sdk }) => {
     async function ensureSupplies(): Promise<void> {
         const ctx = supplyCtx();
         await ensureCoins(ctx, 20);
+        // Food is a convenience, NOT a requirement: the quest only asks that you
+        // can kill a level-34 Vampire, and a maxed account needs nothing to
+        // survive him. Take whatever the bank already holds and do not detour to
+        // buy more — Wydin's stocks neither wine ("item not found in shop") nor
+        // bread ("out of stock") in this revision, so the old purchase walked to
+        // Port Sarim and came back empty every time.
         await withdrawFromBank(ctx, FOOD, 8, SHOPS.DRAYNOR_BANK);
-        if (count(FOOD) < 5) {
-            await buyAtShop(ctx, SHOPS.WYDIN, [
-                { pattern: /^wine$/i, amount: 8, label: 'wine' },
-                { pattern: /^bread$/i, amount: 5, label: 'bread' }
-            ]);
-        }
         await ensureItem(ctx, HAMMER, 1, {
             label: 'hammer',
             shop: SHOPS.VARROCK_GEN,
@@ -321,11 +371,22 @@ await runScript(async ({ bot, sdk }) => {
     const xpBefore = attackXp();
     await bot.skipTutorial();
     await closeUi();
+    // Ask the journal BEFORE shopping: an account that already finished must not
+    // be sent to buy beer and stakes first.
+    const startStage = await readStage();
+    log(`Vampire Slayer journal stage at start: ${startStage}`);
+    if (startStage === 'unknown') {
+        throw new Error('could not determine the Vampire Slayer stage from the journal');
+    }
+    if (startStage === 'complete') {
+        log('Vampire Slayer is already complete — nothing to do');
+        return;
+    }
     await ensureSupplies();
     log(`Vampire Slayer start Attack xp=${xpBefore} @ ${pos().x},${pos().z}`);
 
     const until = Date.now() + 15 * 60_000;
-    while (Date.now() < until && !questDone(xpBefore)) {
+    while (Date.now() < until && !(await questDone())) {
         await closeUi();
         if (pos().hp < pos().maxHp - 4 && count(FOOD) < 2) await ensureSupplies();
         if (pos().isDead) {
@@ -336,7 +397,7 @@ await runScript(async ({ bot, sdk }) => {
         if (count(STAKE) > 0 && count(GARLIC) > 0) {
             await fightVampire();
             await escapeManorIfNeeded();
-            if (questDone(xpBefore)) break;
+            if (await questDone()) break;
             continue;
         }
 
@@ -353,6 +414,6 @@ await runScript(async ({ bot, sdk }) => {
         await sdk.waitForTicks(2);
     }
 
-    if (!questDone(xpBefore)) throw new Error(`Vampire Slayer unfinished @ ${pos().x},${pos().z} xp=${attackXp()}`);
+    if (!(await questDone())) throw new Error(`Vampire Slayer unfinished @ ${pos().x},${pos().z} xp=${attackXp()}`);
     log(`QUEST COMPLETE Vampire Slayer (+${attackXp() - xpBefore} Attack xp)`);
 });
