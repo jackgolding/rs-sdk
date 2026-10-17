@@ -390,10 +390,9 @@
         {
             "name": "ABGARMY15",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/sheep-shearer.ts",
             "args": [
-                "ABGARMY15",
-                "--until-wc=36"
+                "ABGARMY15"
             ]
         },
         {
