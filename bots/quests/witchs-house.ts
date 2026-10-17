@@ -288,7 +288,14 @@ await runScript(async ({ bot, sdk }) => {
         await sdk.scanNearbyLocs(6).catch(() => {});
         const pot = sdk.findNearbyLoc(/flower pot|pot/i) ?? sdk.findNearbyLoc(/witch/i);
         if (pot) {
-            await bot.interactLoc(pot, /search/i);
+            // The key loc is content id `witchpot`, display name "Potted
+            // plant" with op1=Look-under (quest_ball.rs2 grants the key on
+            // [oploc1,witchpot]). The name pattern matched - "Potted"
+            // contains "pot" - but clicking /search/i never matched an
+            // option, so no interaction happened and the door key stayed at
+            // 0 for the whole run. /search/i is kept as a fallback in case a
+            // revision names it that way.
+            await bot.interactLoc(pot, /look.?under|search/i);
             await sdk.waitForTicks(2);
         }
     }
