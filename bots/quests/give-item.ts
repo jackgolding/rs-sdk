@@ -102,11 +102,20 @@ await runScript(async ({ bot, sdk }) => {
                 await closeUi(bot, sdk);
                 return;
             }
-            const w = await bot.withdrawItem(ITEM, withdrawN, asNote ? { asNote: true } : {});
-            if (!w.success && !w.partial)
-                throw new Error(`Withdraw ${withdrawN} ${itemLabel} failed: ${w.message}`);
-            await closeUi(bot, sdk);
-            log('LOG', `Withdrew ${itemLabel} have=${itemCount(sdk)} (${w.message})`);
+            // Top up only the shortfall: restarts re-run from scratch, and
+            // withdrawing the full amount each time would drain the bank
+            // into the bag while receivers refuse duplicates.
+            const get = Math.min(withdrawN, Math.max(0, need - itemCount(sdk)));
+            if (get <= 0) {
+                await closeUi(bot, sdk);
+                log('LOG', `Already hold ${itemCount(sdk)} ${itemLabel} — no withdraw needed`);
+            } else {
+                const w = await bot.withdrawItem(ITEM, get, asNote ? { asNote: true } : {});
+                if (!w.success && !w.partial)
+                    throw new Error(`Withdraw ${get} ${itemLabel} failed: ${w.message}`);
+                await closeUi(bot, sdk);
+                log('LOG', `Withdrew ${itemLabel} have=${itemCount(sdk)} (${w.message})`);
+            }
         }
     }
 
@@ -116,6 +125,12 @@ await runScript(async ({ bot, sdk }) => {
         // --count=N: accept N separate trades (giver hands over one per trade).
         const count = Math.max(1, parseInt(flags.get('count') ?? '1', 10) || 1);
         await makeRoom();
+        // Idempotency guard: quest containers restart on exit, so a finished
+        // handoff would re-run and over-deliver. Already stocked → done.
+        if (itemCount(sdk) >= count) {
+            log('LOG', `Already hold ${itemCount(sdk)} ${itemLabel} (>=${count}) — nothing to receive`);
+            return;
+        }
         const served = await bot.serveTrades({
             from,
             give: [],
