@@ -18,11 +18,16 @@ does not import quest code, so a quest update cannot break it.
 import json
 import subprocess
 import sys
+from pathlib import Path
+
+# Workflow runs this from infra/pilot/ — resolve the repo root so relative
+# paths (bots/roster.json) and git commands work from anywhere.
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def sh(*args):
     return subprocess.run(
-        args, capture_output=True, text=True, check=True
+        args, capture_output=True, text=True, check=True, cwd=ROOT
     ).stdout
 
 
@@ -30,8 +35,7 @@ def load_roster(ref_or_path, from_git):
     if from_git:
         raw = sh("git", "show", f"{ref_or_path}:bots/roster.json")
     else:
-        with open("bots/roster.json") as f:
-            raw = f.read()
+        raw = (ROOT / "bots" / "roster.json").read_text()
     data = json.loads(raw)
     bots = data if isinstance(data, list) else data.get("bots", data)
     return {b["name"]: b for b in bots}
