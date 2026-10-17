@@ -871,6 +871,9 @@ async function leaveWildySouth(): Promise<void> {
             { x: 3124, z: 3851 },
             { x: 3110, z: 3700 },
             { x: 3102, z: 3610 },
+            // Skirt EAST of the earth altar ruins (~3097,3577): the direct
+            // 3610->3550 leg clips them and the pathfinder ping-pongs.
+            { x: 3115, z: 3575 },
             { x: 3088, z: 3550 },
             DITCH_NORTH
         ]);
