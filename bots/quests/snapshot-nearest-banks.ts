@@ -25,6 +25,7 @@ import { botsDir, findBot, rosterBots, ROOT } from '../../.cursor/skills/wake-fl
 import { formatStateAge, LIVE_STATE_MS } from '../../sdk/gateway-state';
 import { inEdgevilleDungeon, inMiningGuild, planBankWalk, type BankPlan } from './job-bank';
 import { leaveAdjacentClosedDoor, walkNear } from './movement';
+import { isTileWalkable } from '../../sdk/pathfinding';
 import { YANILLE_BANK, toSurfaceTile } from './tiles';
 
 const CLOSE_ONLY = process.argv.includes('--close-only');
@@ -161,7 +162,8 @@ async function crossDitchSouth(sdk: BotSDK): Promise<boolean> {
     return (after?.worldZ ?? 9999) < 3520;
 }
 
-async function approachBank(sdk: BotSDK, plan: BankPlan): Promise<boolean> {
+async function approachBank(sdk: BotSDK, name: string, plan: BankPlan): Promise<boolean> {
+    if (plan.bank.name === 'Catherby') return approachCatherbyBank(sdk, name, plan);
     const deadline = Date.now() + WALK_MS;
     let crossed = !plan.ditch;
     for (const point of plan.points) {
@@ -204,6 +206,166 @@ async function hopTowardBank(sdk: BotSDK, x: number, z: number, timeoutMs: numbe
     const player = sdk.getState()?.player;
     if (!player) return false;
     return Math.hypot(player.worldX - x, player.worldZ - z) <= 6;
+}
+
+/**
+ * Grind-script workaround port (bots/quests/fishing-route.ts), Catherby-only.
+ * A straight hop line from the pier to booth 2808,3443 clips the bank and
+ * range-house walls — bots stall near 2849,3427. Instead: exit the north
+ * building/range house southward first, walk the shore corridor west, then
+ * hop to a per-account booth-adjacent stand tile. Never walkTo the booth
+ * tile itself (routes back inside the north house).
+ */
+
+/** Spread bots across booth-adjacent tiles so accounts do not stack. */
+const CATHERBY_BANK_STAND = [
+    { x: 2807, z: 3442 },
+    { x: 2808, z: 3441 },
+    { x: 2809, z: 3440 },
+    { x: 2810, z: 3442 },
+    { x: 2811, z: 3438 },
+    { x: 2806, z: 3442 },
+    { x: 2812, z: 3441 }
+];
+
+/** Walkable shore corridor from the pier road to the bank street. */
+const CATHERBY_PIER_CORRIDOR = [
+    { x: 2855, z: 3440 },
+    { x: 2841, z: 3438 },
+    { x: 2827, z: 3439 },
+    { x: 2816, z: 3439 }
+];
+
+const CATHERBY_STEP_OFF = { x: 2820, z: 3436 };
+
+function catherbyStandTile(name: string): { x: number; z: number } {
+    let h = 0;
+    for (const c of name) h = (Math.imul(31, h) + c.charCodeAt(0)) | 0;
+    return CATHERBY_BANK_STAND[Math.abs(h) % CATHERBY_BANK_STAND.length]!;
+}
+
+function inCatherby(x: number, z: number): boolean {
+    return x >= 2788 && x <= 2875 && z >= 3415 && z <= 3498;
+}
+
+function northOfCatherbyBank(x: number, z: number): boolean {
+    return inCatherby(x, z) && z >= 3444;
+}
+
+function inCatherbyRangeHouse(x: number, z: number): boolean {
+    return inCatherby(x, z) && x >= 2813 && x <= 2821 && z >= 3440 && z <= 3446;
+}
+
+function onCatherbyBankStreet(x: number, z: number): boolean {
+    return inCatherby(x, z) && x >= 2804 && x <= 2814 && z >= 3438 && z <= 3446;
+}
+
+/** Collision-aware 2-tile sendWalk hops (port of the grind hopSendWalk). */
+async function hopCatherby(sdk: BotSDK, x: number, z: number, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    let stalls = 0;
+    while (Date.now() < deadline) {
+        const player = sdk.getState()?.player;
+        if (!player) return false;
+        if (Math.hypot(player.worldX - x, player.worldZ - z) <= 2) return true;
+        let stepX = player.worldX + Math.sign(x - player.worldX) * Math.min(2, Math.abs(x - player.worldX));
+        let stepZ = player.worldZ + Math.sign(z - player.worldZ) * Math.min(2, Math.abs(z - player.worldZ));
+        if (stalls > 0 || !isTileWalkable(0, stepX, stepZ)) {
+            const options: { x: number; z: number; score: number }[] = [];
+            for (const [dx, dz] of [
+                [0, -1],
+                [0, 1],
+                [-1, 0],
+                [1, 0],
+                [0, -2],
+                [0, 2],
+                [-2, 0],
+                [2, 0],
+                [1, -1],
+                [-1, -1],
+                [1, 1],
+                [-1, 1]
+            ]) {
+                const nx = player.worldX + dx;
+                const nz = player.worldZ + dz;
+                if (!isTileWalkable(0, nx, nz)) continue;
+                options.push({ x: nx, z: nz, score: Math.hypot(nx - x, nz - z) });
+            }
+            options.sort((a, b) => a.score - b.score);
+            const pick = options[Math.min(stalls, Math.max(0, options.length - 1))];
+            if (!pick) {
+                await leaveAdjacentClosedDoor(sdk);
+                stalls++;
+                await sdk.waitForTicks(1).catch(() => {});
+                continue;
+            }
+            stepX = pick.x;
+            stepZ = pick.z;
+        }
+        const beforeX = player.worldX;
+        const beforeZ = player.worldZ;
+        await sdk.sendWalk(stepX, stepZ, true);
+        const moved = await sdk
+            .waitForCondition(
+                (s) => (s.player?.worldX ?? beforeX) !== beforeX || (s.player?.worldZ ?? beforeZ) !== beforeZ,
+                2_000
+            )
+            .then(() => true)
+            .catch(() => false);
+        if (moved) stalls = 0;
+        else {
+            await leaveAdjacentClosedDoor(sdk);
+            stalls++;
+        }
+    }
+    const player = sdk.getState()?.player;
+    if (!player) return false;
+    return Math.hypot(player.worldX - x, player.worldZ - z) <= 6;
+}
+
+async function approachCatherbyBank(sdk: BotSDK, name: string, plan: BankPlan): Promise<boolean> {
+    const deadline = Date.now() + WALK_MS;
+    const stand = catherbyStandTile(name);
+    // Exit the north bank building / range house southward first.
+    while (Date.now() < deadline) {
+        const p = sdk.getState()?.player;
+        if (!p) return false;
+        if (atTargetBank(sdk, plan.bank)) return true;
+        if (!northOfCatherbyBank(p.worldX, p.worldZ) && !inCatherbyRangeHouse(p.worldX, p.worldZ)) break;
+        await botDismiss(sdk);
+        await leaveAdjacentClosedDoor(sdk);
+        const southZ = Math.max(3436, p.worldZ - 3);
+        if (southZ === p.worldZ) await hopCatherby(sdk, p.worldX - 1, p.worldZ, 4_000);
+        else await hopCatherby(sdk, p.worldX, southZ, 8_000);
+    }
+    // Shore corridor westward, then the stand tile. Skip hops behind us.
+    const start = sdk.getState()?.player;
+    const legs =
+        start && start.worldX > stand.x + 4
+            ? CATHERBY_PIER_CORRIDOR.filter((hop) => hop.x <= start.worldX + 2)
+            : [];
+    for (const hop of [...legs, stand]) {
+        const p = sdk.getState()?.player;
+        if (!p) return false;
+        if (atTargetBank(sdk, plan.bank)) return true;
+        const remaining = Math.hypot(p.worldX - stand.x, p.worldZ - stand.z);
+        if (remaining <= 3) break;
+        if (Math.hypot(hop.x - stand.x, hop.z - stand.z) > remaining + 2) continue;
+        if (Math.hypot(p.worldX - hop.x, p.worldZ - hop.z) <= 2) continue;
+        await botDismiss(sdk);
+        await leaveAdjacentClosedDoor(sdk);
+        await hopCatherby(sdk, hop.x, hop.z, 20_000);
+    }
+    if (atTargetBank(sdk, plan.bank)) return true;
+    // Step-off retry (port of stepOffCatherbyBank): re-hop the stand tile,
+    // then step off the bank street and back so the booth becomes reachable.
+    await hopCatherby(sdk, stand.x, stand.z, 12_000);
+    const q = sdk.getState()?.player;
+    if (q && onCatherbyBankStreet(q.worldX, q.worldZ) && !atTargetBank(sdk, plan.bank)) {
+        await hopCatherby(sdk, CATHERBY_STEP_OFF.x, CATHERBY_STEP_OFF.z, 15_000);
+        await hopCatherby(sdk, stand.x, stand.z, 12_000);
+    }
+    return atTargetBank(sdk, plan.bank);
 }
 
 const EDGEVILLE_LADDER = { x: 3096, z: 9867 };
@@ -374,7 +536,7 @@ async function snapshot(name: string): Promise<Result> {
                     { x: afterClimb.worldX, z: afterClimb.worldZ }
                 );
             }
-            const walked = await approachBank(sdk, plan);
+            const walked = await approachBank(sdk, name, plan);
             const here = sdk.getState()?.player;
             if (!walked && !atTargetBank(sdk, plan.bank)) {
                 return {
