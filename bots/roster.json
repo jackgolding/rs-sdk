@@ -51,7 +51,7 @@
         {
             "name": "Jackpoo4",
             "view": "fleet",
-            "script": "bots/quests/lost-city.ts",
+            "script": "bots/quests/druidic-ritual.ts",
             "args": [
                 "Jackpoo4"
             ]
