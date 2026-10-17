@@ -16,6 +16,7 @@ Lite services are never restarted by quest-only changes: the lite runner
 does not import quest code, so a quest update cannot break it.
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -35,7 +36,8 @@ def load_roster(ref_or_path, from_git):
     if from_git:
         raw = sh("git", "show", f"{ref_or_path}:bots/roster.json")
     else:
-        raw = (ROOT / "bots" / "roster.json").read_text()
+        p = Path(ref_or_path)
+        raw = p.read_text() if p.is_absolute() else (ROOT / p).read_text()
     data = json.loads(raw)
     bots = data if isinstance(data, list) else data.get("bots", data)
     return {b["name"]: b for b in bots}
@@ -60,22 +62,36 @@ def main():
     } | set(extra)
 
     try:
-        old = load_roster(before, from_git=True)
+        old_git = load_roster(before, from_git=True)
     except subprocess.CalledProcessError:
-        old = {}
+        old_git = {}
+    # Live mount is the real source of truth for what is RUNNING: failed
+    # deploys advance the git HEAD without rolling, so BEFORE..NOW alone
+    # would silently drop unrolled changes on the next run. Union both.
+    live_path = os.environ.get("LIVE_ROSTER", "")
+    try:
+        live = load_roster(live_path, from_git=False) if live_path else {}
+    except (OSError, ValueError):
+        live = {}
     new = load_roster("bots/roster.json", from_git=False)
 
     config_up, lite_up, removed = [], [], []
     for name, bot in new.items():
         slug = name.lower()
-        prev = old.get(name)
-        if prev is None:
+        script, args = bot.get("script"), bot.get("args", [name])
+        prev_git = old_git.get(name)
+        prev_live = live.get(name)
+        if prev_git is None and prev_live is None:
             lite_up.append(f"lite-{slug}")
             config_up.append(f"quest-{slug}")
-        elif (prev.get("script") != bot.get("script")
-              or prev.get("args", [name]) != bot.get("args", [name])):
+        elif ((prev_git is not None
+               and (prev_git.get("script") != script
+                    or prev_git.get("args", [name]) != args))
+              or (prev_live is not None
+                  and (prev_live.get("script") != script
+                       or prev_live.get("args", [name]) != args))):
             config_up.append(f"quest-{slug}")
-    for name in old:
+    for name in live:
         if name not in new:
             removed.append(name)
 

@@ -68,11 +68,12 @@ jobs:
             done
             echo "DRIFT:$DRIFT"
             # shellcheck disable=SC1090
+            export LIVE_ROSTER=/srv/fleet/bots/roster.json
             eval "$(python3 rollout.py "$BEFORE" "$NOW" $DRIFT)"
             echo "NEED_BUILD=$NEED_BUILD CONFIG_UP=[$CONFIG_UP] CODE_UP=[$CODE_UP] LITE_UP=[$LITE_UP] REMOVED=[$REMOVED]"
             if [ -n "$REMOVED" ]; then echo "NOTE: removed bots need manual cleanup: $REMOVED"; fi
             # Pre-flight: a quest typo must fail HERE, not inside 48 containers.
-            ALL_FILES="$(git diff --name-only "$BEFORE" "$NOW" -- 'bots/quests/*.ts' | xargs -n1 basename 2>/dev/null)$DRIFT"
+            ALL_FILES="$(git diff --name-only "$BEFORE" "$NOW" -- 'bots/quests/*.ts' | xargs -r -n1 basename 2>/dev/null)$DRIFT"
             if [ -n "$(echo "$ALL_FILES" | tr -d ' ')" ]; then
               for q in $ALL_FILES; do
                 [ -f "/srv/fleet/repo/bots/quests/$q" ] || continue
