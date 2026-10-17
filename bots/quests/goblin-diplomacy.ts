@@ -230,12 +230,11 @@ await runScript(async ({ bot, sdk }) => {
     async function ensureSupplies(): Promise<void> {
         const ctx = supplyCtx();
         await ensureCoins(ctx, 80);
-        if (count(FOOD) < 3) {
-            await buyAtShop(ctx, SHOPS.WYDIN, [
-                { pattern: /^wine$/i, amount: 5, label: 'wine' },
-                { pattern: /^bread$/i, amount: 3, label: 'bread' }
-            ]);
-        }
+        // No food purchase: this quest needs none, and Wydin's stocks neither
+        // wine ("item not found in shop") nor bread ("out of stock") in this
+        // revision, so the call walked to Port Sarim and returned empty. Same
+        // defect vampire-slayer.ts and witchs-house.ts had. Whatever the bank
+        // already holds is used.
     }
 
     async function pickRedberries(): Promise<void> {

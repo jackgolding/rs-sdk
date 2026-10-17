@@ -13,7 +13,6 @@ import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
 import {
-    buyAtShop,
     ensureCoins,
     ensureItem,
     SHOPS,
@@ -246,12 +245,9 @@ await runScript(async ({ bot, sdk }) => {
         const ctx = supplyCtx();
         await ensureCoins(ctx, 50);
         await withdrawFromBank(ctx, FOOD, 10, SHOPS.VARROCK_EAST_BANK);
-        if (count(FOOD) < 6) {
-            await buyAtShop(ctx, SHOPS.VARROCK_GEN, [
-                { pattern: /^wine$/i, amount: 8, label: 'wine' },
-                { pattern: /^bread$/i, amount: 5, label: 'bread' }
-            ]);
-        }
+        // No food purchase: this quest needs none. Food buying is retained only
+        // for death-plateau.ts (and any future holy-grail script), which really
+        // do need it. The bank withdrawal above still takes what is banked.
         await ensureItem(ctx, BUCKET_EMPTY, 1, {
             label: 'bucket',
             shop: SHOPS.VARROCK_GEN,
