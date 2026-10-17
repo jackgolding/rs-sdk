@@ -61,9 +61,14 @@
         {
             "name": "Jackpoo5",
             "view": "fleet",
-            "script": "bots/quests/green-dragons.ts",
+            "script": "bots/quests/give-item.ts",
             "args": [
-                "Jackpoo5"
+                "Jackpoo5",
+                "receive",
+                "pigfat",
+                "--item=Dragonfire shield",
+                "--count=1",
+                "--bank=varrock-east"
             ]
         },
         {
@@ -86,19 +91,27 @@
         {
             "name": "jacklove2",
             "view": "fleet",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/give-item.ts",
             "args": [
                 "jacklove2",
-                "--shark"
+                "receive",
+                "pigfat",
+                "--item=Dragonfire shield",
+                "--count=1",
+                "--bank=varrock-east"
             ]
         },
         {
             "name": "jacklove3",
             "view": "fleet",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/give-item.ts",
             "args": [
                 "jacklove3",
-                "--shark"
+                "receive",
+                "pigfat",
+                "--item=Dragonfire shield",
+                "--count=1",
+                "--bank=varrock-east"
             ]
         },
         {
@@ -112,10 +125,14 @@
         {
             "name": "jacklove5",
             "view": "fleet",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/give-item.ts",
             "args": [
                 "jacklove5",
-                "--shark"
+                "receive",
+                "pigfat",
+                "--item=Dragonfire shield",
+                "--count=1",
+                "--bank=varrock-east"
             ]
         },
         {
@@ -129,10 +146,20 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/give-item.ts",
             "args": [
                 "pigfat",
-                "--shark"
+                "give",
+                "ABGARMY09",
+                "ABGARMY11",
+                "ABGARMY20",
+                "jacklove2",
+                "jacklove3",
+                "jacklove5",
+                "Jackpoo5",
+                "--item=Dragonfire shield",
+                "--each=1",
+                "--bank=varrock-east"
             ]
         },
         {
@@ -344,10 +371,14 @@
         {
             "name": "ABGARMY09",
             "view": "army",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/give-item.ts",
             "args": [
                 "ABGARMY09",
-                "--knights"
+                "receive",
+                "pigfat",
+                "--item=Dragonfire shield",
+                "--count=1",
+                "--bank=varrock-east"
             ]
         },
         {
@@ -363,10 +394,14 @@
         {
             "name": "ABGARMY11",
             "view": "army",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/give-item.ts",
             "args": [
                 "ABGARMY11",
-                "--knights"
+                "receive",
+                "pigfat",
+                "--item=Dragonfire shield",
+                "--count=1",
+                "--bank=varrock-east"
             ]
         },
         {
@@ -444,10 +479,14 @@
         {
             "name": "ABGARMY20",
             "view": "army",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/give-item.ts",
             "args": [
                 "ABGARMY20",
-                "--knights"
+                "receive",
+                "pigfat",
+                "--item=Dragonfire shield",
+                "--count=1",
+                "--bank=varrock-east"
             ]
         }
     ]
