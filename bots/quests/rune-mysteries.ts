@@ -11,8 +11,10 @@
 import { BotSDK, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
-import { existsSync, readFileSync, appendFileSync, openSync, readSync, closeSync, statSync } from 'fs';
+import { existsSync, readFileSync, appendFileSync } from 'fs';
 import { dirname, join } from 'path';
+import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
+import type { JournalRule } from '../../quest-lab/evidence';
 
 const DUKE = { x: 3212, z: 3220 };
 const CASTLE_STAIRS = { x: 3205, z: 3208 };
@@ -40,9 +42,6 @@ const LUMBRIDGE_TO_TOWER = [
 ];
 
 const PICKAXE = /^(bronze|iron|steel|mithril|adamant|rune) pickaxe$/i;
-const RUNE_PICK = /^rune pickaxe$/i;
-/** Item `levelrequire` is 41. Below that the mining script will not use a rune pickaxe. */
-const RUNE_PICK_LEVEL = 41;
 const ESSENCE = /^(rune essence|pure essence)$/i;
 const TALISMAN = /^air talisman$/i;
 const PACKAGE = /^research package$/i;
@@ -86,22 +85,6 @@ function log(msg: string): void {
     }
 }
 
-/** Recent grind lines already recorded a finished quest or an essence bank trip. */
-function grindShowsQuestDone(): boolean {
-    try {
-        if (!existsSync(GRIND_LOG)) return false;
-        const size = statSync(GRIND_LOG).size;
-        const window = Math.min(size, 256 * 1024);
-        const fd = openSync(GRIND_LOG, 'r');
-        const buf = Buffer.alloc(window);
-        readSync(fd, buf, 0, window, size - window);
-        closeSync(fd);
-        return /QUEST COMPLETE|Banked essence/.test(buf.toString('utf8'));
-    } catch {
-        return false;
-    }
-}
-
 console.log('Warming pathfinder...');
 initPathfinding();
 
@@ -124,9 +107,6 @@ let lastIntent = '';
 let questComplete = false;
 let lastLoggedMine = 0;
 let essenceBanked = 0;
-/** Sedridor's continue-only "go speak to Aubury again" after the package is delivered. */
-let returnToAubury = false;
-let runePickMissing = false;
 
 function intent(msg: string): void {
     if (msg === lastIntent) return;
@@ -186,31 +166,100 @@ function has(pattern: RegExp): boolean {
     return !!sdk.findInventoryItem(pattern);
 }
 
-/** True when every dialog line was a continue click, so no quest choice was offered. */
-function continueOnlyDialog(seen: string[]): boolean {
-    const lines = seen.map((t) => t.trim()).filter(Boolean);
-    return lines.length > 0 && lines.every((t) => /click here to continue|please wait/i.test(t));
-}
-
 function npcHas(pattern: RegExp, option: RegExp): boolean {
     const npc = sdk.findNearbyNpc(pattern);
     return !!npc?.optionsWithIndex.some((o) => option.test(o.text));
 }
 
+/**
+ * Rune Mysteries stage and completion, read from the QUEST JOURNAL.
+ *
+ * Completion used to be a chat regex plus `mining() >= 20`. Mining 20 is
+ * trivially true for a maxed or trained account, so the script declared the
+ * quest done having done none of it, and a mid-quest restart was
+ * indistinguishable from a finish.
+ *
+ * Rules come from the quest's own handler
+ * (quest_runemysteries/scripts/runemysteries_journal.rs2), each keyed on a
+ * sentence UNIQUE to that stage.
+ */
+// NOTE the label/title difference: the quest LIST entry is "Rune Mysteries
+// Quest" (questlist.if `option=`), while the journal heading is "Rune
+// Mysteries" (`~quest_journal("Rune Mysteries", ...)`). The reader clicks the
+// list entry by `label` and verifies by `title`, so a mismatched label finds no
+// button, yields no text, and fails every rule as 'unknown'.
+const RUNE_JOURNAL = { label: 'Rune Mysteries Quest', title: 'Rune Mysteries' };
+const RUNE_STAGES: Record<string, JournalRule> = {
+    not_started: {
+        id: 'rune:not_started',
+        kind: 'unstarted',
+        all: ['I can start this quest by speaking to Duke Horacio of Lumbridge'],
+    },
+    started: {
+        id: 'rune:started',
+        kind: 'active',
+        all: ['I need to find the Head Wizard and give him the Talisman'],
+    },
+    given_talisman: {
+        id: 'rune:given_talisman',
+        kind: 'active',
+        all: ['I should talk to the Head Wizard again'],
+    },
+    received_package: {
+        id: 'rune:received_package',
+        kind: 'active',
+        all: ['I should take this Research Package to Aubury in Varrock'],
+    },
+    given_package: {
+        id: 'rune:given_package',
+        kind: 'active',
+        all: ['I should speak to Aubury again when he has finished examining the research package'],
+    },
+    received_notes: {
+        id: 'rune:received_notes',
+        kind: 'active',
+        all: ['I should take the notes to Sedridor and see what he says'],
+    },
+    complete: { id: 'rune:complete', kind: 'complete', all: ['QUEST COMPLETE'] },
+};
+
+let lastJournalCheck = 0;
+let journalComplete = false;
+
+/** The first stage rule that passes is the account's real stage. */
+async function readRuneStage(): Promise<string> {
+    for (const name of [
+        'complete',
+        'received_notes',
+        'given_package',
+        'received_package',
+        'given_talisman',
+        'started',
+        'not_started',
+    ]) {
+        const read = await readJournalCheckpoint(sdk, RUNE_JOURNAL, RUNE_STAGES[name]!);
+        log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
+        if (read.verdict?.verdict === 'PASS') return name;
+    }
+    return 'unknown';
+}
+
+/** Journal-backed completion, throttled — opening the journal is not free. */
+async function refreshJournal(): Promise<boolean> {
+    if (Date.now() - lastJournalCheck < 5_000) return journalComplete;
+    lastJournalCheck = Date.now();
+    const read = await readJournalCheckpoint(sdk, RUNE_JOURNAL, RUNE_STAGES.complete!);
+    journalComplete = read.verdict?.verdict === 'PASS';
+    if (journalComplete) questComplete = true;
+    return journalComplete;
+}
+
 function questDone(): boolean {
-    // Teleport is on the NPC before the quest is finished; using it prints
-    // "need to have completed the Rune Mysteries". Notes/package mean we are not done.
-    if (has(NOTES) || has(PACKAGE)) {
-        questComplete = false;
-        return false;
-    }
-    if (questComplete) return true;
-    const msgs = sdk.getState()?.gameMessages ?? [];
-    if (msgs.some((m) => /you have completed the.*mysteries of the runes/i.test(m.text))) {
-        questComplete = true;
-        return true;
-    }
-    return false;
+    // Notes/package in hand mean demonstrably mid-quest. Completion itself is
+    // the journal's answer (refreshJournal) merged with the in-flow dialog
+    // signals, which are content-gated and so legitimate.
+    if (has(NOTES) || has(PACKAGE)) return false;
+    return questComplete;
 }
 
 function inKandarin(): boolean {
@@ -499,109 +548,8 @@ async function buyPickaxe(): Promise<boolean> {
 }
 
 async function equipPickaxe(): Promise<void> {
-    const inv = sdk.findInventoryItem(RUNE_PICK) ?? sdk.findInventoryItem(PICKAXE);
+    const inv = sdk.findInventoryItem(PICKAXE);
     if (inv && !sdk.findEquipmentItem(PICKAXE)) await bot.equipItem(inv);
-}
-
-function wearingRunePick(): boolean {
-    return !!sdk.findEquipmentItem(RUNE_PICK);
-}
-
-/** Bank the lesser pick and wield the rune pickaxe once Mining can use it. */
-async function swapToRunePick(): Promise<void> {
-    if (wearingRunePick() || runePickMissing || mining() < RUNE_PICK_LEVEL) return;
-    const inBag = sdk.findInventoryItem(RUNE_PICK);
-    if (inBag && !sdk.findEquipmentItem(PICKAXE)) {
-        const equipped = await bot.equipItem(inBag);
-        log(`Wield rune pickaxe: ${equipped.success ? 'ok' : equipped.message}`);
-        return;
-    }
-
-    if (inEssenceMine()) {
-        await exitEssencePortal();
-        return;
-    }
-    if (inWizardBasement()) {
-        await climb('up');
-        return;
-    }
-    if (pos().level > 0) await climb('down');
-    await leaveWizardTower();
-    await closeUi();
-    intent('Banking for the rune pickaxe');
-    if (distTo(VARROCK_EAST_BANK.x, VARROCK_EAST_BANK.z) > 20 && pos().x < 3150 && pos().z < 3300) {
-        await walkWaypoints(TOWER_TO_VARROCK);
-    }
-    if (distTo(VARROCK_EAST_BANK.x, VARROCK_EAST_BANK.z) > 8) {
-        await walkNear(VARROCK_EAST_BANK.x, VARROCK_EAST_BANK.z, 3);
-    }
-    if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
-        log('Varrock east bank open failed (rune pickaxe)');
-        return;
-    }
-    await sdk
-        .waitForCondition((s) => s.bank?.isOpen === true && (s.bank.items?.length ?? 0) > 0, 5_000)
-        .catch(() => {});
-
-    const bankedRune = sdk.findBankItem(RUNE_PICK);
-    const bankItems = sdk.getState()?.bank?.items ?? [];
-    if (!bankedRune && !sdk.findInventoryItem(RUNE_PICK)) {
-        if (bankItems.length === 0) {
-            log('Bank list empty — will retry the rune pickaxe');
-            await ensureBankClosed();
-            return;
-        }
-        runePickMissing = true;
-        log(`No rune pickaxe in bank at Mining ${mining()} — keeping ${sdk.findEquipmentItem(PICKAXE)?.name ?? sdk.findInventoryItem(PICKAXE)?.name ?? 'no pick'}`);
-        await ensureBankClosed();
-        return;
-    }
-
-    if (occupiedSlots() >= 28 && sdk.findEquipmentItem(PICKAXE) && !wearingRunePick()) {
-        const filler =
-            sdk.getInventory().find((i) => (i.count ?? 0) > 0 && !PICKAXE.test(i.name)) ??
-            sdk.getInventory().find((i) => (i.count ?? 0) > 0);
-        if (filler) await bot.depositItem(filler, 1);
-    }
-    if (!(await ensureBankClosed())) return;
-
-    const worn = sdk.findEquipmentItem(PICKAXE);
-    if (worn && !RUNE_PICK.test(worn.name)) {
-        const off = await bot.unequipItem(worn);
-        log(`Unequip ${worn.name}: ${off.success ? 'ok' : off.message}`);
-        if (!off.success) return;
-    }
-    if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
-        log('Varrock east bank open failed while swapping pickaxe');
-        return;
-    }
-    for (;;) {
-        const lesser = sdk.getInventory().find((i) => (i.count ?? 0) > 0 && PICKAXE.test(i.name) && !RUNE_PICK.test(i.name));
-        if (!lesser) break;
-        const deposited = await bot.depositItem(lesser, -1);
-        if (!deposited.success) {
-            log(`Deposit ${lesser.name}: ${deposited.message}`);
-            break;
-        }
-    }
-    if (!sdk.findInventoryItem(RUNE_PICK) && !wearingRunePick()) {
-        const rune = sdk.findBankItem(RUNE_PICK);
-        if (!rune) {
-            runePickMissing = true;
-            log('Rune pickaxe left the bank before withdraw');
-            await ensureBankClosed();
-            return;
-        }
-        const withdrawn = await bot.withdrawItem(rune, 1, { asNote: false });
-        log(`Withdraw rune pickaxe: ${withdrawn.success ? 'ok' : withdrawn.message}`);
-    }
-    if (!(await ensureBankClosed())) return;
-    const inv = sdk.findInventoryItem(RUNE_PICK);
-    if (!inv) return;
-    const equipped = await bot.equipItem(inv);
-    log(
-        `Wield rune pickaxe: ${equipped.success ? 'ok' : equipped.message} | Mining ${mining()} | now ${sdk.findEquipmentItem(PICKAXE)?.name ?? 'not worn'}`
-    );
 }
 
 async function goToDuke(): Promise<boolean> {
@@ -845,12 +793,6 @@ async function talkSedridor(): Promise<void> {
         log('QUEST COMPLETE Rune Mysteries');
     }
     if (has(/research package/i)) log('Have research package');
-    // A spare air talisman must not keep us here. This continue-only chat is
-    // Sedridor saying the package was delivered and Aubury still has the notes.
-    if (!questComplete && continueOnlyDialog(seen) && !has(NOTES) && !has(PACKAGE)) {
-        returnToAubury = true;
-        log('Package already delivered — going back to Aubury for the notes');
-    }
     await closeUi();
 }
 
@@ -1051,19 +993,9 @@ async function bankEssence(): Promise<void> {
         if (!r.success) break;
     }
     essenceBanked += before - count(ESSENCE);
-    if (sdk.findEquipmentItem(RUNE_PICK) || sdk.findInventoryItem(RUNE_PICK)) {
-        for (;;) {
-            const lesser = sdk.getInventory().find((i) => (i.count ?? 0) > 0 && PICKAXE.test(i.name) && !RUNE_PICK.test(i.name));
-            if (!lesser) break;
-            const deposited = await bot.depositItem(lesser, -1);
-            if (!deposited.success) break;
-        }
-    }
     if (!hasPickaxe()) {
-        const pick =
-            (mining() >= RUNE_PICK_LEVEL ? sdk.findBankItem(RUNE_PICK) : null) ??
-            sdk.findBankItem(PICKAXE);
-        if (pick) await bot.withdrawItem(pick, 1, { asNote: false });
+        const pick = sdk.findBankItem(PICKAXE);
+        if (pick) await bot.withdrawItem(pick, 1);
     }
     if (!(await ensureBankClosed())) return;
     log(`Banked essence | trip left ${count(ESSENCE)} | session ~${essenceBanked} | Mining ${mining()} (${miningXp()} xp)`);
@@ -1073,20 +1005,16 @@ try {
     lastLoggedMine = mining();
     await bot.skipTutorial();
     await closeUi();
-    questDone();
-    if (!questComplete && !has(NOTES) && !has(PACKAGE)) {
-        if (inEssenceMine() || count(ESSENCE) > 0) {
-            questComplete = true;
-            log('Quest already done (in essence mine or carrying essence)');
-        } else if (grindShowsQuestDone()) {
-            questComplete = true;
-            log('Quest already done (grind log shows completion)');
-        } else if (mining() >= 20) {
-            // Empty at the bank after a restart — do not walk back to the Duke.
-            questComplete = true;
-            log(`Quest already done (Mining ${mining()}, no package/notes)`);
-        }
+    // Ask the JOURNAL before deciding anything. `mining() >= 20` stood here —
+    // true for any maxed or trained account, so a fixture skipped the entire
+    // quest and logged "Quest already done".
+    const startStage = await readRuneStage();
+    log(`Rune Mysteries journal stage at start: ${startStage}`);
+    if (startStage === 'unknown') {
+        throw new Error('could not determine the Rune Mysteries stage from the journal');
     }
+    await refreshJournal();
+    if (journalComplete) log('Journal confirms Rune Mysteries already complete');
     log(
         `Rune Mysteries start Mining ${lastLoggedMine} (${miningXp()} xp) @ ${pos().x},${pos().z} lv${pos().level} ` +
             `gp=${coinCount()} pick=${sdk.findEquipmentItem(PICKAXE)?.name ?? sdk.findInventoryItem(PICKAXE)?.name ?? 'none'} ` +
@@ -1109,10 +1037,10 @@ try {
             log(`LEVEL UP Mining ${mining()}`);
             lastLoggedMine = mining();
         }
-        questDone();
-        if (!questComplete && !has(NOTES) && !has(PACKAGE) && mining() >= 20) {
-            questComplete = true;
-        }
+        // Journal replaces the old `mining() >= 20` shortcut. The in-flow
+        // dialog signals (Duke "all is well", Sedridor's essence-teleport offer)
+        // still set questComplete legitimately, since they are content-gated.
+        await refreshJournal();
 
         if (!questComplete) {
             if (inKandarin() || onKaramja()) {
@@ -1120,16 +1048,10 @@ try {
                 continue;
             }
             if (has(NOTES)) {
-                returnToAubury = false;
                 await talkSedridor();
                 continue;
             }
             if (has(PACKAGE)) {
-                returnToAubury = false;
-                await talkAubury();
-                continue;
-            }
-            if (returnToAubury) {
                 await talkAubury();
                 continue;
             }
@@ -1158,11 +1080,6 @@ try {
         if (questOnly) {
             log(`Done. Rune Mysteries complete. Mining ${mining()} (${miningXp()} xp)`);
             break;
-        }
-
-        if (mining() >= RUNE_PICK_LEVEL && !wearingRunePick() && !runePickMissing) {
-            await swapToRunePick();
-            continue;
         }
 
         if (!hasPickaxe()) {

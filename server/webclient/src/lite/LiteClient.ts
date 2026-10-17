@@ -828,6 +828,14 @@ export class LiteClient {
     getInterfaceDebugInfo(interfaceId: number): string[] {
         return A.getInterfaceDebugInfo(this, interfaceId);
     }
+
+    getInterfaceOptionsFor(rootId: number) {
+        return A.getInterfaceOptionsFor(this, rootId);
+    }
+
+    getInterfaceTextComponents(rootId: number) {
+        return A.getInterfaceTextComponents(this, rootId);
+    }
     captureDialogToHistory(): void {
         A.captureDialogToHistory(this);
     }
@@ -948,8 +956,24 @@ export class LiteClient {
                 isOpen: this.isViewportInterfaceOpen(),
                 interfaceId: this.getViewportInterface(),
                 options: interfaceOptions,
-                debugInfo: this.isViewportInterfaceOpen() ? this.getInterfaceDebugInfo(this.getViewportInterface()) : []
+                debugInfo: this.isViewportInterfaceOpen() ? this.getInterfaceDebugInfo(this.getViewportInterface()) : [],
+                // Raw text (formatting tags intact) — quest journals encode
+                // state in emphasis, which debugInfo's normalisation drops.
+                textComponents: this.isViewportInterfaceOpen() ? this.getInterfaceTextComponents(this.getViewportInterface()) : []
             },
+            // Side-tab interfaces the server has sent (quest list, combat tab,
+            // bank side inventory...). They are not main modals and were
+            // previously unobservable, which made the quest journal unreachable.
+            sideInterface: (() => {
+                const rootId = this.sideIcon[this.activeIcon] ?? -1;
+                return {
+                    tabIndex: this.activeIcon,
+                    interfaceId: rootId,
+                    options: this.getInterfaceOptionsFor(rootId),
+                    debugInfo: rootId !== -1 ? this.getInterfaceDebugInfo(rootId) : [],
+                    textComponents: rootId !== -1 ? this.getInterfaceTextComponents(rootId) : []
+                };
+            })(),
             modalOpen: this.isModalOpen(),
             modalInterface: this.getModalInterface()
         };

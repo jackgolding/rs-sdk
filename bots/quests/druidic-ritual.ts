@@ -10,8 +10,9 @@
 import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
-import { hopSend, leaveEdgevilleWilderness } from './movement';
-import { scheduleHandoff } from './handoff';
+import { ActivitySession } from '../../sdk/activity';
+import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
+import type { JournalRule } from '../../quest-lab/evidence';
 
 const KAQEMEEX = { x: 2925, z: 3486 };
 const SANFEW = { x: 2899, z: 3428 };
@@ -60,7 +61,7 @@ const MEATS = [
     { raw: RAW_BEAR, enchanted: ENC_BEAR, npc: /^bear$/i, spot: BEAR, label: 'raw bear meat' }
 ] as const;
 
-const botName = process.argv.slice(2).find((a) => !a.startsWith('-') && !a.endsWith('.ts')) ?? '';
+const botName = process.argv.slice(2).find((a) => !a.startsWith('-')) ?? '';
 const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
 
 await runScript(async ({ bot, sdk }) => {
@@ -108,10 +109,73 @@ await runScript(async ({ bot, sdk }) => {
         return sdk.getSkill('Herblore')?.experience ?? 0;
     }
 
-    function questDone(): boolean {
-        if (herbXp() >= 250) return true;
-        const msgs = sdk.getState()?.gameMessages ?? [];
-        return msgs.some((m) => /completed the.*druidic ritual/i.test(m.text));
+    /**
+     * Completion comes from the QUEST JOURNAL — never from XP, and never from a
+     * chat line.
+     *
+     * This used to be `herbXp() >= 250`, which made the quest read as DONE for
+     * any account with Herblore levelled: the best-case maxed fixture finished
+     * instantly without doing anything, and a mid-quest restart could not be
+     * told apart from a finished one.
+     *
+     * Rules are read from the quest's own journal script
+     * (server/content/scripts/quests/quest_druid/scripts/druid_journal.rs2).
+     */
+    const JOURNAL = { label: 'Druidic Ritual', title: 'Druidic Ritual' };
+    // Every stage the journal can be in (druid_journal.rs2), each keyed on a
+    // sentence UNIQUE to that stage. Recognising only the two endpoints made a
+    // mid-quest account read as 'unknown' and threw, even though the loop below
+    // already knows how to resume from any of them.
+    const STAGE_RULES: Record<string, JournalRule> = {
+        not_started: {
+            id: 'druid:not_started',
+            kind: 'unstarted',
+            all: ['I can start this quest by speaking to Kaqemeex'],
+        },
+        started: {
+            id: 'druid:started',
+            kind: 'active',
+            all: ['I should speak to Sanfew in the village to the South'],
+        },
+        spoken_sanfew: {
+            id: 'druid:spoken_sanfew',
+            kind: 'active',
+            all: ['Sanfew told me for the ritual they would need me to place'],
+        },
+        given_ingredients: {
+            id: 'druid:given_ingredients',
+            kind: 'active',
+            all: ['I should speak to Kaqemeex again and claim my reward'],
+        },
+        complete: { id: 'druid:complete', kind: 'complete', all: ['QUEST COMPLETE'] },
+    };
+
+    /** The first stage rule that passes is the account's real stage. */
+    async function readStage(): Promise<string> {
+        for (const name of [
+            'complete',
+            'given_ingredients',
+            'spoken_sanfew',
+            'started',
+            'not_started',
+        ] as const) {
+            const read = await readJournalCheckpoint(sdk, JOURNAL, STAGE_RULES[name]!);
+            log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
+            if (read.verdict?.verdict === 'PASS') return name;
+        }
+        return 'unknown';
+    }
+
+    let complete = false;
+    let lastCompleteCheck = 0;
+    /** Journal-backed completion, throttled: opening the journal is not free. */
+    async function questDone(): Promise<boolean> {
+        if (Date.now() - lastCompleteCheck < 5_000) return complete;
+        lastCompleteCheck = Date.now();
+        const read = await readJournalCheckpoint(sdk, JOURNAL, STAGE_RULES.complete!);
+        complete = read.verdict?.verdict === 'PASS';
+        if (complete) log(`Journal confirms completion: ${read.reason}`);
+        return complete;
     }
 
     function hasType(raw: RegExp, enchanted: RegExp): boolean {
@@ -312,62 +376,6 @@ await runScript(async ({ bot, sdk }) => {
         if (count(meat) < 1) log(`Still missing ${label} @ ${pos().x},${pos().z}`);
     }
 
-    function isMeat(name: string): boolean {
-        return (
-            RAW_BEEF.test(name) ||
-            RAW_CHICKEN.test(name) ||
-            RAW_RAT.test(name) ||
-            RAW_BEAR.test(name) ||
-            ENC_BEEF.test(name) ||
-            ENC_CHICKEN.test(name) ||
-            ENC_RAT.test(name) ||
-            ENC_BEAR.test(name)
-        );
-    }
-
-    async function makeRoom(): Promise<void> {
-        const used = sdk.getInventory().filter((i) => (i.count ?? 0) > 0).length;
-        if (28 - used >= 6) return;
-        if (pos().z >= 3520) return;
-        intent('Banking to make room');
-        if (distTo(3094, 3492) > 12) await walkNear(3094, 3492, 5);
-        const opened = sdk.getState()?.bank?.isOpen || (await bot.openBank()).success;
-        if (!opened && !sdk.getState()?.bank?.isOpen) {
-            log(`No bank for a full inventory @ ${pos().x},${pos().z}`);
-            return;
-        }
-        for (let i = 0; i < 40; i++) {
-            const item = sdk.getInventory().find((it) => (it.count ?? 0) > 0 && !isMeat(it.name));
-            if (!item) break;
-            const r = await bot.depositItem(item, -1);
-            if (!r.success && !r.partial) break;
-        }
-        await bot.closeBank();
-        log(`Inventory cleared @ ${pos().x},${pos().z} slots=${sdk.getInventory().filter((i) => (i.count ?? 0) > 0).length}`);
-    }
-
-    /** Quest-start convention: bank everything except quest meats before doing anything. */
-    async function startBank(): Promise<void> {
-        if (underground() || pos().level > 0 || pos().z >= 3520) return;
-        if (distTo(3094, 3492) > 12) {
-            intent('Walking to Edgeville bank to clear inventory');
-            await walkNear(3094, 3492, 5);
-        }
-        const opened = sdk.getState()?.bank?.isOpen || (await bot.openBank()).success;
-        if (!opened && !sdk.getState()?.bank?.isOpen) {
-            log(`Start bank: no bank @ ${pos().x},${pos().z}`);
-            return;
-        }
-        for (let i = 0; i < 40; i++) {
-            const item = sdk.getInventory().find((it) => (it.count ?? 0) > 0 && !isMeat(it.name));
-            if (!item) break;
-            const r = await bot.depositItem(item, -1);
-            if (!r.success && !r.partial) break;
-        }
-        await bot.closeBank();
-        log(`Start bank cleared @ ${pos().x},${pos().z} slots=${sdk.getInventory().filter((i) => (i.count ?? 0) > 0).length}`);
-    }
-
     async function gatherMeats(): Promise<void> {
         if (allRawOrEnchanted()) return;
         if (!hasType(RAW_BEEF, ENC_BEEF) || !hasType(RAW_CHICKEN, ENC_CHICKEN)) {
@@ -439,35 +447,46 @@ await runScript(async ({ bot, sdk }) => {
         await walkNear(SANFEW.x, SANFEW.z, 3);
     }
 
+    /**
+     * Find Sanfew once the scene has actually caught up.
+     *
+     * Climbing a staircase rebuilds the client scene asynchronously and
+     * `nearbyNpcs` stays EMPTY for the new plane until it lands. Scanning once
+     * straight after the climb reported "Sanfew missing" while the bot stood a
+     * tile from him — which skipped his dialog, so the quest varp never reached
+     * `druid_spoken_sanfew`, so the Cauldron of Thunder then silently refused
+     * every dip. The whole quest hung off this one one-shot scan.
+     */
+    async function findSanfew(settleMs = 8_000) {
+        const deadline = Date.now() + settleMs;
+        for (;;) {
+            const npc = sdk.findNearbyNpc(/^sanfew$/i) ?? sdk.findNearbyNpc(/sanfew/i);
+            if (npc) return npc;
+            if (Date.now() >= deadline) return null;
+            await sdk.waitForTicks(4);
+        }
+    }
+
     async function talkSanfew(): Promise<string[]> {
         await goSanfew();
-        // Sanfew often pops into the NPC list a tick or two after we arrive
-        // upstairs (ABGARMY07 got dialog ~15s after a "missing" at the same
-        // tile), so retry from adjacent tiles instead of failing once.
-        for (let i = 0; i < 12; i++) {
-            const npc = sdk.findNearbyNpc(/^sanfew$/i) ?? sdk.findNearbyNpc(/sanfew/i);
-            if (npc) {
-                const talk = await bot.talkTo(npc);
-                if (talk.success) {
-                    await sdk.waitForTicks(1);
-                    return chat([
-                        /sent to help purify/i,
-                        /sent to help purify/i,
-                        /ok, i['’]?ll do that then/i,
-                        /i['’]?ll get on with it then/i,
-                        /i['’]?ll do that then/i
-                    ]);
-                }
-                if (i === 0) log(`talk Sanfew: ${talk.message}`);
-            } else if (i === 0 || i === 6) {
-                log(`Sanfew missing @ ${pos().x},${pos().z} floor=${pos().level} try=${i}`);
-            }
-            await openNearbyGate();
-            await walkNear(SANFEW.x + (i % 2 === 0 ? 1 : -1), SANFEW.z, 3);
-            await sdk.waitForTicks(2);
+        const npc = await findSanfew();
+        if (!npc) {
+            log(`Sanfew missing @ ${pos().x},${pos().z} floor=${pos().level} (after settling)`);
+            return [];
         }
-        log(`Sanfew: (no dialog)`);
-        return [];
+        const talk = await bot.talkTo(npc);
+        if (!talk.success) {
+            log(`talk Sanfew: ${talk.message}`);
+            return [];
+        }
+        await sdk.waitForTicks(1);
+        return chat([
+            /sent to help purify/i,
+            /sent to help purify/i,
+            /ok, i['’]?ll do that then/i,
+            /i['’]?ll get on with it then/i,
+            /i['’]?ll do that then/i
+        ]);
     }
 
     async function killSuits(): Promise<void> {
@@ -542,23 +561,34 @@ await runScript(async ({ bot, sdk }) => {
         `Druidic Ritual start @ ${pos().x},${pos().z} floor=${pos().level} herbXp=${startXp} gp=${count(/^coins$/i)}`
     );
     await closeUi();
-    await startBank();
 
-    const until = Date.now() + 45 * 60_000;
-    while (Date.now() < until && !questDone()) {
+    // ActivitySession carries grindLogPath so fleet verdicts can see this run at
+    // all; without it the bot reads as silent however well it plays.
+    const session = new ActivitySession(sdk, bot, {
+        name: 'druidic ritual',
+        grindLogPath: GRIND_LOG,
+        maxRecoveryTactics: 8
+    });
+    await session.setPhase('inspect');
+
+    // Ask the journal what state this account is in BEFORE acting. With the old
+    // XP test a maxed account fell straight through as "already complete".
+    const stage = await readStage();
+    log(`Druidic Ritual stage at start: ${stage}`);
+    if (stage === 'complete') {
+        log('Druidic Ritual is already complete — nothing to do');
+        await session.setPhase('done');
+        return;
+    }
+    if (stage === 'unknown') {
+        session.log('warn', 'could not determine quest stage from the journal');
+        throw new Error('could not determine the Druidic Ritual stage from the journal');
+    }
+    session.log('log', `stage=${stage} herbXp=${startXp}`);
+
+    const until = Date.now() + 20 * 60_000;
+    while (Date.now() < until && !(await questDone())) {
         await closeUi();
-        if (pos().z >= 3520 && pos().z < 6400) {
-            intent('Leaving wilderness');
-            const left = await leaveEdgevilleWilderness(sdk);
-            log(`wilderness exit ${left ? 'ok' : 'stuck'} @ ${pos().x},${pos().z}`);
-            if (!left) continue;
-        }
-        await makeRoom();
-        if (pos().x >= 3088 && pos().x <= 3112 && pos().z >= 3484 && pos().z <= 3508) {
-            intent('Leaving the Edgeville bank');
-            await hopSend(sdk, 3060, 3472, 8);
-            log(`Left bank @ ${pos().x},${pos().z}`);
-        }
         if (pos().isDead) {
             await sdk.waitForTicks(3);
             continue;
@@ -569,7 +599,7 @@ await runScript(async ({ bot, sdk }) => {
             log(`Sanfew: ${seen || '(no dialog)'}`);
             await chat();
             await closeUi();
-            if (questDone()) break;
+            if (await questDone()) break;
         }
 
         if (!allRawOrEnchanted()) {
@@ -577,7 +607,7 @@ await runScript(async ({ bot, sdk }) => {
             log(`Kaqemeex: ${fin || '(no dialog)'}`);
             await chat();
             await closeUi();
-            if (questDone()) break;
+            if (await questDone()) break;
             await gatherMeats();
             continue;
         }
@@ -586,23 +616,17 @@ await runScript(async ({ bot, sdk }) => {
         log(`Kaqemeex: ${startSeen || '(no dialog)'}`);
         await chat();
         await closeUi();
-        if (questDone()) break;
+        if (await questDone()) break;
 
         const san = (await talkSanfew()).join(' | ');
         log(`Sanfew: ${san || '(no dialog)'}`);
         await chat();
         await closeUi();
-        if (questDone()) break;
-        if (!san && !allEnchanted()) {
-            log('Sanfew silent — retrying dialog before dip');
-            continue;
-        }
+        if (await questDone()) break;
 
         await dipMeats();
     }
 
-    if (questDone()) {
-        log(`Druidic Ritual complete herbloreXp=${herbXp()} (+${herbXp() - startXp})`);
-        scheduleHandoff(botName);
-    } else throw new Error(`Quest unfinished @ ${pos().x},${pos().z} herbXp=${herbXp()}`);
+    if (await questDone()) log(`Druidic Ritual complete (journal-verified) herbloreXp=${herbXp()} (+${herbXp() - startXp})`);
+    else throw new Error(`Quest unfinished @ ${pos().x},${pos().z} herbXp=${herbXp()}`);
 });

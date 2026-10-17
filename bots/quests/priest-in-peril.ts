@@ -13,7 +13,6 @@ import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
 import {
-    buyAtShop,
     ensureCoins,
     ensureItem,
     SHOPS,
@@ -246,12 +245,9 @@ await runScript(async ({ bot, sdk }) => {
         const ctx = supplyCtx();
         await ensureCoins(ctx, 50);
         await withdrawFromBank(ctx, FOOD, 10, SHOPS.VARROCK_EAST_BANK);
-        if (count(FOOD) < 6) {
-            await buyAtShop(ctx, SHOPS.VARROCK_GEN, [
-                { pattern: /^wine$/i, amount: 8, label: 'wine' },
-                { pattern: /^bread$/i, amount: 5, label: 'bread' }
-            ]);
-        }
+        // No food purchase: this quest needs none. Food buying is retained only
+        // for death-plateau.ts (and any future holy-grail script), which really
+        // do need it. The bank withdrawal above still takes what is banked.
         await ensureItem(ctx, BUCKET_EMPTY, 1, {
             label: 'bucket',
             shop: SHOPS.VARROCK_GEN,
@@ -269,7 +265,14 @@ await runScript(async ({ bot, sdk }) => {
             await climbTo(1);
         }
         await walkNear(KING_ROALD.x, KING_ROALD.z, 3);
-        const roald = sdk.findNearbyNpc(/king roald/i);
+// Settle-and-retry: climbing rebuilds the client scene and `nearbyNpcs` is
+// EMPTY for the new level until it lands, so a single scan reads the NPC as
+// missing while the bot is standing next to it.
+        let roald = sdk.findNearbyNpc(/king roald/i);
+        for (let t = 0; !roald && t < 40; t++) {
+            await sdk.waitForTicks(4);
+            roald = sdk.findNearbyNpc(/king roald/i);
+        }
         if (!roald) {
             log('King Roald not found');
             return;
@@ -387,7 +390,14 @@ await runScript(async ({ bot, sdk }) => {
         if (!inTemple()) await openTempleDoor();
         await walkNear(DREZEL_CELL.x, DREZEL_CELL.z, 3);
         if (pos().level < 2) await climbTo(2);
-        const drezel = sdk.findNearbyNpc(/^drezel$/i);
+// Settle-and-retry: climbing rebuilds the client scene and `nearbyNpcs` is
+// EMPTY for the new level until it lands, so a single scan reads the NPC as
+// missing while the bot is standing next to it.
+        let drezel = sdk.findNearbyNpc(/^drezel$/i);
+        for (let t = 0; !drezel && t < 40; t++) {
+            await sdk.waitForTicks(4);
+            drezel = sdk.findNearbyNpc(/^drezel$/i);
+        }
         if (!drezel) {
             log('Drezel not found upstairs');
             return;

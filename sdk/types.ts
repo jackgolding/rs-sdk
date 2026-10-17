@@ -258,10 +258,21 @@ export interface DialogState {
     allComponents?: DialogComponent[];
 }
 
+export interface InterfaceTextComponent {
+    componentId: number;
+    type: number;
+    /** Text exactly as sent, formatting tags intact (quest journals use these). */
+    rawText: string;
+    /** Tags stripped and whitespace collapsed. */
+    text: string;
+}
+
 export interface InterfaceState {
     isOpen: boolean;
     interfaceId: number;
     options: InterfaceOption[];
+    /** Non-empty text components, raw + normalised. Absent on older clients. */
+    textComponents?: InterfaceTextComponent[];
 }
 
 /** A clickable viewport-interface option as published in world state. */
@@ -589,6 +600,18 @@ export interface BotWorldState {
     recentDialogs: DialogEntry[];
     dialog: DialogState;
     interface: InterfaceState;
+    /**
+     * Side-tab interface the server has sent for the currently selected tab.
+     * These are not main modals, so `interface` never covers them — the quest
+     * list and combat tab live here. Absent on older clients.
+     */
+    sideInterface?: {
+        tabIndex: number;
+        interfaceId: number;
+        options: InterfaceOption[];
+        debugInfo: string[];
+        textComponents: InterfaceTextComponent[];
+    };
     shop: ShopState;
     bank: BankState;
     /** Absent when the connected client predates trade support. */

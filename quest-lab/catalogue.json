@@ -1,0 +1,1442 @@
+[
+  {
+    "id": "arena",
+    "name": "Fight Arena",
+    "journalTitle": "Fight Arena",
+    "sourceDir": "server/content/scripts/quests/quest_arena",
+    "journalFile": "server/content/scripts/quests/quest_arena/scripts/arena_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:arena, %arenaquest, ^arena_complete);",
+        "progressExpression": "%arenaquest",
+        "completionExpression": "^arena_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "arthur",
+    "name": "Merlin's Crystal",
+    "journalTitle": "Merlin's Crystal",
+    "sourceDir": "server/content/scripts/quests/quest_arthur",
+    "journalFile": "server/content/scripts/quests/quest_arthur/scripts/arthur_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:arthur, %arthur, ^arthur_complete);",
+        "progressExpression": "%arthur",
+        "completionExpression": "^arthur_complete"
+      }
+    ],
+    "primaryScript": "bots/quests/pirates-treasure.ts",
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "existing script needs completion-predicate audit",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "ball",
+    "name": "Witch's House",
+    "journalTitle": "Witch's House",
+    "sourceDir": "server/content/scripts/quests/quest_ball",
+    "journalFile": "server/content/scripts/quests/quest_ball/scripts/ball_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:ball, %ballquest, ^ball_complete);",
+        "progressExpression": "%ballquest",
+        "completionExpression": "^ball_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "biohazard",
+    "name": "Biohazard",
+    "journalTitle": "Biohazard",
+    "sourceDir": "server/content/scripts/quests/quest_biohazard",
+    "journalFile": "server/content/scripts/quests/quest_biohazard/scripts/biohazard_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:biohazard, %biohazard, ^biohazard_complete);",
+        "progressExpression": "%biohazard",
+        "completionExpression": "^biohazard_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "blackarmgang",
+    "name": "Shield of Arrav",
+    "journalTitle": "Shield of Arrav",
+    "sourceDir": "server/content/scripts/quests/quest_blackarmgang",
+    "journalFile": "server/content/scripts/quests/quest_blackarmgang/scripts/blackarmgang_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:blackarmgang, %phoenixgang, ^phoenixgang_complete);",
+        "progressExpression": "%phoenixgang",
+        "completionExpression": "^phoenixgang_complete"
+      },
+      {
+        "raw": "~send_quest_progress_colour(questlist:blackarmgang, %blackarmgang, ^blackarmgang_complete);",
+        "progressExpression": "%blackarmgang",
+        "completionExpression": "^blackarmgang_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "alternate completion branches: 2",
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "chompybird",
+    "name": "Big Chompy Bird Hunting",
+    "journalTitle": "Big Chompy Bird Hunting",
+    "sourceDir": "server/content/scripts/quests/quest_chompybird",
+    "journalFile": "server/content/scripts/quests/quest_chompybird/scripts/chompybird_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:chompybird, %chompybird, ^chompybird_complete);",
+        "progressExpression": "%chompybird",
+        "completionExpression": "^chompybird_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "cog",
+    "name": "Clock Tower",
+    "journalTitle": "Clock Tower",
+    "sourceDir": "server/content/scripts/quests/quest_cog",
+    "journalFile": "server/content/scripts/quests/quest_cog/scripts/cog_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:cog, ~get_cog_progress, ^quest_cog_complete);",
+        "progressExpression": "~get_cog_progress",
+        "completionExpression": "^quest_cog_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "cook",
+    "name": "Cook's Assistant",
+    "journalTitle": "The Cook's Quest",
+    "sourceDir": "server/content/scripts/quests/quest_cook",
+    "journalFile": "server/content/scripts/quests/quest_cook/scripts/cook_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:cook, %cookquest, ^cook_complete);",
+        "progressExpression": "%cookquest",
+        "completionExpression": "^cook_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "crest",
+    "name": "Family Crest",
+    "journalTitle": "Family Crest",
+    "sourceDir": "server/content/scripts/quests/quest_crest",
+    "journalFile": "server/content/scripts/quests/quest_crest/scripts/crest_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:crest, %crestquest, ^crest_complete);",
+        "progressExpression": "%crestquest",
+        "completionExpression": "^crest_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "death",
+    "name": "Death Plateau",
+    "journalTitle": "Death Plateau",
+    "sourceDir": "server/content/scripts/quests/quest_death",
+    "journalFile": "server/content/scripts/quests/quest_death/scripts/death_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:death, %death_equiproom, ^death_complete);",
+        "progressExpression": "%death_equiproom",
+        "completionExpression": "^death_complete"
+      }
+    ],
+    "primaryScript": "bots/quests/death-plateau.ts",
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "existing script needs completion-predicate audit",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "demon",
+    "name": "Demon Slayer",
+    "journalTitle": "Demon Slayer",
+    "sourceDir": "server/content/scripts/quests/quest_demon",
+    "journalFile": "server/content/scripts/quests/quest_demon/scripts/demon_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:demon, %demonstart, ^demon_complete);",
+        "progressExpression": "%demonstart",
+        "completionExpression": "^demon_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "desertrescue",
+    "name": "The Tourist Trap",
+    "journalTitle": "Tourist Trap",
+    "sourceDir": "server/content/scripts/quests/quest_desertrescue",
+    "journalFile": "server/content/scripts/quests/quest_desertrescue/scripts/desertrescue_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:desertrescue, %desertrescue, ^desertrescue_complete);",
+        "progressExpression": "%desertrescue",
+        "completionExpression": "^desertrescue_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "doric",
+    "name": "Doric's Quest",
+    "journalTitle": "Dorics' Quest",
+    "sourceDir": "server/content/scripts/quests/quest_doric",
+    "journalFile": "server/content/scripts/quests/quest_doric/scripts/doric_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:doric, %doricquest, ^doric_complete);",
+        "progressExpression": "%doricquest",
+        "completionExpression": "^doric_complete"
+      }
+    ],
+    "primaryScript": "bots/quests/dorics-quest.ts",
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "existing script needs completion-predicate audit",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "dragon",
+    "name": "Dragon Slayer",
+    "journalTitle": "Dragon Slayer",
+    "sourceDir": "server/content/scripts/quests/quest_dragon",
+    "journalFile": "server/content/scripts/quests/quest_dragon/scripts/dragon_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:dragon, %dragonquest, ^dragon_complete);",
+        "progressExpression": "%dragonquest",
+        "completionExpression": "^dragon_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "druid",
+    "name": "Druidic Ritual",
+    "journalTitle": "Druidic Ritual",
+    "sourceDir": "server/content/scripts/quests/quest_druid",
+    "journalFile": "server/content/scripts/quests/quest_druid/scripts/druid_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:druid, %druidquest, ^druid_complete);",
+        "progressExpression": "%druidquest",
+        "completionExpression": "^druid_complete"
+      }
+    ],
+    "primaryScript": "bots/quests/druidic-ritual.ts",
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "existing script needs completion-predicate audit",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "druidspirit",
+    "name": "Nature Spirit",
+    "journalTitle": "Nature Spirit",
+    "sourceDir": "server/content/scripts/quests/quest_druidspirit",
+    "journalFile": "server/content/scripts/quests/quest_druidspirit/scripts/druidspirit_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:druidspirit, %druidspirit, ^druidspirit_complete);",
+        "progressExpression": "%druidspirit",
+        "completionExpression": "^druidspirit_complete"
+      }
+    ],
+    "primaryScript": "bots/quests/witchs-potion.ts",
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "existing script needs completion-predicate audit",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "drunkmonk",
+    "name": "Monk's Friend",
+    "journalTitle": "Monk's Friend",
+    "sourceDir": "server/content/scripts/quests/quest_drunkmonk",
+    "journalFile": "server/content/scripts/quests/quest_drunkmonk/scripts/drunkmonk_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:drunkmonk, %drunkmonkquest, ^drunkmonk_complete);",
+        "progressExpression": "%drunkmonkquest",
+        "completionExpression": "^drunkmonk_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "eadgar",
+    "name": "Eadgar's Ruse",
+    "journalTitle": "Eadgar's Ruse",
+    "sourceDir": "server/content/scripts/quests/quest_eadgar",
+    "journalFile": "server/content/scripts/quests/quest_eadgar/scripts/eadgar_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:eadgar, %eadgar_quest, ^eadgar_complete);",
+        "progressExpression": "%eadgar_quest",
+        "completionExpression": "^eadgar_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "elemental_workshop",
+    "name": "Elemental Workshop",
+    "journalTitle": "Elemental Workshop",
+    "sourceDir": "server/content/scripts/quests/quest_elemental_workshop",
+    "journalFile": "server/content/scripts/quests/quest_elemental_workshop/scripts/elemental_workshop_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:elemental_workshop, %elemental_workshop_bits, sub(pow(2, ^elemental_workshop_complete), 1));",
+        "progressExpression": "%elemental_workshop_bits",
+        "completionExpression": "sub(pow(2, ^elemental_workshop_complete), 1)"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "elena",
+    "name": "Plague City",
+    "journalTitle": "Plague City",
+    "sourceDir": "server/content/scripts/quests/quest_elena",
+    "journalFile": "server/content/scripts/quests/quest_elena/scripts/elena_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:elena, %elenaquest, ^elena_complete);",
+        "progressExpression": "%elenaquest",
+        "completionExpression": "^elena_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "fishingcompo",
+    "name": "Fishing Contest",
+    "journalTitle": "Fishing Contest",
+    "sourceDir": "server/content/scripts/quests/quest_fishingcompo",
+    "journalFile": "server/content/scripts/quests/quest_fishingcompo/scripts/fishingcompo_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:fishingcompo, %fishingcompo, ^fishingcompo_complete);",
+        "progressExpression": "%fishingcompo",
+        "completionExpression": "^fishingcompo_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "fluffs",
+    "name": "Gertrude's Cat",
+    "journalTitle": "Gertrude's Cat",
+    "sourceDir": "server/content/scripts/quests/quest_fluffs",
+    "journalFile": "server/content/scripts/quests/quest_fluffs/scripts/fluffs_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:fluffs, %fluffs, ^fluffs_complete);",
+        "progressExpression": "%fluffs",
+        "completionExpression": "^fluffs_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "fortress",
+    "name": "Black Knight's Fortress",
+    "journalTitle": "Black Knight's Fortress",
+    "sourceDir": "server/content/scripts/quests/quest_blackknight",
+    "journalFile": "server/content/scripts/quests/quest_blackknight/scripts/blackknight_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:fortress, %spy, ^blackknight_complete);",
+        "progressExpression": "%spy",
+        "completionExpression": "^blackknight_complete"
+      }
+    ],
+    "primaryScript": "bots/quests/black-knights-fortress.ts",
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "existing script needs completion-predicate audit",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "gobdip",
+    "name": "Goblin Diplomacy",
+    "journalTitle": "Goblin Diplomacy",
+    "sourceDir": "server/content/scripts/quests/quest_gobdip",
+    "journalFile": "server/content/scripts/quests/quest_gobdip/scripts/gobdip_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:gobdip, %goblinquest, ^gobdip_complete);",
+        "progressExpression": "%goblinquest",
+        "completionExpression": "^gobdip_complete"
+      }
+    ],
+    "primaryScript": "bots/quests/goblin-diplomacy.ts",
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "existing script needs completion-predicate audit",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "grail",
+    "name": "Holy Grail",
+    "journalTitle": "Holy Grail",
+    "sourceDir": "server/content/scripts/quests/quest_grail",
+    "journalFile": "server/content/scripts/quests/quest_grail/scripts/grail_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:grail, %grail, ^grail_complete);",
+        "progressExpression": "%grail",
+        "completionExpression": "^grail_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "grandtree",
+    "name": "The Grand Tree",
+    "journalTitle": "The Grand Tree",
+    "sourceDir": "server/content/scripts/quests/quest_grandtree",
+    "journalFile": "server/content/scripts/quests/quest_grandtree/scripts/grandtree_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:grandtree, %grandtree, ^grandtree_complete);",
+        "progressExpression": "%grandtree",
+        "completionExpression": "^grandtree_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "haunted",
+    "name": "Ernest the Chicken",
+    "journalTitle": "Ernest the Chicken",
+    "sourceDir": "server/content/scripts/quests/quest_haunted",
+    "journalFile": "server/content/scripts/quests/quest_haunted/scripts/haunted_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:haunted, %haunted, ^haunted_complete);",
+        "progressExpression": "%haunted",
+        "completionExpression": "^haunted_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "hauntedmine",
+    "name": "Haunted Mine",
+    "journalTitle": "Haunted Mine",
+    "sourceDir": "server/content/scripts/quests/quest_hauntedmine",
+    "journalFile": "server/content/scripts/quests/quest_hauntedmine/scripts/hauntedmine_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:hauntedmine, %hauntedmine, ^hauntedmine_complete);",
+        "progressExpression": "%hauntedmine",
+        "completionExpression": "^hauntedmine_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "hazeelcult",
+    "name": "Hazeel Cult",
+    "journalTitle": "Hazeel Cult",
+    "sourceDir": "server/content/scripts/quests/quest_hazeelcult",
+    "journalFile": "server/content/scripts/quests/quest_hazeelcult/scripts/hazeelcult_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:hazeelcult, %hazeelcultquest, ^hazeelcult_complete);",
+        "progressExpression": "%hazeelcultquest",
+        "completionExpression": "^hazeelcult_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "hero",
+    "name": "Hero's Quest",
+    "journalTitle": "Heroes' Quest",
+    "sourceDir": "server/content/scripts/quests/quest_hero",
+    "journalFile": "server/content/scripts/quests/quest_hero/scripts/hero_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:hero, %heroquest, ^hero_complete);",
+        "progressExpression": "%heroquest",
+        "completionExpression": "^hero_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "hetty",
+    "name": "Witch's Potion",
+    "journalTitle": "Witch's Potion",
+    "sourceDir": "server/content/scripts/quests/quest_hetty",
+    "journalFile": "server/content/scripts/quests/quest_hetty/scripts/hetty_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:hetty, %hetty, ^hetty_complete);",
+        "progressExpression": "%hetty",
+        "completionExpression": "^hetty_complete"
+      }
+    ],
+    "primaryScript": "bots/quests/witchs-house.ts",
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "existing script needs completion-predicate audit",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "horror",
+    "name": "Horror from the Deep",
+    "journalTitle": "Horror from the Deep",
+    "sourceDir": "server/content/scripts/quests/quest_horror",
+    "journalFile": "server/content/scripts/quests/quest_horror/scripts/horror_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:horror, %horrorquest, ^horror_complete);",
+        "progressExpression": "%horrorquest",
+        "completionExpression": "^horror_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "hunt",
+    "name": "Pirate's Treasure",
+    "journalTitle": "Pirate's Treasure",
+    "sourceDir": "server/content/scripts/quests/quest_hunt",
+    "journalFile": "server/content/scripts/quests/quest_hunt/scripts/hunt_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:hunt, %hunt, ^hunt_complete);",
+        "progressExpression": "%hunt",
+        "completionExpression": "^hunt_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "ikov",
+    "name": "Temple of Ikov",
+    "journalTitle": "Temple of Ikov",
+    "sourceDir": "server/content/scripts/quests/quest_ikov",
+    "journalFile": "server/content/scripts/quests/quest_ikov/scripts/ikov_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:ikov, %ikov, ^ikov_completed_armadyl);",
+        "progressExpression": "%ikov",
+        "completionExpression": "^ikov_completed_armadyl"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "imp",
+    "name": "Imp Catcher",
+    "journalTitle": "Imp Catcher",
+    "sourceDir": "server/content/scripts/quests/quest_imp",
+    "journalFile": "server/content/scripts/quests/quest_imp/scripts/imp_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:imp, %imp, ^imp_complete);",
+        "progressExpression": "%imp",
+        "completionExpression": "^imp_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "itexam",
+    "name": "Digsite Quest",
+    "journalTitle": "The Dig Site",
+    "sourceDir": "server/content/scripts/quests/quest_itexam",
+    "journalFile": "server/content/scripts/quests/quest_itexam/scripts/itexam_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:itexam, ~itexam_progress, ^itexam_complete);",
+        "progressExpression": "~itexam_progress",
+        "completionExpression": "^itexam_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "itgronigen",
+    "name": "Observatory Quest",
+    "journalTitle": "Observatory Quest",
+    "sourceDir": "server/content/scripts/quests/quest_itgronigen",
+    "journalFile": "server/content/scripts/quests/quest_itgronigen/scripts/itgronigen_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:itgronigen, %itgronigen, ^itgronigen_complete);",
+        "progressExpression": "%itgronigen",
+        "completionExpression": "^itgronigen_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "itwatchtower",
+    "name": "Watch Tower",
+    "journalTitle": "Watch Tower",
+    "sourceDir": "server/content/scripts/quests/quest_itwatchtower",
+    "journalFile": "server/content/scripts/quests/quest_itwatchtower/scripts/itwatchtower_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:itwatchtower, %itwatchtower, ^itwatchtower_complete);",
+        "progressExpression": "%itwatchtower",
+        "completionExpression": "^itwatchtower_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "junglepotion",
+    "name": "Jungle Potion",
+    "journalTitle": "Jungle Potion",
+    "sourceDir": "server/content/scripts/quests/quest_junglepotion",
+    "journalFile": "server/content/scripts/quests/quest_junglepotion/scripts/junglepotion_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:junglepotion, %junglepotion, ^junglepotion_complete);",
+        "progressExpression": "%junglepotion",
+        "completionExpression": "^junglepotion_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "legends",
+    "name": "Legends Quest",
+    "journalTitle": "The Legends Quest",
+    "sourceDir": "server/content/scripts/quests/quest_legends",
+    "journalFile": "server/content/scripts/quests/quest_legends/scripts/legends_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:legends, %legendsquest, ^legends_complete);",
+        "progressExpression": "%legendsquest",
+        "completionExpression": "^legends_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "mcannon",
+    "name": "Dwarf Cannon",
+    "journalTitle": "Dwarf Cannon",
+    "sourceDir": "server/content/scripts/quests/quest_mcannon",
+    "journalFile": "server/content/scripts/quests/quest_mcannon/scripts/mcannon_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:mcannon, %mcannon, ^mcannon_complete);",
+        "progressExpression": "%mcannon",
+        "completionExpression": "^mcannon_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "misc",
+    "name": "Throne of Miscellania",
+    "journalTitle": "Throne of Miscellania",
+    "sourceDir": "server/content/scripts/quests/quest_misc",
+    "journalFile": "server/content/scripts/quests/quest_misc/scripts/misc_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:misc, %misc_quest, ^misc_complete);",
+        "progressExpression": "%misc_quest",
+        "completionExpression": "^misc_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "mm",
+    "name": "Monkey Madness",
+    "journalTitle": "Monkey Madness",
+    "sourceDir": "server/content/scripts/quests/quest_mm",
+    "journalFile": "server/content/scripts/quests/quest_mm/scripts/mm_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:mm, %mm_main, ^mm_complete);",
+        "progressExpression": "%mm_main",
+        "completionExpression": "^mm_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "mortton",
+    "name": "Shades of Mortton",
+    "journalTitle": "Shades of Mort'ton",
+    "sourceDir": "server/content/scripts/quests/quest_mortton",
+    "journalFile": "server/content/scripts/quests/quest_mortton/scripts/mortton_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:mortton, %morttonquest, ^mortton_quest_complete);",
+        "progressExpression": "%morttonquest",
+        "completionExpression": "^mortton_quest_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "murder",
+    "name": "Murder Mystery",
+    "journalTitle": "Murder Mystery",
+    "sourceDir": "server/content/scripts/quests/quest_murder",
+    "journalFile": "server/content/scripts/quests/quest_murder/scripts/murder_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:murder, %murderquest, ^murder_complete);",
+        "progressExpression": "%murderquest",
+        "completionExpression": "^murder_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "priest",
+    "name": "The Restless Ghost",
+    "journalTitle": "The Restless Ghost",
+    "sourceDir": "server/content/scripts/quests/quest_priest",
+    "journalFile": "server/content/scripts/quests/quest_priest/scripts/priest_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:priest, %prieststart, ^priest_complete);",
+        "progressExpression": "%prieststart",
+        "completionExpression": "^priest_complete"
+      }
+    ],
+    "primaryScript": "bots/quests/priest-in-peril.ts",
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "existing script needs completion-predicate audit",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "priestperil",
+    "name": "Priest in Peril",
+    "journalTitle": "Priest in Peril",
+    "sourceDir": "server/content/scripts/quests/quest_priestperil",
+    "journalFile": "server/content/scripts/quests/quest_priestperil/scripts/priestperil_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:priestperil, %priestperil, ^priestperil_complete);",
+        "progressExpression": "%priestperil",
+        "completionExpression": "^priestperil_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "prince",
+    "name": "Prince Ali Rescue",
+    "journalTitle": "The Rescue Of Prince Ali",
+    "sourceDir": "server/content/scripts/quests/quest_prince",
+    "journalFile": "server/content/scripts/quests/quest_prince/scripts/prince_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:prince, %princequest, ^prince_complete);",
+        "progressExpression": "%princequest",
+        "completionExpression": "^prince_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "regicide",
+    "name": "Regicide",
+    "journalTitle": "Regicide",
+    "sourceDir": "server/content/scripts/quests/quest_regicide",
+    "journalFile": "server/content/scripts/quests/quest_regicide/scripts/regicide_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:regicide, %regicide_quest, ^regicide_complete);",
+        "progressExpression": "%regicide_quest",
+        "completionExpression": "^regicide_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "romeojuliet",
+    "name": "Romeo & Juliet",
+    "journalTitle": "Romeo & Juliet",
+    "sourceDir": "server/content/scripts/quests/quest_romeojuliet",
+    "journalFile": "server/content/scripts/quests/quest_romeojuliet/scripts/romeojuliet_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:romeojuliet, %rjquest, ^romeojuliet_complete);",
+        "progressExpression": "%rjquest",
+        "completionExpression": "^romeojuliet_complete"
+      }
+    ],
+    "primaryScript": "bots/quests/romeo-and-juliet.ts",
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "existing script needs completion-predicate audit",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "routequest",
+    "name": "In Search of the Myreque",
+    "journalTitle": "In Search of the Myreque",
+    "sourceDir": "server/content/scripts/quests/quest_routequest",
+    "journalFile": "server/content/scripts/quests/quest_routequest/scripts/routequest_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:routequest, %routequest, ^routequest_complete);",
+        "progressExpression": "%routequest",
+        "completionExpression": "^routequest_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "runemysteries",
+    "name": "Rune Mysteries Quest",
+    "journalTitle": "Rune Mysteries",
+    "sourceDir": "server/content/scripts/quests/quest_runemysteries",
+    "journalFile": "server/content/scripts/quests/quest_runemysteries/scripts/runemysteries_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:runemysteries, %runemysteries, ^runemysteries_complete);",
+        "progressExpression": "%runemysteries",
+        "completionExpression": "^runemysteries_complete"
+      }
+    ],
+    "primaryScript": "bots/quests/rune-mysteries.ts",
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "existing script needs completion-predicate audit",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "scorpcatcher",
+    "name": "Scorpion Catcher",
+    "journalTitle": "Scorpion Catcher",
+    "sourceDir": "server/content/scripts/quests/quest_scorpcatcher",
+    "journalFile": "server/content/scripts/quests/quest_scorpcatcher/scripts/scorpcatcher_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:scorpcatcher, %scorpcatcher, ^scorpcatcher_complete);",
+        "progressExpression": "%scorpcatcher",
+        "completionExpression": "^scorpcatcher_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "seaslug",
+    "name": "Sea Slug Quest",
+    "journalTitle": "Sea Slug",
+    "sourceDir": "server/content/scripts/quests/quest_seaslug",
+    "journalFile": "server/content/scripts/quests/quest_seaslug/scripts/seaslug_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:seaslug, %seaslugquest, ^seaslug_complete);",
+        "progressExpression": "%seaslugquest",
+        "completionExpression": "^seaslug_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "sheep",
+    "name": "Sheep Shearer",
+    "journalTitle": "Sheep Shearer",
+    "sourceDir": "server/content/scripts/quests/quest_sheep",
+    "journalFile": "server/content/scripts/quests/quest_sheep/scripts/sheep_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:sheep, %sheep, ^sheep_complete);",
+        "progressExpression": "%sheep",
+        "completionExpression": "^sheep_complete"
+      }
+    ],
+    "primaryScript": "bots/quests/sheep-shearer.ts",
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "existing script needs completion-predicate audit",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "sheepherder",
+    "name": "Sheep Herder",
+    "journalTitle": "Sheep Herder",
+    "sourceDir": "server/content/scripts/quests/quest_sheepherder",
+    "journalFile": "server/content/scripts/quests/quest_sheepherder/scripts/sheepherder_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:sheepherder, %sheepherderquest, ^sheepherder_complete);",
+        "progressExpression": "%sheepherderquest",
+        "completionExpression": "^sheepherder_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "squire",
+    "name": "The Knight's Sword",
+    "journalTitle": "The Knight's Sword",
+    "sourceDir": "server/content/scripts/quests/quest_squire",
+    "journalFile": "server/content/scripts/quests/quest_squire/scripts/squire_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:squire, %squire, ^squire_complete);",
+        "progressExpression": "%squire",
+        "completionExpression": "^squire_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "tbwt",
+    "name": "Tai Bwo Wannai Trio",
+    "journalTitle": "Tai Bwo Wannai Trio",
+    "sourceDir": "server/content/scripts/quests/quest_tbwt",
+    "journalFile": "server/content/scripts/quests/quest_tbwt/scripts/tbwt_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:tbwt, %tbwt_main, ^tbwt_complete);",
+        "progressExpression": "%tbwt_main",
+        "completionExpression": "^tbwt_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "totem",
+    "name": "Tribal Totem",
+    "journalTitle": "Tribal Totem",
+    "sourceDir": "server/content/scripts/quests/quest_totem",
+    "journalFile": "server/content/scripts/quests/quest_totem/scripts/totem_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:totem, %totemquest, ^totem_complete);",
+        "progressExpression": "%totemquest",
+        "completionExpression": "^totem_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "tree",
+    "name": "Tree Gnome Village",
+    "journalTitle": "Tree Gnome Village",
+    "sourceDir": "server/content/scripts/quests/quest_tree",
+    "journalFile": "server/content/scripts/quests/quest_tree/scripts/tree_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:tree, %treequest, ^tree_complete);",
+        "progressExpression": "%treequest",
+        "completionExpression": "^tree_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "troll",
+    "name": "Troll Stronghold",
+    "journalTitle": "Troll Stronghold",
+    "sourceDir": "server/content/scripts/quests/quest_troll",
+    "journalFile": "server/content/scripts/quests/quest_troll/scripts/troll_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:troll, %troll_quest, ^troll_complete);",
+        "progressExpression": "%troll_quest",
+        "completionExpression": "^troll_complete"
+      }
+    ],
+    "primaryScript": "bots/quests/troll-stronghold.ts",
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "existing script needs completion-predicate audit",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "troll_love",
+    "name": "Troll Romance",
+    "journalTitle": "Troll Romance",
+    "sourceDir": "server/content/scripts/quests/quest_troll_love",
+    "journalFile": "server/content/scripts/quests/quest_troll_love/scripts/troll_love_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:troll_love, %troll_love, ^troll_love_complete);",
+        "progressExpression": "%troll_love",
+        "completionExpression": "^troll_love_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "upass",
+    "name": "Underground Pass",
+    "journalTitle": "Underground Pass",
+    "sourceDir": "server/content/scripts/quests/quest_upass",
+    "journalFile": "server/content/scripts/quests/quest_upass/scripts/upass_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:upass, 1, ^upass_complete);",
+        "progressExpression": "1",
+        "completionExpression": "^upass_complete"
+      },
+      {
+        "raw": "~send_quest_progress_colour(questlist:upass, %upass, ^upass_complete);",
+        "progressExpression": "%upass",
+        "completionExpression": "^upass_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "alternate completion branches: 2",
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "vampire",
+    "name": "Vampire Slayer",
+    "journalTitle": "Vampire Slayer",
+    "sourceDir": "server/content/scripts/quests/quest_vampire",
+    "journalFile": "server/content/scripts/quests/quest_vampire/scripts/vampire_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:vampire, %vampire, ^vampire_complete);",
+        "progressExpression": "%vampire",
+        "completionExpression": "^vampire_complete"
+      }
+    ],
+    "primaryScript": "bots/quests/vampire-slayer.ts",
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "existing script needs completion-predicate audit",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "viking",
+    "name": "The Fremennik Trials",
+    "journalTitle": "The Fremennik Trials",
+    "sourceDir": "server/content/scripts/quests/quest_viking",
+    "journalFile": "server/content/scripts/quests/quest_viking/scripts/viking_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:viking, %viking, ^viking_complete);",
+        "progressExpression": "%viking",
+        "completionExpression": "^viking_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "waterfall",
+    "name": "Waterfall Quest",
+    "journalTitle": "Waterfall Quest",
+    "sourceDir": "server/content/scripts/quests/quest_waterfall",
+    "journalFile": "server/content/scripts/quests/quest_waterfall/scripts/waterfall_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:waterfall, %waterfall_quest, ^waterfall_complete);",
+        "progressExpression": "%waterfall_quest",
+        "completionExpression": "^waterfall_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "zanaris",
+    "name": "Lost City",
+    "journalTitle": "Lost City",
+    "sourceDir": "server/content/scripts/quests/quest_zanaris",
+    "journalFile": "server/content/scripts/quests/quest_zanaris/scripts/zanaris_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:zanaris, %zanaris, ^zanaris_complete);",
+        "progressExpression": "%zanaris",
+        "completionExpression": "^zanaris_complete"
+      }
+    ],
+    "primaryScript": "bots/quests/lost-city.ts",
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "existing script needs completion-predicate audit",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  },
+  {
+    "id": "zombiequeen",
+    "name": "Shilo Village",
+    "journalTitle": "Shilo Village",
+    "sourceDir": "server/content/scripts/quests/quest_zombiequeen",
+    "journalFile": "server/content/scripts/quests/quest_zombiequeen/scripts/zombiequeen_journal.rs2",
+    "registrations": [
+      {
+        "raw": "~send_quest_progress_colour(questlist:zombiequeen, %zombiequeen, ^zombiequeen_complete);",
+        "progressExpression": "%zombiequeen",
+        "completionExpression": "^zombiequeen_complete"
+      }
+    ],
+    "primaryScript": null,
+    "reviewStatus": "unreviewed",
+    "runtimeVerified": false,
+    "blockers": [
+      "no primary quest script yet",
+      "no reviewed manifest (prerequisites/items/checkpoints)"
+    ]
+  }
+]

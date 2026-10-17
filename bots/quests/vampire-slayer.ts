@@ -9,8 +9,9 @@
 import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
+import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
+import type { JournalRule } from '../../quest-lab/evidence';
 import {
-    buyAtShop,
     ensureCoins,
     ensureItem,
     SHOPS,
@@ -89,10 +90,59 @@ await runScript(async ({ bot, sdk }) => {
         return p.x >= 3088 && p.x <= 3130 && p.z >= 3348 && p.z <= 3380 && p.z < 6400;
     }
 
-    function questDone(xpBefore: number): boolean {
-        if (attackXp() >= xpBefore + 4000) return true;
-        const msgs = sdk.getState()?.gameMessages ?? [];
-        return msgs.some((m) => /completed the.*vampire slayer/i.test(m.text));
+    /**
+     * Vampire Slayer stage and completion, read from the QUEST JOURNAL.
+     *
+     * This used to be `attackXp() >= xpBefore + 4000` plus a chat regex. Attack
+     * XP is this quest's REWARD, so ANY Attack XP — combat on the way to the
+     * manor, or during the fight itself — read as completion, and a restart was
+     * indistinguishable from a finish.
+     *
+     * Rules come from the quest's own handler
+     * (quest_vampire/scripts/vampire_journal.rs2), each on a sentence unique to
+     * its stage.
+     */
+    const VAMP_JOURNAL = { label: 'Vampire Slayer', title: 'Vampire Slayer' };
+    const VAMP_STAGES: Record<string, JournalRule> = {
+        not_started: {
+            id: 'vamp:not_started',
+            kind: 'unstarted',
+            all: ['I can start this quest by speaking to Morgan who is in Draynor Village'],
+        },
+        started: {
+            id: 'vamp:started',
+            kind: 'active',
+            all: ['I need to speak to Dr Harlow who can normally be found in the Jolly Boar Inn'],
+        },
+        // The spoke_to_harlow branch rewrites itself by inventory (stake /
+        // garlic / hammer), so key it on the line present in EVERY variant.
+        spoke_to_harlow: {
+            id: 'vamp:spoke_to_harlow',
+            kind: 'active',
+            all: ['I have spoken to Dr Harlow. He seemed terribly drunk'],
+        },
+        complete: { id: 'vamp:complete', kind: 'complete', all: ['QUEST COMPLETE'] },
+    };
+
+    /** The first stage rule that passes is the account's real stage. */
+    async function readStage(): Promise<string> {
+        for (const name of ['complete', 'spoke_to_harlow', 'started', 'not_started']) {
+            const read = await readJournalCheckpoint(sdk, VAMP_JOURNAL, VAMP_STAGES[name]!);
+            log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
+            if (read.verdict?.verdict === 'PASS') return name;
+        }
+        return 'unknown';
+    }
+
+    let journalComplete = false;
+    let lastJournalCheck = 0;
+    /** Journal-backed completion, throttled: opening the journal is not free. */
+    async function questDone(): Promise<boolean> {
+        if (Date.now() - lastJournalCheck < 5_000) return journalComplete;
+        lastJournalCheck = Date.now();
+        const read = await readJournalCheckpoint(sdk, VAMP_JOURNAL, VAMP_STAGES.complete!);
+        journalComplete = read.verdict?.verdict === 'PASS';
+        return journalComplete;
     }
 
     async function closeUi(): Promise<void> {
@@ -117,10 +167,19 @@ await runScript(async ({ bot, sdk }) => {
     async function chat(choices: RegExp[] = [], max = 32): Promise<string[]> {
         const seen: string[] = [];
         for (let i = 0; i < max; i++) {
-            const dialog = sdk.getDialog();
-            if (!dialog?.isOpen) {
-                await sdk.waitForTicks(1);
-                if (!sdk.getDialog()?.isOpen) break;
+            if (!sdk.getDialog()?.isOpen) {
+                // The dialog does not always open within ONE tick of talkTo. The
+                // old one-tick check then broke out with an empty option list,
+                // which reads exactly like "this NPC has nothing to say" and
+                // silently skipped the choice that starts the quest (observed as
+                // `Morgan: ` with no options, and as a quest that stayed
+                // unstarted while the run cycled). Poll instead of sampling once.
+                let opened = false;
+                for (let t = 0; t < 12 && !opened; t++) {
+                    await sdk.waitForTicks(2);
+                    opened = sdk.getDialog()?.isOpen ?? false;
+                }
+                if (!opened) break;
             }
             const opts = sdk.getDialog()?.options ?? [];
             for (const o of opts) seen.push(o.text);
@@ -176,9 +235,26 @@ await runScript(async ({ bot, sdk }) => {
     async function startMorgan(): Promise<void> {
         intent('Talking to Morgan');
         await walkNear(MORGAN.x, MORGAN.z, 3);
-        if (pos().level < 1) await climbTo(1);
-        const morgan = sdk.findNearbyNpc(/^morgan$/i);
-        if (!morgan) return;
+        // Morgan stands in Draynor Village on the GROUND floor. This used to
+        // climb to level 1 first, which is a house interior (teleport-recon at
+        // (3098,3268): level 0 shows Morgan 1-2 tiles away, level 1 shows only a
+        // Woman upstairs among beds and a cupboard). Climbing made the find fail
+        // and the function return silently, so the quest never started and the
+        // loop just re-fetched supplies forever. The cupboard upstairs belongs
+        // to the GARLIC step, not to this one.
+        if (pos().level > 0) await climbTo(0);
+// Settle-and-retry: climbing rebuilds the client scene and `nearbyNpcs` is
+// EMPTY for the new level until it lands, so a single scan reads the NPC as
+// missing while the bot is standing next to it.
+        let morgan = sdk.findNearbyNpc(/^morgan$/i);
+        for (let t = 0; !morgan && t < 40; t++) {
+            await sdk.waitForTicks(4);
+            morgan = sdk.findNearbyNpc(/^morgan$/i);
+        }
+        if (!morgan) {
+            log(`Morgan missing @ ${pos().x},${pos().z} floor=${pos().level} (after settling)`);
+            return;
+        }
         await bot.talkTo(morgan);
         const seen = await chat([/up for an adventure/i, /tips on killing/i]);
         log(`Morgan: ${seen.join(' | ')}`);
@@ -207,23 +283,30 @@ await runScript(async ({ bot, sdk }) => {
     async function ensureSupplies(): Promise<void> {
         const ctx = supplyCtx();
         await ensureCoins(ctx, 20);
+        // Food is a convenience, NOT a requirement: the quest only asks that you
+        // can kill a level-34 Vampire, and a maxed account needs nothing to
+        // survive him. Take whatever the bank already holds and do not detour to
+        // buy more — Wydin's stocks neither wine ("item not found in shop") nor
+        // bread ("out of stock") in this revision, so the old purchase walked to
+        // Port Sarim and came back empty every time.
         await withdrawFromBank(ctx, FOOD, 8, SHOPS.DRAYNOR_BANK);
-        if (count(FOOD) < 5) {
-            await buyAtShop(ctx, SHOPS.WYDIN, [
-                { pattern: /^wine$/i, amount: 8, label: 'wine' },
-                { pattern: /^bread$/i, amount: 5, label: 'bread' }
-            ]);
-        }
         await ensureItem(ctx, HAMMER, 1, {
             label: 'hammer',
             shop: SHOPS.VARROCK_GEN,
             coinsNeeded: 5
         });
-        await ensureItem(ctx, BEER, 1, {
-            label: 'beer',
-            shop: { x: JOLLY_BOAR.x, z: JOLLY_BOAR.z, npc: /bartender|barmaid/i },
-            coinsNeeded: 5
-        });
+        // Beer exists only to trade Dr Harlow for the stake. Once the stake is
+        // already held, fetching another one is a ~300-tile round trip to the
+        // Jolly Boar Inn for nothing — observed failing outright ("No matching
+        // option on Bartender" / "Shop not open") while the quest completed
+        // anyway, which is the proof it was never needed.
+        if (count(STAKE) < 1) {
+            await ensureItem(ctx, BEER, 1, {
+                label: 'beer',
+                shop: { x: JOLLY_BOAR.x, z: JOLLY_BOAR.z, npc: /bartender|barmaid/i },
+                coinsNeeded: 5
+            });
+        }
     }
 
     async function harlowStake(): Promise<void> {
@@ -231,12 +314,22 @@ await runScript(async ({ bot, sdk }) => {
         await ensureSupplies();
         intent('Getting stake from Dr Harlow');
         await walkNear(HARLOW.x, HARLOW.z, 3);
+        // Settle-and-retry, not a one-shot: the nearby set lags a plane change
+        // or a fresh arrival, and the old code returned silently on a miss — so
+        // a scan that simply ran early looked exactly like "Harlow is not here"
+        // and the main loop re-ran the whole quest-start leg forever.
         let harlow = sdk.findNearbyNpc(/harlow/i);
-        if (!harlow) {
-            await walkNear(JOLLY_BOAR.x, JOLLY_BOAR.z, 2);
-            harlow = sdk.findNearbyNpc(/harlow/i);
+        for (let attempt = 0; attempt < 2 && !harlow; attempt++) {
+            if (attempt > 0) await walkNear(JOLLY_BOAR.x, JOLLY_BOAR.z, 2);
+            for (let t = 0; !harlow && t < 12; t++) {
+                harlow = sdk.findNearbyNpc(/harlow/i);
+                if (!harlow) await sdk.waitForTicks(4);
+            }
         }
-        if (!harlow) return;
+        if (!harlow) {
+            log(`Dr Harlow missing @ ${pos().x},${pos().z} floor=${pos().level} (after settling)`);
+            return;
+        }
         await bot.talkTo(harlow);
         await chat([/morgan needs your help/i]);
         await bot.talkTo(harlow);
@@ -314,11 +407,22 @@ await runScript(async ({ bot, sdk }) => {
     const xpBefore = attackXp();
     await bot.skipTutorial();
     await closeUi();
+    // Ask the journal BEFORE shopping: an account that already finished must not
+    // be sent to buy beer and stakes first.
+    const startStage = await readStage();
+    log(`Vampire Slayer journal stage at start: ${startStage}`);
+    if (startStage === 'unknown') {
+        throw new Error('could not determine the Vampire Slayer stage from the journal');
+    }
+    if (startStage === 'complete') {
+        log('Vampire Slayer is already complete — nothing to do');
+        return;
+    }
     await ensureSupplies();
     log(`Vampire Slayer start Attack xp=${xpBefore} @ ${pos().x},${pos().z}`);
 
     const until = Date.now() + 15 * 60_000;
-    while (Date.now() < until && !questDone(xpBefore)) {
+    while (Date.now() < until && !(await questDone())) {
         await closeUi();
         if (pos().hp < pos().maxHp - 4 && count(FOOD) < 2) await ensureSupplies();
         if (pos().isDead) {
@@ -329,7 +433,7 @@ await runScript(async ({ bot, sdk }) => {
         if (count(STAKE) > 0 && count(GARLIC) > 0) {
             await fightVampire();
             await escapeManorIfNeeded();
-            if (questDone(xpBefore)) break;
+            if (await questDone()) break;
             continue;
         }
 
@@ -346,6 +450,6 @@ await runScript(async ({ bot, sdk }) => {
         await sdk.waitForTicks(2);
     }
 
-    if (!questDone(xpBefore)) throw new Error(`Vampire Slayer unfinished @ ${pos().x},${pos().z} xp=${attackXp()}`);
+    if (!(await questDone())) throw new Error(`Vampire Slayer unfinished @ ${pos().x},${pos().z} xp=${attackXp()}`);
     log(`QUEST COMPLETE Vampire Slayer (+${attackXp() - xpBefore} Attack xp)`);
 });
