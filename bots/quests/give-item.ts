@@ -1,16 +1,22 @@
 /**
- * Hand one inventory item to a partner already nearby (Catherby bank).
- * Giver can pull stock from its own bank first with --withdraw=N.
+ * Mule handoff protocol: both sides meet at Catherby bank with EMPTY bags,
+ * trade verified stock (banknotes by default), bank the result, then hold
+ * DONE for the operator to switch them back to their grind.
  *
- *   bun bots/quests/give-item.ts jacklove6 give jacklove10 --item='big fishing net'
- *   bun bots/quests/give-item.ts pigfat give jacklove1 --item='dragonfire shield' --withdraw=1
- *   bun bots/quests/give-item.ts jacklove10 receive jacklove6
+ *   bun bots/quests/give-item.ts pigfat give jacklove1 jacklove4 --item='dragonfire shield'
+ *   bun bots/quests/give-item.ts jacklove1 receive pigfat --item='dragonfire shield' --count=3
  *
- * Notes: withdrawals default to banknotes (--noted=true) so bulky unstackables
- * ride in one slot and hand over in one trade per partner. Pass --noted=false
- * for items the engine cannot note (falls back to 1-by-1 rounds).
- * Stock pre-check: if inventory + bank hold less than the run needs, the
- * script logs the exact shortfall and idles instead of crash-looping.
+ * Flags:
+ *   --item=NAME    what moves (default 'big fishing net')
+ *   --each=N       giver: N items per partner (default 1)
+ *   --count=N      receiver: N items expected (default 1)
+ *   --withdraw=N   giver: cap the bank withdrawal (default: exactly the shortfall)
+ *   --noted=false  giver: withdraw unnoted, trade 1-by-1 (default noted)
+ *
+ * Completion is a DONE line plus an idle heartbeat — the container stays Up
+ * doing nothing, so a restart can never over-deliver. Genuine stalls (short
+ * stock, failed trades) throw loudly instead. Switch both sides back to
+ * their grind once every DONE is in.
  */
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
@@ -43,8 +49,8 @@ const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
 
 if (!botName || (role !== 'give' && role !== 'receive') || partners.length === 0) {
     throw new Error(
-        'Usage: bun bots/quests/give-item.ts {name} give {partner…} [--item=big fishing net] [--withdraw=N] [--each=N]\n' +
-            '       bun bots/quests/give-item.ts {name} receive {giver} [--count=N]'
+        'Usage: bun bots/quests/give-item.ts {name} give {partner…} [--item=NAME] [--each=N] [--withdraw=N] [--noted=false]\n' +
+            '       bun bots/quests/give-item.ts {name} receive {giver} [--item=NAME] [--count=N]'
     );
 }
 
@@ -62,116 +68,131 @@ await runScript(async ({ bot, sdk }) => {
     await walkNear(bot, sdk, CATHERBY_BANK.x, CATHERBY_BANK.z, 6);
     log('LOG', `give-item ${role} ${itemLabel} partners=${partners.join(',')} have=${itemCount(sdk)} @ ${playerPos(sdk).x},${playerPos(sdk).z}`);
 
-    // Make room: bots arrive mid-grind with full bags (fish, nets). Bank
-    // everything except the item being handed over so withdraws and trade
-    // offers have somewhere to land.
-    async function makeRoom(): Promise<void> {
-        const opened = await bot.openBank();
-        if (!opened.success) throw new Error(`Bank did not open: ${opened.message}`);
+    async function openBank(why: string): Promise<void> {
+        for (let attempt = 0; attempt < 2; attempt++) {
+            if (sdk.isBankOpen()) return;
+            const r = await bot.openBank();
+            if (!r.success && attempt === 1) throw new Error(`Bank did not open (${why}): ${r.message}`);
+        }
+        if (!sdk.isBankOpen()) throw new Error(`Bank did not open (${why}): still closed after retry`);
+    }
+
+    // Both sides start with a fully empty bag: grind leftovers (fish, nets,
+    // tools) can neither clog the trade nor leak into the next task.
+    async function bankAll(why: string): Promise<void> {
+        await openBank(why);
         for (const it of sdk.getInventory()) {
-            if (ITEM.test(it.name)) continue;
             await bot.depositItem(it.name, -1).catch(() => {});
         }
         await closeUi(bot, sdk);
-        log('LOG', `Room made have=${itemCount(sdk)} ${itemLabel}`);
+    }
+
+    function bankCount(): number {
+        return sdk
+            .getBankItems()
+            .filter((i) => ITEM.test(i.name))
+            .reduce((n, i) => n + (i.count ?? 0), 0);
+    }
+
+    // Finished jobs idle instead of exiting: quest containers restart on
+    // exit, and a re-run must never move stock twice.
+    async function idleDone(msg: string): Promise<never> {
+        log('LOG', `DONE ${msg}`);
+        for (;;) {
+            await sdk.waitForTicks(600).catch(() => {});
+            log('LOG', `DONE holding: ${msg}`);
+        }
+        throw new Error('unreachable');
     }
 
     if (role === 'give') {
-        const withdrawN = Math.max(0, parseInt(flags.get('withdraw') ?? '0', 10) || 0);
-        if (withdrawN > 0) {
-            await makeRoom();
-            // Verify the bank is actually open right before touching it — the
-            // interface can drop between openBank success and withdraw (this
-            // exact race crashed pigfat: "Bank is not open"). One retry, then
-            // fail loudly instead of throwing into a crash loop.
-            for (let attempt = 0; attempt < 2; attempt++) {
-                if (sdk.isBankOpen()) break;
-                const reopened = await bot.openBank();
-                if (!reopened.success && attempt === 1)
-                    throw new Error(`Bank did not reopen: ${reopened.message}`);
-            }
-            if (!sdk.isBankOpen()) throw new Error('Bank did not reopen: still closed after retry');
-            const bankHave = sdk
-                .getBankItems()
-                .filter((i) => ITEM.test(i.name))
-                .reduce((n, i) => n + (i.count ?? 0), 0);
-            const need = partners.length * Math.max(1, parseInt(flags.get('each') ?? '1', 10) || 1);
-            const total = itemCount(sdk) + bankHave;
-            if (total < need) {
-                log('ERROR', `Short ${need - total} ${itemLabel}: have=${itemCount(sdk)} bank=${bankHave} need=${need} — idling, stock the mule`);
-                await closeUi(bot, sdk);
-                return;
-            }
-            // Top up only the shortfall: restarts re-run from scratch, and
-            // withdrawing the full amount each time would drain the bank
-            // into the bag while receivers refuse duplicates.
-            const get = Math.min(withdrawN, Math.max(0, need - itemCount(sdk)));
-            if (get <= 0) {
-                await closeUi(bot, sdk);
-                log('LOG', `Already hold ${itemCount(sdk)} ${itemLabel} — no withdraw needed`);
-            } else {
-                const w = await bot.withdrawItem(ITEM, get, asNote ? { asNote: true } : {});
-                if (!w.success && !w.partial)
-                    throw new Error(`Withdraw ${get} ${itemLabel} failed: ${w.message}`);
-                await closeUi(bot, sdk);
-                log('LOG', `Withdrew ${itemLabel} have=${itemCount(sdk)} (${w.message})`);
+        const each = Math.max(1, parseInt(flags.get('each') ?? '1', 10) || 1);
+        const need = partners.length * each;
+        await bankAll('give-start');
+        await openBank('give-stockcheck');
+        const stocked = bankCount();
+        if (stocked < need) {
+            await closeUi(bot, sdk);
+            return idleDone(`short ${itemLabel}: bank=${stocked} need=${need} — stock the mule`);
+        }
+        // Withdraw exactly what this run hands over (flag caps it lower).
+        // Restarts re-run from scratch: the shortfall form means a restart
+        // after a partial run tops up instead of draining the bank twice.
+        const capRaw = flags.get('withdraw');
+        const cap = capRaw == null ? need : Math.max(0, parseInt(capRaw, 10) || 0);
+        const get = Math.min(cap, Math.max(0, need - itemCount(sdk)));
+        if (get > 0) {
+            const w = await bot.withdrawItem(ITEM, get, asNote ? { asNote: true } : {});
+            if (!w.success && !w.partial) throw new Error(`Withdraw ${get} ${itemLabel} failed: ${w.message}`);
+            log('LOG', `Withdrew ${itemLabel} have=${itemCount(sdk)} (${w.message})`);
+        }
+        await closeUi(bot, sdk);
+        if (itemCount(sdk) < need) {
+            throw new Error(`Need ${need} ${itemLabel}, only hold ${itemCount(sdk)} after withdraw`);
+        }
+        // Noted stock moves in ONE trade per partner; unnoted goes 1-by-1.
+        const perTrade = asNote ? each : 1;
+        const rounds = asNote ? 1 : each;
+        for (let round = 1; round <= rounds; round++) {
+            for (const name of partners) {
+                const before = itemCount(sdk);
+                log('LOG', `Trading ${perTrade}x ${itemLabel} to ${name} (round ${round}/${rounds})`);
+                const r = await bot.trade(name, {
+                    give: [{ item: ITEM, amount: perTrade }],
+                    want: [],
+                    retryOnBusy: true,
+                    requestTimeout: 180_000,
+                    timeout: 90_000
+                });
+                if (!r.success) throw new Error(`Trade to ${name} failed: ${r.message}`);
+                const after = itemCount(sdk);
+                if (before - after !== perTrade) {
+                    throw new Error(
+                        `Trade to ${name} UNVERIFIED: have ${before} -> ${after}, expected -${perTrade} — holding, operator check needed`
+                    );
+                }
+                log('LOG', `${name}: ok verified -${perTrade} have=${after}`);
             }
         }
+        await bankAll('give-leftover');
+        return idleDone(`gave ${each}x ${itemLabel} to ${partners.join(',')}, leftovers banked`);
     }
 
     if (role === 'receive') {
         const giver = partners[0]!;
         const from = new RegExp(`^${giver.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
-        // --count=N: accept N separate trades (giver hands over one per trade).
+        // --count=N is ITEMS expected (one noted trade can deliver them all).
         const count = Math.max(1, parseInt(flags.get('count') ?? '1', 10) || 1);
-        await makeRoom();
-        // Idempotency guard: quest containers restart on exit, so a finished
-        // handoff would re-run and over-deliver. Already stocked → done.
-        if (itemCount(sdk) >= count) {
-            log('LOG', `Already hold ${itemCount(sdk)} ${itemLabel} (>=${count}) — nothing to receive`);
-            return;
+        await bankAll('receive-start');
+        // Already secured (a previous run banked it)? Done — restarts are
+        // no-ops instead of duplicate accepts.
+        await openBank('receive-stockcheck');
+        const secured = bankCount();
+        await closeUi(bot, sdk);
+        if (secured >= count) {
+            return idleDone(`already banked ${secured}x ${itemLabel} (>=${count}) — nothing to receive`);
         }
         const served = await bot.serveTrades({
             from,
             give: [],
             want: [],
             accept: (offer) => offer.some((i) => ITEM.test(i.name) && (i.count ?? 0) > 0),
+            until: () => itemCount(sdk) >= count,
             maxTrades: count,
             timeout: 8 * 60_000,
             tradeTimeout: 90_000,
             rejectAfterMs: 60_000
         });
-        const last = served.trades[served.trades.length - 1];
+        const have = itemCount(sdk);
+        const okTrades = served.trades.filter((t) => t.success).length;
         log(
-            last?.success ? 'LOG' : 'ERROR',
-            `Recv ${giver} ${last?.success ? 'ok' : last?.reason ?? served.reason} ${itemLabel}=${itemCount(sdk)} ${served.message}`
+            okTrades > 0 && have >= count ? 'LOG' : 'ERROR',
+            `Recv ${giver} have=${have}/${count} in ${okTrades} trade(s) (${served.reason}) ${served.message}`
         );
-        if (!last?.success) throw new Error(`Did not receive ${itemLabel} from ${giver}: ${served.message}`);
-        return;
-    }
-
-    // --each=N: hand N to every partner. Noted stock goes in ONE trade per
-    // partner; unnoted (--noted=false) keeps the 1-by-1 rounds.
-    const each = Math.max(1, parseInt(flags.get('each') ?? '1', 10) || 1);
-    const need = partners.length * each;
-    if (itemCount(sdk) < need) {
-        throw new Error(`Need ${need} ${itemLabel}, only have ${itemCount(sdk)}`);
-    }
-    const perTrade = asNote ? each : 1;
-    const rounds = asNote ? 1 : each;
-    for (let round = 1; round <= rounds; round++) {
-        for (const name of partners) {
-            log('LOG', `Trading ${perTrade}x ${itemLabel} to ${name} (round ${round}/${rounds})`);
-            const r = await bot.trade(name, {
-                give: [{ item: ITEM, amount: perTrade }],
-                want: [],
-                retryOnBusy: true,
-                requestTimeout: 180_000,
-                timeout: 90_000
-            });
-            log(r.success ? 'LOG' : 'ERROR', `${name}: ${r.success ? 'ok' : r.message} have=${itemCount(sdk)}`);
-            if (!r.success) throw new Error(`Trade to ${name} failed: ${r.message}`);
+        if (have < count || okTrades < 1) {
+            throw new Error(`Receipt UNVERIFIED from ${giver}: have=${have} want=${count} — holding, operator check needed`);
         }
+        await bankAll('receive-bank');
+        return idleDone(`received ${have}x ${itemLabel} from ${giver}, banked`);
     }
-    log('LOG', `Gave ${each}x ${itemLabel} to ${partners.join(', ')}`);
 });
