@@ -48,7 +48,7 @@ def main():
     extra = sys.argv[3:]
     changed = sh("git", "diff", "--name-only", before, now).split()
 
-    build_triggers = ("sdk/", "server/", "tools/fleet-desk/",
+    build_triggers = ("sdk/", "server/", "tools/fleet-desk/", "quest-lab/",
                       ".cursor/skills/wake-fleet/scripts/")
     need_build = any(
         c.startswith(build_triggers) or c == "infra/pilot/Dockerfile"
