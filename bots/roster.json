@@ -101,7 +101,7 @@
         {
             "name": "jacklove4",
             "view": "fleet",
-            "script": "bots/quests/lost-city.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "jacklove4"
             ]
@@ -109,17 +109,16 @@
         {
             "name": "jacklove5",
             "view": "fleet",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "jacklove5",
-                "--tank=jacklove5",
-                "--lead=jacklove5"
+                "--shark"
             ]
         },
         {
             "name": "jackthief",
             "view": "fleet",
-            "script": "bots/quests/dorics-quest.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "jackthief"
             ]
