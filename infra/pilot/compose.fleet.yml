@@ -471,7 +471,7 @@ services:
   quest-abgarmy14:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY14", "--bignet"]
+    command: ["bun", "bots/quests/druidic-ritual.ts", "ABGARMY14"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
