@@ -8,6 +8,11 @@
 // Local-only tooling. The scripts it produces fixtures for must still be written
 // against client-visible state only, because the demo server cannot be changed.
 //
+// A fixture name is ONE-SHOT. The first login enrols a Grand Exchange
+// checkpoint row for the account, and from then on the `.sav` is not
+// authoritative; this tool will refuse to re-provision that name. Changing a
+// fixture therefore means a new name.
+//
 // Safety: fixtures are FRESH-ONLY and fail closed. The username must sit in the
 // reserved `ql…` namespace, the account must be provably offline, and it must
 // have neither a save file nor a Grand Exchange checkpoint row. That last guard
@@ -102,7 +107,13 @@ try {
 } catch (error) {
     // Refuse legibly and non-zero: an unexplained stack reads like a crash,
     // and a fixture written against the wrong identity is worse than none.
+    // A fixture name is ONE-SHOT: the first login enrols a Grand Exchange
+    // checkpoint row for it, after which the save file is no longer
+    // authoritative and this tool refuses the name for good. Re-provisioning a
+    // changed fixture means a new name (qlcook2, qlcook3, ...), which is also
+    // what staging needs. Reconcile the row offline only if you must reuse one.
     console.error(`REFUSED: ${(error as Error).message}`);
+    console.error('hint: fixture names are one-shot — provision a fresh name for a changed fixture');
     process.exit(2);
 }
 
