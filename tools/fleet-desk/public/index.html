@@ -454,7 +454,7 @@ const state = { fleet: null, tab: 'fleet', edits: new Map(), jobs: new Map() };
 const $ = (id) => document.getElementById(id);
 
 function mapUrl(name) {
-  return `https://maxbittker.github.io/rs-world/?follow=${encodeURIComponent(name)}&v=1`;
+  return `http://localhost:3000/?follow=${encodeURIComponent(name)}`;
 }
 
 let mapFollow = null;
