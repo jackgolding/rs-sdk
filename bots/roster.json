@@ -277,10 +277,10 @@
         {
             "name": "ABGARMY01",
             "view": "army",
-            "script": "bots/quests/sheep-shearer.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
                 "ABGARMY01",
-                "--until=10"
+                "--until-wc=36"
             ]
         },
         {
