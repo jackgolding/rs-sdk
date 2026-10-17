@@ -20,6 +20,8 @@ import {
 
 const BOY = { x: 2928, z: 3456 };
 const WITCH_DOOR = { x: 2933, z: 3459 };
+/** The cluster of potted plants by the house; the key pot is among them. */
+const WITCH_POTS = { x: 2900, z: 3474 };
 const MOUSE_HOLE = { x: 2937, z: 3466 };
 const FOUNTAIN = { x: 2943, z: 3454 };
 const SHED = { x: 2943, z: 3450 };
@@ -284,9 +286,19 @@ await runScript(async ({ bot, sdk }) => {
     async function getDoorKey(): Promise<void> {
         if (count(DOOR_KEY) > 0) return;
         intent('Searching flower pot for door key');
-        await walkNear(WITCH_DOOR.x, WITCH_DOOR.z, 2);
-        await sdk.scanNearbyLocs(6).catch(() => {});
-        const pot = sdk.findNearbyLoc(/flower pot|pot/i) ?? sdk.findNearbyLoc(/witch/i);
+        // Walk to the POT CLUSTER, not to WITCH_DOOR. WITCH_DOOR is (2933,3459)
+        // and the pots sit at (2900,3468..3476) — ~33 tiles apart, so a
+        // scanNearbyLocs from the door could never see them.
+        await walkNear(WITCH_POTS.x, WITCH_POTS.z, 3);
+        await sdk.scanNearbyLocs(8).catch(() => {});
+        // There are ~6 potted plants here and only ONE is the key loc
+        // (`witchpot`, display name "Potted plant"); every decoy has NO options
+        // at all. A name pattern cannot tell them apart — the earlier code
+        // matched the nearest "Potted fern" and clicked an option it does not
+        // have, so nothing happened and the key stayed at 0. Select by option.
+        const pot =
+            sdk.findNearbyLoc(/pot|plant/i, { withOption: /look.?under/i }) ??
+            sdk.findNearbyLoc(/flower pot|pot/i);
         if (pot) {
             // The key loc is content id `witchpot`, display name "Potted
             // plant" with op1=Look-under (quest_ball.rs2 grants the key on
