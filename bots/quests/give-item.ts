@@ -5,6 +5,12 @@
  *   bun bots/quests/give-item.ts jacklove6 give jacklove10 --item='big fishing net'
  *   bun bots/quests/give-item.ts pigfat give jacklove1 --item='dragonfire shield' --withdraw=1
  *   bun bots/quests/give-item.ts jacklove10 receive jacklove6
+ *
+ * Notes: withdrawals default to banknotes (--noted=true) so bulky unstackables
+ * ride in one slot and hand over in one trade per partner. Pass --noted=false
+ * for items the engine cannot note (falls back to 1-by-1 rounds).
+ * Stock pre-check: if inventory + bank hold less than the run needs, the
+ * script logs the exact shortfall and idles instead of crash-looping.
  */
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
@@ -29,8 +35,9 @@ function canon(name: string): string {
 
 const botName = canon(positional[0] ?? '');
 const role = (positional[1] ?? '').toLowerCase();
-const partners = positional.slice(2).map(canon);
+const partners = [...new Set(positional.slice(2).map(canon))];
 const itemLabel = flags.get('item') ?? 'big fishing net';
+const asNote = (flags.get('noted') ?? 'true') === 'true';
 const ITEM = new RegExp(`^${itemLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
 const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
 
@@ -73,9 +80,29 @@ await runScript(async ({ bot, sdk }) => {
         const withdrawN = Math.max(0, parseInt(flags.get('withdraw') ?? '0', 10) || 0);
         if (withdrawN > 0) {
             await makeRoom();
-            const reopened = await bot.openBank();
-            if (!reopened.success) throw new Error(`Bank did not reopen: ${reopened.message}`);
-            const w = await bot.withdrawItem(ITEM, withdrawN);
+            // Verify the bank is actually open right before touching it — the
+            // interface can drop between openBank success and withdraw (this
+            // exact race crashed pigfat: "Bank is not open"). One retry, then
+            // fail loudly instead of throwing into a crash loop.
+            for (let attempt = 0; attempt < 2; attempt++) {
+                if (sdk.isBankOpen()) break;
+                const reopened = await bot.openBank();
+                if (!reopened.success && attempt === 1)
+                    throw new Error(`Bank did not reopen: ${reopened.message}`);
+            }
+            if (!sdk.isBankOpen()) throw new Error('Bank did not reopen: still closed after retry');
+            const bankHave = sdk
+                .getBankItems()
+                .filter((i) => ITEM.test(i.name))
+                .reduce((n, i) => n + (i.count ?? 0), 0);
+            const need = partners.length * Math.max(1, parseInt(flags.get('each') ?? '1', 10) || 1);
+            const total = itemCount(sdk) + bankHave;
+            if (total < need) {
+                log('ERROR', `Short ${need - total} ${itemLabel}: have=${itemCount(sdk)} bank=${bankHave} need=${need} — idling, stock the mule`);
+                await closeUi(bot, sdk);
+                return;
+            }
+            const w = await bot.withdrawItem(ITEM, withdrawN, asNote ? { asNote: true } : {});
             if (!w.success && !w.partial)
                 throw new Error(`Withdraw ${withdrawN} ${itemLabel} failed: ${w.message}`);
             await closeUi(bot, sdk);
@@ -108,17 +135,20 @@ await runScript(async ({ bot, sdk }) => {
         return;
     }
 
-    // --each=N: hand one to every partner, N rounds (for spares).
+    // --each=N: hand N to every partner. Noted stock goes in ONE trade per
+    // partner; unnoted (--noted=false) keeps the 1-by-1 rounds.
     const each = Math.max(1, parseInt(flags.get('each') ?? '1', 10) || 1);
     const need = partners.length * each;
     if (itemCount(sdk) < need) {
         throw new Error(`Need ${need} ${itemLabel}, only have ${itemCount(sdk)}`);
     }
-    for (let round = 1; round <= each; round++) {
+    const perTrade = asNote ? each : 1;
+    const rounds = asNote ? 1 : each;
+    for (let round = 1; round <= rounds; round++) {
         for (const name of partners) {
-            log('LOG', `Trading 1 ${itemLabel} to ${name} (round ${round}/${each})`);
+            log('LOG', `Trading ${perTrade}x ${itemLabel} to ${name} (round ${round}/${rounds})`);
             const r = await bot.trade(name, {
-                give: [{ item: ITEM, amount: 1 }],
+                give: [{ item: ITEM, amount: perTrade }],
                 want: [],
                 retryOnBusy: true,
                 requestTimeout: 180_000,
