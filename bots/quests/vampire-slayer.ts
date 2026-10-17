@@ -295,11 +295,18 @@ await runScript(async ({ bot, sdk }) => {
             shop: SHOPS.VARROCK_GEN,
             coinsNeeded: 5
         });
-        await ensureItem(ctx, BEER, 1, {
-            label: 'beer',
-            shop: { x: JOLLY_BOAR.x, z: JOLLY_BOAR.z, npc: /bartender|barmaid/i },
-            coinsNeeded: 5
-        });
+        // Beer exists only to trade Dr Harlow for the stake. Once the stake is
+        // already held, fetching another one is a ~300-tile round trip to the
+        // Jolly Boar Inn for nothing — observed failing outright ("No matching
+        // option on Bartender" / "Shop not open") while the quest completed
+        // anyway, which is the proof it was never needed.
+        if (count(STAKE) < 1) {
+            await ensureItem(ctx, BEER, 1, {
+                label: 'beer',
+                shop: { x: JOLLY_BOAR.x, z: JOLLY_BOAR.z, npc: /bartender|barmaid/i },
+                coinsNeeded: 5
+            });
+        }
     }
 
     async function harlowStake(): Promise<void> {
