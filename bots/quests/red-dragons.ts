@@ -1844,6 +1844,16 @@ try {
             continue;
         }
 
+        // Never act while disconnected: walks/attacks throw Not connected
+        // and burn the run (pre-empted or stale controller). Wait bounded,
+        // then re-loop; the session's own reconnect deadline owns recovery.
+        if (!sdk.getState()?.player) {
+            await sdk
+                .waitForCondition((s) => !!(s as { player?: unknown }).player, 15_000)
+                .catch(() => {});
+            continue;
+        }
+
         const hunting = onIsle() || wildySurface();
         const needBank = bagFull() && hunting;
         const needGear = !wearingDlong() || !wearingShield();
