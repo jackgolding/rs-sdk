@@ -73,6 +73,8 @@ await runScript(async ({ bot, sdk }) => {
         const withdrawN = Math.max(0, parseInt(flags.get('withdraw') ?? '0', 10) || 0);
         if (withdrawN > 0) {
             await makeRoom();
+            const reopened = await bot.openBank();
+            if (!reopened.success) throw new Error(`Bank did not reopen: ${reopened.message}`);
             const w = await bot.withdrawItem(ITEM, withdrawN);
             if (!w.success && !w.partial)
                 throw new Error(`Withdraw ${withdrawN} ${itemLabel} failed: ${w.message}`);
