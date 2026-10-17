@@ -66,14 +66,11 @@
         {
             "name": "fatpig",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
                 "fatpig",
-                "receive",
-                "pigfat",
-                "--item=Fire battlestaff",
-                "--count=1",
-                "--bank=varrock-east"
+                "druids",
+                "--weapon=Fire battlestaff"
             ]
         },
         {
@@ -128,14 +125,10 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "pigfat",
-                "give",
-                "fatpig",
-                "--item=Fire battlestaff",
-                "--each=1",
-                "--bank=varrock-east"
+                "--shark"
             ]
         },
         {
