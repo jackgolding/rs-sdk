@@ -253,7 +253,13 @@ await runScript(async ({ bot, sdk }) => {
         if (pos().level !== 0) await climbTo(0);
         await walkNear(MOUSE_HOLE.x, MOUSE_HOLE.z, 2);
         const cheese = sdk.findInventoryItem(CHEESE);
-        const hole = sdk.findNearbyLoc(/mouse hole/i);
+        let hole = sdk.findNearbyLoc(/mouse hole/i);
+        // Settle-and-retry: a plane change empties the nearby set until the
+        // client scene rebuilds, so one scan reads the hole as absent.
+        for (let t = 0; !hole && t < 40; t++) {
+            await sdk.waitForTicks(4);
+            hole = sdk.findNearbyLoc(/mouse hole/i);
+        }
         if (cheese && hole) {
             await bot.useItemOnLoc(cheese, hole);
             await sdk.waitForTicks(3);

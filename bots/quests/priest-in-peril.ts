@@ -269,7 +269,14 @@ await runScript(async ({ bot, sdk }) => {
             await climbTo(1);
         }
         await walkNear(KING_ROALD.x, KING_ROALD.z, 3);
-        const roald = sdk.findNearbyNpc(/king roald/i);
+// Settle-and-retry: climbing rebuilds the client scene and `nearbyNpcs` is
+// EMPTY for the new level until it lands, so a single scan reads the NPC as
+// missing while the bot is standing next to it.
+        let roald = sdk.findNearbyNpc(/king roald/i);
+        for (let t = 0; !roald && t < 40; t++) {
+            await sdk.waitForTicks(4);
+            roald = sdk.findNearbyNpc(/king roald/i);
+        }
         if (!roald) {
             log('King Roald not found');
             return;
@@ -387,7 +394,14 @@ await runScript(async ({ bot, sdk }) => {
         if (!inTemple()) await openTempleDoor();
         await walkNear(DREZEL_CELL.x, DREZEL_CELL.z, 3);
         if (pos().level < 2) await climbTo(2);
-        const drezel = sdk.findNearbyNpc(/^drezel$/i);
+// Settle-and-retry: climbing rebuilds the client scene and `nearbyNpcs` is
+// EMPTY for the new level until it lands, so a single scan reads the NPC as
+// missing while the bot is standing next to it.
+        let drezel = sdk.findNearbyNpc(/^drezel$/i);
+        for (let t = 0; !drezel && t < 40; t++) {
+            await sdk.waitForTicks(4);
+            drezel = sdk.findNearbyNpc(/^drezel$/i);
+        }
         if (!drezel) {
             log('Drezel not found upstairs');
             return;

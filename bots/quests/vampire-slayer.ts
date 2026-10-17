@@ -177,7 +177,14 @@ await runScript(async ({ bot, sdk }) => {
         intent('Talking to Morgan');
         await walkNear(MORGAN.x, MORGAN.z, 3);
         if (pos().level < 1) await climbTo(1);
-        const morgan = sdk.findNearbyNpc(/^morgan$/i);
+// Settle-and-retry: climbing rebuilds the client scene and `nearbyNpcs` is
+// EMPTY for the new level until it lands, so a single scan reads the NPC as
+// missing while the bot is standing next to it.
+        let morgan = sdk.findNearbyNpc(/^morgan$/i);
+        for (let t = 0; !morgan && t < 40; t++) {
+            await sdk.waitForTicks(4);
+            morgan = sdk.findNearbyNpc(/^morgan$/i);
+        }
         if (!morgan) return;
         await bot.talkTo(morgan);
         const seen = await chat([/up for an adventure/i, /tips on killing/i]);
