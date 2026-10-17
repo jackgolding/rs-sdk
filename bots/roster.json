@@ -51,10 +51,9 @@
         {
             "name": "Jackpoo4",
             "view": "fleet",
-            "script": "bots/quests/sheep-shearer.ts",
+            "script": "bots/quests/lost-city.ts",
             "args": [
-                "Jackpoo4",
-                "--quest-only"
+                "Jackpoo4"
             ]
         },
         {
