@@ -182,12 +182,17 @@ const session = new ActivitySession(sdk, bot, {
     name: 'agility',
     grindLogPath: GRIND_LOG,
     stallMs: 35_000,
-    maxRecoveryTactics: 8
+    // 3 built-in (close_ui/step_off/rewalk) + all 11 registered below.
+    // A short cap strands bots before mage_bank/leave_wildy ever run.
+    maxRecoveryTactics: 14
 });
 
 installGracefulShutdown();
 
 let laps = 0;
+// Post-exhaust fallback: wildy unreachable — train the safe gnome course
+// until this timestamp instead of spinning on an unwinnable trek.
+let fallbackGnomeUntil = 0;
 // Final-lap mode: 99 hit mid-lap — finish the lap before Edgeville.
 let finishingLap = false;
 let lapsAt99 = 0;
@@ -775,6 +780,27 @@ function slashItem() {
 async function pickupLumbyKnife(): Promise<boolean> {
     if (slashItem()) return true;
     if (inWilderness(pos().x, pos().z)) return false;
+    // Bladeless on the mainland near a bank: withdraw a slash blade there
+    // instead of trekking ~550 tiles to the Lumbridge ground spawn
+    // (Jackpoo2/4 stood ~10 tiles from Ardougne bank while routed to
+    // Lumbridge; the long walk dropped and tripped the stall clock).
+    if (distTo(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z) < 40) {
+        intent('Withdrawing a slash blade from Ardougne bank');
+        if (await openBankAt(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z)) {
+            const blade = sdk
+                .getBankItems()
+                .find((i) => SLASH.test(i.name) && (i.count ?? 0) > 0);
+            if (blade) {
+                await bot.withdrawItem(blade.slot, 1);
+                await sdk.waitForTicks(1).catch(() => {});
+            }
+            await closeUi();
+            if (slashItem()) {
+                log('Withdrew blade for Mage Arena web');
+                return true;
+            }
+        }
+    }
     intent('Picking up Lumbridge knife to slash the Mage Arena web');
     session.noteProgress('location', 'lumby knife');
     if (distTo(LUMBY_KNIFE.x, LUMBY_KNIFE.z) > 6) {
@@ -919,11 +945,20 @@ async function leaveMageArenaHut(): Promise<boolean> {
     if (pos().x >= 3096) return true;
     intent('Leaving Mage Arena hut east through the web');
     session.noteProgress('location', 'leave mage hut');
-    if (!(await slashMageBankWeb())) return false;
-    await sdk.sendWalk(3096, 3957, true);
-    await sdk
-        .waitForCondition((s) => (s.player?.worldX ?? 0) >= 3096, 8_000)
-        .catch(() => {});
+    // The hut exit can need several slash→step cycles in a single tick:
+    // webs re-block and lone walks drop. Retry in-tick before giving up
+    // (Jackpoo3/5 pinned on (3090,3957) failing once per tick forever).
+    for (let attempt = 0; attempt < 3; attempt++) {
+        if (!(await slashMageBankWeb())) {
+            session.noteFailure('mage_web', 'Web needs a blade we do not have');
+            return false;
+        }
+        await sdk.sendWalk(3096, 3957, true);
+        await sdk
+            .waitForCondition((s) => (s.player?.worldX ?? 0) >= 3096, 8_000)
+            .catch(() => {});
+        if (pos().x >= 3096) return true;
+    }
     return pos().x >= 3096;
 }
 
@@ -1028,6 +1063,18 @@ async function walkToMageFromSafe(): Promise<boolean> {
     }
 
     log(`walkToMage @ ${pos().x},${pos().z} food=${invFoodCount()} blade=${slashItem()?.name ?? 'none'}`);
+
+    // South of the ditch-crossing gap the DITCH_TO_MAGE waypoints start at
+    // (3088,3550) — from far west/east a single walk there silently drops
+    // and the bot never moves (Jackpoo1 pinned at (2818,3525)). Short-hop
+    // laterally along the ditch line toward the x=3088 gap first.
+    if (pos().z < 3560 && Math.abs(pos().x - 3088) > 15) {
+        const gx =
+            pos().x < 3088 ? Math.min(pos().x + 15, 3088) : Math.max(pos().x - 15, 3088);
+        await sdk.sendWalk(gx, pos().z, true);
+        await sdk.waitForTicks(4).catch(() => {});
+        return false;
+    }
 
     intent('Walking to Mage Arena bank');
 
@@ -1932,6 +1979,22 @@ async function gnomeTick(): Promise<void> {
     laps = gnomeCourse.laps;
 }
 
+/** Post-exhaust fallback laps: same gnome training without the level gate
+ * (52s earn slow but safe XP here instead of idling with blocked packets). */
+async function fallbackGnomeTick(): Promise<void> {
+    if (!onGnomeCourse()) {
+        await goGnomeCourse();
+        return;
+    }
+    if (!pastGnomeGate()) {
+        await ensureGnomeEntrance();
+        return;
+    }
+    await dropJunk();
+    await gnomeCourse.tick();
+    laps = gnomeCourse.laps;
+}
+
 /** 99 reached: leave the course, bank everything at Edgeville, stop clean.
  * Never stops dirty — unverified rounds retry next tick. */
 async function finishAtEdgeville(): Promise<void> {
@@ -2023,6 +2086,14 @@ async function tick(): Promise<void> {
         return;
     }
 
+    // Recovery exhausted on the wildy path: the session blocks further
+    // game packets until the flag is consumed, so without this branch the
+    // bot ticks silently forever. Retreat to safe gnome laps for 30 min.
+    if (Date.now() < fallbackGnomeUntil) {
+        await fallbackGnomeTick();
+        return;
+    }
+
     if (agilityLevel() < GNOME_UNTIL) {
         await gnomeTick();
         return;
@@ -2036,14 +2107,16 @@ session.registerRecovery([
     {
         name: 'brimhaven_boat',
         run: async () => {
-            if (!onKaramja()) return true;
+            // Off Karamja this tactic cannot act — report failure so the
+            // next tactic tries instead of faking a resume.
+            if (!onKaramja()) return false;
             return brimhavenToArdougne();
         }
     },
     {
         name: 'gnome_start',
         run: async () => {
-            if (agilityLevel() >= GNOME_UNTIL) return true;
+            if (agilityLevel() >= GNOME_UNTIL) return false;
             await goGnomeCourse();
             return onGnomeCourse();
         }
@@ -2051,15 +2124,15 @@ session.registerRecovery([
     {
         name: 'exit_gnome',
         run: async () => {
-            if (agilityLevel() < GNOME_UNTIL) return true;
-            if (!insideGnomeStronghold()) return true;
+            if (agilityLevel() < GNOME_UNTIL) return false;
+            if (!insideGnomeStronghold()) return false;
             return exitGnomeStronghold();
         }
     },
     {
         name: 'leave_gnome',
         run: async () => {
-            if (agilityLevel() < GNOME_UNTIL) return true;
+            if (agilityLevel() < GNOME_UNTIL) return false;
             if (!onGnomeCourse() && pos().level === 0) return true;
             await leaveGnomeCourse();
             return !onGnomeCourse() && pos().level === 0;
@@ -2074,12 +2147,21 @@ session.registerRecovery([
     },
     {
         name: 'wildy_suicide',
-        run: async () => true
+        // Death respawns outside the wildy with a reset position — a real
+        // state change. The old stub returned true without acting, faking
+        // recovery while the bot never moved.
+        run: async () => {
+            const p = pos();
+            if (p.isDead) return true;
+            if (!inWilderness(p.x, p.z) && !onWildyCourse() && !inWildyCoursePit()) return false;
+            await suicideInWilderness();
+            return pos().isDead;
+        }
     },
     {
         name: 'wildy_food',
         run: async () => {
-            if (agilityLevel() < GNOME_UNTIL) return true;
+            if (agilityLevel() < GNOME_UNTIL) return false;
             if (invFoodCount() >= FOOD_MIN) return true;
             if (invFoodCount() === 0 && (onWildyCourse() || inWildyCoursePit() || insideWildyCourseYard())) {
                 return leaveCourseAndBank();
@@ -2091,7 +2173,7 @@ session.registerRecovery([
         name: 'wildy_agility_gate',
         run: async () => {
             if (onWildyCourse()) return true;
-            if (!southOfWildyCourseFence() && !insideWildyCourseYard()) return true;
+            if (!southOfWildyCourseFence() && !insideWildyCourseYard()) return false;
             if (invFoodCount() < 5) return leaveCourseAndBank();
             await enterWildyAgilityCourse();
             return onWildyCourse();
@@ -2100,7 +2182,7 @@ session.registerRecovery([
     {
         name: 'wildy_course',
         run: async () => {
-            if (agilityLevel() < GNOME_UNTIL) return true;
+            if (agilityLevel() < GNOME_UNTIL) return false;
             if (invFoodCount() < 5) return ensureWildyFood();
             await goWildyCourse();
             return onWildyCourse();
@@ -2109,7 +2191,7 @@ session.registerRecovery([
     {
         name: 'mage_bank',
         run: async () => {
-            if (agilityLevel() < GNOME_UNTIL) return true;
+            if (agilityLevel() < GNOME_UNTIL) return false;
             if (onWildyCourse() || inWildyCoursePit() || insideWildyCourseYard()) {
                 if (!(await leaveWildyAgilityCourse())) return false;
             }
@@ -2159,6 +2241,12 @@ try {
     while (!session.isStopped()) {
         if (session.needsRecovery()) {
             if ((await session.recover()) === 'exhausted') break;
+            // Exhaustion blocks game packets until consumed — without this
+            // the loop ticks silently forever. Retreat to safe gnome laps.
+            if (session.consumeFallback()) {
+                fallbackGnomeUntil = Date.now() + 30 * 60_000;
+                session.log('warn', 'Wildy path exhausted — gnome laps for 30 min');
+            }
             continue;
         }
         if (pos().isDead) {

@@ -63,7 +63,7 @@ services:
   quest-abgarmy02:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY02"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY02", "--knights"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -131,7 +131,7 @@ services:
   quest-abgarmy04:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY04"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY04", "--knights"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -165,7 +165,7 @@ services:
   quest-abgarmy05:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY05"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY05", "--knights"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -233,7 +233,7 @@ services:
   quest-abgarmy07:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY07"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY07", "--knights"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -267,7 +267,7 @@ services:
   quest-abgarmy08:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY08"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY08", "--knights"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -301,7 +301,7 @@ services:
   quest-abgarmy09:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY09"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY09", "--knights"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -369,7 +369,7 @@ services:
   quest-abgarmy11:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY11"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY11", "--knights"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -539,7 +539,7 @@ services:
   quest-abgarmy16:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY16"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY16", "--knights"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -675,7 +675,7 @@ services:
   quest-abgarmy20:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY20"]
+    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY20", "--knights"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

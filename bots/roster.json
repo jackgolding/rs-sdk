@@ -281,7 +281,8 @@
             "view": "army",
             "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY02"
+                "ABGARMY02",
+                "--knights"
             ]
         },
         {
@@ -298,7 +299,8 @@
             "view": "army",
             "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY04"
+                "ABGARMY04",
+                "--knights"
             ]
         },
         {
@@ -306,7 +308,8 @@
             "view": "army",
             "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY05"
+                "ABGARMY05",
+                "--knights"
             ]
         },
         {
@@ -323,7 +326,8 @@
             "view": "army",
             "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY07"
+                "ABGARMY07",
+                "--knights"
             ]
         },
         {
@@ -331,7 +335,8 @@
             "view": "army",
             "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY08"
+                "ABGARMY08",
+                "--knights"
             ]
         },
         {
@@ -339,7 +344,8 @@
             "view": "army",
             "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY09"
+                "ABGARMY09",
+                "--knights"
             ]
         },
         {
@@ -356,7 +362,8 @@
             "view": "army",
             "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY11"
+                "ABGARMY11",
+                "--knights"
             ]
         },
         {
@@ -400,7 +407,8 @@
             "view": "army",
             "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY16"
+                "ABGARMY16",
+                "--knights"
             ]
         },
         {
@@ -435,7 +443,8 @@
             "view": "army",
             "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY20"
+                "ABGARMY20",
+                "--knights"
             ]
         }
     ]
