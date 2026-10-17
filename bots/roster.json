@@ -42,10 +42,9 @@
         {
             "name": "Jackpoo3",
             "view": "fleet",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
-                "Jackpoo3",
-                "--shark"
+                "Jackpoo3"
             ]
         },
         {
