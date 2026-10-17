@@ -1834,6 +1834,21 @@ try {
 
     while (!session.isStopped()) {
         session.maybeHeartbeat();
+        // Never act while disconnected: walks/attacks throw Not connected
+        // and burn the run (pre-empted or stale controller). Player presence
+        // alone lies — a stale feed still has a player — so gate on state
+        // freshness too. Wait bounded, then re-loop; the session's own
+        // reconnect deadline owns recovery.
+        const stateAgeMs = sdk.getStateAge?.() ?? Number.MAX_SAFE_INTEGER;
+        if (!sdk.getState()?.player || stateAgeMs > 15_000) {
+            await sdk
+                .waitForCondition(
+                    (s) => !!(s as { player?: unknown }).player && (sdk.getStateAge?.() ?? Number.MAX_SAFE_INTEGER) <= 15_000,
+                    15_000
+                )
+                .catch(() => {});
+            continue;
+        }
         await ui();
         if (pos().isDead) {
             await waitRespawn();
@@ -1841,16 +1856,6 @@ try {
         }
 
         if (await fleePlayer()) {
-            continue;
-        }
-
-        // Never act while disconnected: walks/attacks throw Not connected
-        // and burn the run (pre-empted or stale controller). Wait bounded,
-        // then re-loop; the session's own reconnect deadline owns recovery.
-        if (!sdk.getState()?.player) {
-            await sdk
-                .waitForCondition((s) => !!(s as { player?: unknown }).player, 15_000)
-                .catch(() => {});
             continue;
         }
 
