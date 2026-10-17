@@ -26,6 +26,9 @@ COPY sdk /opt/fleet/sdk
 COPY server/webclient /opt/fleet/server/webclient
 COPY server/vendor /opt/fleet/server/vendor
 COPY bots/quests /opt/fleet/bots/quests
+# Quest-lab shared code: cooks-assistant, druidic-ritual, rune-mysteries,
+# vampire-slayer and witchs-house import ../../quest-lab/{journal-reader,records}.
+COPY quest-lab /opt/fleet/quest-lab
 # Quest support code: handoff.ts imports tools/fleet-desk/roster-edit, which
 # in turn imports .cursor/skills/wake-fleet/scripts/{roster,launchd-info}.
 COPY tools/fleet-desk /opt/fleet/tools/fleet-desk
