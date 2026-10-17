@@ -11,7 +11,6 @@ import { runScript } from '../../sdk/runner';
 import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
 import type { JournalRule } from '../../quest-lab/evidence';
 import {
-    buyAtShop,
     ensureCoins,
     ensureItem,
     SHOPS,
@@ -253,12 +252,11 @@ await runScript(async ({ bot, sdk }) => {
             shop: SHOPS.WYDIN,
             coinsNeeded: 10
         });
-        if (count(FOOD) < 5) {
-            await buyAtShop(ctx, SHOPS.WYDIN, [
-                { pattern: /^wine$/i, amount: 8, label: 'wine' },
-                { pattern: /^bread$/i, amount: 5, label: 'bread' }
-            ]);
-        }
+        // Food is a convenience, NOT a requirement — same defect vampire-slayer.ts
+        // had. Wydin's stocks neither wine ("item not found in shop") nor bread
+        // ("out of stock") in this revision, so this ran on EVERY loop iteration,
+        // walked to Port Sarim, and came back empty. Whatever the bank already
+        // holds (withdrawn above) is used; nothing further is bought.
         const gloves = sdk.findInventoryItem(GLOVES);
         if (gloves) await bot.equipItem(gloves);
     }
