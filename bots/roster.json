@@ -298,13 +298,10 @@
         {
             "name": "ABGARMY03",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/equip-item.ts",
             "args": [
                 "ABGARMY03",
-                "receive",
-                "jacklove1",
                 "--item=Fire battlestaff",
-                "--count=1",
                 "--bank=falador-east"
             ]
         },
@@ -329,13 +326,10 @@
         {
             "name": "ABGARMY06",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/equip-item.ts",
             "args": [
                 "ABGARMY06",
-                "receive",
-                "jacklove1",
                 "--item=Fire battlestaff",
-                "--count=1",
                 "--bank=falador-east"
             ]
         },
@@ -369,13 +363,10 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/equip-item.ts",
             "args": [
                 "ABGARMY10",
-                "receive",
-                "jacklove1",
                 "--item=Fire battlestaff",
-                "--count=1",
                 "--bank=falador-east"
             ]
         },
@@ -391,13 +382,10 @@
         {
             "name": "ABGARMY12",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/equip-item.ts",
             "args": [
                 "ABGARMY12",
-                "receive",
-                "jacklove1",
                 "--item=Fire battlestaff",
-                "--count=1",
                 "--bank=falador-east"
             ]
         },
@@ -422,13 +410,10 @@
         {
             "name": "ABGARMY15",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/equip-item.ts",
             "args": [
                 "ABGARMY15",
-                "receive",
-                "jacklove1",
                 "--item=Fire battlestaff",
-                "--count=1",
                 "--bank=falador-east"
             ]
         },
