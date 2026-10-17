@@ -241,7 +241,13 @@ await runScript(async ({ bot, sdk }) => {
         await ensureCoins(ctx, 30);
         await withdrawFromBank(ctx, GLOVES, 1, SHOPS.DRAYNOR_BANK);
         await withdrawFromBank(ctx, CHEESE, 1, SHOPS.DRAYNOR_BANK);
-        await withdrawFromBank(ctx, FOOD, 5, SHOPS.DRAYNOR_BANK);
+        // No FOOD withdrawal. This quest needs no food (the experiment is a
+        // level-53 fight a maxed account walks through), and because the
+        // main loop calls ensureSupplies() EVERY iteration, an unsatisfiable
+        // food request dragged the bot back to the Draynor bank on every lap —
+        // observed as continuous pacing between the bank and Taverley with the
+        // mouse puzzle never reached. vampire-slayer.ts only calls this at start
+        // and on low HP, which is why the same line was harmless there.
         await ensureItem(ctx, GLOVES, 1, {
             label: 'leather gloves',
             shop: SHOPS.THESSALIA,
