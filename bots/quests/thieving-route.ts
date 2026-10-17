@@ -3051,6 +3051,9 @@ try {
     sdk.getNewChat();
     lastLoggedLevel = thievingLevel();
 
+    // Consecutive non-ok pickpockets. Routine RNG misses are grind variance,
+    // not recovery-grade failures (see pickpocket branch below).
+    let nonOkStreak = 0;
     while (true) {
         if (!(await tickSession())) break;
         session.maybeHeartbeat();
@@ -3154,16 +3157,25 @@ try {
         await enterPhase('pickpocket');
         const result = await pickpocketBest();
         if (result === 'ok') {
+            nonOkStreak = 0;
             session.noteProgress('xp', 'pickpocket');
             await maybePackLootWhileGrinding();
             continue;
         }
         if (result === 'stunned' || result === 'fail') {
-            session.noteFailure(result, 'pickpocket');
+            // A single miss is grind variance — tagging each one fed
+            // session-cumulative counts into the verdict and pinned
+            // productive bots as 'repeat' forever. Only a sustained
+            // streak is a stuck signal worth a failure event.
+            nonOkStreak++;
+            if (nonOkStreak === 8) {
+                session.noteFailure(result, `pickpocket ${nonOkStreak} consecutive non-ok`);
+            }
             await recoverStun();
             continue;
         }
 
+        nonOkStreak = 0;
         await sdk.waitForTicks(2);
     }
 } catch (err) {
