@@ -8,6 +8,8 @@
 import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
+import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
+import type { JournalRule } from '../../quest-lab/evidence';
 import {
     buyAtShop,
     ensureCoins,
@@ -82,10 +84,77 @@ await runScript(async ({ bot, sdk }) => {
         return !!sdk.getEquipment().find((i) => GLOVES.test(i.name));
     }
 
-    function questDone(xpBefore: number): boolean {
-        if (hpXp() >= xpBefore + 6000) return true;
-        const msgs = sdk.getState()?.gameMessages ?? [];
-        return msgs.some((m) => /completed the.*witch/i.test(m.text));
+    /**
+     * Witch's House stage and completion, from the QUEST JOURNAL.
+     *
+     * This used to be `hpXp() >= xpBefore + 6000` plus a chat regex. Hitpoints
+     * XP is this quest's REWARD, so the threshold fires on XP gained from ANY
+     * damage taken anywhere — a bot that gets hit before it has even found the
+     * boy reads as finished.
+     *
+     * Rules come from the quest's own handler
+     * (quest_ball/scripts/ball_journal.rs2, journal heading "Witch's House").
+     * The quest is keyed `ball` in content.
+     */
+    const WITCH_JOURNAL = { label: "Witch's House", title: "Witch's House" };
+    const WITCH_STAGES: Record<string, JournalRule> = {
+        not_started: {
+            id: 'ball:not_started',
+            kind: 'unstarted',
+            all: ['I can start this quest by speaking to the little boy standing by the long garden'],
+        },
+        started: {
+            id: 'ball:started',
+            kind: 'active',
+            all: ['I should find a way into the garden where the ball is'],
+        },
+        found_magnet: {
+            id: 'ball:found_magnet',
+            kind: 'active',
+            all: ['I have found a magnet in a cupboard in the basement'],
+        },
+        // Varp `ball_unlocked_mousedoor` (3) and `ball_read_diary_after_door` (5)
+        // emit the SAME journal text, so they are ONE stage here. Encoding them
+        // as two rules would create a predicate that can never pass.
+        unlocked_door: {
+            id: 'ball:unlocked_door',
+            kind: 'active',
+            all: ['I have worked out how to unlock the back door to the garden'],
+        },
+        defeated_experiment: {
+            id: 'ball:defeated_experiment',
+            kind: 'active',
+            all: ["Now the shapeshifter is dead I should return the boy's ball"],
+        },
+        complete: { id: 'ball:complete', kind: 'complete', all: ['QUEST COMPLETE'] },
+    };
+
+    /** The first stage rule that passes is the account's real stage. */
+    async function readStage(): Promise<string> {
+        for (const name of [
+            'complete',
+            'defeated_experiment',
+            'unlocked_door',
+            'found_magnet',
+            'started',
+            'not_started',
+        ]) {
+            const read = await readJournalCheckpoint(sdk, WITCH_JOURNAL, WITCH_STAGES[name]!);
+            log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
+            if (read.verdict?.verdict === 'PASS') return name;
+        }
+        return 'unknown';
+    }
+
+    let journalComplete = false;
+    let lastJournalCheck = 0;
+    /** Journal-backed completion, throttled: opening the journal is not free. */
+    async function questDone(): Promise<boolean> {
+        if (Date.now() - lastJournalCheck < 5_000) return journalComplete;
+        lastJournalCheck = Date.now();
+        const read = await readJournalCheckpoint(sdk, WITCH_JOURNAL, WITCH_STAGES.complete!);
+        journalComplete = read.verdict?.verdict === 'PASS';
+        return journalComplete;
     }
 
     async function closeUi(): Promise<void> {
@@ -337,11 +406,22 @@ await runScript(async ({ bot, sdk }) => {
     const xpBefore = hpXp();
     await bot.skipTutorial();
     await closeUi();
+    // Ask the journal BEFORE shopping or acting: a finished account must not be
+    // sent to buy cheese and a pot first.
+    const startStage = await readStage();
+    log(`Witch's House journal stage at start: ${startStage}`);
+    if (startStage === 'unknown') {
+        throw new Error("could not determine the Witch's House stage from the journal");
+    }
+    if (startStage === 'complete') {
+        log("Witch's House is already complete — nothing to do");
+        return;
+    }
     await ensureSupplies();
     log(`Witch's House start hp xp=${xpBefore} @ ${pos().x},${pos().z}`);
 
     const until = Date.now() + 20 * 60_000;
-    while (Date.now() < until && !questDone(xpBefore)) {
+    while (Date.now() < until && !(await questDone())) {
         await closeUi();
         await ensureSupplies();
         if (pos().isDead) {
@@ -352,7 +432,7 @@ await runScript(async ({ bot, sdk }) => {
 
         if (count(BALL) > 0) {
             await returnBall();
-            if (questDone(xpBefore)) break;
+            if (await questDone()) break;
             continue;
         }
 
@@ -380,6 +460,6 @@ await runScript(async ({ bot, sdk }) => {
         await sdk.waitForTicks(2);
     }
 
-    if (!questDone(xpBefore)) throw new Error(`Witch's House unfinished @ ${pos().x},${pos().z}`);
+    if (!(await questDone())) throw new Error(`Witch's House unfinished @ ${pos().x},${pos().z}`);
     log(`QUEST COMPLETE Witch's House (+${hpXp() - xpBefore} HP xp)`);
 });
