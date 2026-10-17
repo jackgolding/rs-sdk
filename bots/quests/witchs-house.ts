@@ -296,9 +296,12 @@ await runScript(async ({ bot, sdk }) => {
         // at all. A name pattern cannot tell them apart — the earlier code
         // matched the nearest "Potted fern" and clicked an option it does not
         // have, so nothing happened and the key stayed at 0. Select by option.
-        const pot =
-            sdk.findNearbyLoc(/pot|plant/i, { withOption: /look.?under/i }) ??
-            sdk.findNearbyLoc(/flower pot|pot/i);
+        const byOption = sdk.findNearbyLoc(/pot|plant/i, { withOption: /look.?under/i });
+        const pot = byOption ?? sdk.findNearbyLoc(/flower pot|pot/i);
+        log(
+            `pot: ${pot ? `${pot.name} @ ${pot.x},${pot.z} opts=[${(pot.optionsWithIndex ?? []).map((o) => `${o.opIndex}:${o.text}`).join('/')}]` : 'none'}` +
+                ` (byOption=${byOption ? 'yes' : 'NO — fell back to name)'}`
+        );
         if (pot) {
             // The key loc is content id `witchpot`, display name "Potted
             // plant" with op1=Look-under (quest_ball.rs2 grants the key on
@@ -307,8 +310,13 @@ await runScript(async ({ bot, sdk }) => {
             // option, so no interaction happened and the door key stayed at
             // 0 for the whole run. /search/i is kept as a fallback in case a
             // revision names it that way.
-            await bot.interactLoc(pot, /look.?under|search/i);
-            await sdk.waitForTicks(2);
+            // Check the result: interactLoc reports success:false with a
+            // reason (loc_not_found / no such option / unreachable), and the
+            // result was previously discarded, so a silent failure looked
+            // exactly like a successful click that granted nothing.
+            const r = await bot.interactLoc(pot, /look.?under|search/i);
+            log(`interactLoc ${pot.name}: ${r.success ? 'ok' : `FAILED ${r.reason ?? ''} ${r.message ?? ''}`}`);
+            await sdk.waitForTicks(3);
         }
     }
 
