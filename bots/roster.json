@@ -35,13 +35,10 @@
         {
             "name": "Jackpoo2",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "Jackpoo2",
-                "receive",
-                "pigfat",
-                "--item=dragonfire shield",
-                "--count=1"
+                "--shark"
             ]
         },
         {
@@ -80,13 +77,10 @@
         {
             "name": "jacklove1",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "jacklove1",
-                "receive",
-                "pigfat",
-                "--item=dragonfire shield",
-                "--count=1"
+                "--shark"
             ]
         },
         {
@@ -110,13 +104,9 @@
         {
             "name": "jacklove4",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "jacklove4",
-                "receive",
-                "pigfat",
-                "--item=dragonfire shield",
-                "--count=1"
+                "jacklove4"
             ]
         },
         {
@@ -139,17 +129,10 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "pigfat",
-                "give",
-                "jacklove1",
-                "jacklove4",
-                "Jackpoo2",
-                "ABGARMY14",
-                "ABGARMY14",
-                "--item=dragonfire shield",
-                "--withdraw=5"
+                "--shark"
             ]
         },
         {
@@ -407,13 +390,10 @@
         {
             "name": "ABGARMY14",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "ABGARMY14",
-                "receive",
-                "pigfat",
-                "--item=dragonfire shield",
-                "--count=2"
+                "--bignet"
             ]
         },
         {
