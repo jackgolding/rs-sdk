@@ -289,10 +289,11 @@
         {
             "name": "ABGARMY03",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
                 "ABGARMY03",
-                "--bignet"
+                "druids",
+                "--weapon=Fire battlestaff"
             ]
         },
         {
@@ -316,10 +317,11 @@
         {
             "name": "ABGARMY06",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
                 "ABGARMY06",
-                "--bignet"
+                "druids",
+                "--weapon=Fire battlestaff"
             ]
         },
         {
@@ -351,10 +353,11 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
                 "ABGARMY10",
-                "--bignet"
+                "druids",
+                "--weapon=Fire battlestaff"
             ]
         },
         {
@@ -369,10 +372,11 @@
         {
             "name": "ABGARMY12",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
                 "ABGARMY12",
-                "--bignet"
+                "druids",
+                "--weapon=Fire battlestaff"
             ]
         },
         {
@@ -396,10 +400,11 @@
         {
             "name": "ABGARMY15",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
                 "ABGARMY15",
-                "--bignet"
+                "druids",
+                "--weapon=Fire battlestaff"
             ]
         },
         {
