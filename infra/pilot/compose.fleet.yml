@@ -97,7 +97,7 @@ services:
   quest-abgarmy03:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/equip-item.ts", "ABGARMY03", "--item=Fire battlestaff", "--bank=falador-east"]
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY03", "--bignet"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -199,7 +199,7 @@ services:
   quest-abgarmy06:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/equip-item.ts", "ABGARMY06", "--item=Fire battlestaff", "--bank=falador-east"]
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY06", "--bignet"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -335,7 +335,7 @@ services:
   quest-abgarmy10:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/equip-item.ts", "ABGARMY10", "--item=Fire battlestaff", "--bank=falador-east"]
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY10", "--bignet"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -403,7 +403,7 @@ services:
   quest-abgarmy12:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/equip-item.ts", "ABGARMY12", "--item=Fire battlestaff", "--bank=falador-east"]
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY12", "--bignet"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -505,7 +505,7 @@ services:
   quest-abgarmy15:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/equip-item.ts", "ABGARMY15", "--item=Fire battlestaff", "--bank=falador-east"]
+    command: ["bun", "bots/quests/fishing-route.ts", "ABGARMY15", "--bignet"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -743,7 +743,7 @@ services:
   quest-jacklove1:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/give-item.ts", "jacklove1", "give", "ABGARMY06", "ABGARMY10", "ABGARMY12", "ABGARMY15", "--item=Fire battlestaff", "--each=1", "--bank=falador-east"]
+    command: ["bun", "bots/quests/fishing-route.ts", "jacklove1", "--shark"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

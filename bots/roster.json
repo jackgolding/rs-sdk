@@ -77,17 +77,10 @@
         {
             "name": "jacklove1",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "jacklove1",
-                "give",
-                "ABGARMY06",
-                "ABGARMY10",
-                "ABGARMY12",
-                "ABGARMY15",
-                "--item=Fire battlestaff",
-                "--each=1",
-                "--bank=falador-east"
+                "--shark"
             ]
         },
         {
@@ -296,11 +289,10 @@
         {
             "name": "ABGARMY03",
             "view": "army",
-            "script": "bots/quests/equip-item.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "ABGARMY03",
-                "--item=Fire battlestaff",
-                "--bank=falador-east"
+                "--bignet"
             ]
         },
         {
@@ -324,11 +316,10 @@
         {
             "name": "ABGARMY06",
             "view": "army",
-            "script": "bots/quests/equip-item.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "ABGARMY06",
-                "--item=Fire battlestaff",
-                "--bank=falador-east"
+                "--bignet"
             ]
         },
         {
@@ -360,11 +351,10 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/equip-item.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "ABGARMY10",
-                "--item=Fire battlestaff",
-                "--bank=falador-east"
+                "--bignet"
             ]
         },
         {
@@ -379,11 +369,10 @@
         {
             "name": "ABGARMY12",
             "view": "army",
-            "script": "bots/quests/equip-item.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "ABGARMY12",
-                "--item=Fire battlestaff",
-                "--bank=falador-east"
+                "--bignet"
             ]
         },
         {
@@ -407,11 +396,10 @@
         {
             "name": "ABGARMY15",
             "view": "army",
-            "script": "bots/quests/equip-item.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "ABGARMY15",
-                "--item=Fire battlestaff",
-                "--bank=falador-east"
+                "--bignet"
             ]
         },
         {
