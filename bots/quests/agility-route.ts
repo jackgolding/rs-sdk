@@ -1069,7 +1069,10 @@ async function walkToMageFromSafe(): Promise<boolean> {
     // (3088,3550) — from far west/east a single walk there silently drops
     // and the bot never moves (Jackpoo1 pinned at (2818,3525)). Short-hop
     // laterally along the ditch line toward the x=3088 gap first.
-    if (pos().z < 3560 && Math.abs(pos().x - 3088) > 15) {
+    // Corridor-only: west of x=2990 (Kandarin side) the eastward chord is
+    // hard-blocked (~2640,3372) and this lineup pins forever shadowing the
+    // White Wolf road below — the road handles x<2990 instead.
+    if (pos().x >= 2990 && pos().z < 3560 && Math.abs(pos().x - 3088) > 15) {
         const gx =
             pos().x < 3088 ? Math.min(pos().x + 15, 3088) : Math.max(pos().x - 15, 3088);
         await sdk.sendWalk(gx, pos().z, true);
