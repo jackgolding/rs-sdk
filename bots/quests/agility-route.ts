@@ -13,6 +13,7 @@ import {
     closeUi as closeUiShared,
     crossGangplank as crossGangplankShared,
     distTo as distToShared,
+    walkKandarinToEdgeville,
     walkNear as walkNearShared,
     walkWaypoints as walkWaypointsShared
 } from './movement';
@@ -1083,6 +1084,19 @@ async function walkToMageFromSafe(): Promise<boolean> {
     }
 
     if (!inWilderness(pos().x, pos().z)) {
+        // West of the ditch corridor (Kandarin side) blind sendWalk hops
+        // toward LUMBY_TO_DITCH pin forever (~2640,3372 / ~2705,3281):
+        // long chords get dropped with no message. Take the proven
+        // White Wolf road instead (one committed direction, no detours).
+        if (pos().x < 2990) {
+            intent('Kandarin → Edgeville ditch (White Wolf road)');
+            session.noteProgress('location', 'kandarin ditch road');
+            await walkKandarinToEdgeville(bot, sdk, {
+                eat: () => eatIfNeeded(),
+                walkNear: (x, z, t) => walkNear(x, z, t)
+            });
+            return false;
+        }
         if (distTo(DITCH_SOUTH.x, DITCH_SOUTH.z) > 12) {
             return advanceSendWalkPath(
                 LUMBY_TO_DITCH,
@@ -2088,8 +2102,13 @@ async function tick(): Promise<void> {
 
     // Recovery exhausted on the wildy path: the session blocks further
     // game packets until the flag is consumed, so without this branch the
-    // bot ticks silently forever. Retreat to safe gnome laps for 30 min.
-    if (Date.now() < fallbackGnomeUntil) {
+    // bot ticks silently forever. Retreat to safe gnome laps for 30 min —
+    // but only below 52: at 52+ the gnome log never resolves and the
+    // retreat walk itself is the north leg of the gate bounce
+    // (south to the ditch vs north back to the stronghold, XP frozen).
+    // 52+ stays committed to the one direction that makes progress:
+    // the Mage-bank trek.
+    if (Date.now() < fallbackGnomeUntil && agilityLevel() < GNOME_UNTIL) {
         await fallbackGnomeTick();
         return;
     }
