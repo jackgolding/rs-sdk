@@ -653,6 +653,60 @@ export function debugDialogComponents(c: LiteClient): Array<{ id: number; type: 
     return out;
 }
 
+export interface InterfaceTextComponent {
+    componentId: number;
+    type: number;
+    /** Text exactly as the server sent it, formatting tags intact. */
+    rawText: string;
+    /** Formatting tags stripped and whitespace collapsed, for display/matching. */
+    text: string;
+}
+
+/**
+ * Every non-empty text component under an interface root, with the RAW text
+ * preserved alongside the normalised form.
+ *
+ * Quest journals encode checkpoint state ONLY in formatting tags — the same
+ * words mean different things by emphasis:
+ *   @str@I have a bucket of milk with me    (have it, struck through)
+ *   @dbl@a @dre@bucket@dbl@ of @dre@milk    (still needed)
+ * `normaliseComponentText` deletes those tags, so a consumer reading only the
+ * normalised debug string cannot tell the two states apart. Non-clickable
+ * components are included on purpose: journal lines are not buttons.
+ */
+export function getInterfaceTextComponents(c: LiteClient, rootId: number): InterfaceTextComponent[] {
+    void c;
+    const out: InterfaceTextComponent[] = [];
+    if (rootId === -1) {
+        return out;
+    }
+
+    const scan = (comId: number, depth = 0): void => {
+        if (depth > 10) return;
+        const com = IfType.list[comId];
+        if (!com) return;
+
+        const rawText = com.text ?? '';
+        if (rawText) {
+            out.push({
+                componentId: comId,
+                type: com.type,
+                rawText,
+                text: normaliseComponentText(rawText)
+            });
+        }
+
+        if (com.children) {
+            for (const childId of com.children) {
+                scan(childId, depth + 1);
+            }
+        }
+    };
+
+    scan(rootId);
+    return out;
+}
+
 export function getInterfaceDebugInfo(c: LiteClient, interfaceId: number): string[] {
     const lines: string[] = [];
     const scan = (comId: number, depth = 0): void => {
