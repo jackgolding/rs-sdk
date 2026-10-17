@@ -709,7 +709,7 @@ services:
   quest-fatpig:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/bowstrings.ts", "fatpig"]
+    command: ["bun", "bots/quests/seers-wc-fm.ts", "fatpig", "--until-wc=36"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1491,7 +1491,7 @@ services:
   quest-jackpoo3:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/bowstrings.ts", "Jackpoo3"]
+    command: ["bun", "bots/quests/seers-wc-fm.ts", "Jackpoo3", "--until-wc=36"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

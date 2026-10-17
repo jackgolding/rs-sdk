@@ -44,9 +44,10 @@
         {
             "name": "Jackpoo3",
             "view": "fleet",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "Jackpoo3"
+                "Jackpoo3",
+                "--until-wc=36"
             ]
         },
         {
@@ -69,9 +70,10 @@
         {
             "name": "fatpig",
             "view": "fleet",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "fatpig"
+                "fatpig",
+                "--until-wc=36"
             ]
         },
         {
