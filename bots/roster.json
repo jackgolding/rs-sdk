@@ -293,10 +293,9 @@
         {
             "name": "ABGARMY03",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/witchs-potion.ts",
             "args": [
-                "ABGARMY03",
-                "--bignet"
+                "ABGARMY03"
             ]
         },
         {
@@ -320,10 +319,9 @@
         {
             "name": "ABGARMY06",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/witchs-potion.ts",
             "args": [
-                "ABGARMY06",
-                "--bignet"
+                "ABGARMY06"
             ]
         },
         {
@@ -356,10 +354,9 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/witchs-potion.ts",
             "args": [
-                "ABGARMY10",
-                "--bignet"
+                "ABGARMY10"
             ]
         },
         {
@@ -374,10 +371,9 @@
         {
             "name": "ABGARMY12",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/witchs-potion.ts",
             "args": [
-                "ABGARMY12",
-                "--bignet"
+                "ABGARMY12"
             ]
         },
         {
@@ -401,10 +397,9 @@
         {
             "name": "ABGARMY15",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/witchs-potion.ts",
             "args": [
-                "ABGARMY15",
-                "--bignet"
+                "ABGARMY15"
             ]
         },
         {
