@@ -182,10 +182,42 @@ async function checkpoint(name: keyof typeof RULES, label: string): Promise<bool
     return true;
 }
 
-// ── 1. bank ─────────────────────────────────────────────────────────────────
-await session.setPhase('bank');
-await bot.dismissBlockingUI();
+// ── 1. what stage is this account actually at? ──────────────────────────────
+// Read the journal BEFORE banking. A finished quest has nothing left to do, and
+// a bot resumed mid-quest should bank only for what it still lacks. Banking
+// first made a completed quest report "insufficient stock" instead of "already
+// complete" — and walked to Draynor to do it.
+await session.setPhase('inspect');
 
+/** The first stage rule that PASSes is the account's real stage. */
+async function readStage(): Promise<'unstarted' | 'active' | 'complete' | 'unknown'> {
+    for (const name of ['complete', 'active', 'unstarted'] as const) {
+        const read = await readJournalCheckpoint(sdk, JOURNAL, RULES[name]!);
+        log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
+        if (read.verdict?.verdict === 'PASS') return name;
+    }
+    return 'unknown';
+}
+
+const STAGE = await readStage();
+log(`Quest stage at start: ${STAGE}`);
+if (STAGE === 'complete') {
+    log("Cook's Assistant is already complete — nothing to do");
+    session.log('log', 'quest already complete; nothing to do');
+    sdk.disconnect();
+    process.exit(0);
+}
+if (STAGE === 'unknown') throw new Error('could not determine the quest stage from the journal');
+
+// ── 2. bank, but only for supplies we still lack ────────────────────────────
+await session.setPhase('bank');
+const needsBanking = NEEDED.some(n => invCount(n.pattern) === 0);
+await bot.dismissBlockingUI();
+if (needsBanking) await bankForSupplies();
+else log('Supplies already carried; skipping the bank leg');
+
+/** Deposit carry-over, then withdraw whatever ingredients are missing. */
+async function bankForSupplies(): Promise<void> {
 // A bot may be anywhere on restart (mid-quest, or left by an earlier leg), so
 // travel to the bank first rather than assuming the start tile.
 if (distTo(DRAYNOR_BANK) > 8) await travelTo(DRAYNOR_BANK, 'Draynor bank');
@@ -232,6 +264,7 @@ for (const need of NEEDED) {
 }
 await bot.closeInterface();
 log(`Bag: ${NEEDED.map(n => `${n.name}x${invCount(n.pattern)}`).join(' ')}`);
+}
 
 // ── travel ──────────────────────────────────────────────────────────────────
 /**
@@ -265,16 +298,17 @@ async function travelTo(dest: { x: number; z: number }, what: string): Promise<v
     log(`Arrived ${what} at (${at.x},${at.z}) l${at.level}`);
 }
 
-// ── 3. pre-flight checkpoint: the quest must still be unstarted ─────────────
-if (!(await checkpoint('unstarted', 'quest not yet started'))) {
-    throw new Error('unstarted checkpoint failed before starting the quest');
-}
-
-// ── travel to the Cook (route planned from wherever we are) ─────────────────
+// ── 3. travel to the Cook (route planned from wherever we are) ──────────────
 await session.setPhase('travel');
 await travelTo(cookApproach(), 'the Cook');
 
-// ── 4. start the quest ──────────────────────────────────────────────────────
+// ── 4. start the quest, only from the unstarted stage ───────────────────────
+if (STAGE === 'unstarted') {
+// Gate BEFORE acting: the quest must really be unstarted, or the dialog below
+// acts on an assumption.
+if (!(await checkpoint('unstarted', 'quest not yet started'))) {
+    throw new Error('unstarted checkpoint failed before starting the quest');
+}
 await session.setPhase('start-quest');
 const talked = await bot.talkTo(/^cook$/i);
 if (!talked.success) throw new Error(`could not talk to the Cook: ${talked.message ?? '?'}`);
@@ -300,6 +334,9 @@ await bot.dismissBlockingUI();
 
 if (!(await checkpoint('active', 'accepted the quest, ingredients requested'))) {
     throw new Error('active checkpoint failed after accepting the quest');
+}
+} else {
+    log('Resuming mid-quest: the ingredients request is already journal-confirmed');
 }
 
 // ── 5. hand in ──────────────────────────────────────────────────────────────
