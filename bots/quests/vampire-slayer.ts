@@ -226,7 +226,14 @@ await runScript(async ({ bot, sdk }) => {
     async function startMorgan(): Promise<void> {
         intent('Talking to Morgan');
         await walkNear(MORGAN.x, MORGAN.z, 3);
-        if (pos().level < 1) await climbTo(1);
+        // Morgan stands in Draynor Village on the GROUND floor. This used to
+        // climb to level 1 first, which is a house interior (teleport-recon at
+        // (3098,3268): level 0 shows Morgan 1-2 tiles away, level 1 shows only a
+        // Woman upstairs among beds and a cupboard). Climbing made the find fail
+        // and the function return silently, so the quest never started and the
+        // loop just re-fetched supplies forever. The cupboard upstairs belongs
+        // to the GARLIC step, not to this one.
+        if (pos().level > 0) await climbTo(0);
 // Settle-and-retry: climbing rebuilds the client scene and `nearbyNpcs` is
 // EMPTY for the new level until it lands, so a single scan reads the NPC as
 // missing while the bot is standing next to it.
@@ -235,7 +242,10 @@ await runScript(async ({ bot, sdk }) => {
             await sdk.waitForTicks(4);
             morgan = sdk.findNearbyNpc(/^morgan$/i);
         }
-        if (!morgan) return;
+        if (!morgan) {
+            log(`Morgan missing @ ${pos().x},${pos().z} floor=${pos().level} (after settling)`);
+            return;
+        }
         await bot.talkTo(morgan);
         const seen = await chat([/up for an adventure/i, /tips on killing/i]);
         log(`Morgan: ${seen.join(' | ')}`);
