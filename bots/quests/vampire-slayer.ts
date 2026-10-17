@@ -298,12 +298,22 @@ await runScript(async ({ bot, sdk }) => {
         await ensureSupplies();
         intent('Getting stake from Dr Harlow');
         await walkNear(HARLOW.x, HARLOW.z, 3);
+        // Settle-and-retry, not a one-shot: the nearby set lags a plane change
+        // or a fresh arrival, and the old code returned silently on a miss — so
+        // a scan that simply ran early looked exactly like "Harlow is not here"
+        // and the main loop re-ran the whole quest-start leg forever.
         let harlow = sdk.findNearbyNpc(/harlow/i);
-        if (!harlow) {
-            await walkNear(JOLLY_BOAR.x, JOLLY_BOAR.z, 2);
-            harlow = sdk.findNearbyNpc(/harlow/i);
+        for (let attempt = 0; attempt < 2 && !harlow; attempt++) {
+            if (attempt > 0) await walkNear(JOLLY_BOAR.x, JOLLY_BOAR.z, 2);
+            for (let t = 0; !harlow && t < 12; t++) {
+                harlow = sdk.findNearbyNpc(/harlow/i);
+                if (!harlow) await sdk.waitForTicks(4);
+            }
         }
-        if (!harlow) return;
+        if (!harlow) {
+            log(`Dr Harlow missing @ ${pos().x},${pos().z} floor=${pos().level} (after settling)`);
+            return;
+        }
         await bot.talkTo(harlow);
         await chat([/morgan needs your help/i]);
         await bot.talkTo(harlow);
