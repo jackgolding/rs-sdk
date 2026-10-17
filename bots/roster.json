@@ -407,11 +407,10 @@
         {
             "name": "ABGARMY15",
             "view": "army",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
                 "ABGARMY15",
-                "thugs",
-                "--weapon=Fire battlestaff"
+                "--until-wc=36"
             ]
         },
         {
