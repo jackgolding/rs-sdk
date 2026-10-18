@@ -67,9 +67,11 @@
         {
             "name": "fatpig",
             "view": "fleet",
-            "script": "bots/quests/rune-mysteries.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
-                "fatpig"
+                "fatpig",
+                "druids",
+                "--weapon=Fire battlestaff"
             ]
         },
         {
