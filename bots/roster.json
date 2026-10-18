@@ -271,7 +271,7 @@
         {
             "name": "ABGARMY01",
             "view": "army",
-            "script": "bots/quests/lost-city.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
                 "ABGARMY01"
             ]
