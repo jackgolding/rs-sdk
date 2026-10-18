@@ -953,8 +953,10 @@ async function passMembersGate(dir: 'north' | 'south'): Promise<void> {
 
 async function leaveIsleNorth(): Promise<void> {
     if (!onIsle() && pos().z >= 3858) return;
-    if (distTo(DRAGON_GATE.x, 3852) > 6) await hopToward(DRAGON_GATE.x, 3852, 3);
-    await openGateNear(DRAGON_GATE.x, DRAGON_GATE.z);
+    // User-routed 2026-10-18 (bank run): stage at 3202,3853 south of the
+    // gate, open the gate around 3201,3857 if required, then walk north.
+    if (distTo(3202, 3853) > 4) await hopToward(3202, 3853, 2);
+    await openGateNear(3201, 3857);
     await hopToward(GATE_NORTH.x, GATE_NORTH.z, 3);
 }
 
