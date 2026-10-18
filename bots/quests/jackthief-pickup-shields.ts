@@ -388,8 +388,12 @@ await runScript(async ({ bot, sdk }) => {
     }
 
     // ---- first leg: bank everything, die to Lumbridge, climb to the Duke ----
+    // A restart mid-pipeline holding shields skips staging entirely: the duty
+    // loop banks full bags at Draynor and re-walks to the Duke on its own, so
+    // diverting a loaded carrier to Catherby would just strand the load.
     let banked = 0;
     log(`PICKUP-SHIELDS start @ ${pos().x},${pos().z} shields=${shieldsInBag()}`);
+    if (shieldsInBag() === 0) {
     for (let leg = 0; leg < 40 && !inLumbridgeZone() && !pos().isDead; leg++) {
         await closeUi();
         const carrying = sdk.getInventory().filter((i) => (i.count ?? 0) > 0).length;
@@ -401,6 +405,7 @@ await runScript(async ({ bot, sdk }) => {
         }
         if (await suicideToLumbridge()) break;
         await sdk.waitForTicks(2);
+    }
     }
     if (pos().isDead) {
         const life = pos().lifeId;
