@@ -1,0 +1,864 @@
+/**
+ * Hobgoblin mine adamant — Edgeville bank loop, wilderness.
+ *
+ *   bun bots/quests/hobgoblin-adamant.ts {botname}
+ *
+ * Mines the 7 adamant rocks at the hobgoblin mine (3080,3762), banks
+ * Edgeville, repeats. Southbound uses the east road past Bandit Camp
+ * (3110,z) staying south of the green dragons; northbound is the reverse.
+ * Never bot.walkTo north of the ditch (pathfinder avoids wilderness).
+ * Never attacks anyone — on player combat, flees south immediately.
+ * Needs Mining 40 (adamantite) and a pickaxe in Edgeville bank.
+ */
+import { ActivitySession, BotSDK, deriveGatewayUrl } from '../../sdk/index';
+import { BotActions } from '../../sdk/actions';
+import { findLongPath, getDoorAt, initPathfinding } from '../../sdk/pathfinding';
+import { existsSync, readFileSync } from 'fs';
+import { dirname, join } from 'path';
+import { foodHeal, needsBankHeal } from './food-heal';
+import {
+    BANDIT_CAMP,
+    EAST_OF_BANDITS,
+    HOBGOBLIN,
+    clickAhead,
+    hobToDitchHops,
+    inGreenDragons,
+    type Tile
+} from './rune-rocks-route';
+import { installGracefulShutdown } from '../../sdk/runner';
+
+const EDGEVILLE_BANK = { x: 3094, z: 3492 };
+const DITCH_NORTH = { x: 3088, z: 3525 };
+const DITCH_SOUTH = { x: 3088, z: 3518 };
+
+const TO_EDGEVILLE = [
+    { x: 3104, z: 3291 },
+    { x: 3079, z: 3419 },
+    { x: 3094, z: 3492 }
+];
+
+const PICKAXE = /^(bronze|iron|steel|mithril|adamant|rune) pickaxe$/i;
+const ADDY = /^adamantite ore$/i;
+const ADDY_ROCK = /rocks adamant/i;
+const FOOD_TARGET = 8;
+
+const argv = process.argv.slice(2);
+const botArg = argv.find((a) => !a.startsWith('-'));
+
+function loadBotEnv(): void {
+    const envPath = botArg
+        ? join(process.cwd(), 'bots', botArg, 'bot.env')
+        : join(dirname(import.meta.path), 'bot.env');
+    if (!existsSync(envPath)) {
+        throw new Error(`bot.env not found at ${envPath}. Usage: bun bots/quests/hobgoblin-adamant.ts {botname}`);
+    }
+    for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eq = trimmed.indexOf('=');
+        if (eq > 0) process.env[trimmed.slice(0, eq)] = trimmed.slice(eq + 1);
+    }
+}
+
+loadBotEnv();
+
+const username = process.env.BOT_USERNAME!;
+const password = process.env.PASSWORD!;
+const server = process.env.SERVER;
+const GRIND_LOG = join(process.cwd(), 'bots', username, 'grind.log');
+
+console.log('Warming pathfinder...');
+initPathfinding();
+
+const sdk = new BotSDK({
+    botUsername: username,
+    password,
+    gatewayUrl: deriveGatewayUrl(server),
+    autoLaunchBrowser: false,
+    browserLaunchTimeout: 90_000,
+    readyTimeout: 45_000,
+    connectTimeout: 60_000,
+    showChat: false
+});
+
+console.log('Opening/attaching the game client...');
+await sdk.connect();
+const bot = new BotActions(sdk);
+const session = new ActivitySession(sdk, bot, {
+    name: 'hobgoblin-adamant',
+    grindLogPath: GRIND_LOG,
+    stallMs: 480_000,
+    maxRecoveryTactics: 8
+});
+
+installGracefulShutdown();
+
+let banked = 0;
+let deaths = 0;
+let foodShort = false;
+
+function log(msg: string): void {
+    session.log('log', msg);
+}
+
+function intent(msg: string): void {
+    void session.showIntent(msg);
+}
+
+function pos() {
+    const p = sdk.getState()?.player;
+    const hpSkill = sdk.getSkill('Hitpoints');
+    return {
+        x: p?.worldX ?? 0,
+        z: p?.worldZ ?? 0,
+        hp: hpSkill?.level ?? p?.hp ?? 10,
+        maxHp: hpSkill?.baseLevel ?? p?.maxHp ?? 10,
+        isDead: p?.isDead ?? false,
+        inCombat: p?.combat?.inCombat ?? false,
+        targetType: p?.combat?.targetType ?? 'none',
+        lifeId: p?.lifeId ?? 0
+    };
+}
+
+function distTo(x: number, z: number): number {
+    return Math.hypot(pos().x - x, pos().z - z);
+}
+
+function northOfDitch(): boolean {
+    return pos().z >= 3520 && pos().z < 6400;
+}
+
+function atHobgoblin(): boolean {
+    const p = pos();
+    if (p.x >= 3065 && p.x <= 3100 && p.z >= 3740 && p.z <= 3778) return true;
+    return distTo(HOBGOBLIN.x, HOBGOBLIN.z) <= 12;
+}
+
+function mining(): number {
+    return sdk.getSkill('Mining')?.baseLevel ?? 1;
+}
+
+function miningXp(): number {
+    return sdk.getSkill('Mining')?.experience ?? 0;
+}
+
+function countAddy(): number {
+    return sdk.getInventory().filter((i) => ADDY.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0);
+}
+
+function occupiedSlots(): number {
+    return sdk.getInventory().filter((i) => (i.count ?? 0) > 0).length;
+}
+
+function freeSlots(): number {
+    return 28 - occupiedSlots();
+}
+
+function hasPickaxe(): boolean {
+    return !!(sdk.findInventoryItem(PICKAXE) || sdk.findEquipmentItem(PICKAXE));
+}
+
+function foodCount(): number {
+    return sdk
+        .getInventory()
+        .filter((i) => (i.count ?? 0) > 0 && foodHeal(i.name) > 0)
+        .reduce((n, i) => n + (i.count ?? 1), 0);
+}
+
+function isFood(name: string): boolean {
+    return foodHeal(name) > 0;
+}
+
+function kept(name: string): boolean {
+    if (PICKAXE.test(name)) return true;
+    return isFood(name);
+}
+
+function extras() {
+    return sdk.getInventory().filter((i) => (i.count ?? 0) > 0 && !kept(i.name));
+}
+
+/** Full bag (no free slot for another ore) or holding ore south of the ditch. */
+function shouldBank(): boolean {
+    if (!hasPickaxe()) return true;
+    if (freeSlots() <= 0 && countAddy() > 0) return true;
+    if (!northOfDitch() && (countAddy() > 0 || extras().length > 0)) return true;
+    return false;
+}
+
+function needsHeal(): boolean {
+    const p = pos();
+    return needsBankHeal(p.hp, p.maxHp);
+}
+
+/** Attacked by a player — never retaliate, flee south. */
+function seePker(): boolean {
+    if (!northOfDitch()) return false;
+    const combat = sdk.getState()?.player?.combat;
+    return combat?.inCombat === true && combat?.targetType === 'player';
+}
+
+function bankFood() {
+    return sdk
+        .getBankItems()
+        .filter((i) => (i.count ?? 0) > 0 && foodHeal(i.name) > 0)
+        .sort((a, b) => foodHeal(b.name) - foodHeal(a.name))[0] ?? null;
+}
+
+function invEdible() {
+    return sdk.getInventory().find(
+        (i) =>
+            (i.count ?? 0) > 0 &&
+            foodHeal(i.name) > 0 &&
+            (i.optionsWithIndex ?? []).some((o) => /eat/i.test(o.text))
+    );
+}
+
+async function closeUi(): Promise<void> {
+    const dialog = sdk.getDialog();
+    if (dialog?.isOpen) {
+        if (
+            dialog.options?.every((o) => /click here to continue|continue/i.test(o.text)) ||
+            (dialog.options?.length ?? 0) <= 1
+        ) {
+            await sdk.sendClickDialog(dialog.options?.[0]?.index ?? 0);
+            await sdk.waitForTicks(1).catch(() => {});
+        }
+    }
+    if (sdk.getState()?.shop?.isOpen || sdk.getState()?.bank?.isOpen || sdk.getState()?.interface?.isOpen) {
+        await bot.closeInterface();
+    }
+    await bot.dismissBlockingUI();
+}
+
+async function openNearbyGate(): Promise<void> {
+    await sdk.scanNearbyLocs(10).catch(() => {});
+    const closed =
+        sdk.findNearbyLoc(/^(door|gate)$/i, { withOption: /^open$/i }) ??
+        sdk.findNearbyLoc(/door|gate/i, { withOption: /open/i });
+    if (closed && (closed.distance ?? 99) <= 5) {
+        intent(`Opening ${closed.name} @ ${closed.x},${closed.z}`);
+        await bot.openDoor(closed);
+        await sdk.waitForTicks(2).catch(() => {});
+    }
+}
+
+/** Chaos temple double door is masked walkable. Open it before a hop crosses it. */
+async function openDoorAhead(hop: Tile): Promise<void> {
+    const here = pos();
+    const dx = hop.x - here.x;
+    const dz = hop.z - here.z;
+    const steps = Math.max(Math.abs(dx), Math.abs(dz));
+    let near = false;
+    for (let i = 0; i <= steps; i++) {
+        const x = here.x + Math.round((dx * i) / Math.max(steps, 1));
+        const z = here.z + Math.round((dz * i) / Math.max(steps, 1));
+        if (Math.max(Math.abs(x - here.x), Math.abs(z - here.z)) > 6) break;
+        if (getDoorAt(0, x, z)) {
+            near = true;
+            break;
+        }
+    }
+    if (!near) return;
+    await sdk.scanNearbyLocs(8).catch(() => {});
+    const door = (sdk.getNearbyLocs() ?? [])
+        .filter((l) => /door|gate/i.test(l.name) && l.optionsWithIndex.some((o) => /^open$/i.test(o.text)))
+        .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+    const open = door?.optionsWithIndex.find((o) => /^open$/i.test(o.text));
+    if (!door || !open) return;
+    log(`Opening ${door.name} @ ${door.x},${door.z}`);
+    await sdk.sendInteractLoc(door.x, door.z, door.id, open.opIndex);
+    await sdk.waitForTicks(3).catch(() => {});
+}
+
+async function sendWalkHop(x: number, z: number, tolerance = 5, timeoutMs = 6_000): Promise<boolean> {
+    await closeUi();
+    if (distTo(x, z) <= tolerance) return true;
+    const startZ = pos().z;
+    const startX = pos().x;
+    await sdk.sendWalk(x, z, true);
+    const moved = await sdk
+        .waitForCondition(
+            (s) =>
+                s.player?.isDead === true ||
+                Math.hypot((s.player?.worldX ?? 0) - x, (s.player?.worldZ ?? 0) - z) <= tolerance + 1 ||
+                (s.player?.worldX ?? startX) !== startX ||
+                (s.player?.worldZ ?? startZ) !== startZ,
+            timeoutMs
+        )
+        .then(() => true)
+        .catch(() => false);
+    await closeUi();
+    return moved;
+}
+
+/**
+ * One sendWalk, then keep moving until near the tile. Returning on the
+ * first step made the wilderness loop re-click every tile and drop to a walk.
+ */
+async function runClick(x: number, z: number): Promise<boolean> {
+    await closeUi();
+    if (distTo(x, z) <= 5) return true;
+    const sent = await sdk.sendWalk(x, z, true);
+    if (!sent.success) return false;
+    let lastX = pos().x;
+    let lastZ = pos().z;
+    let still = 0;
+    const deadline = Date.now() + 8_000;
+    while (Date.now() < deadline && !pos().isDead) {
+        if (distTo(x, z) <= 5) return true;
+        await sdk.waitForTicks(1).catch(() => {});
+        if (pos().x === lastX && pos().z === lastZ) {
+            still++;
+            if (still >= 5) return false;
+        } else {
+            still = 0;
+            lastX = pos().x;
+            lastZ = pos().z;
+        }
+    }
+    return distTo(x, z) <= 8;
+}
+
+/** Raw sendWalk — pathfinder avoids wilderness and loops the Edgeville ditch. */
+async function sendWalkTo(x: number, z: number, tolerance = 8): Promise<void> {
+    await closeUi();
+    if (distTo(x, z) <= tolerance) return;
+    await sdk.sendWalk(x, z, true);
+    await sdk
+        .waitForCondition(
+            (s) =>
+                s.player?.isDead === true ||
+                Math.hypot((s.player?.worldX ?? 0) - x, (s.player?.worldZ ?? 0) - z) <= tolerance + 2,
+            18_000
+        )
+        .catch(() => {});
+    await closeUi();
+    await sdk.waitForTicks(1).catch(() => {});
+}
+
+/** One 3-tile sendWalk. Refuses a step that enters the green-dragon box. */
+async function stepToward(tile: Tile): Promise<boolean> {
+    const path = findLongPath(0, pos().x, pos().z, tile.x, tile.z).filter((p) => p.x !== pos().x || p.z !== pos().z);
+    let travelled = 0;
+    let prev = { x: pos().x, z: pos().z };
+    let pick: Tile | null = null;
+    for (const p of path) {
+        if (inGreenDragons(p.x, p.z)) {
+            pick = null;
+            break;
+        }
+        travelled += Math.hypot(p.x - prev.x, p.z - prev.z);
+        prev = p;
+        if (travelled >= 3) {
+            pick = { x: p.x, z: p.z };
+            break;
+        }
+    }
+    const before = pos();
+    if (!pick) {
+        const tx = pos().x;
+        const tz = pos().z >= 3770 && pos().z < 3878 ? Math.max(3756, pos().z - 3) : pos().z;
+        if (tx === pos().x && tz === pos().z) return false;
+        await sendWalkHop(tx, tz, 1, 4_000);
+    } else {
+        await sendWalkHop(pick.x, pick.z, 1, 4_000);
+    }
+    return pos().x !== before.x || pos().z !== before.z;
+}
+
+async function walkNear(x: number, z: number, tolerance = 4): Promise<boolean> {
+    if (distTo(x, z) <= tolerance) return true;
+    await openNearbyGate();
+    const result = await bot.walkTo(x, z, Math.min(tolerance, 3));
+    return result.success || distTo(x, z) <= tolerance + 2;
+}
+
+/** Closest hop that does not aim back through the green dragons. */
+function resumeHop(hops: Tile[]): number {
+    const here = pos();
+    let idx = 0;
+    let best = Infinity;
+    for (let i = 0; i < hops.length; i++) {
+        const hop = hops[i]!;
+        const d = Math.hypot(here.x - hop.x, here.z - hop.z);
+        if (d < best) {
+            best = d;
+            idx = i;
+        }
+    }
+    return idx;
+}
+
+async function walkHops(hops: Tile[], arrive: () => boolean, label: string): Promise<boolean> {
+    let cursor = resumeHop(hops);
+    let stuck = 0;
+    for (let n = 0; n < 280 && !arrive() && !pos().isDead; n++) {
+        if (seePker()) return false;
+        if (arrive()) return true;
+        while (cursor < hops.length - 1 && distTo(hops[cursor]!.x, hops[cursor]!.z) <= 3) cursor++;
+        if (cursor >= hops.length) return arrive();
+        const click = clickAhead(pos(), hops, cursor, (x, z) => getDoorAt(0, x, z) != null);
+        const hop = click.tile;
+        if (distTo(hop.x, hop.z) <= 3) {
+            cursor = Math.max(cursor, click.index) + 1;
+            continue;
+        }
+        const before = pos();
+        await openDoorAhead(hop);
+        const moved = click.straight ? await runClick(hop.x, hop.z) : await stepToward(hop);
+        if (distTo(hop.x, hop.z) <= 6) {
+            cursor = click.index;
+            stuck = 0;
+        } else if (!moved && pos().x === before.x && pos().z === before.z) {
+            stuck++;
+            if (stuck >= 4) {
+                session.noteFailure('wildy_hop', `${label} stuck @ ${pos().x},${pos().z} toward ${hop.x},${hop.z}`);
+                return false;
+            }
+        } else {
+            stuck = 0;
+        }
+        if (n % 8 === 0) session.noteProgress('location', `${pos().x},${pos().z}`);
+    }
+    return arrive();
+}
+
+async function crossDitchNorth(): Promise<boolean> {
+    if (northOfDitch()) return true;
+    intent('Crossing the Edgeville wilderness ditch (sendWalk)');
+    await sdk.sendWalk(DITCH_NORTH.x, DITCH_NORTH.z, true);
+    await sdk
+        .waitForCondition((s) => (s.player?.worldZ ?? 0) >= 3520 || s.player?.isDead === true, 12_000)
+        .catch(() => {});
+    await closeUi();
+    if (!northOfDitch()) {
+        await sdk.sendWalk(DITCH_NORTH.x, DITCH_NORTH.z, true);
+        await sdk
+            .waitForCondition((s) => (s.player?.worldZ ?? 0) >= 3520 || s.player?.isDead === true, 8_000)
+            .catch(() => {});
+        await closeUi();
+    }
+    return northOfDitch();
+}
+
+async function crossDitchSouth(): Promise<boolean> {
+    if (!northOfDitch()) return true;
+    intent('Crossing south out of wilderness (sendWalk)');
+    await sendWalkTo(DITCH_NORTH.x, DITCH_NORTH.z, 6);
+    await sdk.sendWalk(DITCH_SOUTH.x, DITCH_SOUTH.z, true);
+    await sdk
+        .waitForCondition((s) => (s.player?.worldZ ?? 0) < 3520 || s.player?.isDead === true, 12_000)
+        .catch(() => {});
+    await closeUi();
+    if (northOfDitch()) {
+        await sdk.sendWalk(DITCH_SOUTH.x, DITCH_SOUTH.z, true);
+        await sdk
+            .waitForCondition((s) => (s.player?.worldZ ?? 0) < 3520 || s.player?.isDead === true, 8_000)
+            .catch(() => {});
+        await closeUi();
+    }
+    return !northOfDitch();
+}
+
+function inBanditCamp(): boolean {
+    const p = pos();
+    return p.x >= BANDIT_CAMP.xMin && p.x <= BANDIT_CAMP.xMax && p.z >= BANDIT_CAMP.zMin && p.z <= BANDIT_CAMP.zMax;
+}
+
+async function escapeBanditCamp(): Promise<void> {
+    if (!inBanditCamp()) return;
+    intent(`Leaving Bandit Camp east @ ${EAST_OF_BANDITS.x},${EAST_OF_BANDITS.z}`);
+    for (let i = 0; i < 8 && inBanditCamp() && !pos().isDead; i++) {
+        await sendWalkTo(EAST_OF_BANDITS.x, Math.max(pos().z, EAST_OF_BANDITS.z), 6);
+    }
+}
+
+let northHops: Tile[] | null = null;
+function ditchToHobHops(): Tile[] {
+    northHops ??= [...hobToDitchHops()].reverse();
+    return northHops;
+}
+
+async function goToHob(): Promise<boolean> {
+    if (atHobgoblin()) return true;
+    if (session.metrics().phase !== 'wildy') await session.setPhase('wildy');
+    if (!northOfDitch()) {
+        if (!(await bankTrip())) return false;
+        if (!(await crossDitchNorth())) {
+            session.noteFailure('ditch', 'Could not cross wilderness ditch');
+            return false;
+        }
+    }
+    if (inBanditCamp()) await escapeBanditCamp();
+    session.setAnchor(HOBGOBLIN.x, HOBGOBLIN.z);
+    intent('Hobgoblin mine adamant, east road');
+    return walkHops(ditchToHobHops(), () => atHobgoblin(), 'north');
+}
+
+async function leaveWildy(): Promise<boolean> {
+    if (!northOfDitch()) return true;
+    if (session.metrics().phase !== 'escape') await session.setPhase('escape');
+    if (pos().z < 3600 && distTo(DITCH_NORTH.x, DITCH_NORTH.z) <= 20) {
+        await crossDitchSouth();
+        return !northOfDitch();
+    }
+    intent('Leaving hobgoblin mine south, east of Bandit Camp');
+    await walkHops(hobToDitchHops(), () => !northOfDitch() || distTo(DITCH_NORTH.x, DITCH_NORTH.z) <= 6, 'south');
+    if (northOfDitch() && !pos().isDead && distTo(DITCH_NORTH.x, DITCH_NORTH.z) <= 30) await crossDitchSouth();
+    return !northOfDitch();
+}
+
+async function goToSurfaceBank(): Promise<boolean> {
+    await closeUi();
+    if (northOfDitch()) return false;
+    if (distTo(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z) <= 8) return true;
+    await openNearbyGate();
+    intent('Walking to Edgeville bank');
+    session.setAnchor(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z);
+    for (const p of TO_EDGEVILLE) {
+        if (northOfDitch()) return false;
+        if (distTo(p.x, p.z) <= 8) continue;
+        await walkNear(p.x, p.z, 6);
+    }
+    if (!northOfDitch() && distTo(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z) > 6) {
+        await walkNear(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z, 4);
+    }
+    return distTo(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z) <= 8;
+}
+
+/** Eat at Edgeville, then deposit leftover food — do not take a feast into the wild. */
+async function eatAtBank(): Promise<void> {
+    const p = pos();
+    if (p.hp >= p.maxHp - 3) return;
+    if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
+        session.noteFailure('bank_open', 'Edgeville bank open failed (eat)');
+        return;
+    }
+    const best = bankFood();
+    if (!best) {
+        session.log('warn', `No bank food to eat @ ${p.hp}/${p.maxHp}`);
+        await bot.closeBank();
+        return;
+    }
+    const missing = pos().maxHp - pos().hp;
+    const heal = Math.max(foodHeal(best.name), 1);
+    const take = Math.min(best.count ?? 1, Math.max(1, Math.ceil(missing / heal) + 1), 10);
+    intent(`Withdrawing ${take} ${best.name} to eat (${pos().hp}/${pos().maxHp})`);
+    await bot.withdrawItem(best, take, { asNote: false });
+    await bot.closeBank();
+    let bites = 0;
+    while (pos().hp < pos().maxHp - 3 && bites < 12) {
+        const food = invEdible();
+        if (!food) break;
+        const before = pos().hp;
+        const r = await bot.eatFood(food);
+        if (!r.success) break;
+        await sdk.waitForCondition((s) => (s.player?.hp ?? 0) > before, 4_000).catch(() => {});
+        bites++;
+        session.noteProgress('inventory', 'eat');
+    }
+}
+
+async function armTrip(): Promise<void> {
+    const best = bankFood();
+    const have = foodCount();
+    if (have < FOOD_TARGET && best) {
+        const take = Math.min(FOOD_TARGET - have, best.count ?? 0);
+        if (take > 0) {
+            const r = await bot.withdrawItem(best, take, { asNote: false });
+            log(`Withdraw ${take} ${best.name}: ${r.success || r.partial ? 'ok' : r.message}`);
+        }
+    }
+    foodShort = foodCount() < FOOD_TARGET && (sdk.findBankItem(/./)?.count ?? 0) !== -1 && bankFood() == null;
+    if (foodShort) session.log('warn', `Only ${foodCount()} food — Edgeville bank has no more`);
+}
+
+async function bankTrip(): Promise<boolean> {
+    if (session.metrics().phase !== 'deposit') await session.setPhase('deposit');
+    const fromX = pos().x;
+    const fromZ = pos().z;
+    if (!(await goToSurfaceBank())) {
+        const nowDist = distTo(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z);
+        if (pos().x !== fromX || pos().z !== fromZ) {
+            log(`Toward Edgeville @ ${pos().x},${pos().z} (${Math.round(nowDist)} tiles)`);
+            return false;
+        }
+        session.noteFailure('bank_walk', 'Could not reach Edgeville');
+        return false;
+    }
+    if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
+        session.noteFailure('bank_open', 'Edgeville bank open failed');
+        return false;
+    }
+    const before = countAddy();
+    for (const item of sdk.getInventory()) {
+        const name = item.name?.trim();
+        if (!name || !ADDY.test(name)) continue;
+        if ((item.count ?? 0) > 0) session.recordGain(name, item.count ?? 1);
+    }
+    for (;;) {
+        const item = extras().find((i) => ADDY.test(i.name)) ?? extras()[0];
+        if (!item) break;
+        // Keep the pickaxe and trip food; deposit everything else (ore first).
+        if (PICKAXE.test(item.name) || (isFood(item.name) && foodCount() <= FOOD_TARGET)) break;
+        const r = await bot.depositItem(item, -1);
+        if (!r.success) break;
+    }
+    // Deposits above skip kept food; sweep remaining ore-only extras.
+    for (;;) {
+        const item = sdk
+            .getInventory()
+            .filter((i) => (i.count ?? 0) > 0 && ADDY.test(i.name))[0];
+        if (!item) break;
+        const r = await bot.depositItem(item, -1);
+        if (!r.success) break;
+    }
+    if (!hasPickaxe()) {
+        const pick =
+            sdk.findBankItem(/^rune pickaxe$/i) ??
+            sdk.findBankItem(/^adamant pickaxe$/i) ??
+            sdk.findBankItem(PICKAXE);
+        if (pick) await bot.withdrawItem(pick, 1);
+    }
+    session.captureBankStock();
+    await bot.closeBank();
+    await eatAtBank();
+    // Re-open for the food top-up (eatAtBank closed the bank).
+    if (sdk.getState()?.bank?.isOpen || (await bot.openBank()).success) {
+        await armTrip();
+        session.captureBankStock();
+        await bot.closeBank();
+    }
+    const deposited = before - countAddy();
+    if (deposited > 0) {
+        banked += deposited;
+        session.recordTrip(deposited);
+    }
+    session.noteProgress('bank', 'edgeville');
+    log(`Banked ${deposited} addy | trip ${session.metrics().trips} total ${banked} | deaths ${deaths} | Mining ${mining()} (${miningXp()} xp)`);
+    return hasPickaxe();
+}
+
+function addyRocks() {
+    return (sdk.getNearbyLocs() ?? [])
+        .filter(
+            (l) =>
+                ADDY_ROCK.test(l.name) &&
+                l.optionsWithIndex.some((o) => /^mine$/i.test(o.text)) &&
+                l.reachable !== false
+        )
+        .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99));
+}
+
+async function eatWild(): Promise<void> {
+    while (pos().hp <= pos().maxHp - 10 && !pos().isDead) {
+        const food = invEdible();
+        if (!food) break;
+        const before = pos().hp;
+        const r = await bot.eatFood(food);
+        if (!r.success) break;
+        await sdk.waitForCondition((s) => (s.player?.hp ?? 0) > before, 4_000).catch(() => {});
+    }
+}
+
+async function mineAddy(): Promise<boolean> {
+    await closeUi();
+    if (!atHobgoblin() || freeSlots() <= 0) return false;
+    let rocks = addyRocks();
+    if (!rocks.length) {
+        await sdk.scanNearbyLocs(12).catch(() => {});
+        rocks = addyRocks();
+    }
+    if (!rocks.length) {
+        session.noteFailure('addy', `No adamant rock nearby @ ${pos().x},${pos().z}`);
+        return false;
+    }
+    const rock = rocks[0]!;
+    if ((rock.distance ?? 99) > 2) await sendWalkTo(rock.x, rock.z, 2);
+    const before = countAddy();
+    const xpBefore = miningXp();
+    const life = pos().lifeId;
+    const mine = rock.optionsWithIndex.find((o) => /^mine$/i.test(o.text));
+    intent(`Mine ${rock.name} @ ${rock.x},${rock.z}`);
+    if (mine) await sdk.sendInteractLoc(rock.x, rock.z, rock.id, mine.opIndex);
+    await sdk
+        .waitForCondition(
+            (s) =>
+                s.player?.isDead === true ||
+                s.player?.lifeId !== life ||
+                s.inventory.filter((i) => ADDY.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0) > before ||
+                (s.skills.find((sk) => sk.name === 'Mining')?.experience ?? 0) > xpBefore ||
+                (s.player?.combat?.inCombat === true && s.player?.combat?.targetType === 'player'),
+            20_000
+        )
+        .catch(() => {});
+    await closeUi();
+    if (pos().hp <= pos().maxHp - 10 && foodCount() > 0) await eatWild();
+    if (countAddy() > before || miningXp() > xpBefore) {
+        session.noteProgress('xp', 'adamant');
+        log(`Mined addy ${countAddy()} free=${freeSlots()} @ ${pos().x},${pos().z}`);
+        return true;
+    }
+    if (seePker() || pos().isDead) return false;
+    session.noteFailure('addy', `Nothing from ${rock.name}`);
+    return false;
+}
+
+async function mineAllAddy(): Promise<void> {
+    if (session.metrics().phase !== 'addy') await session.setPhase('addy');
+    let dry = 0;
+    while (!pos().isDead && freeSlots() > 0 && dry < 3 && !seePker()) {
+        if (!atHobgoblin()) return;
+        if (needsHeal() && foodCount() === 0) return;
+        if (needsHeal()) await eatWild();
+        const mined = await mineAddy();
+        if (mined) dry = 0;
+        else {
+            dry++;
+            if (dry < 3) await sdk.waitForTicks(4).catch(() => {});
+        }
+    }
+    log(`Hobgoblin clear addy ${countAddy()} free=${freeSlots()} @ ${pos().x},${pos().z}`);
+}
+
+async function waitRespawn(): Promise<void> {
+    const life = pos().lifeId;
+    deaths++;
+    log(`Died life ${life} @ ${pos().x},${pos().z} ore=${countAddy()} — waiting respawn`);
+    intent('Dead — waiting Lumbridge respawn');
+    await sdk.waitForCondition((s) => !s.player?.isDead && s.player?.lifeId !== life, 45_000).catch(() => {});
+    await closeUi();
+    session.noteProgress('location', 'respawn');
+}
+
+session.registerRecovery([
+    {
+        name: 'heal',
+        run: async () => {
+            if (!needsHeal()) return false;
+            if (foodCount() > 0) {
+                await eatWild();
+                return !needsHeal();
+            }
+            if (northOfDitch()) await leaveWildy();
+            return bankTrip();
+        }
+    },
+    {
+        name: 'bank_ore',
+        run: async () => {
+            if (!shouldBank()) return false;
+            if (northOfDitch()) await leaveWildy();
+            return bankTrip();
+        }
+    },
+    {
+        name: 'to_hob',
+        run: async () => {
+            if (shouldBank()) return false;
+            return goToHob();
+        }
+    }
+]);
+
+let deathsThisSession = 0;
+const MAX_DEATHS_PER_SESSION = 3;
+let startHeal = true;
+
+try {
+    await bot.skipTutorial();
+    await closeUi();
+    log(
+        `Hobgoblin adamant start Mining ${mining()} (${miningXp()} xp) ` +
+            `@ ${pos().x},${pos().z} hp=${pos().hp}/${pos().maxHp} pick=${sdk.findEquipmentItem(PICKAXE)?.name ?? sdk.findInventoryItem(PICKAXE)?.name ?? 'none'}`
+    );
+
+    if (mining() < 40) {
+        session.stop('mining_level', `Mining ${mining()} — adamant needs 40`);
+    }
+
+    while (!session.isStopped()) {
+        session.maybeHeartbeat();
+        await closeUi();
+        if (pos().isDead) {
+            deathsThisSession++;
+            await waitRespawn();
+            if (deathsThisSession >= MAX_DEATHS_PER_SESSION) {
+                session.stopRestartable('death_cap', `Died ${deathsThisSession} times this session`);
+                break;
+            }
+            if (!hasPickaxe()) {
+                if (northOfDitch()) await leaveWildy();
+                await bankTrip();
+                if (!hasPickaxe()) {
+                    session.stop('cannot_regear', 'No pickaxe in bank after death');
+                    break;
+                }
+            }
+            continue;
+        }
+        if (seePker()) {
+            log('Player attack — fleeing south, no retaliation');
+            await leaveWildy();
+            if (pos().isDead) continue;
+            await bankTrip();
+            continue;
+        }
+        if (session.needsRecovery()) {
+            if ((await session.recover()) === 'exhausted') break;
+            continue;
+        }
+        if (startHeal) {
+            startHeal = false;
+            if (pos().hp < pos().maxHp - 8) {
+                log(`Start heal ${pos().hp}/${pos().maxHp} — Edgeville eat then hobgoblin`);
+                if (northOfDitch()) await leaveWildy();
+                if (pos().isDead) continue;
+                await bankTrip();
+                continue;
+            }
+        }
+        if (needsHeal() && foodCount() === 0) {
+            if (northOfDitch()) await leaveWildy();
+            if (pos().isDead) continue;
+            await bankTrip();
+            continue;
+        }
+        if (shouldBank()) {
+            if (northOfDitch()) await leaveWildy();
+            if (pos().isDead) continue;
+            await bankTrip();
+            continue;
+        }
+        if (!hasPickaxe()) {
+            if (northOfDitch()) await leaveWildy();
+            await bankTrip();
+            if (!hasPickaxe()) {
+                session.stop('no_pickaxe', 'No pickaxe after bank — check Edgeville');
+                break;
+            }
+            continue;
+        }
+        if (atHobgoblin() && freeSlots() > 0) {
+            if (session.metrics().phase !== 'addy') await session.setPhase('addy');
+            await mineAllAddy();
+            continue;
+        }
+        if (!atHobgoblin()) {
+            await goToHob();
+            continue;
+        }
+        if (session.metrics().phase !== 'addy') await session.setPhase('addy');
+        await mineAddy();
+    }
+
+    const stop = session.metrics().stopReason;
+    if (stop) log(`stopped ${stop.code} @ ${stop.location.x},${stop.location.z}`);
+} catch (err) {
+    console.error('Script error:', err);
+} finally {
+    await session.finalizeStop();
+    console.log('Disconnecting SDK; browser client can stay open.');
+    await sdk.disconnect();
+}
