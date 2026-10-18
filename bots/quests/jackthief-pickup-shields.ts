@@ -6,9 +6,9 @@
  * First run from anywhere in Kandarin: banks EVERYTHING at Catherby, walks
  * to the Ardougne heroes and dies to one for a Lumbridge respawn (no air
  * runes needed), climbs to Duke Horacio's room. Then sweeps the floor for
- * dropped dragonfire shields, banks full loads at Lumbridge bank, and
+ * dropped dragonfire shields, banks full loads at Draynor bank, and
  * returns to the Duke — a sustained duty loop. Switch him off when the
- * drops stop; shields stay banked at Lumbridge.
+ * drops stop; shields stay banked at Draynor.
  *
  * Drop mode (`--drop`, jackthief): reverses the flow — repeatedly asks Duke
  * for a dragonfire shield ("shield that will protect me from the dragon")
@@ -30,6 +30,7 @@ const PICKER = /pigfat/i;
 const MAX_MISSES = 3;
 
 const CATHERBY_BANK = { x: 2808, z: 3443 };
+const DRAYNOR_BANK = { x: 3092, z: 3243 };
 const HEROES = { x: 2630, z: 3288 };
 const CASTLE_STAIRS = { x: 3205, z: 3208 };
 const DUKE = { x: 3212, z: 3220 };
@@ -273,22 +274,21 @@ await runScript(async ({ bot, sdk }) => {
         return picked;
     }
 
+    /** Bank full shield loads at Draynor — probed: Lumbridge Castle has no
+     * usable booth on any floor (level 2 is open battlements), and Draynor
+     * is a straight walk west. While the picker treks, the dropper idles
+     * (picker-gated), so nothing despawns. */
     async function bankShields(): Promise<boolean> {
-        // The booth's floor is not assumed: try each castle level in turn until
-        // the bank opens. (x/z alone reads "close" from the wrong floor.)
-        await walkNear(LUMBRIDGE_BANK.x, LUMBRIDGE_BANK.z, 4);
-        let open = sdk.getState()?.bank?.isOpen ?? false;
-        for (let i = 0; i < 3 && !open; i++) {
-            if ((await bot.openBank()).success) {
-                open = true;
-                break;
+        if (distTo(DRAYNOR_BANK.x, DRAYNOR_BANK.z) > 6) {
+            if (pos().level !== 0) {
+                while (pos().level > 0) {
+                    if (!(await climb('down'))) break;
+                }
             }
-            if (pos().level >= 2) break;
-            if (!(await climb('up'))) break;
-            await walkNear(LUMBRIDGE_BANK.x, LUMBRIDGE_BANK.z, 4);
+            await walkNear(DRAYNOR_BANK.x, DRAYNOR_BANK.z, 4);
         }
-        if (!open) {
-            log(`BANK shields: Lumbridge bank did not open @ ${pos().x},${pos().z},${pos().level}`);
+        if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
+            log(`BANK shields: Draynor bank did not open @ ${pos().x},${pos().z},${pos().level}`);
             return false;
         }
         const before = shieldsInBag();
@@ -301,7 +301,7 @@ await runScript(async ({ bot, sdk }) => {
         await bot.closeBank().catch(() => undefined);
         await closeUi();
         const banked = before - shieldsInBag();
-        log(`BANK shields: banked ${banked} @ Lumbridge`);
+        log(`BANK shields: banked ${banked} @ Draynor`);
         return banked > 0;
     }
 
