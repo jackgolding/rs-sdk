@@ -201,7 +201,7 @@
         {
             "name": "jacklove14",
             "view": "loves",
-            "script": "bots/quests/rune-mysteries.ts",
+            "script": "bots/quests/tower-step-out.ts",
             "args": [
                 "jacklove14"
             ]
