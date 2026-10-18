@@ -210,46 +210,41 @@
         {
             "name": "jacklove15",
             "view": "loves",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/witchs-potion.ts",
             "args": [
-                "jacklove15",
-                "--bignet"
+                "jacklove15"
             ]
         },
         {
             "name": "jacklove16",
             "view": "loves",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/witchs-potion.ts",
             "args": [
-                "jacklove16",
-                "--bignet"
+                "jacklove16"
             ]
         },
         {
             "name": "jacklove17",
             "view": "loves",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/witchs-potion.ts",
             "args": [
-                "jacklove17",
-                "--bignet"
+                "jacklove17"
             ]
         },
         {
             "name": "jacklove18",
             "view": "loves",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/witchs-potion.ts",
             "args": [
-                "jacklove18",
-                "--bignet"
+                "jacklove18"
             ]
         },
         {
             "name": "jacklove19",
             "view": "loves",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/witchs-potion.ts",
             "args": [
-                "jacklove19",
-                "--bignet"
+                "jacklove19"
             ]
         },
         {
