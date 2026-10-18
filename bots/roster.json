@@ -50,9 +50,14 @@
         {
             "name": "Jackpoo4",
             "view": "fleet",
-            "script": "bots/quests/druidic-ritual.ts",
+            "script": "bots/quests/give-item.ts",
             "args": [
-                "Jackpoo4"
+                "Jackpoo4",
+                "give",
+                "jacklove3",
+                "jacklove5",
+                "--item=dragonfire shield",
+                "--bank=edgeville"
             ]
         },
         {
@@ -93,9 +98,13 @@
         {
             "name": "jacklove3",
             "view": "fleet",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/give-item.ts",
             "args": [
-                "jacklove3"
+                "jacklove3",
+                "receive",
+                "Jackpoo4",
+                "--item=dragonfire shield",
+                "--bank=edgeville"
             ]
         },
         {
@@ -109,17 +118,22 @@
         {
             "name": "jacklove5",
             "view": "fleet",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/give-item.ts",
             "args": [
-                "jacklove5"
+                "jacklove5",
+                "receive",
+                "Jackpoo4",
+                "--item=dragonfire shield",
+                "--bank=edgeville"
             ]
         },
         {
             "name": "jackthief",
             "view": "fleet",
-            "script": "bots/quests/hobgoblin-adamant.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "jackthief"
+                "jackthief",
+                "--shark"
             ]
         },
         {
