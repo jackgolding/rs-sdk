@@ -185,9 +185,10 @@
         {
             "name": "jacklove12",
             "view": "loves",
-            "script": "bots/quests/rune-mysteries.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
-                "jacklove12"
+                "jacklove12",
+                "thugs"
             ]
         },
         {
@@ -201,17 +202,19 @@
         {
             "name": "jacklove14",
             "view": "loves",
-            "script": "bots/quests/rune-mysteries.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
-                "jacklove14"
+                "jacklove14",
+                "thugs"
             ]
         },
         {
             "name": "jacklove15",
             "view": "loves",
-            "script": "bots/quests/witchs-potion.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
-                "jacklove15"
+                "jacklove15",
+                "thugs"
             ]
         },
         {
