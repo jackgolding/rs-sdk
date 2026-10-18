@@ -284,9 +284,10 @@
         {
             "name": "ABGARMY04",
             "view": "army",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
-                "ABGARMY04"
+                "ABGARMY04",
+                "--until=40"
             ]
         },
         {

@@ -131,7 +131,7 @@ services:
   quest-abgarmy04:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY04"]
+    command: ["bun", "bots/quests/bowstrings.ts", "ABGARMY04", "--until=40"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
