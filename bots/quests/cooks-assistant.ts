@@ -105,7 +105,7 @@ const EGG = /^egg$/i;
 const GRAIN = /^grain$/i;
 const COINS = /^coins$/i;
 
-const CHICKEN_FARM = { x: 3185, z: 3277 };
+const CHICKEN_COOP = { x: 3228, z: 3300 };
 const COW_GATE = { x: 3253, z: 3266 };
 const COW_PEN = { x: 3254, z: 3283 };
 const WHEAT_FIELD = { x: 3160, z: 3300 };
@@ -348,27 +348,24 @@ async function stockEmptyVessel(pattern: RegExp, label: string): Promise<boolean
 async function gatherEgg(): Promise<void> {
     if (invCount(EGG) > 0) return;
     await bot.closeInterface();
-    await travelTo(CHICKEN_FARM, 'the Lumbridge chicken farm');
-    // Hens lay via [ai_timer,_chicken] (flavour_text/chickens.rs2) — but only
-    // if the chicken type configures a `timer`. In this revision it does not
-    // (NpcType.timer defaults to -1, chicken sets none), so the timer never
-    // fires and no egg ever drops: 5 hens, 200+ ticks observed, zero piles.
-    // Chickens also drop no eggs (raw_chicken + feathers only) and no shop
-    // stocks them; the sole world source is a 5/128 imp roll. So the camp
-    // below is short and honest: it works on any world where hens lay, and
-    // fails loudly with the reason where they cannot.
+    // Static egg spawns, probe-verified: two Egg piles in the east Lumbridge
+    // chicken coop ((3229,3299) and (3226,3301), plus a Bucket at (3225,3294)).
+    // Hens themselves never lay in this revision (the chicken type configures
+    // no `timer`, so [ai_timer,_chicken] never fires), so this takes the
+    // static spawns and only waits briefly for a respawn — it never camps.
+    await travelTo(CHICKEN_COOP, 'the Lumbridge chicken coop');
     for (let i = 0; i < 20 && invCount(EGG) === 0; i++) {
         const pile = sdk.findGroundItem(EGG) ?? await sdk.scanFindGroundItem(EGG, 20).catch(() => null);
         if (pile) {
             const res = await bot.pickupItem(pile);
             log(`picked up egg: ${res.success}${res.success ? '' : ` (${res.message ?? '?'})`}`);
         } else if (i % 5 === 0) {
-            log(`waiting for a hen to lay @ (${pos().x},${pos().z}) (${i}/20)`);
+            log(`waiting for an egg respawn @ (${pos().x},${pos().z}) (${i}/20)`);
         }
         if (invCount(EGG) === 0) await sdk.waitForTicks(8);
     }
     if (invCount(EGG) === 0) {
-        throw new Error('gathering failed: no egg in the world (hens do not lay in this revision: the chicken type has no `timer`, so [ai_timer,_chicken] never fires; bank an egg first)');
+        throw new Error('gathering failed: no egg in the coop (static spawns empty and hens do not lay in this revision; bank an egg first)');
     }
     log('Bag: eggx1 (gathered)');
 }
