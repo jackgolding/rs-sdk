@@ -202,6 +202,8 @@ async function clickProduct(): Promise<boolean> {
 async function craftAll(): Promise<number> {
     let made = 0;
     let misses = 0;
+    // Let the lite client process the bank-close inventory update before slotting.
+    await sdk.waitForTicks(2).catch(() => {});
     const xpBeforeRun = sdk.getSkill('Crafting')?.experience ?? 0;
     void xpBeforeRun;
     while (count(LEATHER) > 0 && misses < 10 && !session.isStopped()) {
@@ -215,7 +217,7 @@ async function craftAll(): Promise<number> {
         intent(`Crafting ${PRODUCT_LABEL} (${count(LEATHER)} leather left)`);
         const r = await sdk.sendUseItemOnItem(needle.slot, leather.slot);
         if (!r.success) {
-            session.noteFailure('craft-use', r.message);
+            session.log('warn', `useItemOnItem: ${r.message} needle slot=${needle.slot} leather slot=${leather.slot} inv=${sdk.getInventory().map((i) => `${i.slot}:${i.name}x${i.count ?? 1}`).slice(0, 8).join(',')}`);
             misses++;
             await sdk.waitForTicks(1).catch(() => {});
             continue;
