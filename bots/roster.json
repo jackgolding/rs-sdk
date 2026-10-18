@@ -102,7 +102,7 @@
         {
             "name": "jacklove4",
             "view": "fleet",
-            "script": "bots/quests/dragon-bodies.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "jacklove4"
             ]
@@ -118,10 +118,9 @@
         {
             "name": "jackthief",
             "view": "fleet",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/dragon-bodies.ts",
             "args": [
-                "jackthief",
-                "--shark"
+                "jackthief"
             ]
         },
         {
