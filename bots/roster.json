@@ -124,10 +124,9 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/draynor-bank-all.ts",
             "args": [
-                "pigfat",
-                "--shark"
+                "pigfat"
             ]
         },
         {
