@@ -366,6 +366,14 @@ await runScript(async ({ bot, sdk }) => {
             }
             const shield = sdk.findInventoryItem(FIRE_SHIELD);
             if (!shield) {
+                // Don't farm into a pile the picker can't lift: pause while the
+                // floor holds a full bag's worth of unpicked shields.
+                const floor = ((await sdk.scanGroundItems(12).catch(() => null)) ?? sdk.getGroundItems() ?? [])
+                    .filter((g) => FIRE_SHIELD.test(g.name)).length;
+                if (floor >= 8) {
+                    await sdk.waitForTicks(10).catch(() => {});
+                    continue;
+                }
                 if (await claimShieldFromDuke()) {
                     refusals = 0;
                     continue;
@@ -413,7 +421,7 @@ await runScript(async ({ bot, sdk }) => {
         await sdk.waitForCondition((s) => !s.player?.isDead && (s.player?.lifeId ?? life) !== life, 45_000).catch(() => {});
         await closeUi();
     }
-    if (!inLumbridgeZone()) {
+    if (!inLumbridgeZone() && shieldsInBag() === 0) {
         log(`PICKUP-SHIELDS not in Lumbridge @ ${pos().x},${pos().z} — retry next restart`);
         await sdk.disconnect().catch(() => undefined);
         process.exit(1);
