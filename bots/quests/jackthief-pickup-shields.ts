@@ -274,8 +274,12 @@ await runScript(async ({ bot, sdk }) => {
     }
 
     async function bankShields(): Promise<boolean> {
-        if (distTo(LUMBRIDGE_BANK.x, LUMBRIDGE_BANK.z) > 8) {
-            if (pos().level !== 0) await climb('down');
+        // The bank booth shares x/z with the Duke's room one floor down, so the
+        // level check must come first — distance alone reads "close" from upstairs.
+        if (pos().level !== 0 || distTo(LUMBRIDGE_BANK.x, LUMBRIDGE_BANK.z) > 8) {
+            while (pos().level > 0) {
+                if (!(await climb('down'))) break;
+            }
             await walkNear(LUMBRIDGE_BANK.x, LUMBRIDGE_BANK.z, 4);
         }
         if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
