@@ -423,10 +423,9 @@
         {
             "name": "ABGARMY19",
             "view": "army",
-            "script": "bots/quests/sheep-shearer.ts",
+            "script": "bots/quests/draynor-bank-all.ts",
             "args": [
-                "ABGARMY19",
-                "--quest-only"
+                "ABGARMY19"
             ]
         },
         {
