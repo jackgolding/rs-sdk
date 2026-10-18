@@ -304,6 +304,7 @@ await runScript(async ({ bot, sdk }) => {
     log(`PICKUP-SHIELDS at Duke: duke=${sdk.findNearbyNpc(/duke/i) ? 'yes' : 'no'} @ ${pos().x},${pos().z},${pos().level}`);
 
     // ---- duty loop: sweep, bank full loads at Lumbridge, return ----
+    let idleSweeps = 0;
     for (;;) {
         await closeUi();
         if (pos().isDead) {
@@ -324,8 +325,13 @@ await runScript(async ({ bot, sdk }) => {
             continue;
         }
         if (picked > 0) {
+            idleSweeps = 0;
             log(`PICKUP-SHIELDS sweep: +${picked} (run total ${banked}, holding ${shieldsInBag()})`);
         } else {
+            idleSweeps++;
+            if (idleSweeps % 10 === 0) {
+                log(`PICKUP-SHIELDS waiting at Duke @ ${pos().x},${pos().z},${pos().level} — floor clear, banked ${banked}`);
+            }
             await sdk.waitForTicks(5).catch(() => {});
         }
     }
