@@ -15,6 +15,9 @@ import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
 import { existsSync, readFileSync, appendFileSync } from 'fs';
 import { dirname, join } from 'path';
+import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
+import { createRun, appendCheckpoint, summarizeRun, safeRunId } from '../../quest-lab/records';
+import type { JournalRule } from '../../quest-lab/evidence';
 
 const UNSHEERED_ID = 43;
 const FRED = { x: 3190, z: 3274 };
@@ -41,6 +44,21 @@ const SHEARS = /^shears$/i;
 const WOOL = /^wool$/i;
 const BALL = /^ball of wool$/i;
 const KEEP = /^(shears|coins|wool|ball of wool)$/i;
+
+const JOURNAL = { label: 'Sheep Shearer', title: 'Sheep Shearer' };
+
+// Journal rules, read from the quest's own journal script
+// (server/content/scripts/quests/quest_sheep/scripts/sheep_journal.rs2):
+//   not started -> "I can start this quest by speaking to Farmer Fred ..."
+//   active      -> "I need to collect N more balls of wool." (or the all-20 line)
+//   complete    -> "I brought Farmer Fred 20 balls of wool ..." + QUEST COMPLETE.
+// The complete text also contains "balls of wool", so the active rule must
+// exclude QUEST COMPLETE or it passes on a finished quest.
+const RULES: Record<string, JournalRule> = {
+    unstarted: { id: 'sheep:unstarted', kind: 'unstarted', all: ['I can start this quest by speaking to'] },
+    active: { id: 'sheep:active', kind: 'active', all: ['balls of wool'], none: ['QUEST COMPLETE'] },
+    complete: { id: 'sheep:complete', kind: 'complete', all: ['QUEST COMPLETE'] },
+};
 
 const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-'));
@@ -97,8 +115,66 @@ console.log('Opening/attaching the game client...');
 await sdk.connect();
 const bot = new BotActions(sdk);
 
+// ── durable run record + journal stage ──────────────────────────────────────
+// The journal is read BEFORE acting: a finished quest has nothing left to do,
+// and completion is proven by the journal, never by XP (a maxed account may
+// gain nothing from the 150 Crafting reward) or a chat line.
+// (The run record is created after the stage probe below, so the promotion
+// gate only requires what this run could demonstrate.)
+const MODE = process.env.QUEST_LAB_MODE === 'staging' ? 'staging' : 'development';
+
+/** Checkpoint gate. UNKNOWN is a failure like any other here: proceed on nothing. */
+async function checkpoint(name: keyof typeof RULES, label: string): Promise<boolean> {
+    const read = await readJournalCheckpoint(sdk, JOURNAL, RULES[name]!);
+    const verdict = read.verdict?.verdict ?? 'UNKNOWN';
+    appendCheckpoint(run.directory, {
+        checkpointId: name,
+        verdict,
+        reason: read.reason,
+        kind: RULES[name]!.kind,
+        rawLines: read.rawLines,
+    });
+    if (verdict !== 'PASS') {
+        log(`CHECKPOINT ${name} ${verdict}: ${read.reason}`);
+        return false;
+    }
+    log(`CHECKPOINT ${name} PASS (${label}) — ${read.reason}`);
+    return true;
+}
+
+/** The first stage rule that PASSes is the account's real stage. */
+async function readStage(): Promise<'unstarted' | 'active' | 'complete' | 'unknown'> {
+    for (const name of ['complete', 'active', 'unstarted'] as const) {
+        const read = await readJournalCheckpoint(sdk, JOURNAL, RULES[name]!);
+        log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
+        if (read.verdict?.verdict === 'PASS') return name;
+    }
+    return 'unknown';
+}
+
+const STAGE = await readStage();
+log(`Quest stage at start: ${STAGE}`);
+if (STAGE === 'unknown') throw new Error('could not determine the quest stage from the journal');
+
+// The promotion gate only checks what THIS run could demonstrate: a resumed
+// run can never produce an `unstarted` PASS, so requiring it would fail every
+// resume. Fresh runs must show all three.
+const REQUIRED = STAGE === 'complete' ? ['complete'] : STAGE === 'active' ? ['active', 'complete'] : ['unstarted', 'active', 'complete'];
+const run = createRun(join(process.cwd(), 'quest-lab', 'runs'), safeRunId('sheep', username, new Date().toISOString()), {
+    questId: 'sheep',
+    account: username,
+    mode: MODE,
+    scriptHash: Bun.hash(await Bun.file(import.meta.path).text()).toString(16),
+    fixtureHash: process.env.QUEST_LAB_FIXTURE_HASH ?? 'unrecorded',
+    contentHash: process.env.QUEST_LAB_CONTENT_HASH ?? 'unrecorded',
+    requiredCheckpoints: REQUIRED,
+});
+log(`Run record: ${run.directory} (mode=${MODE}, checkpoints=${REQUIRED.join(',')})`);
+
+if (STAGE === 'unstarted') await checkpoint('unstarted', 'quest not yet started');
+
 let lastIntent = '';
-let questComplete = false;
+let questComplete = STAGE === 'complete';
 let lastLoggedCraft = 0;
 
 function intent(msg: string): void {
@@ -206,6 +282,11 @@ async function talkFred(): Promise<boolean> {
 }
 
 async function startOrCheckQuest(): Promise<void> {
+    // The journal is authoritative: only an unstarted quest needs Fred's intro.
+    if (STAGE !== 'unstarted') {
+        log(`Skipping Fred's intro: journal stage is ${STAGE}`);
+        return;
+    }
     // Talking to Fred with balls in inv starts the give-loop; leave that to turnInWool
     // so we don't walk away mid-hand-in.
     if (count(BALL) > 0) return;
@@ -310,6 +391,11 @@ async function turnInWool(): Promise<void> {
 
     if (!questComplete) {
         log(`Gave wool to Fred | balls left ${count(BALL)} | +${craftXp() - xpBefore} xp`);
+    }
+    if (count(BALL) === 0 && !questComplete) {
+        // Every ball handed over: the journal is the verdict, not XP — a maxed
+        // account may gain nothing from the 150 Crafting reward.
+        if (await checkpoint('complete', 'Fred took all 20 balls')) questComplete = true;
     }
     await bot.dismissBlockingUI();
 }
@@ -610,6 +696,26 @@ try {
 
     await startOrCheckQuest();
 
+    if (STAGE === 'complete') {
+        log('Sheep Shearer already complete (journal-verified)');
+        await checkpoint('complete', 'already complete at start');
+        if (questOnly) {
+            const summary = summarizeRun(run.directory);
+            if (!summary.ok) throw new Error(`promotion gate failed: missing/unpassed ${JSON.stringify(summary.missing)}`);
+            log(`Run record verified: ${summary.ok} (${summary.missing.length} outstanding)`);
+            log('DONE Sheep Shearer verified via journal (already complete)');
+            await sdk.disconnect();
+            process.exit(0);
+        }
+    } else if (STAGE === 'unstarted') {
+        // Gate BEFORE shearing: the intro dialog must really have started it.
+        if (!(await checkpoint('active', 'Fred gave the shearing task'))) {
+            throw new Error('active checkpoint failed after Fred’s intro');
+        }
+    } else {
+        log('Resuming mid-quest: the shearing task is already journal-confirmed');
+    }
+
     while (true) {
         await closeUi();
         if (pos().isDead) {
@@ -623,6 +729,16 @@ try {
 
         if (questComplete && (questOnly || craft() >= CRAFT_UNTIL)) {
             log(`Done. Crafting ${craft()} (${craftXp()} xp) questComplete=${questComplete}`);
+            if (questOnly) {
+                if (!(await checkpoint('complete', 'final verification'))) {
+                    throw new Error('completion checkpoint failed: journal does not report the quest complete');
+                }
+                const summary = summarizeRun(run.directory);
+                if (!summary.ok) {
+                    throw new Error(`promotion gate failed: missing/unpassed ${JSON.stringify(summary.missing)}`);
+                }
+                log(`Run record verified: ${summary.ok} (${summary.missing.length} outstanding)`);
+            }
             break;
         }
 
