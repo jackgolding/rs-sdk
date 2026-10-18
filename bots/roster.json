@@ -283,10 +283,9 @@
         {
             "name": "ABGARMY04",
             "view": "army",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/red-dragons.ts",
             "args": [
-                "ABGARMY04",
-                "--until=40"
+                "ABGARMY04"
             ]
         },
         {
@@ -300,9 +299,10 @@
         {
             "name": "ABGARMY06",
             "view": "army",
-            "script": "bots/quests/lost-city.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
-                "ABGARMY06"
+                "ABGARMY06",
+                "--until=40"
             ]
         },
         {
