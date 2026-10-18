@@ -35,6 +35,12 @@
  * and bots must never stand in the NW corner below them (the 3187-3189,3842
  * pile). Targets there are skipped and stands there walk straight back to camp.
  *
+ * Attack beats movement: every dragon selector also requires the client's own
+ * reachable flag (a reachable:false interact dies as cant_reach before any
+ * packet — static pathfinding alone disagrees with the live server across
+ * lava), and patrol moves one short step per hunt tick so a fresh dragon is
+ * engaged on the next iteration instead of walked past.
+ *
  *   bun bots/quests/red-dragons.ts jacklove1
  *   bun bots/quests/red-dragons.ts jacklove2 --then bots/quests/fishing-route.ts jacklove2 --bignet
  */
@@ -415,9 +421,16 @@ async function patrolIsle(): Promise<void> {
         patrolAt = (patrolAt + 1) % PATROL.length;
     }
     const next = PATROL[patrolAt % PATROL.length]!;
+    // Attack preempts patrol: move one short step per hunt tick so a fresh
+    // dragon is engaged on the next iteration instead of walked past on a
+    // long blind leg.
+    const d = Math.hypot(pos().x - next.x, pos().z - next.z);
+    const stepLen = Math.min(4, d);
+    const sx = d === 0 ? next.x : Math.round(pos().x + ((next.x - pos().x) / d) * stepLen);
+    const sz = d === 0 ? next.z : Math.round(pos().z + ((next.z - pos().z) / d) * stepLen);
     session.setAnchor(next.x, next.z);
     intent(`Pack patrol ${next.x},${next.z}`);
-    await hopToward(next.x, next.z, 2);
+    await hopToward(sx, sz, 1);
 }
 
 async function ui(): Promise<void> {
@@ -1716,7 +1729,8 @@ function findFreshDragon() {
                     inHuntBox(n.x, n.z) &&
                     !inLavaCorner(n.x, n.z) &&
                     !blacklistedUntil(n.index) &&
-                    !posBanned(n.x, n.z)
+                    !posBanned(n.x, n.z) &&
+                    n.reachable !== false
             )
             .sort((a, b) => {
                 const aMine = a.index === mine ? 0 : 1;
@@ -1742,7 +1756,8 @@ function findTankDragon() {
             (n.hp === null || n.hp > 0) &&
             n.optionsWithIndex.some((o) => /attack/i.test(o.text)) &&
             inHuntBox(n.x, n.z) &&
-            !inLavaCorner(n.x, n.z)
+            !inLavaCorner(n.x, n.z) &&
+            n.reachable !== false
     );
     if (cands.length === 0) return null;
     if (!lead) {
@@ -1791,7 +1806,8 @@ function findDragon() {
                     DRAGON.test(n.name) &&
                     (n.hp === null || n.hp > 0) &&
                     n.optionsWithIndex.some((o) => /attack/i.test(o.text)) &&
-                    inHuntBox(n.x, n.z)
+                    inHuntBox(n.x, n.z) &&
+                    n.reachable !== false
             )
             .sort((a, b) => {
                 const aMine = a.index === mine ? 0 : 1;
@@ -1812,7 +1828,7 @@ function hasDragonTarget(): boolean {
     const p = pos();
     if (!p.inCombat || p.targetType !== 'npc' || p.targetIndex < 0) return false;
     const target = sdk.getNearbyNpcs().find((n) => n.index === p.targetIndex);
-    return !!target && DRAGON.test(target.name) && (target.hp === null || target.hp > 0);
+    return !!target && DRAGON.test(target.name) && (target.hp === null || target.hp > 0) && target.reachable !== false;
 }
 
 async function hitDragon(target: { index: number; optionsWithIndex: { text: string; opIndex: number }[] }): Promise<void> {
@@ -1899,6 +1915,7 @@ function findSoloDragon() {
             !inLavaCorner(n.x, n.z) &&
             !blacklistedUntil(n.index) &&
             !posBanned(n.x, n.z) &&
+            n.reachable !== false &&
             reachable(n.x, n.z)
     );
     const fresh = findFreshDragonIn(cands, mine);
