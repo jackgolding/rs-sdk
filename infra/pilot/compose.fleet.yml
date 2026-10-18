@@ -97,7 +97,7 @@ services:
   quest-abgarmy03:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/bowstrings.ts", "ABGARMY03", "--until=31"]
+    command: ["bun", "bots/quests/lost-city.ts", "ABGARMY03"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -199,7 +199,7 @@ services:
   quest-abgarmy06:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/bowstrings.ts", "ABGARMY06", "--until=31"]
+    command: ["bun", "bots/quests/lost-city.ts", "ABGARMY06"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
