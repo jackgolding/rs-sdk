@@ -269,10 +269,9 @@
         {
             "name": "ABGARMY01",
             "view": "army",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/lost-city.ts",
             "args": [
-                "ABGARMY01",
-                "--until=31"
+                "ABGARMY01"
             ]
         },
         {
