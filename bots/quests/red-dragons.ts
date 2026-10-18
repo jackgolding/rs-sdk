@@ -23,6 +23,18 @@
  * instead of looping back. A player attack: Protect from Melee, run south,
  * log out.
  *
+ * Every hunter fights with Protect from Melee up while engaged with a red
+ * dragon (recharged each trip, see below). After kitting at Edgeville the
+ * bot stops at the Edgeville monastery: it climbs upstairs, equips full
+ * monk robes (top + bottom, withdrawn from the bank when missing), prays
+ * at the altar to full, climbs back downstairs, then heads for the ditch.
+ * Robes stay worn for the prayer bonus — loot upgrades never replace them.
+ *
+ * Isle movement bans: dragons in the NW lava pocket (x <= 3187, z >= 3850)
+ * are visible across lava but unreachable on foot, and bots must never
+ * stand in the NW corner below them (the 3187-3189,3842 pile). Targets
+ * there are skipped and stands there walk straight back to camp.
+ *
  *   bun bots/quests/red-dragons.ts jacklove1
  *   bun bots/quests/red-dragons.ts jacklove2 --then bots/quests/fishing-route.ts jacklove2 --bignet
  */
@@ -91,10 +103,12 @@ const TANK = TANK_ARG ? new RegExp(`^${TANK_ARG.slice('--tank='.length)}$`, 'i')
 const DPS_DELAY_ARG = process.argv.find((a) => a.startsWith('--dps-delay='));
 const DPS_DELAY_TICKS = Math.max(0, parseInt(DPS_DELAY_ARG?.split('=')[1] ?? '2', 10) || 0);
 const HUNT = { minX: 3176, maxX: 3226, minZ: 3812, maxZ: 3854 };
-/** Circuit over the wiki spawn samples so the pack walks the whole isle. */
+/** Circuit over the wiki spawn samples so the pack walks the whole isle.
+ * 3181,3850 is deliberately NOT on the circuit: it is the NW lava-corner
+ * trap (unreachable dragons across lava at x <= 3187, z >= 3850). */
 const PATROL: Tile[] = [
     { x: 3200, z: 3834 },
-    { x: 3181, z: 3850 },
+    { x: 3205, z: 3840 },
     { x: 3190, z: 3834 },
     { x: 3184, z: 3820 },
     { x: 3213, z: 3819 },
@@ -104,6 +118,35 @@ const PATROL: Tile[] = [
 const DRAGON_GATE = { x: 3201, z: 3856 };
 const GATE_NORTH = { x: 3202, z: 3862 };
 const GATE_SOUTH = { x: 3202, z: 3848 };
+/** NW lava pocket: dragons here are visible across lava but unreachable on
+ * foot (all stuck logs: 3181-3186,3851-3854). Never target them. */
+function inLavaCorner(x: number, z: number): boolean {
+    return x <= 3187 && z >= 3850;
+}
+/** NW stand trap: the pile tile 3187-3189,3842 staring across the lava.
+ * Bots must never stand here — the hunt loop walks straight back to camp. */
+function inStandTrap(): boolean {
+    const p = pos();
+    return p.level === 0 && p.x >= 3176 && p.x <= 3193 && p.z >= 3839 && p.z <= 3850;
+}
+/** Full monk robes for the prayer bonus while Protect from Melee is up. */
+const MONK_TOP = /^monk's robe top$/i;
+const MONK_BOTTOM = /^monk's robe$/i;
+function isRobe(name: string): boolean {
+    return MONK_TOP.test(name) || MONK_BOTTOM.test(name);
+}
+function wearingRobes(): boolean {
+    const worn = sdk.getEquipment() ?? [];
+    return worn.some((w) => MONK_TOP.test(w.name)) && worn.some((w) => MONK_BOTTOM.test(w.name));
+}
+/** Edgeville monastery grounds (garden tile from black-knights-fortress). */
+const MONASTERY_GARDEN = { x: 3056, z: 3504 };
+function prayerPoints(): number {
+    return sdk.getPrayerState()?.prayerPoints ?? 0;
+}
+function prayerLevel(): number {
+    return sdk.getPrayerState()?.prayerLevel ?? 0;
+}
 const LOGOUT_TAB = 10;
 const LOGOUT_BUTTON = 2458;
 const MEMBERS_GATE = { x: 3224, z: 3904 };
@@ -443,8 +486,10 @@ async function eatIfNeeded(): Promise<void> {
 }
 
 async function flickMelee(): Promise<void> {
-    if (!isTank()) return;
-    if (hasDragonTarget() && !pos().isDead) {
+    if (pos().isDead) return;
+    if (hasDragonTarget()) {
+        // Every hunter prays through the fight, not just the tank.
+        if (prayerPoints() <= 0) return;
         const r = await bot.activatePrayer('protect_from_melee').catch(() => null);
         if (r && r.success && r.reason !== 'already_active') log(`Prayer melee on (${r.message})`);
     } else {
@@ -485,6 +530,98 @@ async function equipWorn(): Promise<void> {
         }
     }
     if (wearingDlong()) await preferAggressive();
+}
+
+async function equipMonkRobes(): Promise<void> {
+    for (const pat of [MONK_TOP, MONK_BOTTOM]) {
+        const worn = (sdk.getEquipment() ?? []).some((w) => pat.test(w.name));
+        if (worn) continue;
+        const piece = sdk.findInventoryItem(pat);
+        if (!piece) continue;
+        const r = await bot.equipItem(piece);
+        log(`Equip ${piece.name}: ${r.success ? 'ok' : r.message}`);
+    }
+}
+
+/** Climb the monastery stairs (discovered at runtime — no hardcoded tiles). */
+async function climbMonastery(want: 'up' | 'down'): Promise<boolean> {
+    const opt = want === 'up' ? /climb-up|climb.up/i : /climb-down|climb.down/i;
+    const before = pos().level;
+    await sdk.scanNearbyLocs(10).catch(() => {});
+    const loc = (sdk.getNearbyLocs() ?? [])
+        .filter(
+            (l) =>
+                /stair|ladder/i.test(l.name) &&
+                (l.distance ?? 99) <= 8 &&
+                (l.optionsWithIndex ?? []).some((o) => opt.test(o.text))
+        )
+        .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+    if (!loc) {
+        log(`No monastery stairs to climb ${want} @ ${pos().x},${pos().z} L${before}`);
+        return false;
+    }
+    const match = loc.optionsWithIndex.find((o) => opt.test(o.text));
+    if (!match) return false;
+    if ((loc.distance ?? 99) > 2) await hopToward(loc.x, loc.z, 2);
+    await sdk.sendInteractLoc(loc.x, loc.z, loc.id, match.opIndex);
+    await sdk.waitForCondition((s) => (s.player?.level ?? before) !== before, 8_000).catch(() => {});
+    return pos().level !== before;
+}
+
+/**
+ * Edgeville monastery stop after banking: climb upstairs, put on full monk
+ * robes (top + bottom from the bank when missing), pray at the altar to
+ * full, climb back downstairs. Best-effort — any step failing logs a warn
+ * and the trip continues, so the bot is never stranded here.
+ */
+async function monasteryStop(): Promise<void> {
+    if (inMageBank() || wildySurface()) return;
+    if (pos().level !== 0) return;
+    if (wearingRobes() && prayerPoints() >= prayerLevel() && prayerLevel() > 0) return;
+    intent('Monastery stop: robes + prayer');
+    if (distTo(MONASTERY_GARDEN.x, MONASTERY_GARDEN.z) > 6) {
+        await walkSafe(MONASTERY_GARDEN.x, MONASTERY_GARDEN.z, 4);
+    }
+    if (pos().level === 0 && !(await climbMonastery('up'))) {
+        session.log('warn', `Monastery stairs up not found @ ${pos().x},${pos().z} — skipping prayer stop`);
+        return;
+    }
+    // Robe spawns upstairs (top + bottom): take them when the bank has none.
+    for (let n = 0; n < 4; n++) {
+        if (sdk.findInventoryItem(MONK_TOP) && sdk.findInventoryItem(MONK_BOTTOM)) break;
+        const scanned = (await sdk.scanGroundItems(8).catch(() => null)) ?? [];
+        const spawn = [...scanned, ...(sdk.getGroundItems() ?? [])]
+            .filter((g) => isRobe(g.name))
+            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+        if (!spawn) break;
+        if ((spawn.distance ?? 99) > 1) await hopToward(spawn.x, spawn.z, 1);
+        const needTop = !sdk.findInventoryItem(MONK_TOP) && MONK_TOP.test(spawn.name);
+        const needBottom = !sdk.findInventoryItem(MONK_BOTTOM) && MONK_BOTTOM.test(spawn.name);
+        if (!needTop && !needBottom) break;
+        await sdk.sendPickup(spawn.x, spawn.z, spawn.id);
+        await sdk.waitForTicks(1).catch(() => {});
+        session.noteProgress('inventory', spawn.name);
+        log(`Took ${spawn.name} upstairs @ ${spawn.x},${spawn.z}`);
+    }
+    await equipMonkRobes();
+    if (!wearingRobes()) {
+        session.log('warn', `No full monk robes (top+bottom) in kit or bank — praying without them @ ${pos().x},${pos().z}`);
+    }
+    await sdk.scanNearbyLocs(10).catch(() => {});
+    const altar = (sdk.getNearbyLocs() ?? [])
+        .filter((l) => /altar/i.test(l.name) && (l.optionsWithIndex ?? []).some((o) => /pray/i.test(o.text)))
+        .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+    const pray = altar?.optionsWithIndex.find((o) => /pray/i.test(o.text));
+    if (!altar || !pray) {
+        session.log('warn', `No prayer altar upstairs @ ${pos().x},${pos().z} L${pos().level}`);
+    } else {
+        if ((altar.distance ?? 99) > 2) await hopToward(altar.x, altar.z, 2);
+        const before = prayerPoints();
+        await sdk.sendInteractLoc(altar.x, altar.z, altar.id, pray.opIndex);
+        await sdk.waitForCondition((s) => (s.prayers?.prayerPoints ?? 0) > before, 8_000).catch(() => {});
+        log(`Monastery altar ${before} -> ${prayerPoints()}/${prayerLevel()} robes=${wearingRobes() ? 'full' : 'missing'}`);
+    }
+    if (pos().level !== 0) await climbMonastery('down');
 }
 
 async function hopToward(x: number, z: number, tolerance = 4): Promise<void> {
@@ -1035,7 +1172,7 @@ async function cookAllRaw(): Promise<void> {
             return;
         }
         await equipWorn();
-        await depositExcept((name) => DLONG.test(name) || FIRE_SHIELD.test(name) || /^harpoon$/i.test(name));
+        await depositExcept((name) => isRobe(name) || DLONG.test(name) || FIRE_SHIELD.test(name) || /^harpoon$/i.test(name));
         if (!bankHasRaw()) {
             log('No raw food left in the bank');
             await bot.closeBank();
@@ -1155,14 +1292,14 @@ async function fishSharksUntilPacked(): Promise<void> {
         }
         intent(`Shark trip ${trip}`);
         if (occupied() >= 20 && (await openBooth(CATHERBY_BANK))) {
-            await depositExcept((name) => DLONG.test(name) || FIRE_SHIELD.test(name) || /^harpoon$/i.test(name));
+            await depositExcept((name) => isRobe(name) || DLONG.test(name) || FIRE_SHIELD.test(name) || /^harpoon$/i.test(name));
             await bot.withdrawItem(/^harpoon$/i, 1, { asNote: false }).catch(() => {});
             await bot.closeBank();
         }
         await fishOneInventory();
         await cookInventoryRaw();
         if (!(await openBooth(CATHERBY_BANK))) continue;
-        await depositExcept((name) => DLONG.test(name) || FIRE_SHIELD.test(name) || /^harpoon$/i.test(name));
+        await depositExcept((name) => isRobe(name) || DLONG.test(name) || FIRE_SHIELD.test(name) || /^harpoon$/i.test(name));
         await bot.closeBank();
         session.noteProgress('inventory', `shark trip ${trip}`);
         log(`Banked shark trip ${trip}`);
@@ -1222,6 +1359,17 @@ async function fillTripBag(): Promise<number> {
         }
         await withdrawPattern(FIRE_SHIELD, 1);
     }
+    for (const [pat, label] of [[MONK_TOP, "monk's robe top"], [MONK_BOTTOM, "monk's robe"]] as const) {
+        const have =
+            (sdk.getEquipment() ?? []).some((w) => pat.test(w.name)) || sdk.findInventoryItem(pat);
+        if (!have) {
+            if (!bankHas(pat)) {
+                session.log('warn', `No ${label} in the bank — monastery stop prays without full robes`);
+            } else {
+                await withdrawPattern(pat, 1);
+            }
+        }
+    }
     await bot.closeBank();
     await equipWorn();
     if (!wearingDlong()) {
@@ -1232,7 +1380,7 @@ async function fillTripBag(): Promise<number> {
         }
     }
     if (!(await reopenTripBank())) return tripFoodCount();
-    await depositExcept((name) => isTripFood(name) || DLONG.test(name) || FIRE_SHIELD.test(name));
+    await depositExcept((name) => isRobe(name) || isTripFood(name) || DLONG.test(name) || FIRE_SHIELD.test(name));
     while (tripFoodCount() > FOOD_PACK) {
         const extra = sdk.getInventory().find((i) => isTripFood(i.name) && (i.count ?? 0) > 0);
         if (!extra) break;
@@ -1339,14 +1487,16 @@ async function prepareAtEdgeville(): Promise<void> {
     await fillTripBag();
     if (sdk.getState()?.bank?.isOpen) await bot.closeBank();
     await equipWorn();
+    await equipMonkRobes();
     if (!bagIsTripFood() && (await openBooth(EDGEVILLE))) {
-        await depositExcept((name) => isTripFood(name));
+        await depositExcept((name) => isRobe(name) || isTripFood(name));
         await bot.closeBank();
     }
     log(
         `Edgeville kit food=${tripFoodCount()} dlong=${wearingDlong() ? 'worn' : 'no'} ` +
             `shield=${wearingShield() ? 'worn' : 'no'} bag=${bagSummary()}`
     );
+    if (wildyKitReady()) await monasteryStop();
 }
 
 /** Empty the bag at Varrock east, wear sword and shield, withdraw sharks, swordfish, or tuna. */
@@ -1366,7 +1516,7 @@ async function prepareAtVarrockEast(): Promise<void> {
     if (sdk.getState()?.bank?.isOpen) await bot.closeBank();
     await equipWorn();
     if (!bagIsTripFood() && (await openBooth(VARROCK_EAST_BANK))) {
-        await depositExcept((name) => isTripFood(name));
+        await depositExcept((name) => isRobe(name) || isTripFood(name));
         await bot.closeBank();
     }
     log(
@@ -1473,7 +1623,14 @@ function metalTier(name: string): number {
 
 async function equipBetter(): Promise<void> {
     const worn = sdk.getEquipment() ?? [];
+    // Monk robes stay on for the prayer bonus — loot never replaces them.
+    const robeSlots = new Set(
+        Object.entries(SLOT_PATS)
+            .filter(([, pat]) => worn.some((w) => isRobe(w.name) && pat.test(w.name)))
+            .map(([slot]) => slot)
+    );
     for (const [slot, pat] of Object.entries(SLOT_PATS)) {
+        if (robeSlots.has(slot)) continue;
         const wornPiece = worn.find((w) => pat.test(w.name));
         const wornTier = wornPiece ? metalTier(wornPiece.name) : -1;
         if (wornTier < 0) continue; // nothing worn and nothing to compare — skip
@@ -1556,6 +1713,7 @@ function findFreshDragon() {
                     (typeof n.targetIndex !== 'number' || n.targetIndex < 0) &&
                     n.optionsWithIndex.some((o) => /attack/i.test(o.text)) &&
                     inHuntBox(n.x, n.z) &&
+                    !inLavaCorner(n.x, n.z) &&
                     !blacklistedUntil(n.index) &&
                     !posBanned(n.x, n.z)
             )
@@ -1582,7 +1740,8 @@ function findTankDragon() {
             DRAGON.test(n.name) &&
             (n.hp === null || n.hp > 0) &&
             n.optionsWithIndex.some((o) => /attack/i.test(o.text)) &&
-            inHuntBox(n.x, n.z)
+            inHuntBox(n.x, n.z) &&
+            !inLavaCorner(n.x, n.z)
     );
     if (cands.length === 0) return null;
     if (!lead) {
@@ -1736,6 +1895,7 @@ function findSoloDragon() {
             (n.hp === null || n.hp > 0) &&
             n.optionsWithIndex.some((o) => /attack/i.test(o.text)) &&
             inHuntBox(n.x, n.z) &&
+            !inLavaCorner(n.x, n.z) &&
             !blacklistedUntil(n.index) &&
             !posBanned(n.x, n.z) &&
             reachable(n.x, n.z)
@@ -1771,6 +1931,12 @@ let stuckSince = 0;
 async function huntPack(): Promise<void> {
     // Solo hunter: no pack, no rally, no waiting. Fight what's targeted,
     // walk to what's close, patrol when the isle is empty.
+    if (inStandTrap()) {
+        intent('Leaving the lava-corner trap');
+        session.setAnchor(CAMP.x, CAMP.z);
+        await hopToward(CAMP.x, CAMP.z, 2);
+        return;
+    }
     if (hasDragonTarget()) {
         stuckTarget = -1;
         await waitFight();
