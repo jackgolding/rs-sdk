@@ -1878,11 +1878,10 @@ async function engageDragon(
     const specced = await enableDlongSpec();
     const hit = await hitDragon(target);
     noteSpecRejected();
-    if (!hit.success && (hit as { reason?: string }).reason === 'cant_reach') {
+    if (isCantReach(hit)) {
         // The client routefinder cannot reach the footprint at all (lava edge,
         // bad stand tile). Blacklist now — retrying just spams cant_reach.
-        STUCK_BLACKLIST.set(target.index, Date.now() + INDEX_BAN_MS);
-        STUCK_POS_BLACKLIST.set(posKey(target.x, target.z), Date.now() + POS_BAN_MS);
+        blacklistTarget(target.index, target.x, target.z);
         log(`cant_reach red dragon @ ${target.x},${target.z} size=${target.size ?? '?'} — blacklist 10m pos, rotate`);
         return false;
     }
@@ -1929,6 +1928,15 @@ function posBanned(x: number, z: number): boolean {
         return false;
     }
     return true;
+}
+/** Ban an NPC index 5m + its tile 10m (unreachable/stuck/unhittable). */
+function blacklistTarget(index: number, x: number, z: number): void {
+    STUCK_BLACKLIST.set(index, Date.now() + INDEX_BAN_MS);
+    STUCK_POS_BLACKLIST.set(posKey(x, z), Date.now() + POS_BAN_MS);
+}
+/** True when the last interact failed with the client's synchronous no-route. */
+function isCantReach(r: { success: boolean; reason?: string }): boolean {
+    return !r.success && (r as { reason?: string }).reason === 'cant_reach';
 }
 /** Static-collision reachability: no long path = across lava/wall, skip it. */
 function reachable(x: number, z: number): boolean {
@@ -1997,6 +2005,20 @@ async function huntPack(): Promise<void> {
     }
     if (hasDragonTarget()) {
         stuckTarget = -1;
+        // Probe before committing to waitFight: a target the client cannot
+        // route to (a lava-edge footprint the probe still calls reachable)
+        // would otherwise hold the bot in waitFight for 90s, exit, and
+        // re-enter forever with zero effects.
+        const current = sdk.getNearbyNpcs().find((n) => n.index === pos().targetIndex);
+        if (current) {
+            const probe = await hitDragon(current);
+            if (isCantReach(probe)) {
+                blacklistTarget(current.index, current.x, current.z);
+                log(`cant_reach red dragon @ ${current.x},${current.z} size=${current.size ?? '?'} — blacklist 10m pos, rotate`);
+                await rotateCamp();
+                return;
+            }
+        }
         await waitFight();
         return;
     }
@@ -2039,13 +2061,21 @@ async function huntPack(): Promise<void> {
     }
 }
 
-async function swingSpec(): Promise<void> {
+async function swingSpec(): Promise<boolean> {
     const armed = await enableDlongSpec();
-    if (!armed || !specArmed) return;
+    if (!armed || !specArmed) return true;
     const target = sdk.getNearbyNpcs().find((n) => n.index === pos().targetIndex);
-    if (target) await hitDragon(target);
+    if (target) {
+        const hit = await hitDragon(target);
+        if (isCantReach(hit)) {
+            blacklistTarget(target.index, target.x, target.z);
+            log(`cant_reach red dragon @ ${target.x},${target.z} size=${target.size ?? '?'} — blacklist 10m pos, rotate`);
+            return false;
+        }
+    }
     noteSpecRejected();
     if (specArmed) noteSpecUsed();
+    return true;
 }
 
 async function waitFight(): Promise<void> {
@@ -2058,10 +2088,10 @@ async function waitFight(): Promise<void> {
         if (await fleePlayer()) return;
         if (foodCount() === 0 && pos().hp <= 50) return;
         const target = sdk.getNearbyNpcs().find((n) => n.index === pos().targetIndex);
-        if (target && (target.distance ?? 99) > 1) {
-            await hopToward(target.x, target.z, 1);
+        if (target && (target.distance ?? 99) > Math.max(1, target.size ?? 1)) {
+            await hopToward(target.x, target.z, Math.max(1, target.size ?? 1));
         }
-        await swingSpec();
+        if (!(await swingSpec())) return;
         await sdk.waitForTicks(1);
     }
     if (hpXp() > xpBefore) {
