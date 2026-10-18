@@ -277,11 +277,10 @@
         {
             "name": "ABGARMY03",
             "view": "army",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
                 "ABGARMY03",
-                "druids",
-                "--weapon=Fire battlestaff"
+                "--until-wc=36"
             ]
         },
         {
@@ -303,11 +302,10 @@
         {
             "name": "ABGARMY06",
             "view": "army",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
                 "ABGARMY06",
-                "thugs",
-                "--weapon=Fire battlestaff"
+                "--until-wc=36"
             ]
         },
         {

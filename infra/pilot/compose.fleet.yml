@@ -97,7 +97,7 @@ services:
   quest-abgarmy03:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/edgeville-dungeon-melee.ts", "ABGARMY03", "druids", "--weapon=Fire battlestaff"]
+    command: ["bun", "bots/quests/seers-wc-fm.ts", "ABGARMY03", "--until-wc=36"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -199,7 +199,7 @@ services:
   quest-abgarmy06:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/edgeville-dungeon-melee.ts", "ABGARMY06", "thugs", "--weapon=Fire battlestaff"]
+    command: ["bun", "bots/quests/seers-wc-fm.ts", "ABGARMY06", "--until-wc=36"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
