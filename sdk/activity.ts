@@ -11,6 +11,7 @@ import { appendGrindLog } from './grind-log';
 import { jobKeyFromArgv } from './job-key';
 import { isIsolatedWalkableTile, isTileWalkable, nearestWalkableTile } from './pathfinding';
 import { inWilderness } from './regions';
+import { climbTowardLevel } from './unstuck';
 
 export type LogLevel = 'log' | 'warn' | 'error';
 export type ProgressKind = 'inventory' | 'xp' | 'location' | 'bank' | 'shop' | 'dialog' | 'phase' | 'trade';
@@ -223,7 +224,7 @@ export class ActivitySession {
     private nextTacticIndex = 0;
     private lastTacticName: string | null = null;
     private consecutiveTacticCount = 0;
-    private anchor: { x: number; z: number } | null = null;
+    private anchor: { x: number; z: number; level?: number } | null = null;
     /** Last tile that was allowed to count as location progress. */
     private lastLocationTile: { x: number; z: number; level: number } | null = null;
     private sampleCounts = new Map<string, number>();
@@ -300,9 +301,11 @@ export class ActivitySession {
         this.tactics.push(...tactics);
     }
 
-    /** Phase re-walk target used by the default `rewalk` tactic. */
-    setAnchor(x: number, z: number): void {
-        this.anchor = { x, z };
+    /** Phase re-walk target used by the default `rewalk` tactic. Pass the
+     * floor the phase works on and the `climb_floor` tactic climbs toward it
+     * whenever recovery runs off-level. */
+    setAnchor(x: number, z: number, level?: number): void {
+        this.anchor = level === undefined ? { x, z } : { x, z, level };
     }
 
     /**
@@ -1043,6 +1046,17 @@ export class ActivitySession {
                     }
                     await this.bot.walkTo(this.anchor.x, this.anchor.z, 2);
                     return false;
+                },
+            },
+            {
+                name: 'climb_floor',
+                run: async () => {
+                    if (this.stopReasonValue) return false;
+                    const want = this.anchor?.level;
+                    if (want === undefined) return false;
+                    const level = this.sdk.getState()?.player?.level ?? 0;
+                    if (level === want) return false;
+                    return climbTowardLevel(this.sdk, this.bot, (m) => this.log('warn', m), want, 2);
                 },
             },
         ];

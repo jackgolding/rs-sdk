@@ -317,8 +317,8 @@ Long-running grind supervisor: stall clock, bounded recovery, sampled grind-log 
 | Signature | Description |
 |---|---|
 | `requestStopAll(reason: string): void` | Ask every live session to finish its stage and bank. Never throws. |
-| `registerRecovery(tactics: RecoveryTactic[]): void` | Extra tactics run after the defaults (close UI, step off, re-walk). |
-| `setAnchor(x: number, z: number): void` | Phase re-walk target used by the default `rewalk` tactic. |
+| `registerRecovery(tactics: RecoveryTactic[]): void` | Extra tactics run after the defaults (close UI, step off, re-walk, climb floor). |
+| `setAnchor(x: number, z: number, level?: number): void` | Phase re-walk target used by the default `rewalk` tactic. Pass the floor and the `climb_floor` tactic climbs toward it whenever recovery runs off-level. |
 | `async setPhase(phase: string): Promise<void>` | Sets the current step. A phase change refreshes the in-script stall timer so a long walk is not interrupted. Repeating the same phase does not: that is how a stuck loop used to look busy. Does not clear failure counters, end a recovery, or count as an effect. |
 | `noteProgress(kind: ProgressKind, detail?: string): void` | Records observed progress. A non-phase kind exits an in-progress recovery. Effect kinds also move lastEffectAt. A location note whose tile has not changed since the last credited location note is ignored. |
 | `noteFailure(code: string, message: string): void` | Records a failure; five identical codes in the window arm recovery. |

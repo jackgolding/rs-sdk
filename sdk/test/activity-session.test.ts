@@ -291,4 +291,70 @@ describe('ActivitySession', () => {
         const step = nextWalkStep({ x: 3058, z: 3814 }, { x: 3058, z: 3884 }, 3);
         expect(sendWalks).toContainEqual([step.x, step.z]);
     });
+
+    function climbMocks() {
+        let level = 1;
+        const interacts: string[] = [];
+        const stairs = [
+            {
+                name: 'Staircase',
+                x: 2715,
+                z: 3471,
+                distance: 2,
+                optionsWithIndex: [{ text: 'Climb-down' }],
+            },
+        ];
+        const sdk = {
+            getState: () => ({
+                player: { worldX: 2715, worldZ: 3472, level },
+            }),
+            showIntent: async () => ({ success: true, message: 'ok' }),
+            sendWalk: async () => ({ success: true }),
+            scanNearbyLocs: async () => stairs,
+            getNearbyLocs: () => stairs,
+            waitForTicks: async () => {},
+        } as unknown as BotSDK;
+        const bot = {
+            closeInterface: async () => ({ success: true }),
+            dismissBlockingUI: async () => {},
+            walkTo: async () => ({ success: true, message: 'ok' }),
+            interactLoc: async () => {
+                interacts.push('climb-down');
+                level = 0;
+                return { success: true, message: 'ok' };
+            },
+        } as unknown as BotActions;
+        return { sdk, bot, interacts, getLevel: () => level };
+    }
+
+    test('climb_floor climbs toward the anchor level when recovery runs', async () => {
+        const { sdk, bot, interacts, getLevel } = climbMocks();
+        const session = new ActivitySession(sdk, bot, {
+            name: 'lost-city',
+            stallMs: 10,
+            maxRecoveryTactics: 8,
+            recoveryBudgetMs: 60_000,
+            now: () => 20,
+            writeLog: () => {},
+        });
+        session.setAnchor(2726, 3485, 0);
+        expect(await session.recover()).toBe('resumed');
+        expect(interacts).toEqual(['climb-down']);
+        expect(getLevel()).toBe(0);
+    });
+
+    test('climb_floor stays out of the way when the anchor has no level', async () => {
+        const { sdk, bot, interacts } = climbMocks();
+        const session = new ActivitySession(sdk, bot, {
+            name: 'lost-city',
+            stallMs: 10,
+            maxRecoveryTactics: 8,
+            recoveryBudgetMs: 60_000,
+            now: () => 20,
+            writeLog: () => {},
+        });
+        session.setAnchor(2726, 3485);
+        await session.recover();
+        expect(interacts).toEqual([]);
+    });
 });

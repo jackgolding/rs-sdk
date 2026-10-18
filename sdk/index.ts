@@ -2192,6 +2192,7 @@ export {
     type RecoveryTactic,
     type StopReason,
 } from './activity';
+export { climbTowardLevel } from './unstuck';
 export {
     atSeersFlax,
     inEssenceMine,
