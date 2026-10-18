@@ -123,7 +123,7 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/draynor-bank-all.ts",
+            "script": "bots/quests/jackthief-pickup-shields.ts",
             "args": [
                 "pigfat"
             ]

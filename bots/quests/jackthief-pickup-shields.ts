@@ -198,20 +198,35 @@ await runScript(async ({ bot, sdk }) => {
         return pos().isDead || pos().lifeId !== life;
     }
 
+    /** True only when standing at the duty station: level 1, by Duke's tile, Duke visible. */
+    function atDukeStation(): boolean {
+        const duke = sdk.findNearbyNpc(/duke/i) as { reachable?: boolean } | undefined;
+        return !!duke && duke.reachable !== false && pos().level === 1 && distTo(DUKE.x, DUKE.z) <= 6;
+    }
+
     async function goToDuke(): Promise<boolean> {
         await closeUi();
-        if (pos().level > 1) await climb('down');
-        if (sdk.findNearbyNpc(/duke/i) && pos().level === 1) return true;
-        if (pos().level > 0 && distTo(CASTLE_STAIRS.x, CASTLE_STAIRS.z) > 30) await climb('down');
-        if (distTo(CASTLE_STAIRS.x, CASTLE_STAIRS.z) > 6) {
-            await walkNear(CASTLE_STAIRS.x, CASTLE_STAIRS.z, 2);
+        for (let i = 0; i < 3; i++) {
+            if (atDukeStation()) return true;
+            if (pos().level > 1) {
+                await climb('down');
+                continue;
+            }
+            if (pos().level < 1) {
+                if (distTo(CASTLE_STAIRS.x, CASTLE_STAIRS.z) > 6) {
+                    await walkNear(CASTLE_STAIRS.x, CASTLE_STAIRS.z, 2);
+                }
+                await openToward(CASTLE_STAIRS.x, CASTLE_STAIRS.z);
+                await climb('up');
+                continue;
+            }
+            // Level 1 but away from the station (e.g. east tower rooms see Duke
+            // through the wall): walk back through doors instead of declaring arrival.
+            await openToward(DUKE.x, DUKE.z);
+            await walkNear(DUKE.x, DUKE.z, 2);
+            await sdk.waitForTicks(2).catch(() => {});
         }
-        await openToward(CASTLE_STAIRS.x, CASTLE_STAIRS.z);
-        if (pos().level < 1) await climb('up');
-        if (pos().level !== 1) return false;
-        await openToward(DUKE.x, DUKE.z);
-        await walkNear(DUKE.x, DUKE.z, 2);
-        return !!sdk.findNearbyNpc(/duke/i);
+        return atDukeStation();
     }
 
     const shieldsInBag = () =>
@@ -313,7 +328,11 @@ await runScript(async ({ bot, sdk }) => {
             await closeUi();
             continue;
         }
-        if (!sdk.findNearbyNpc(/duke/i)) {
+        if (!atDukeStation()) {
+            if (idleSweeps % 10 === 0) {
+                log(`PICKUP-SHIELDS returning to Duke @ ${pos().x},${pos().z},${pos().level}`);
+            }
+            idleSweeps++;
             await goToDuke();
             continue;
         }
