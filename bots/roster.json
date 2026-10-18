@@ -50,14 +50,10 @@
         {
             "name": "Jackpoo4",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "Jackpoo4",
-                "give",
-                "jacklove3",
-                "jacklove5",
-                "--item=dragonfire shield",
-                "--bank=edgeville"
+                "--shark"
             ]
         },
         {
@@ -98,13 +94,9 @@
         {
             "name": "jacklove3",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/red-dragons.ts",
             "args": [
-                "jacklove3",
-                "receive",
-                "Jackpoo4",
-                "--item=dragonfire shield",
-                "--bank=edgeville"
+                "jacklove3"
             ]
         },
         {
@@ -118,13 +110,9 @@
         {
             "name": "jacklove5",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/red-dragons.ts",
             "args": [
-                "jacklove5",
-                "receive",
-                "Jackpoo4",
-                "--item=dragonfire shield",
-                "--bank=edgeville"
+                "jacklove5"
             ]
         },
         {
