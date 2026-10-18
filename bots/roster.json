@@ -390,9 +390,10 @@
         {
             "name": "ABGARMY15",
             "view": "army",
-            "script": "bots/quests/rune-mysteries.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY15"
+                "ABGARMY15",
+                "--until-wc=51"
             ]
         },
         {
