@@ -389,10 +389,9 @@
         {
             "name": "ABGARMY15",
             "view": "army",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
-                "ABGARMY15",
-                "--until=31"
+                "ABGARMY15"
             ]
         },
         {
