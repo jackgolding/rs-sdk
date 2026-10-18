@@ -11,11 +11,13 @@
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
 import { appendGrindLog } from '../../sdk/grind-log';
+import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
+import type { JournalRule } from '../../quest-lab/evidence';
 import {
-    buyAtShop,
     ensureCoins,
     nearestBank,
-    type SupplyCtx
+    type SupplyCtx,
+    withdrawFromBank
 } from './quest-supplies';
 
 const DENULTH = { x: 2896, z: 3528 };
@@ -28,7 +30,6 @@ const SABA_CAVE = { x: 2857, z: 3578 };
 const SABA_INSIDE = { x: 2270, z: 4759 };
 const STILE = { x: 2817, z: 3562 };
 const SCOUT = { x: 2864, z: 3608 };
-const BAKER = { x: 2654, z: 3311, npc: /^baker$/i };
 const BARB_FISH = { x: 3109, z: 3433 };
 const FALLY_FURNACE = { x: 2975, z: 3369 };
 const FALLY_IRON = { x: 3058, z: 3376 };
@@ -155,10 +156,72 @@ await runScript(async ({ bot, sdk }) => {
         return [...msgs.map((m) => m.text), ...chatHist].join('\n');
     }
 
-    function questDone(xpBefore: number): boolean {
+    /**
+     * Death Plateau stage and completion, read from the QUEST JOURNAL.
+     *
+     * This used to be `attackXp() >= xpBefore + 2500` plus a chat regex.
+     * Attack XP is this quest's REWARD, so ANY Attack XP — combat crossing
+     * White Wolf Mountain, or during the scout leg — reads as completion, and
+     * a restart is indistinguishable from a finish. The chat regex had the
+     * same blindness halfway: it never checked the OTHER track.
+     *
+     * Rules come from the quest's own handler
+     * (quest_death/scripts/death_journal.rs2), each on a sentence unique to
+     * its stage. The journal's complete branch only renders at
+     * %death_equiproom = ^death_complete, but the predicate still names a
+     * sentence from EACH track — equip-room ("unlocked the door") and map
+     * ("safe for the Imperial Guard") — so a half-finished quest can never
+     * satisfy it, even if the handler is ever reworded.
+     *
+     * The active text swaps its opening line once the path is scouted
+     * ("offered to help" becomes "found another way"), so those are two
+     * separate stage rules and the probe tries the later stage first.
+     */
+    const DEATH_JOURNAL = { label: 'Death Plateau', title: 'Death Plateau' };
+    const DEATH_STAGES: Record<string, JournalRule> = {
+        not_started: {
+            id: 'death:not_started',
+            kind: 'unstarted',
+            all: ['I can start this quest by speaking to Denulth'],
+        },
+        started: {
+            id: 'death:started',
+            kind: 'active',
+            all: ['I have offered to help Denulth'],
+        },
+        scouted: {
+            id: 'death:scouted',
+            kind: 'active',
+            all: ['I have found another way up Death Plateau'],
+        },
+        complete: {
+            id: 'death:complete',
+            kind: 'complete',
+            all: ['QUEST COMPLETE', 'unlocked the door', 'safe for the Imperial Guard'],
+        },
+    };
+
+    /** The first stage rule that passes is the account's real stage. */
+    async function readStage(): Promise<string> {
+        for (const name of ['complete', 'scouted', 'started', 'not_started']) {
+            const read = await readJournalCheckpoint(sdk, DEATH_JOURNAL, DEATH_STAGES[name]!);
+            log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
+            if (read.verdict?.verdict === 'PASS') return name;
+        }
+        return 'unknown';
+    }
+
+    let journalComplete = false;
+    let lastJournalCheck = 0;
+    /** Journal-backed completion, throttled: opening the journal is not free. */
+    async function questDone(): Promise<boolean> {
+        // Steel claws are Denulth's hand-in reward — holding them IS done.
         if (count(CLAWS) > 0) return true;
-        if (attackXp() >= xpBefore + 2500) return true;
-        return /completed[\s\S]{0,40}death plateau|you have completed\s*death plateau/i.test(messages());
+        if (Date.now() - lastJournalCheck < 5_000) return journalComplete;
+        lastJournalCheck = Date.now();
+        const read = await readJournalCheckpoint(sdk, DEATH_JOURNAL, DEATH_STAGES.complete!);
+        journalComplete = read.verdict?.verdict === 'PASS';
+        return journalComplete;
     }
 
     function doorUnlocked(): boolean {
@@ -539,8 +602,10 @@ await runScript(async ({ bot, sdk }) => {
         const ctx = supplyCtx();
         await ensureCoins(ctx, 200);
         if (count(BREAD) < 10) {
-            intent('Buying bread from Ardougne baker');
-            await buyAtShop(ctx, BAKER, [{ pattern: BREAD, amount: 10, label: 'bread' }]);
+            // Quest bread comes from the BANK, never a shop: the old Ardougne
+            // baker detour was a full round trip for a quest-supply item.
+            intent('Withdrawing bread from bank');
+            await withdrawFromBank(ctx, BREAD, 10);
         }
         if (count(IRON_BAR) < 1) {
             if (count(IRON_ORE) < 1) {
@@ -996,6 +1061,17 @@ await runScript(async ({ bot, sdk }) => {
     const xpBefore = attackXp();
     await bot.skipTutorial();
     await closeUi();
+    // Ask the journal BEFORE banking: an account that already finished must not
+    // be sent to dump and re-withdraw supplies first.
+    const startStage = await readStage();
+    log(`Death Plateau journal stage at start: ${startStage}`);
+    if (startStage === 'unknown') {
+        throw new Error('could not determine the Death Plateau stage from the journal');
+    }
+    if (startStage === 'complete') {
+        log('Death Plateau is already complete — nothing to do');
+        return;
+    }
     const resumeHere =
         !DEPOSIT_ONLY &&
         count(BREAD) >= 9 &&
@@ -1020,7 +1096,7 @@ await runScript(async ({ bot, sdk }) => {
     );
 
     const until = Date.now() + 25 * 60_000;
-    while (Date.now() < until && !questDone(xpBefore)) {
+    while (Date.now() < until && !(await questDone())) {
         await closeUi();
         await eatIfNeeded();
         if (pos().isDead) {
@@ -1034,7 +1110,7 @@ await runScript(async ({ bot, sdk }) => {
         ) {
             if (count(MAP) > 0 && !scouted() && distTo(SCOUT.x, SCOUT.z) > 6) await scoutPath();
             await denulthCertOrFinish();
-            if (questDone(xpBefore)) break;
+            if (await questDone()) break;
             continue;
         }
 
@@ -1105,7 +1181,7 @@ await runScript(async ({ bot, sdk }) => {
         await sdk.waitForTicks(2);
     }
 
-    if (!questDone(xpBefore)) {
+    if (!(await questDone())) {
         throw new Error(`Death Plateau unfinished @ ${pos().x},${pos().z} xp=${attackXp()}`);
     }
     log(`QUEST COMPLETE Death Plateau (+${attackXp() - xpBefore} Attack xp)`);

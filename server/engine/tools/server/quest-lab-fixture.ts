@@ -188,7 +188,14 @@ function ensureInventory(typeId: number): Inventory {
 ensureInventory(invId('inv'));
 ensureInventory(invId('worn'));
 const bankInv = ensureInventory(invId('bank'));
-for (const entry of bank) bankInv.set(bankInv.nextFreeSlot, { id: entry.id, count: entry.count });
+// Route through Inventory.add, never raw set: unstackables must occupy one
+// slot each, and a raw {id, count: 30} single slot is a state the live game
+// never produces — the bank withdraw tracker chokes on it (exact small takes
+// time out with nothing arriving; verified live on a Bones x30 slot).
+for (const entry of bank) {
+    const added = bankInv.add(entry.id, entry.count);
+    if (added !== entry.count) throw new Error(`fixture bank overflow on '${entry.name}': placed ${added}/${entry.count}`);
+}
 const wornInv = ensureInventory(invId('worn'));
 for (const entry of worn) wornInv.set(entry.slot, { id: entry.id, count: 1 });
 
@@ -224,8 +231,9 @@ for (const entry of varps) {
 }
 const reloadedBank = reloaded.getInventory(invId('bank'))?.itemsFiltered ?? [];
 for (const entry of bank) {
-    const found = reloadedBank.find(s => s.id === entry.id);
-    if (!found || found.count !== entry.count) throw new Error(`verify failed: bank item '${entry.name}'`);
+    // Sum across slots: unstackables verify as N x count-1, stackables as one slot.
+    const total = reloadedBank.filter(s => s.id === entry.id).reduce((n, s) => n + s.count, 0);
+    if (total !== entry.count) throw new Error(`verify failed: bank item '${entry.name}' (have ${total}, want ${entry.count})`);
 }
 
 log(JSON.stringify({

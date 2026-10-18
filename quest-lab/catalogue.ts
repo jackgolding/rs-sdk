@@ -62,15 +62,16 @@ const KNOWN_PRIMARY_SCRIPTS: Record<string, string> = {
   druid: 'druidic-ritual',
   gobdip: 'goblin-diplomacy',
   zanaris: 'lost-city',
-  arthur: 'pirates-treasure',
-  priest: 'priest-in-peril',
+  hunt: 'pirates-treasure',
   romeojuliet: 'romeo-and-juliet',
   runemysteries: 'rune-mysteries',
   sheep: 'sheep-shearer',
   troll: 'troll-stronghold',
   vampire: 'vampire-slayer',
-  hetty: 'witchs-house',
-  druidspirit: 'witchs-potion',
+  ball: 'witchs-house',
+  cook: 'cooks-assistant',
+  hetty: 'witchs-potion',
+  priestperil: 'priest-in-peril',
 };
 
 /**

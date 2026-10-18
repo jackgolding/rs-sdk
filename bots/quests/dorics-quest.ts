@@ -16,6 +16,8 @@ import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
 import { existsSync, readFileSync, appendFileSync } from 'fs';
 import { dirname, join } from 'path';
+import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
+import type { JournalRule } from '../../quest-lab/evidence';
 
 const VARROCK_EAST_BANK = { x: 3253, z: 3420 };
 const SE_MINE = { x: 3285, z: 3366 };
@@ -602,8 +604,52 @@ async function collectOres(): Promise<void> {
     }
 }
 
-function questDoneFrom(text: string): boolean {
-    return /completed.*doric|please use my anvils|metalworking coming along/i.test(text);
+/**
+ * Doric's Quest stage and completion, read from the QUEST JOURNAL
+ * (server/content/scripts/quests/quest_doric/scripts/doric_journal.rs2,
+ * questlist:doric, %doricquest vs ^doric_complete):
+ *   %doricquest=0  -> "I can start this quest by talking to Doric ..."
+ *   %doricquest=10 -> "I need to collect some items and bring them to Doric"
+ *   else (complete)-> "QUEST COMPLETE!"
+ *
+ * This used to be `miningXp() - xpBefore >= 1000` / `coinCount() - coinsBefore`
+ * plus a chat regex. Mining XP is this quest's REWARD, so any mining done
+ * mid-run read as completion, and a restart was indistinguishable from a finish.
+ */
+const DORIC_JOURNAL = { label: "Doric's Quest", title: "Dorics' Quest" };
+const DORIC_STAGES: Record<string, JournalRule> = {
+    not_started: {
+        id: 'doric:not_started',
+        kind: 'unstarted',
+        all: ['I can start this quest by talking to Doric']
+    },
+    started: {
+        id: 'doric:started',
+        kind: 'active',
+        all: ['I need to collect some items and bring them to Doric']
+    },
+    complete: { id: 'doric:complete', kind: 'complete', all: ['QUEST COMPLETE'] }
+};
+
+/** The first stage rule that passes is the account's real stage. */
+async function readStage(): Promise<string> {
+    for (const name of ['complete', 'started', 'not_started']) {
+        const read = await readJournalCheckpoint(sdk, DORIC_JOURNAL, DORIC_STAGES[name]!);
+        log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
+        if (read.verdict?.verdict === 'PASS') return name;
+    }
+    return 'unknown';
+}
+
+let journalComplete = false;
+let lastJournalCheck = 0;
+/** Journal-backed completion, throttled: opening the journal is not free. */
+async function questDone(): Promise<boolean> {
+    if (Date.now() - lastJournalCheck < 5_000) return journalComplete;
+    lastJournalCheck = Date.now();
+    const read = await readJournalCheckpoint(sdk, DORIC_JOURNAL, DORIC_STAGES.complete!);
+    journalComplete = read.verdict?.verdict === 'PASS';
+    return journalComplete;
 }
 
 async function goToDoric(): Promise<boolean> {
@@ -637,8 +683,6 @@ async function talkDoric(): Promise<boolean> {
 }
 
 async function startAndHandIn(): Promise<void> {
-    const xpBefore = miningXp();
-    const coinsBefore = coinCount();
     for (let attempt = 0; attempt < 4 && !questComplete; attempt++) {
         if (!(await talkDoric())) continue;
         const seen = await chat([
@@ -647,7 +691,7 @@ async function startAndHandIn(): Promise<void> {
         ]);
         const text = seen.join(' | ');
         log(`Doric: ${text || '(no dialog)'}`);
-        if (questDoneFrom(text) || miningXp() - xpBefore >= 1000 || coinCount() - coinsBefore >= 180) {
+        if (await questDone()) {
             questComplete = true;
             break;
         }
@@ -659,11 +703,9 @@ async function startAndHandIn(): Promise<void> {
         await sdk.waitForTicks(2);
     }
     await closeUi();
-    if (miningXp() - xpBefore >= 1000 || coinCount() - coinsBefore >= 180) questComplete = true;
+    if (await questDone()) questComplete = true;
     if (questComplete) {
-        log(
-            `QUEST COMPLETE Doric's Quest | +${miningXp() - xpBefore} mining xp +${coinCount() - coinsBefore} gp | Mining ${mining()}`
-        );
+        log(`QUEST COMPLETE Doric's Quest | journal %doricquest=^doric_complete | Mining ${mining()}`);
     }
 }
 
@@ -675,6 +717,16 @@ try {
             `pick=${sdk.findEquipmentItem(PICKAXE)?.name ?? sdk.findInventoryItem(PICKAXE)?.name ?? 'none'} ` +
             `inv=${occupiedSlots()}`
     );
+
+    // Stage probe BEFORE banking: a finished quest has nothing left to do, and
+    // banking first made a completed quest report bank state instead of
+    // "already complete".
+    const STAGE = await readStage();
+    log(`Quest stage at start: ${STAGE}`);
+    if (STAGE === 'complete') {
+        questComplete = true;
+        log("Doric's Quest is already complete — nothing to do");
+    }
 
     while (!questComplete) {
         await closeUi();

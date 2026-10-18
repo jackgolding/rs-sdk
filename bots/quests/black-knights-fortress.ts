@@ -8,6 +8,8 @@
 import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
+import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
+import type { JournalRule } from '../../quest-lab/evidence';
 import {
     buyAtShop,
     ensureCoins,
@@ -111,9 +113,60 @@ await runScript(async ({ bot, sdk }) => {
         return [...msgs.map((m) => m.text), ...chatHist].join('\n');
     }
 
-    function questDone(coinsBefore: number): boolean {
-        if (coinCount() >= coinsBefore + 2400) return true;
-        return /completed the[\s\S]{0,80}black knights|sir amik hands you 2500|hello, friend/i.test(messages());
+    /**
+     * Black Knights' Fortress stage and completion, read from the QUEST JOURNAL.
+     *
+     * This used to be `coinCount() >= coinsBefore + 2400` plus a chat regex.
+     * Coins are this quest's REWARD, so ANY coin gain read as completion, and
+     * chat lines linger in history across restarts. Rules come from the quest's
+     * own handler (quests/quest_blackknight/scripts/blackknight_journal.rs2);
+     * the journal button label is `fortress` (questlist.if), NOT the script
+     * dir name (quest_blackknight).
+     */
+    const FORT_JOURNAL = { label: "Black Knight's Fortress", title: "Black Knight's Fortress" };
+    const FORT_STAGES: Record<string, JournalRule> = {
+        not_started: {
+            id: 'fort:not_started',
+            kind: 'unstarted',
+            all: ['I can start this quest', '12 Quest Points'],
+        },
+        started: {
+            id: 'fort:started',
+            kind: 'active',
+            all: ['asked me to investigate', 'Ice Mountain'],
+        },
+        eavesdropped: {
+            id: 'fort:eavesdropped',
+            kind: 'active',
+            all: ['invincibility potion can be', 'destroyed with a normal'],
+        },
+        sabotaged: {
+            id: 'fort:sabotaged',
+            kind: 'active',
+            all: ['sabotaged the witch', 'claim my'],
+        },
+        complete: { id: 'fort:complete', kind: 'complete', all: ['QUEST COMPLETE'] },
+    };
+
+    /** The first stage rule that passes is the account's real stage. */
+    async function readStage(): Promise<string> {
+        for (const name of ['complete', 'sabotaged', 'eavesdropped', 'started', 'not_started']) {
+            const read = await readJournalCheckpoint(sdk, FORT_JOURNAL, FORT_STAGES[name]!);
+            log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
+            if (read.verdict?.verdict === 'PASS') return name;
+        }
+        return 'unknown';
+    }
+
+    let journalComplete = false;
+    let lastJournalCheck = 0;
+    /** Journal-backed completion, throttled: opening the journal is not free. */
+    async function questDone(): Promise<boolean> {
+        if (Date.now() - lastJournalCheck < 5_000) return journalComplete;
+        lastJournalCheck = Date.now();
+        const read = await readJournalCheckpoint(sdk, FORT_JOURNAL, FORT_STAGES.complete!);
+        journalComplete = read.verdict?.verdict === 'PASS';
+        return journalComplete;
     }
 
     function sabotaged(): boolean {
@@ -366,7 +419,7 @@ await runScript(async ({ bot, sdk }) => {
         }
     }
 
-    type AmikPhase = 'unknown' | 'not-started' | 'spy1' | 'spy2' | 'spy3' | 'done';
+    type AmikPhase = 'unknown' | 'not-started' | 'qp-blocked' | 'spy1' | 'spy2' | 'spy3' | 'done';
 
     function phaseFromText(text: string): AmikPhase {
         if (/completed the[\s\S]{0,80}black knights|hello, friend|sir amik hands you 2500/i.test(text)) return 'done';
@@ -486,6 +539,13 @@ await runScript(async ({ bot, sdk }) => {
         ]);
         await chat();
         const text = `${seen.join(' | ')}\n${messages()}`;
+        // 12-QP gate (sir_amik_varze.rs2: `%qp < 12` refuses the quest).
+        // Refuse here instead of looping on a quest we can never start.
+        if (/12 quest points|unexperienced quester/i.test(text)) {
+            log(`Sir Amik refused: account below 12 QP :: ${seen.join(' | ')}`);
+            await leaveCastle();
+            return 'qp-blocked';
+        }
         const phase = phaseFromText(text);
         log(`Sir Amik: ${phase} :: ${seen.join(' | ')}`);
         await leaveCastle();
@@ -568,6 +628,13 @@ await runScript(async ({ bot, sdk }) => {
     async function infiltrateFortress(): Promise<void> {
         intent('Entering Black Knights\' Fortress');
         await equipDisguise();
+        // Disguise gate (quest_blackknight.rs2: the entrance door checks bronze
+        // med helm + iron chainbody WORN). Refuse entry, don't feed the guard.
+        if (!disguised()) {
+            throw new Error(
+                `Black Knights' Fortress requires bronze med helm + iron chainbody disguise — could not equip (${sdk.getEquipment().map((i) => i.name).join(', ')})`
+            );
+        }
         if (inEastInterior()) {
             if (pos().level === 0) {
                 await sdk.scanNearbyLocs(8).catch(() => {});
@@ -602,6 +669,12 @@ await runScript(async ({ bot, sdk }) => {
                 await bot.openDoor(door);
                 await sdk.waitForTicks(1);
                 await chat([/oh sorry/i]);
+                // Guard rejection routes back to the disguise, not through the wall.
+                if (/not a guard|proper guards uniform/i.test(messages())) {
+                    log('Guard rejected entry — re-equipping disguise before retry');
+                    await equipDisguise();
+                    return;
+                }
             }
             await pushSecretWall();
         }
@@ -836,6 +909,17 @@ await runScript(async ({ bot, sdk }) => {
         log(`At Falador east bank @ ${pos().x},${pos().z}`);
         return;
     }
+    // Ask the journal BEFORE banking: an account that already finished must
+    // not be sent to deposit, shop, or disguise first.
+    const startStage = await readStage();
+    log(`Black Knights' Fortress journal stage at start: ${startStage}`);
+    if (startStage === 'unknown') {
+        throw new Error("could not determine the Black Knights' Fortress stage from the journal");
+    }
+    if (startStage === 'complete') {
+        log("Black Knights' Fortress is already complete — nothing to do");
+        return;
+    }
     await bankPrep();
     await ensureSupplies();
     log(`Black Knights' Fortress start coins=${coinsBefore} @ ${pos().x},${pos().z} L${pos().level} disguise=${disguised()} finish=${FINISH_ONLY}`);
@@ -843,23 +927,24 @@ await runScript(async ({ bot, sdk }) => {
     if (FINISH_ONLY) {
         await leaveFortress();
         const phase = await visitAmik();
-        if (questDone(coinsBefore) || phase === 'done' || phase === 'spy3') {
-            if (!questDone(coinsBefore)) await visitAmik();
+        if (phase === 'qp-blocked') throw new Error("Black Knights' Fortress requires 12 quest points — Sir Amik refused");
+        if ((await questDone()) || phase === 'done' || phase === 'spy3') {
+            if (!(await questDone())) await visitAmik();
         }
-        if (!questDone(coinsBefore)) throw new Error(`Black Knights' Fortress unfinished after hand-in @ ${pos().x},${pos().z}`);
+        if (!(await questDone())) throw new Error(`Black Knights' Fortress unfinished after hand-in @ ${pos().x},${pos().z}`);
         log(`QUEST COMPLETE Black Knights' Fortress (+${coinCount() - coinsBefore} gp)`);
         return;
     }
 
     const until = Date.now() + 18 * 60_000;
     let started = false;
-    while (Date.now() < until && !questDone(coinsBefore)) {
+    while (Date.now() < until && !(await questDone())) {
         await closeUi();
         await eatIfLow();
 
         if (sabotaged() || /ruined the/i.test(messages())) {
             await visitAmik();
-            if (questDone(coinsBefore)) break;
+            if (await questDone()) break;
         }
 
         if (!started) {
@@ -869,7 +954,8 @@ await runScript(async ({ bot, sdk }) => {
             } else {
                 const phase = await visitAmik();
                 started = true;
-                if (phase === 'done' || phase === 'spy3' || questDone(coinsBefore)) break;
+                if (phase === 'qp-blocked') throw new Error("Black Knights' Fortress requires 12 quest points — Sir Amik refused");
+                if (phase === 'done' || phase === 'spy3' || (await questDone())) break;
             }
         }
 
@@ -883,6 +969,6 @@ await runScript(async ({ bot, sdk }) => {
         await sdk.waitForTicks(2);
     }
 
-    if (!questDone(coinsBefore)) throw new Error(`Black Knights' Fortress unfinished @ ${pos().x},${pos().z}`);
+    if (!(await questDone())) throw new Error(`Black Knights' Fortress unfinished @ ${pos().x},${pos().z}`);
     log(`QUEST COMPLETE Black Knights' Fortress (+${coinCount() - coinsBefore} gp)`);
 });
