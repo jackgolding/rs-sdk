@@ -356,7 +356,7 @@
         {
             "name": "ABGARMY11",
             "view": "army",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/witchs-potion.ts",
             "args": [
                 "ABGARMY11"
             ]
