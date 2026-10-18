@@ -381,7 +381,7 @@
         {
             "name": "ABGARMY14",
             "view": "army",
-            "script": "bots/quests/druidic-ritual.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
                 "ABGARMY14"
             ]
