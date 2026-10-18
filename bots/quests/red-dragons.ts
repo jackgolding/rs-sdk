@@ -109,16 +109,19 @@ const TANK = TANK_ARG ? new RegExp(`^${TANK_ARG.slice('--tank='.length)}$`, 'i')
 const DPS_DELAY_ARG = process.argv.find((a) => a.startsWith('--dps-delay='));
 const DPS_DELAY_TICKS = Math.max(0, parseInt(DPS_DELAY_ARG?.split('=')[1] ?? '2', 10) || 0);
 const HUNT = { minX: 3176, maxX: 3226, minZ: 3812, maxZ: 3854 };
-/** Circuit over the south isle so the pack never climbs to the NW lava corner.
- * User-routed 2026-10-18: gate is good, patrol stays south.
- * 3184,3847 / 3192,3853 bound the no-attack pocket (unreachable dragons
- * across lava, 3192,3853 itself is unwalkable). */
-const PATROL: Tile[] = [
-    { x: 3200, z: 3829 },
-    { x: 3202, z: 3816 },
-    { x: 3218, z: 3821 },
-    { x: 3224, z: 3831 }
+/** Kill rotation over the south isle (user-routed 2026-10-18): middle dragon,
+ * then south-east, then east, then back to middle. Same-dragon focus — finish
+ * the kill (hasDragonTarget sticks through waitFight) before rotating, which
+ * is the food-efficient shape. 3184,3847 / 3192,3853 bound the no-attack
+ * pocket (unreachable dragons across lava, 3192,3853 itself is unwalkable). */
+const ROTATION: Tile[] = [
+    { x: 3200, z: 3829 }, // middle
+    { x: 3218, z: 3821 }, // south-east
+    { x: 3224, z: 3831 } // east
 ];
+/** Only engage dragons near the current rotation anchor — this is what holds
+ * the middle -> south-east -> east order instead of wandering the isle. */
+const ANCHOR_RADIUS = 10;
 const DRAGON_GATE = { x: 3201, z: 3856 };
 const GATE_NORTH = { x: 3202, z: 3862 };
 const GATE_SOUTH = { x: 3202, z: 3848 };
@@ -247,7 +250,7 @@ let packed = false;
 let specEnergy = SPEC_MAX;
 let specArmed = false;
 let lastSpecRegenTick = -1;
-let patrolAt = 0;
+let anchorAt = 0;
 
 function log(msg: string): void {
     session.log('log', msg);
@@ -415,21 +418,32 @@ async function stickTogether(): Promise<void> {
     }
 }
 
-async function patrolIsle(): Promise<void> {
-    const dest = PATROL[patrolAt % PATROL.length]!;
-    if (distTo(dest.x, dest.z) <= 2) {
-        patrolAt = (patrolAt + 1) % PATROL.length;
+/** Best killable dragon near the current rotation anchor, or null when the
+ * anchor is clear (caller advances the rotation). Scoping selection to the
+ * anchor is what keeps the middle -> south-east -> east kill order. */
+function findAnchorDragon() {
+    const a = ROTATION[anchorAt % ROTATION.length]!;
+    const t = findSoloDragon();
+    if (!t) return null;
+    if (Math.hypot(t.x - a.x, t.z - a.z) > ANCHOR_RADIUS) return null;
+    return t;
+}
+
+async function rotateCamp(): Promise<void> {
+    let anchor = ROTATION[anchorAt % ROTATION.length]!;
+    if (distTo(anchor.x, anchor.z) <= 3) {
+        anchorAt = (anchorAt + 1) % ROTATION.length;
+        anchor = ROTATION[anchorAt % ROTATION.length]!;
     }
-    const next = PATROL[patrolAt % PATROL.length]!;
-    // Attack preempts patrol: move one short step per hunt tick so a fresh
-    // dragon is engaged on the next iteration instead of walked past on a
-    // long blind leg.
-    const d = Math.hypot(pos().x - next.x, pos().z - next.z);
+    // Attack preempts walking: one short step per hunt tick so a fresh
+    // dragon at the anchor is engaged on the next iteration instead of
+    // walked past on a long blind leg.
+    const d = Math.hypot(pos().x - anchor.x, pos().z - anchor.z);
     const stepLen = Math.min(4, d);
-    const sx = d === 0 ? next.x : Math.round(pos().x + ((next.x - pos().x) / d) * stepLen);
-    const sz = d === 0 ? next.z : Math.round(pos().z + ((next.z - pos().z) / d) * stepLen);
-    session.setAnchor(next.x, next.z);
-    intent(`Pack patrol ${next.x},${next.z}`);
+    const sx = d === 0 ? anchor.x : Math.round(pos().x + ((anchor.x - pos().x) / d) * stepLen);
+    const sz = d === 0 ? anchor.z : Math.round(pos().z + ((anchor.z - pos().z) / d) * stepLen);
+    session.setAnchor(anchor.x, anchor.z);
+    intent(`Rotation ${anchor.x},${anchor.z}`);
     await hopToward(sx, sz, 1);
 }
 
@@ -1932,7 +1946,7 @@ async function attackDragon(): Promise<void> {
         await waitFight();
         return;
     }
-    const target = findSoloDragon();
+    const target = findAnchorDragon();
     if (!target) return;
     if ((target.distance ?? 99) > 1) {
         session.setAnchor(target.x, target.z);
@@ -1947,8 +1961,9 @@ let stuckTarget = -1;
 let stuckPos = '';
 let stuckSince = 0;
 async function huntPack(): Promise<void> {
-    // Solo hunter: no pack, no rally, no waiting. Fight what's targeted,
-    // walk to what's close, patrol when the isle is empty.
+    // Solo hunter: no pack, no rally, no waiting. Finish the engaged dragon
+    // (same-dragon focus = food efficiency), else kill at the rotation
+    // anchor (middle -> south-east -> east -> middle), else rotate.
     if (inStandTrap()) {
         intent('Leaving the lava-corner trap');
         session.setAnchor(CAMP.x, CAMP.z);
@@ -1960,23 +1975,23 @@ async function huntPack(): Promise<void> {
         await waitFight();
         return;
     }
-    const target = findSoloDragon();
+    const target = findAnchorDragon();
     if (!target) {
         stuckTarget = -1;
-        await patrolIsle();
+        await rotateCamp();
         return;
     }
     // Stuck watch: same target + no movement for 25s = unreachable or
-    // unattackable (single-combat taken). Ban index 5m + tile 10m and patrol
+    // unattackable (single-combat taken). Ban index 5m + tile 10m and rotate
     // so the bot keeps moving instead of re-picking the same lava-blocked spot.
     const here = `${pos().x},${pos().z}`;
     if (target.index === stuckTarget && here === stuckPos) {
         if (Date.now() - stuckSince > 25_000) {
             STUCK_BLACKLIST.set(target.index, Date.now() + INDEX_BAN_MS);
             STUCK_POS_BLACKLIST.set(posKey(target.x, target.z), Date.now() + POS_BAN_MS);
-            log(`Stuck on red dragon @ ${target.x},${target.z} — blacklist 10m pos, patrol`);
+            log(`Stuck on red dragon @ ${target.x},${target.z} — blacklist 10m pos, rotate`);
             stuckTarget = -1;
-            await patrolIsle();
+            await rotateCamp();
             return;
         }
     } else {
