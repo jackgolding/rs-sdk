@@ -586,6 +586,23 @@ async function monasteryStop(): Promise<void> {
         session.log('warn', `Monastery stairs up not found @ ${pos().x},${pos().z} — skipping prayer stop`);
         return;
     }
+    // Robe spawns upstairs (top + bottom): take them when the bank has none.
+    for (let n = 0; n < 4; n++) {
+        if (sdk.findInventoryItem(MONK_TOP) && sdk.findInventoryItem(MONK_BOTTOM)) break;
+        const scanned = (await sdk.scanGroundItems(8).catch(() => null)) ?? [];
+        const spawn = [...scanned, ...(sdk.getGroundItems() ?? [])]
+            .filter((g) => isRobe(g.name))
+            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+        if (!spawn) break;
+        if ((spawn.distance ?? 99) > 1) await hopToward(spawn.x, spawn.z, 1);
+        const needTop = !sdk.findInventoryItem(MONK_TOP) && MONK_TOP.test(spawn.name);
+        const needBottom = !sdk.findInventoryItem(MONK_BOTTOM) && MONK_BOTTOM.test(spawn.name);
+        if (!needTop && !needBottom) break;
+        await sdk.sendPickup(spawn.x, spawn.z, spawn.id);
+        await sdk.waitForTicks(1).catch(() => {});
+        session.noteProgress('inventory', spawn.name);
+        log(`Took ${spawn.name} upstairs @ ${spawn.x},${spawn.z}`);
+    }
     await equipMonkRobes();
     if (!wearingRobes()) {
         session.log('warn', `No full monk robes (top+bottom) in kit or bank — praying without them @ ${pos().x},${pos().z}`);
