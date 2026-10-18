@@ -84,7 +84,7 @@
         {
             "name": "jacklove2",
             "view": "fleet",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/hobgoblin-adamant.ts",
             "args": [
                 "jacklove2"
             ]

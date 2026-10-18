@@ -394,6 +394,7 @@ async function walkHops(hops: Tile[], arrive: () => boolean, label: string): Pro
     let cursor = resumeHop(hops);
     let stuck = 0;
     for (let n = 0; n < 280 && !arrive() && !pos().isDead; n++) {
+        session.maybeHeartbeat();
         if (seePker()) return false;
         if (arrive()) return true;
         while (cursor < hops.length - 1 && distTo(hops[cursor]!.x, hops[cursor]!.z) <= 3) cursor++;
@@ -420,6 +421,10 @@ async function walkHops(hops: Tile[], arrive: () => boolean, label: string): Pro
             stuck = 0;
         }
         if (n % 8 === 0) session.noteProgress('location', `${pos().x},${pos().z}`);
+        if (n % 10 === 0) {
+            const dest = hops[hops.length - 1]!;
+            log(`Walk ${label} @ ${pos().x},${pos().z} -> ${dest.x},${dest.z} (${Math.round(Math.hypot(pos().x - dest.x, pos().z - dest.z))} tiles, hop ${cursor}/${hops.length})`);
+        }
     }
     return arrive();
 }
@@ -709,6 +714,7 @@ async function mineAllAddy(): Promise<void> {
     if (session.metrics().phase !== 'addy') await session.setPhase('addy');
     let dry = 0;
     while (!pos().isDead && freeSlots() > 0 && dry < 3 && !seePker()) {
+        session.maybeHeartbeat();
         if (!atHobgoblin()) return;
         if (needsHeal() && foodCount() === 0) return;
         if (needsHeal()) await eatWild();
