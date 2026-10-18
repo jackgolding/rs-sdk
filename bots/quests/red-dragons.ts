@@ -441,13 +441,21 @@ async function rotateCamp(): Promise<void> {
         anchorAt = (anchorAt + 1) % ROTATION.length;
         anchor = ROTATION[anchorAt % ROTATION.length]!;
     }
-    // Attack preempts walking: one short step per hunt tick so a fresh
-    // dragon at the anchor is engaged on the next iteration instead of
-    // walked past on a long blind leg.
-    const d = Math.hypot(pos().x - anchor.x, pos().z - anchor.z);
-    const stepLen = Math.min(4, d);
-    const sx = d === 0 ? anchor.x : Math.round(pos().x + ((anchor.x - pos().x) / d) * stepLen);
-    const sz = d === 0 ? anchor.z : Math.round(pos().z + ((anchor.z - pos().z) / d) * stepLen);
+    // Attack preempts walking: step at most 4 tiles ALONG THE REAL PATH
+    // (findLongPath), never beeline — a straight chord onto lava (e.g. the
+    // east-edge shortcut) burns hopToward's whole retry budget standing
+    // still. Next hunt tick re-scans, so a fresh dragon still preempts.
+    let sx = anchor.x;
+    let sz = anchor.z;
+    try {
+        const p = pos();
+        const path = findLongPath(p.level, p.x, p.z, anchor.x, anchor.z, 200);
+        if (path && path.length > 1) {
+            const step = path[Math.min(4, path.length - 1)] as { x: number; z: number };
+            sx = step.x;
+            sz = step.z;
+        }
+    } catch {}
     session.setAnchor(anchor.x, anchor.z);
     intent(`Rotation ${anchor.x},${anchor.z}`);
     await hopToward(sx, sz, 1);
@@ -988,7 +996,10 @@ async function leaveIsleNorth(): Promise<void> {
     if (!onIsle() && pos().z >= 3858) return;
     // User-routed 2026-10-18 (bank run): stage at 3202,3853 south of the
     // gate, open the gate around 3201,3857 if required, then walk north.
-    if (distTo(3202, 3853) > 4) await hopToward(3202, 3853, 2);
+    // walkSendHops, not hopToward: the straight chord from the east edge
+    // steps onto lava (3219,3841 is unwalkable) and burns the whole retry
+    // budget standing still — the client path routes around it.
+    if (distTo(3202, 3853) > 4) await walkSendHops(sdk, [{ x: 3202, z: 3853 }], { x: 3202, z: 3853 }, 2);
     await openGateNear(3201, 3857);
     await hopToward(GATE_NORTH.x, GATE_NORTH.z, 3);
 }
