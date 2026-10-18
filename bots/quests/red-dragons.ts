@@ -30,10 +30,10 @@
  * at the altar to full, climbs back downstairs, then heads for the ditch.
  * Robes stay worn for the prayer bonus — loot upgrades never replace them.
  *
- * Isle movement bans: dragons in the NW lava pocket (x <= 3187, z >= 3850)
- * are visible across lava but unreachable on foot, and bots must never
- * stand in the NW corner below them (the 3187-3189,3842 pile). Targets
- * there are skipped and stands there walk straight back to camp.
+ * Isle movement bans: dragons in the NW lava pocket (x <= 3192, z >= 3847,
+ * user-bounded 2026-10-18) are visible across lava but unreachable on foot,
+ * and bots must never stand in the NW corner below them (the 3187-3189,3842
+ * pile). Targets there are skipped and stands there walk straight back to camp.
  *
  *   bun bots/quests/red-dragons.ts jacklove1
  *   bun bots/quests/red-dragons.ts jacklove2 --then bots/quests/fishing-route.ts jacklove2 --bignet
@@ -103,25 +103,24 @@ const TANK = TANK_ARG ? new RegExp(`^${TANK_ARG.slice('--tank='.length)}$`, 'i')
 const DPS_DELAY_ARG = process.argv.find((a) => a.startsWith('--dps-delay='));
 const DPS_DELAY_TICKS = Math.max(0, parseInt(DPS_DELAY_ARG?.split('=')[1] ?? '2', 10) || 0);
 const HUNT = { minX: 3176, maxX: 3226, minZ: 3812, maxZ: 3854 };
-/** Circuit over the wiki spawn samples so the pack walks the whole isle.
- * 3181,3850 is deliberately NOT on the circuit: it is the NW lava-corner
- * trap (unreachable dragons across lava at x <= 3187, z >= 3850). */
+/** Circuit over the south isle so the pack never climbs to the NW lava corner.
+ * User-routed 2026-10-18: gate is good, patrol stays south.
+ * 3184,3847 / 3192,3853 bound the no-attack pocket (unreachable dragons
+ * across lava, 3192,3853 itself is unwalkable). */
 const PATROL: Tile[] = [
-    { x: 3200, z: 3834 },
-    { x: 3205, z: 3840 },
-    { x: 3190, z: 3834 },
-    { x: 3184, z: 3820 },
-    { x: 3213, z: 3819 },
-    { x: 3220, z: 3836 },
-    { x: 3202, z: 3846 }
+    { x: 3200, z: 3829 },
+    { x: 3202, z: 3816 },
+    { x: 3218, z: 3821 },
+    { x: 3224, z: 3831 }
 ];
 const DRAGON_GATE = { x: 3201, z: 3856 };
 const GATE_NORTH = { x: 3202, z: 3862 };
 const GATE_SOUTH = { x: 3202, z: 3848 };
 /** NW lava pocket: dragons here are visible across lava but unreachable on
- * foot (all stuck logs: 3181-3186,3851-3854). Never target them. */
+ * foot. User-bounded 2026-10-18: north of 3184,3847 and west of 3192,3853
+ * (3192,3853 itself is unwalkable lava). Never target them. */
 function inLavaCorner(x: number, z: number): boolean {
-    return x <= 3187 && z >= 3850;
+    return x <= 3192 && z >= 3847;
 }
 /** NW stand trap: the pile tile 3187-3189,3842 staring across the lava.
  * Bots must never stand here — the hunt loop walks straight back to camp. */
