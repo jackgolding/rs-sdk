@@ -950,32 +950,49 @@ await runScript(async ({ bot, sdk }) => {
         return p.x >= 2706 && p.x <= 2724 && p.z >= 3464 && p.z <= 3480;
     }
 
+    /**
+     * Floor unstuck: compare the expected floor against the live floor and
+     * climb toward it — down-stairs when above it, up-stairs when below.
+     * Re-scans for stairs every attempt; a stale loc list is how bots get
+     * stranded a floor away from their route.
+     */
+    async function ensureLevel(expected: number, tries = 4): Promise<boolean> {
+        for (let i = 0; i < tries && pos().level !== expected; i++) {
+            const goingDown = pos().level > expected;
+            const dirRe = goingDown ? /climb-down|climb.down/i : /climb-up|climb.up/i;
+            await sdk.scanNearbyLocs(10).catch(() => []);
+            const stairs = (sdk.getNearbyLocs() ?? [])
+                .filter(
+                    (l) => /ladder|stair/i.test(l.name) && l.optionsWithIndex?.some((o) => dirRe.test(o.text))
+                )
+                .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+            if (!stairs) {
+                log(
+                    `No ${goingDown ? 'down' : 'up'} stairs @ ${pos().x},${pos().z} lvl=${pos().level} (want ${expected})`
+                );
+                await sdk.waitForTicks(2);
+                continue;
+            }
+            const before = pos().level;
+            log(`Level unstuck: lvl ${before} -> want ${expected} via ${stairs.name} @ ${stairs.x},${stairs.z}`);
+            if (distTo(stairs.x, stairs.z) > 2) await walkNear(stairs.x, stairs.z, 2);
+            const r = await bot.interactLoc(stairs, dirRe);
+            if (!r.success) log(`stairs: ${r.message}`);
+            await waitUntil(() => pos().level !== before, 10_000);
+        }
+        if (pos().level !== expected) {
+            log(`Still on lvl ${pos().level} @ ${pos().x},${pos().z} (want ${expected})`);
+            return false;
+        }
+        return true;
+    }
+
     async function leaveWheelHouse(): Promise<void> {
         if (!inWheelHouse()) return;
         intent('Leaving the Seers spinning house');
         const jitter = (botName.charCodeAt(botName.length - 1) ?? 0) % 5;
         const exit = { x: 2736, z: 3472 + jitter };
-        for (let i = 0; i < 6 && pos().level > 0; i++) {
-            const ladder = sdk.getNearbyLocs().find(
-                (l) => /ladder|stair/i.test(l.name) && l.optionsWithIndex?.some((o) => /climb-down|climb.down/i.test(o.text))
-            );
-            if (!ladder) {
-                log(`No ladder down @ ${pos().x},${pos().z} lvl=${pos().level}`);
-                break;
-            }
-            const opt = ladder.optionsWithIndex.find((o) => /climb-down|climb.down/i.test(o.text));
-            log(`Climbing down from lvl ${pos().level} @ ${ladder.x},${ladder.z}`);
-            if (distTo(ladder.x, ladder.z) > 1) {
-                await sdk.sendWalk(ladder.x, ladder.z, true);
-                await waitUntil(() => distTo(ladder.x, ladder.z) <= 1, 5_000);
-            }
-            await sdk.sendInteractLoc(ladder.x, ladder.z, ladder.id, opt?.opIndex ?? 1);
-            await waitUntil(() => pos().level === 0, 8_000);
-        }
-        if (pos().level > 0) {
-            log(`Still upstairs @ ${pos().x},${pos().z} lvl=${pos().level}`);
-            return;
-        }
+        if (pos().level !== 0 && !(await ensureLevel(0))) return;
         for (let i = 0; i < 8 && inWheelHouse(); i++) {
             const door = sdk
                 .getNearbyLocs()
