@@ -389,9 +389,10 @@
         {
             "name": "ABGARMY15",
             "view": "army",
-            "script": "bots/quests/sheep-shearer.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
-                "ABGARMY15"
+                "ABGARMY15",
+                "--until=31"
             ]
         },
         {
