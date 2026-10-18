@@ -115,7 +115,7 @@
         {
             "name": "jackthief",
             "view": "fleet",
-            "script": "bots/quests/dragon-bodies.ts",
+            "script": "bots/quests/jackthief-pickup-shields.ts",
             "args": [
                 "jackthief"
             ]
@@ -201,10 +201,9 @@
         {
             "name": "jacklove14",
             "view": "loves",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
-                "jacklove14",
-                "--bignet"
+                "jacklove14"
             ]
         },
         {
@@ -268,7 +267,7 @@
         {
             "name": "ABGARMY02",
             "view": "army",
-            "script": "bots/quests/draynor-bank-all.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
                 "ABGARMY02"
             ]
