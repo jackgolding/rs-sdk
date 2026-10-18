@@ -63,7 +63,7 @@ services:
   quest-abgarmy02:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/agility-route.ts", "ABGARMY02"]
+    command: ["bun", "bots/quests/draynor-bank-all.ts", "ABGARMY02"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
