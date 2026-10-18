@@ -31,7 +31,7 @@ import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { ActivitySession, BotSDK, deriveGatewayUrl, inWilderness } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
-import { initPathfinding } from '../../sdk/pathfinding';
+import { findLongPath, initPathfinding, isTileWalkable } from '../../sdk/pathfinding';
 import {
     CATHERBY_BANK,
     EDGEVILLE,
@@ -1556,7 +1556,8 @@ function findFreshDragon() {
                     (typeof n.targetIndex !== 'number' || n.targetIndex < 0) &&
                     n.optionsWithIndex.some((o) => /attack/i.test(o.text)) &&
                     inHuntBox(n.x, n.z) &&
-                    !blacklistedUntil(n.index)
+                    !blacklistedUntil(n.index) &&
+                    !posBanned(n.x, n.z)
             )
             .sort((a, b) => {
                 const aMine = a.index === mine ? 0 : 1;
@@ -1697,6 +1698,36 @@ function blacklistedUntil(index: number): number {
     if (until <= Date.now()) STUCK_BLACKLIST.delete(index);
     return until <= Date.now() ? 0 : until;
 }
+/**
+ * Position bans: dragons across lava/walls keep the same tile while npc
+ * indexes recycle, so a 90s index ban re-picks the same unreachable spot
+ * (seen at 3180-3185,3850-3854). Ban the tile 10m and skip it in selection.
+ */
+const STUCK_POS_BLACKLIST = new Map<string, number>();
+const POS_BAN_MS = 600_000;
+const INDEX_BAN_MS = 300_000;
+function posKey(x: number, z: number): string {
+    return `${x},${z}`;
+}
+function posBanned(x: number, z: number): boolean {
+    const until = STUCK_POS_BLACKLIST.get(posKey(x, z)) ?? 0;
+    if (until <= Date.now()) {
+        STUCK_POS_BLACKLIST.delete(posKey(x, z));
+        return false;
+    }
+    return true;
+}
+/** Static-collision reachability: no long path = across lava/wall, skip it. */
+function reachable(x: number, z: number): boolean {
+    try {
+        const p = pos();
+        if (!isTileWalkable(p.level, x, z)) return false;
+        const path = findLongPath(p.level, p.x, p.z, x, z, 500);
+        return path.length > 0;
+    } catch {
+        return true;
+    }
+}
 function findSoloDragon() {
     const mine = pos().targetIndex;
     const cands = (sdk.getNearbyNpcs() ?? []).filter(
@@ -1705,7 +1736,9 @@ function findSoloDragon() {
             (n.hp === null || n.hp > 0) &&
             n.optionsWithIndex.some((o) => /attack/i.test(o.text)) &&
             inHuntBox(n.x, n.z) &&
-            !blacklistedUntil(n.index)
+            !blacklistedUntil(n.index) &&
+            !posBanned(n.x, n.z) &&
+            reachable(n.x, n.z)
     );
     const fresh = findFreshDragonIn(cands, mine);
     if (fresh) return fresh;
@@ -1750,13 +1783,14 @@ async function huntPack(): Promise<void> {
         return;
     }
     // Stuck watch: same target + no movement for 25s = unreachable or
-    // unattackable (single-combat taken). Blacklist it 90s and patrol so
-    // the bot keeps moving around the isle instead of standing still.
+    // unattackable (single-combat taken). Ban index 5m + tile 10m and patrol
+    // so the bot keeps moving instead of re-picking the same lava-blocked spot.
     const here = `${pos().x},${pos().z}`;
     if (target.index === stuckTarget && here === stuckPos) {
         if (Date.now() - stuckSince > 25_000) {
-            STUCK_BLACKLIST.set(target.index, Date.now() + 90_000);
-            log(`Stuck on red dragon @ ${target.x},${target.z} — blacklist 90s, patrol`);
+            STUCK_BLACKLIST.set(target.index, Date.now() + INDEX_BAN_MS);
+            STUCK_POS_BLACKLIST.set(posKey(target.x, target.z), Date.now() + POS_BAN_MS);
+            log(`Stuck on red dragon @ ${target.x},${target.z} — blacklist 10m pos, patrol`);
             stuckTarget = -1;
             await patrolIsle();
             return;
