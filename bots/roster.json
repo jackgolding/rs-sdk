@@ -117,7 +117,8 @@
             "view": "fleet",
             "script": "bots/quests/jackthief-pickup-shields.ts",
             "args": [
-                "jackthief"
+                "jackthief",
+                "--drop"
             ]
         },
         {

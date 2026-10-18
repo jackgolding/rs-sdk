@@ -9,6 +9,12 @@
  * dropped dragonfire shields, banks full loads at Lumbridge bank, and
  * returns to the Duke — a sustained duty loop. Switch him off when the
  * drops stop; shields stay banked at Lumbridge.
+ *
+ * Drop mode (`--drop`, jackthief): reverses the flow — repeatedly asks Duke
+ * for a dragonfire shield ("shield that will protect me from the dragon")
+ * and drops each one on the floor for the picker (pigfat) to bank. Waits
+ * instead of farming while the picker is out of sight, and idles with a
+ * visible log line when Duke stops handing shields out.
  */
 import { appendFileSync } from 'fs';
 import { join } from 'path';
@@ -18,6 +24,9 @@ const botName = process.argv.slice(2).find((a) => !a.startsWith('-')) ?? '';
 const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
 
 const FIRE_SHIELD = /dragonfire shield|anti-?dragon/i;
+const DUKE_SHIELD_LINE = /shield that will protect me from the dragon/i;
+const DROP_MODE = process.argv.includes('--drop');
+const PICKER = /pigfat/i;
 const MAX_MISSES = 3;
 
 const CATHERBY_BANK = { x: 2808, z: 3443 };
@@ -287,6 +296,88 @@ await runScript(async ({ bot, sdk }) => {
         return banked > 0;
     }
 
+    /** Ask Duke for a dragonfire shield. Returns true when one lands in the bag. */
+    async function claimShieldFromDuke(): Promise<boolean> {
+        if (sdk.findInventoryItem(FIRE_SHIELD)) return true;
+        const duke = sdk.findNearbyNpc(/duke/i);
+        if (!duke) return false;
+        const talked = await bot.talkTo(duke);
+        if (!talked.success && !sdk.getDialog()?.isOpen) {
+            log(`DROP talk to Duke failed: ${talked.message}`);
+            return false;
+        }
+        for (let i = 0; i < 16 && !sdk.findInventoryItem(FIRE_SHIELD); i++) {
+            const dialog = sdk.getDialog();
+            if (!dialog?.isOpen) {
+                await sdk.waitForTicks(1).catch(() => {});
+                continue;
+            }
+            const opts = dialog.options ?? [];
+            const shieldLine = opts.find((o) => DUKE_SHIELD_LINE.test(o.text));
+            if (shieldLine) {
+                await sdk.sendClickDialog(shieldLine.index);
+                await sdk.waitForTicks(1).catch(() => {});
+                continue;
+            }
+            if (opts.length <= 1 || opts.every((o) => /click here to continue|please wait/i.test(o.text))) {
+                await sdk.sendClickDialog(opts[0]?.index ?? 0);
+                await sdk.waitForTicks(1).catch(() => {});
+                continue;
+            }
+            log(`DROP Duke offers no shield (${opts.map((o) => o.text).join(' | ')})`);
+            await closeUi();
+            return false;
+        }
+        return !!sdk.findInventoryItem(FIRE_SHIELD);
+    }
+
+    /** Drop mode (jackthief): farm shields from Duke and drop them for the picker. */
+    async function dropLoop(): Promise<never> {
+        let dropped = 0;
+        let refusals = 0;
+        let waits = 0;
+        log(`DROP-SHIELDS start @ ${pos().x},${pos().z},${pos().level}`);
+        for (;;) {
+            await closeUi();
+            if (pos().isDead) {
+                const life = pos().lifeId;
+                await sdk.waitForCondition((s) => !s.player?.isDead && (s.player?.lifeId ?? life) !== life, 45_000).catch(() => {});
+                await closeUi();
+                continue;
+            }
+            if (!atDukeStation()) {
+                await goToDuke();
+                continue;
+            }
+            if (!sdk.findNearbyPlayer(PICKER)) {
+                waits++;
+                if (waits % 6 === 0) log(`DROP waiting for picker @ ${pos().x},${pos().z},${pos().level} — dropped so far ${dropped}`);
+                await sdk.waitForTicks(10).catch(() => {});
+                continue;
+            }
+            const shield = sdk.findInventoryItem(FIRE_SHIELD);
+            if (!shield) {
+                if (await claimShieldFromDuke()) {
+                    refusals = 0;
+                    continue;
+                }
+                refusals++;
+                log(`DROP Duke refused (${refusals}) @ ${pos().x},${pos().z},${pos().level}`);
+                await sdk.waitForTicks(50).catch(() => {});
+                continue;
+            }
+            const r = await bot.dropItem(shield, 1);
+            await sdk.waitForTicks(1).catch(() => {});
+            if (r.success) {
+                dropped++;
+                if (dropped % 10 === 0) log(`DROP dropped ${dropped} shields @ ${pos().x},${pos().z},${pos().level}`);
+            } else {
+                log(`DROP drop failed: ${r.message}`);
+                await sdk.waitForTicks(5).catch(() => {});
+            }
+        }
+    }
+
     // ---- first leg: bank everything, die to Lumbridge, climb to the Duke ----
     let banked = 0;
     log(`PICKUP-SHIELDS start @ ${pos().x},${pos().z} shields=${shieldsInBag()}`);
@@ -317,6 +408,9 @@ await runScript(async ({ bot, sdk }) => {
         await sdk.waitForTicks(2);
     }
     log(`PICKUP-SHIELDS at Duke: duke=${sdk.findNearbyNpc(/duke/i) ? 'yes' : 'no'} @ ${pos().x},${pos().z},${pos().level}`);
+    if (DROP_MODE) {
+        await dropLoop();
+    }
 
     // ---- duty loop: sweep, bank full loads at Lumbridge, return ----
     let idleSweeps = 0;
