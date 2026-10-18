@@ -41,6 +41,12 @@
  * lava), and patrol moves one short step per hunt tick so a fresh dragon is
  * engaged on the next iteration instead of walked past.
  *
+ * Large monsters: red dragons are size 4. Approach stops at the footprint
+ * edge (tolerance = size, never the anchor tile), the attack itself uses
+ * default client routing so the dispatch paths close to the real footprint,
+ * and a synchronous cant_reach blacklists the target instantly instead of
+ * looping. Same pattern applies to any future big-footprint grind.
+ *
  *   bun bots/quests/red-dragons.ts jacklove1
  *   bun bots/quests/red-dragons.ts jacklove2 --then bots/quests/fishing-route.ts jacklove2 --bignet
  */
@@ -1845,10 +1851,18 @@ function hasDragonTarget(): boolean {
     return !!target && DRAGON.test(target.name) && (target.hp === null || target.hp > 0) && target.reachable !== false;
 }
 
-async function hitDragon(target: { index: number; optionsWithIndex: { text: string; opIndex: number }[] }): Promise<void> {
+async function hitDragon(target: {
+    index: number;
+    size?: number;
+    optionsWithIndex: { text: string; opIndex: number }[];
+}) {
     const opt = target.optionsWithIndex.find((o) => /attack/i.test(o.text));
-    if (!opt) return;
-    await sdk.sendInteractNpc(target.index, opt.opIndex, { route: false });
+    if (!opt) return { success: false as const, message: 'no attack option' };
+    // Default client routing (never route:false): the dispatch paths route to
+    // the NPC's route tile with its REAL footprint — red dragons are size 4,
+    // so a walk-to-anchor + route:false attack from the anchor tile can never
+    // land. The caller must check the result: cant_reach is synchronous.
+    return sdk.sendInteractNpc(target.index, opt.opIndex);
 }
 
 function hpXp(): number {
@@ -1856,14 +1870,22 @@ function hpXp(): number {
 }
 
 async function engageDragon(
-    target: { index: number; x: number; z: number; optionsWithIndex: { text: string; opIndex: number }[] },
+    target: { index: number; x: number; z: number; size?: number; optionsWithIndex: { text: string; opIndex: number }[] },
     label: string
-): Promise<void> {
+): Promise<boolean> {
     intent(`${label} red dragon @ ${target.x},${target.z}`);
     sdk.getNewChat({ types: [0] });
     const specced = await enableDlongSpec();
-    await hitDragon(target);
+    const hit = await hitDragon(target);
     noteSpecRejected();
+    if (!hit.success && (hit as { reason?: string }).reason === 'cant_reach') {
+        // The client routefinder cannot reach the footprint at all (lava edge,
+        // bad stand tile). Blacklist now — retrying just spams cant_reach.
+        STUCK_BLACKLIST.set(target.index, Date.now() + INDEX_BAN_MS);
+        STUCK_POS_BLACKLIST.set(posKey(target.x, target.z), Date.now() + POS_BAN_MS);
+        log(`cant_reach red dragon @ ${target.x},${target.z} size=${target.size ?? '?'} — blacklist 10m pos, rotate`);
+        return false;
+    }
     if (specced && specArmed) noteSpecUsed();
     await sdk
         .waitForCondition((s) => {
@@ -1873,6 +1895,7 @@ async function engageDragon(
         }, 8_000)
         .catch(() => {});
     await waitFight();
+    return true;
 }
 
 /**
@@ -1941,20 +1964,22 @@ function findSoloDragon() {
     return findFreshDragon();
 }
 
-async function attackDragon(): Promise<void> {
+async function attackDragon(): Promise<boolean> {
     if (hasDragonTarget()) {
         await waitFight();
-        return;
+        return true;
     }
     const target = findAnchorDragon();
-    if (!target) return;
-    if ((target.distance ?? 99) > 1) {
+    if (!target) return true;
+    // Large footprints first: approach to the footprint edge, not the anchor.
+    const edge = Math.max(1, target.size ?? 1);
+    if ((target.distance ?? 99) > edge) {
         session.setAnchor(target.x, target.z);
         intent(`To red dragon @ ${target.x},${target.z}`);
-        await hopToward(target.x, target.z, 1);
-        return;
+        await hopToward(target.x, target.z, edge);
+        return true;
     }
-    await engageDragon(target, 'Solo attack');
+    return engageDragon(target, 'Solo attack');
 }
 
 let stuckTarget = -1;
@@ -1999,12 +2024,19 @@ async function huntPack(): Promise<void> {
         stuckPos = here;
         stuckSince = Date.now();
     }
-    if ((target.distance ?? 99) > 1) {
+    // Large footprints (dragons are size 4): approach to the footprint edge,
+    // not the anchor tile — walking onto the anchor means stepping into the
+    // monster. The client-routed attack below closes the final tiles.
+    const edge = Math.max(1, target.size ?? 1);
+    if ((target.distance ?? 99) > edge) {
         session.setAnchor(target.x, target.z);
         intent(`To red dragon @ ${target.x},${target.z}`);
-        await hopToward(target.x, target.z, 1);
+        await hopToward(target.x, target.z, edge);
     }
-    await attackDragon();
+    if (!(await attackDragon())) {
+        stuckTarget = -1;
+        await rotateCamp();
+    }
 }
 
 async function swingSpec(): Promise<void> {
