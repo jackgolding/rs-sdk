@@ -355,7 +355,7 @@
         {
             "name": "ABGARMY11",
             "view": "army",
-            "script": "bots/quests/witchs-potion.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
                 "ABGARMY11"
             ]
