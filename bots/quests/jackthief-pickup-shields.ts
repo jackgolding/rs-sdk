@@ -274,16 +274,21 @@ await runScript(async ({ bot, sdk }) => {
     }
 
     async function bankShields(): Promise<boolean> {
-        // The bank booth shares x/z with the Duke's room one floor down, so the
-        // level check must come first — distance alone reads "close" from upstairs.
-        if (pos().level !== 0 || distTo(LUMBRIDGE_BANK.x, LUMBRIDGE_BANK.z) > 8) {
-            while (pos().level > 0) {
-                if (!(await climb('down'))) break;
+        // The booth's floor is not assumed: try each castle level in turn until
+        // the bank opens. (x/z alone reads "close" from the wrong floor.)
+        await walkNear(LUMBRIDGE_BANK.x, LUMBRIDGE_BANK.z, 4);
+        let open = sdk.getState()?.bank?.isOpen ?? false;
+        for (let i = 0; i < 3 && !open; i++) {
+            if ((await bot.openBank()).success) {
+                open = true;
+                break;
             }
+            if (pos().level >= 2) break;
+            if (!(await climb('up'))) break;
             await walkNear(LUMBRIDGE_BANK.x, LUMBRIDGE_BANK.z, 4);
         }
-        if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
-            log('BANK shields: Lumbridge bank did not open');
+        if (!open) {
+            log(`BANK shields: Lumbridge bank did not open @ ${pos().x},${pos().z},${pos().level}`);
             return false;
         }
         const before = shieldsInBag();
@@ -438,7 +443,7 @@ await runScript(async ({ bot, sdk }) => {
         banked += picked;
         if (shieldsInBag() > 0 && freeSlots() === 0) {
             log(`PICKUP-SHIELDS bag full (${shieldsInBag()}) — banking`);
-            await bankShields();
+            if (!(await bankShields())) await sdk.waitForTicks(10).catch(() => {});
             continue;
         }
         if (picked > 0) {
