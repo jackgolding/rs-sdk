@@ -187,9 +187,10 @@
         {
             "name": "jacklove12",
             "view": "loves",
-            "script": "bots/quests/edgeville-bank-all.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "jacklove12"
+                "jacklove12",
+                "--until-wc=40"
             ]
         },
         {
@@ -211,7 +212,7 @@
         {
             "name": "jacklove15",
             "view": "loves",
-            "script": "bots/quests/edgeville-bank-all.ts",
+            "script": "bots/quests/sheep-shearer.ts",
             "args": [
                 "jacklove15"
             ]
@@ -338,9 +339,10 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/edgeville-bank-all.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY10"
+                "ABGARMY10",
+                "--until-wc=40"
             ]
         },
         {
@@ -354,7 +356,7 @@
         {
             "name": "ABGARMY12",
             "view": "army",
-            "script": "bots/quests/edgeville-bank-all.ts",
+            "script": "bots/quests/sheep-shearer.ts",
             "args": [
                 "ABGARMY12"
             ]
