@@ -8,6 +8,8 @@
 import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
+import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
+import type { JournalRule } from '../../quest-lab/evidence';
 import {
     buyAtShop,
     ensureCoins,
@@ -81,26 +83,52 @@ await runScript(async ({ bot, sdk }) => {
         return count(MAIL) + count(ORANGE_MAIL) + count(BLUE_MAIL);
     }
 
-    let sawComplete = false;
+    // Label from questlist.if [gobdip] option=, title from
+    // ~quest_journal("Goblin Diplomacy", ...) in gobdip_journal.rs2.
+    const JOURNAL = { label: 'Goblin Diplomacy', title: 'Goblin Diplomacy' };
 
-    function questText(): string {
-        const game = (sdk.getState()?.gameMessages ?? []).map((m) => m.text);
-        const chat = sdk.getChat({ limit: 80, types: [0, 1, 2, 3, 4, 5, 6, 7] }).map((m) => m.text);
-        const dialog = sdk.getDialog();
-        return [...game, ...chat, dialog?.text ?? '', ...(dialog?.options ?? []).map((o) => o.text)].join('\n');
+    // Journal rules, read from the quest's own journal script
+    // (server/content/scripts/quests/quest_gobdip/scripts/gobdip_journal.rs2):
+    //   not_started -> "I can start this quest by talking to the Bartender in Port Sarim."
+    //   complete    -> "... they're clearly not the smartest ... QUEST COMPLETE!"
+    const RULES: Record<string, JournalRule> = {
+        not_started: {
+            id: 'gobdip:not_started',
+            kind: 'unstarted',
+            all: ['I can start this quest by talking to', 'Bartender', 'Port Sarim']
+        },
+        complete: {
+            id: 'gobdip:complete',
+            kind: 'complete',
+            all: ['QUEST COMPLETE', 'their favourite']
+        }
+    };
+
+    /** The first stage rule that passes is the account's real stage. */
+    async function readStage(): Promise<string> {
+        for (const name of ['complete', 'not_started']) {
+            const read = await readJournalCheckpoint(sdk, JOURNAL, RULES[name]!);
+            log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
+            if (read.verdict?.verdict === 'PASS') return name;
+        }
+        return 'unknown';
     }
 
-    function questDone(): boolean {
-        if (sawComplete) return true;
-        const text = questText();
-        // Overlay is "You have completed the\nGoblin Diplomacy Quest!" — `.*` does
-        // not span that newline. Do not treat a generic "Congratulations!" as
-        // done: that line is still in chat from Romeo & Juliet.
-        if (/completed the[\s\S]{0,80}goblin diplomacy/i.test(text)) {
-            sawComplete = true;
-            return true;
-        }
-        return false;
+    let journalComplete = false;
+    let lastJournalCheck = 0;
+    /**
+     * Goblin Diplomacy completion, read from the QUEST JOURNAL.
+     *
+     * This used to be a chat/game-message regex ("completed the ... goblin
+     * diplomacy"). Chat is transient: a restart loses it, and a generic
+     * congratulations line from another quest reads as a false pass.
+     */
+    async function questDone(): Promise<boolean> {
+        if (Date.now() - lastJournalCheck < 5_000) return journalComplete;
+        lastJournalCheck = Date.now();
+        const read = await readJournalCheckpoint(sdk, JOURNAL, RULES.complete!);
+        journalComplete = read.verdict?.verdict === 'PASS';
+        return journalComplete;
     }
 
     async function closeUi(): Promise<void> {
@@ -422,11 +450,7 @@ await runScript(async ({ bot, sdk }) => {
             log(`Brown: ${seen.join(' | ')}`);
         }
         await chat();
-        for (let i = 0; i < 20 && !questDone(); i++) {
-            if (/completed the[\s\S]{0,80}goblin diplomacy/i.test(questText())) {
-                sawComplete = true;
-                break;
-            }
+        for (let i = 0; i < 20 && !(await questDone()); i++) {
             await sdk.waitForTicks(1);
         }
     }
@@ -435,13 +459,25 @@ await runScript(async ({ bot, sdk }) => {
     await closeUi();
     log(`Goblin Diplomacy start @ ${pos().x},${pos().z}`);
 
+    // Ask the journal BEFORE shopping: an account that already finished must
+    // not be sent to fetch mail and dyes first.
+    const startStage = await readStage();
+    log(`Goblin Diplomacy journal stage at start: ${startStage}`);
+    if (startStage === 'unknown') {
+        throw new Error('could not determine the Goblin Diplomacy stage from the journal');
+    }
+    if (startStage === 'complete') {
+        log('Goblin Diplomacy is already complete — nothing to do');
+        return;
+    }
+
     const until = Date.now() + 20 * 60_000;
-    while (Date.now() < until && !questDone()) {
+    while (Date.now() < until && !(await questDone())) {
         await closeUi();
         await ensureSupplies();
         if (count(ORANGE_MAIL) > 0 && count(BLUE_MAIL) > 0 && count(MAIL) > 0) {
             await handInGenerals();
-            if (questDone()) break;
+            if (await questDone()) break;
         } else {
             await startQuest();
             await prepareArmour();
@@ -452,6 +488,6 @@ await runScript(async ({ bot, sdk }) => {
         await sdk.waitForTicks(2);
     }
 
-    if (!questDone()) throw new Error(`Goblin Diplomacy unfinished @ ${pos().x},${pos().z}`);
+    if (!(await questDone())) throw new Error(`Goblin Diplomacy unfinished @ ${pos().x},${pos().z}`);
     log('QUEST COMPLETE Goblin Diplomacy');
 });

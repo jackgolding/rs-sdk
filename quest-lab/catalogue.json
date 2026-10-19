@@ -33,11 +33,11 @@
         "completionExpression": "^arthur_complete"
       }
     ],
-    "primaryScript": "bots/quests/pirates-treasure.ts",
+    "primaryScript": null,
     "reviewStatus": "unreviewed",
     "runtimeVerified": false,
     "blockers": [
-      "existing script needs completion-predicate audit",
+      "no primary quest script yet",
       "no reviewed manifest (prerequisites/items/checkpoints)"
     ]
   },
@@ -54,11 +54,11 @@
         "completionExpression": "^ball_complete"
       }
     ],
-    "primaryScript": null,
+    "primaryScript": "bots/quests/witchs-house.ts",
     "reviewStatus": "unreviewed",
     "runtimeVerified": false,
     "blockers": [
-      "no primary quest script yet",
+      "existing script needs completion-predicate audit",
       "no reviewed manifest (prerequisites/items/checkpoints)"
     ]
   },
@@ -165,11 +165,11 @@
         "completionExpression": "^cook_complete"
       }
     ],
-    "primaryScript": null,
+    "primaryScript": "bots/quests/cooks-assistant.ts",
     "reviewStatus": "unreviewed",
     "runtimeVerified": false,
     "blockers": [
-      "no primary quest script yet",
+      "existing script needs completion-predicate audit",
       "no reviewed manifest (prerequisites/items/checkpoints)"
     ]
   },
@@ -333,11 +333,11 @@
         "completionExpression": "^druidspirit_complete"
       }
     ],
-    "primaryScript": "bots/quests/witchs-potion.ts",
+    "primaryScript": null,
     "reviewStatus": "unreviewed",
     "runtimeVerified": false,
     "blockers": [
-      "existing script needs completion-predicate audit",
+      "no primary quest script yet",
       "no reviewed manifest (prerequisites/items/checkpoints)"
     ]
   },
@@ -648,7 +648,7 @@
         "completionExpression": "^hetty_complete"
       }
     ],
-    "primaryScript": "bots/quests/witchs-house.ts",
+    "primaryScript": "bots/quests/witchs-potion.ts",
     "reviewStatus": "unreviewed",
     "runtimeVerified": false,
     "blockers": [
@@ -690,11 +690,11 @@
         "completionExpression": "^hunt_complete"
       }
     ],
-    "primaryScript": null,
+    "primaryScript": "bots/quests/pirates-treasure.ts",
     "reviewStatus": "unreviewed",
     "runtimeVerified": false,
     "blockers": [
-      "no primary quest script yet",
+      "existing script needs completion-predicate audit",
       "no reviewed manifest (prerequisites/items/checkpoints)"
     ]
   },
@@ -963,11 +963,11 @@
         "completionExpression": "^priest_complete"
       }
     ],
-    "primaryScript": "bots/quests/priest-in-peril.ts",
+    "primaryScript": null,
     "reviewStatus": "unreviewed",
     "runtimeVerified": false,
     "blockers": [
-      "existing script needs completion-predicate audit",
+      "no primary quest script yet",
       "no reviewed manifest (prerequisites/items/checkpoints)"
     ]
   },
@@ -984,11 +984,11 @@
         "completionExpression": "^priestperil_complete"
       }
     ],
-    "primaryScript": null,
+    "primaryScript": "bots/quests/priest-in-peril.ts",
     "reviewStatus": "unreviewed",
     "runtimeVerified": false,
     "blockers": [
-      "no primary quest script yet",
+      "existing script needs completion-predicate audit",
       "no reviewed manifest (prerequisites/items/checkpoints)"
     ]
   },

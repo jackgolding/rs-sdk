@@ -8,6 +8,9 @@
 import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
+import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
+import type { JournalRule } from '../../quest-lab/evidence';
+import { appendCheckpoint, createRun, safeRunId, summarizeRun } from '../../quest-lab/records';
 import {
     buyAtShop,
     ensureCoins,
@@ -79,10 +82,88 @@ await runScript(async ({ bot, sdk }) => {
         return p.x >= 2880 && p.x <= 2980 && p.z >= 3120 && p.z <= 3200;
     }
 
-    function questDone(coinsBefore: number): boolean {
-        if (coinCount() >= coinsBefore + 400) return true;
-        const msgs = sdk.getState()?.gameMessages ?? [];
-        return msgs.some((m) => /completed the.*pirate/i.test(m.text));
+    /**
+     * Pirate's Treasure stage and completion, read from the QUEST JOURNAL.
+     *
+     * This used to be `coinCount() >= coinsBefore + 400` plus a
+     * `/completed the.*pirate/i` game-message regex. Coin gain is this quest's
+     * REWARD, so ANY coin pickup — selling loot, a random drop — read as
+     * completion, and the chat regex fired on any similarly-worded message.
+     *
+     * Rules come from the quest's own handler
+     * (quest_hunt/scripts/hunt_journal.rs2), each on a sentence unique to its
+     * stage. Journal label verified from the quest list
+     * (questlist.if: `text=Pirate's Treasure`).
+     */
+    const HUNT_JOURNAL = { label: "Pirate's Treasure", title: "Pirate's Treasure" };
+    const HUNT_STAGES: Record<string, JournalRule> = {
+        not_started: {
+            id: 'hunt:not_started',
+            kind: 'unstarted',
+            all: ['I can start this quest by speaking to Redbeard Frank'],
+        },
+        fetch_rum: {
+            id: 'hunt:fetch_rum',
+            kind: 'active',
+            all: ['He has agreed to tell me the location of some treasure for some Karamja Rum'],
+        },
+        received_key: {
+            id: 'hunt:received_key',
+            kind: 'active',
+            all: ['the treasure is hidden in the chest in the upstairs room of the Blue Moon Inn'],
+        },
+        read_note: {
+            id: 'hunt:read_note',
+            kind: 'active',
+            all: ['Visit the city of the White Knights'],
+        },
+        complete: { id: 'hunt:complete', kind: 'complete', all: ['QUEST COMPLETE'] },
+    };
+
+    // Durable run record: checkpoint evidence is written verbatim as the run
+    // proceeds, so an audit does not depend on stdout or sampled telemetry.
+    const MODE = process.env.QUEST_LAB_MODE === 'staging' ? 'staging' : 'development';
+    const run = createRun(join(process.cwd(), 'quest-lab', 'runs'), safeRunId('hunt', botName, new Date().toISOString()), {
+        questId: 'hunt',
+        account: botName,
+        mode: MODE,
+        scriptHash: Bun.hash(await Bun.file(import.meta.path).text()).toString(16),
+        fixtureHash: process.env.QUEST_LAB_FIXTURE_HASH ?? 'unrecorded',
+        contentHash: process.env.QUEST_LAB_CONTENT_HASH ?? 'unrecorded',
+        requiredCheckpoints: ['not_started', 'fetch_rum', 'received_key', 'read_note', 'complete'],
+    });
+    log(`Run record: ${run.directory} (mode=${MODE})`);
+
+    function record(checkpointId: string, verdict: 'PASS' | 'FAIL' | 'UNKNOWN', reason: string, kind?: string): void {
+        try {
+            appendCheckpoint(run.directory, { checkpointId, verdict, reason, kind });
+        } catch (err) {
+            log(`record ${checkpointId} failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }
+
+    /** The first stage rule that passes is the account's real stage. */
+    async function readStage(): Promise<string> {
+        for (const name of ['complete', 'read_note', 'received_key', 'fetch_rum', 'not_started']) {
+            const read = await readJournalCheckpoint(sdk, HUNT_JOURNAL, HUNT_STAGES[name]!);
+            const verdict = read.verdict?.verdict ?? 'UNKNOWN';
+            log(`  stage probe ${name}: ${verdict} (${read.reason})`);
+            record(name, verdict, read.reason, HUNT_STAGES[name]!.kind);
+            if (verdict === 'PASS') return name;
+        }
+        return 'unknown';
+    }
+
+    let journalComplete = false;
+    let lastJournalCheck = 0;
+    /** Journal-backed completion, throttled: opening the journal is not free. */
+    async function questDone(): Promise<boolean> {
+        if (Date.now() - lastJournalCheck < 5_000) return journalComplete;
+        lastJournalCheck = Date.now();
+        const read = await readJournalCheckpoint(sdk, HUNT_JOURNAL, HUNT_STAGES.complete!);
+        journalComplete = read.verdict?.verdict === 'PASS';
+        if (journalComplete) record('complete', 'PASS', read.reason, 'complete');
+        return journalComplete;
     }
 
     async function closeUi(): Promise<void> {
@@ -342,11 +423,22 @@ await runScript(async ({ bot, sdk }) => {
     const coinsBefore = coinCount();
     await bot.skipTutorial();
     await closeUi();
+    // Ask the journal BEFORE shopping: an account that already finished must
+    // not be sent to buy aprons and spades first.
+    const startStage = await readStage();
+    log(`Pirate's Treasure journal stage at start: ${startStage}`);
+    if (startStage === 'unknown') {
+        throw new Error('could not determine the Pirate\'s Treasure stage from the journal');
+    }
+    if (startStage === 'complete') {
+        log('Pirate\'s Treasure is already complete — nothing to do');
+        return;
+    }
     await ensureTools();
     log(`Pirate's Treasure start coins=${coinsBefore} @ ${pos().x},${pos().z}`);
 
     const until = Date.now() + 25 * 60_000;
-    while (Date.now() < until && !questDone(coinsBefore)) {
+    while (Date.now() < until && !(await questDone())) {
         await closeUi();
         if (count(APRON) < 1 || count(SPADE) < 1) await ensureSupplies();
 
@@ -358,7 +450,7 @@ await runScript(async ({ bot, sdk }) => {
 
         if (count(MESSAGE) > 0 || /dig a hole|little bag of treasure/i.test((sdk.getState()?.gameMessages ?? []).map((m) => m.text).join(' '))) {
             await digTreasure();
-            if (questDone(coinsBefore)) break;
+            if (await questDone()) break;
             continue;
         }
 
@@ -401,6 +493,8 @@ await runScript(async ({ bot, sdk }) => {
         await sdk.waitForTicks(2);
     }
 
-    if (!questDone(coinsBefore)) throw new Error(`Pirate's Treasure unfinished @ ${pos().x},${pos().z}`);
+    if (!(await questDone())) throw new Error(`Pirate's Treasure unfinished @ ${pos().x},${pos().z}`);
+    const summary = summarizeRun(run.directory);
+    log(`Run checkpoints ok=${summary.ok} missing=[${summary.missing.join(',')}] failed=[${summary.failed.join(',')}]`);
     log(`QUEST COMPLETE Pirate's Treasure (+${coinCount() - coinsBefore} gp)`);
 });

@@ -1,0 +1,1 @@
+{"bank": [{"count": 100, "name": "coins"}, {"count": 30, "name": "bones"}, {"count": 2, "name": "bucket_empty"}, {"count": 10, "name": "trout"}, {"count": 5, "name": "salmon"}], "position": {"level": 0, "x": 3186, "z": 3436}, "questId": "demon", "schemaVersion": 1, "skills": "maxed", "target": {"unstarted": 0, "varp": "demonstart"}, "tutorial": true, "varps": {}, "worn": []}
