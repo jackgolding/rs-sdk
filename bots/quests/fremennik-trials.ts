@@ -1660,8 +1660,31 @@ const stages: QuestStage[] = [
                     ctx.log(`reveller: lit cracker at the pipe=${count(LIT_CRACKER)}`);
                 }
                 if (count(LIT_CRACKER) > 0) {
+                    const before = chatText(30);
                     await useOnLoc(ctx, LIT_CRACKER, /pipe/i);
-                    ctx.log(`reveller: placed in the pipe — lit left=${count(LIT_CRACKER)}`);
+                    // Dispose of the receipt and read the server's own line. The
+                    // item vanishing proves nothing: the fuse expiring ("The
+                    // strange object you lit earlier explodes in your inventory!")
+                    // removes it just as completely as a successful placement
+                    // ("You put the lit strange object into the pipe."), and the
+                    // old log called both of them 'placed' — which is how a run
+                    // that never set firecracker_placed looked like it had.
+                    const placed = await waitUntil(
+                        () => /put the lit strange object into the pipe/i.test(chatText(30)),
+                        12_000
+                    );
+                    const blewUp = /explodes in your inventory/i.test(chatText(30));
+                    ctx.log(
+                        `reveller: pipe placement placed=${placed} exploded=${blewUp} litLeft=${count(LIT_CRACKER)} litBefore=${before ? 'yes' : 'no'}`
+                    );
+                    if (!placed && blewUp) {
+                        // Fuse burned out before the placement landed. Make a fresh
+                        // cracker from a beer and try again on the next pass rather
+                        // than walking to the keg swap with the bit unset.
+                        ctx.log('reveller: firecracker exploded before placement — will re-make');
+                        await ticks(6);
+                        return;
+                    }
                 }
             }
             // 7. swap the keg (must be inside the longhall swap zone)
