@@ -125,9 +125,10 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/edgeville-bank-all.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "pigfat"
+                "pigfat",
+                "--until-wc=40"
             ]
         },
         {
