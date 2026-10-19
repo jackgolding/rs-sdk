@@ -211,9 +211,10 @@
         {
             "name": "jacklove15",
             "view": "loves",
-            "script": "bots/quests/sheep-shearer.ts",
+            "script": "bots/quests/cut-gems.ts",
             "args": [
-                "jacklove15"
+                "jacklove15",
+                "--until=40"
             ]
         },
         {
@@ -355,9 +356,10 @@
         {
             "name": "ABGARMY12",
             "view": "army",
-            "script": "bots/quests/sheep-shearer.ts",
+            "script": "bots/quests/cut-gems.ts",
             "args": [
-                "ABGARMY12"
+                "ABGARMY12",
+                "--until=40"
             ]
         },
         {
