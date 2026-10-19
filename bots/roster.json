@@ -186,10 +186,9 @@
         {
             "name": "jacklove12",
             "view": "loves",
-            "script": "bots/quests/cut-gems.ts",
+            "script": "bots/quests/lost-city.ts",
             "args": [
-                "jacklove12",
-                "--until=40"
+                "jacklove12"
             ]
         },
         {
@@ -338,10 +337,9 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/cut-gems.ts",
+            "script": "bots/quests/lost-city.ts",
             "args": [
-                "ABGARMY10",
-                "--until=40"
+                "ABGARMY10"
             ]
         },
         {
