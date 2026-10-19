@@ -125,10 +125,9 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/lost-city.ts",
             "args": [
-                "pigfat",
-                "--until=40"
+                "pigfat"
             ]
         },
         {

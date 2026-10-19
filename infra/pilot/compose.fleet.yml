@@ -1627,7 +1627,7 @@ services:
   quest-pigfat:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/bowstrings.ts", "pigfat", "--until=40"]
+    command: ["bun", "bots/quests/lost-city.ts", "pigfat"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
