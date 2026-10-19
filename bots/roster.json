@@ -125,9 +125,10 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/sheep-shearer.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
-                "pigfat"
+                "pigfat",
+                "--until=40"
             ]
         },
         {
