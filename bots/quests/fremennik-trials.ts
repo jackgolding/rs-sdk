@@ -2102,13 +2102,27 @@ async function seerRiddle(ctx: QuestContext): Promise<boolean> {
     ctx.log(`peer dial set: ${letters().join('')} (want ${hit.word})`);
     // ENTER is located by its own label, never by a guessed offset: the live
     // layout puts it at base+58 where the local dump had base+57.
-    const enterComp = ifaceComps().find((c) => /enter/i.test(c.text ?? ''));
-    const enterId = enterComp?.componentId ?? base + 58;
-    ctx.log(`peer enter: id=${enterId} (off=${enterId - base})`);
-    await sdk.sendClickComponent(enterId).catch(() => undefined);
+    // ENTER: "E N T E R" is only the LABEL (offset 58) and clicking it is a
+    // no-op — live it produced 'NO ANSWER' for 25s. The clickable button has no
+    // text of its own and sits at offset 57, which DID draw a chat verdict when
+    // the dials were still wrong. Try the button, then the label and its
+    // neighbour, and stop at the first chat verdict.
+    const labelId = ifaceComps().find((c) => /enter/i.test(c.text ?? ''))?.componentId ?? base + 58;
+    const enterCandidates = [base + 57, labelId, labelId - 1].filter(
+        (v, i, a) => a.indexOf(v) === i
+    );
+    let verdict = false;
+    for (const id of enterCandidates) {
+        ctx.log(`peer enter: clicking id=${id} (off=${id - base})`);
+        await sdk.sendClickComponent(id).catch(() => undefined);
+        verdict = await waitUntil(
+            () => /solved the riddle|failed to solve the riddle/i.test(chatText(20)),
+            20_000
+        );
+        if (verdict) break;
+    }
     // The solve verdict is a chat line; give it a generous window and read the
     // player's own message ring (visibleText's chat path is not this one).
-    const verdict = await waitUntil(() => /solved the riddle|failed to solve the riddle/i.test(chatText(20)), 25_000);
     const solved = /solved the riddle!/i.test(chatText(8)) && !/failed to solve/i.test(chatText(4));
     ctx.log(`peer: lock submit → ${verdict ? 'chat answered' : 'NO ANSWER'} solved=${solved}`);
     await bot.closeInterface().catch(() => undefined);
