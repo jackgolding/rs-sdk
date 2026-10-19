@@ -120,6 +120,10 @@ export class GnomeCourse {
     private fails = 0;
     private logStand: { x: number; z: number } | null = null;
     private logSwept = false;
+    /** The log balance loc is absent from the live map (plane-1 placement in
+     *  m38_53.jm2); once a full sweep misses it, skip the step every lap
+     *  instead of re-sweeping. Partial laps still pay per-obstacle XP. */
+    private logMissing = false;
 
     constructor(private readonly d: GnomeCourseDeps) {}
 
@@ -301,7 +305,8 @@ export class GnomeCourse {
             if (loc) {
                 this.d.log(`Log target ${loc.name} @ ${loc.x},${loc.z} reach=${loc.reachable}`);
             } else {
-                this.d.log(`Log absent near ${this.d.pos().x},${this.d.pos().z} L${this.d.pos().level}`);
+                this.logMissing = true;
+                this.d.log(`Log absent near ${this.d.pos().x},${this.d.pos().z} L${this.d.pos().level} — skipping the log step for this run`);
             }
         }
         if (!loc || loc.reachable === false) return { ok: false, xpGained: 0 };
@@ -426,6 +431,13 @@ export class GnomeCourse {
             const p = this.d.pos();
             this.d.log(`Bad stepIndex ${this.stepIndex} @ ${p.x},${p.z} L${p.level} — resetting to log`);
             this.stepIndex = 0;
+            this.fails = 0;
+            return;
+        }
+        if (step.id === 'log' && this.logMissing) {
+            // Loc absent from the live map: go straight to the net so laps
+            // keep flowing instead of sweeping the corridor every lap.
+            this.stepIndex = (this.stepIndex + 1) % STEPS.length;
             this.fails = 0;
             return;
         }
