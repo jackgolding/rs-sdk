@@ -366,8 +366,11 @@ function creditBagChange(): void {
     // herring, spinning the fleece) — a second honest effect source for the
     // stretches where the bag does not move and the verdict would otherwise
     // read no-effect.
-    const st = sdk.getState() as unknown as { xp?: Record<string, number> } | undefined;
-    const total = Object.values(st?.xp ?? {}).reduce((sum, v) => sum + (v ?? 0), 0);
+    // sdk.getSkills() is the real API — `state.xp` does not exist on this SDK
+    // (activity.ts builds its levels from getSkills(), and a field that is not
+    // in sdk/ is dead code, not a check).
+    const skills = sdk.getSkills() as unknown as Array<{ xp?: number; level?: number }>;
+    const total = skills.reduce((sum, sk) => sum + (sk?.xp ?? sk?.level ?? 0), 0);
     if (total > 0 && lastXpTotal >= 0 && total !== lastXpTotal) {
         lastXpTotal = total;
         session.noteProgress('xp', 'xp gained');
