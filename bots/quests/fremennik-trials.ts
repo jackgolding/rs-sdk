@@ -2057,10 +2057,26 @@ async function seerRiddle(ctx: QuestContext): Promise<boolean> {
         return false;
     }
     const base = ifaceId + 1;
+    // REVISION DUMP: the component offsets below came from a LOCAL interface
+    // dump; the live combo-lock evidently differs (dials read back GJSE for
+    // FIRE and the submit answers solved=false). Publish what the client
+    // actually sends so the real ids can be derived from evidence.
+    {
+        const raw = sdk.getState()?.interface as unknown as Record<string, unknown> | undefined;
+        ctx.log(`peer dump: ifaceId=${ifaceId} base=${base} keys=${Object.keys(raw ?? {}).join(',')}`);
+        const comps = (raw?.textComponents ?? []) as Array<{ componentId: number; text?: string }>;
+        ctx.log(`peer dump: textComponents=${comps.length}`);
+        for (const c of comps.slice(0, 45)) {
+            ctx.log(
+                `peer dump: com off=${c.componentId - base} id=${c.componentId} text=${JSON.stringify((c.text ?? '').slice(0, 20))}`
+            );
+        }
+    }
     const letters = () => {
         const comps = (sdk.getState()?.interface as unknown as { textComponents?: Array<{ componentId: number; text?: string }> } | undefined)?.textComponents ?? [];
         return [0, 1, 2, 3].map((i) => (comps.find((c) => c.componentId === base + 43 + i)?.text ?? 'A').trim().toUpperCase());
     };
+    ctx.log(`peer dials before: ${letters().join('')}`);
     for (let i = 0; i < 4; i++) {
         const want = hit.word.charCodeAt(i) - 65;
         for (let guard = 0; guard < 30; guard++) {
