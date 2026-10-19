@@ -116,7 +116,7 @@
         {
             "name": "jacklove3",
             "view": "fleet",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/air-rune-craft.ts",
             "args": [
                 "jacklove3"
             ]
@@ -199,14 +199,10 @@
         {
             "name": "jacklove6",
             "view": "loves",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
                 "jacklove6",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "druids"
             ]
         },
         {
@@ -251,14 +247,9 @@
         {
             "name": "jacklove10",
             "view": "loves",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/hobgoblins.ts",
             "args": [
-                "jacklove10",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "jacklove10"
             ]
         },
         {
@@ -394,14 +385,9 @@
         {
             "name": "ABGARMY01",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/rimmington-iron.ts",
             "args": [
-                "ABGARMY01",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "ABGARMY01"
             ]
         },
         {
@@ -441,7 +427,7 @@
         {
             "name": "ABGARMY05",
             "view": "army",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
                 "ABGARMY05"
             ]
@@ -512,14 +498,10 @@
         {
             "name": "ABGARMY12",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/cut-gems.ts",
             "args": [
                 "ABGARMY12",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "--until=50"
             ]
         },
         {
@@ -593,14 +575,10 @@
         {
             "name": "ABGARMY19",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
                 "ABGARMY19",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "--until-wc=60"
             ]
         },
         {
