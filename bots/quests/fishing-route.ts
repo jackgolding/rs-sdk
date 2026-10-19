@@ -1736,20 +1736,32 @@ async function leaveHandelmortMansion(): Promise<void> {
  */
 async function jailbreakEnclosure(destX: number, destZ: number): Promise<boolean> {
     const before = pos();
-    await sdk.scanNearbyLocs(20).catch(() => {});
-    for (let attempt = 0; attempt < 3; attempt++) {
-        const probe = await bot.openDoor().catch(() => null) as null | { success?: boolean; message?: string; door?: { x: number; z: number } };
-        const door = probe?.door;
-        if (!door) {
-            log(`Jailbreak: no door in range @ ${pos().x},${pos().z}`);
-            return false;
-        }
+    const scanned = await sdk.scanNearbyLocs(25).catch(() => null);
+    const locs = scanned ?? sdk.getNearbyLocs() ?? [];
+    const exitRe = /door|gate|gangplank|stile|portcullis|drawbridge|fence|bridge|ladder|stairs/i;
+    log(`Jailbreak scan: ${locs.map((l) => `${l.name}@${Math.round(Math.hypot(l.x - before.x, l.z - before.z))}`).join(', ') || 'no locs'}`);
+    const exits = locs
+        .filter((l) => exitRe.test(l.name ?? ''))
+        .sort((a, b) => Math.hypot(a.x - before.x, a.z - before.z) - Math.hypot(b.x - before.x, b.z - before.z))
+        .slice(0, 3);
+    if (!exits.length) {
+        log(`Jailbreak: no exit object in range @ ${before.x},${before.z}`);
+        return false;
+    }
+    for (const exit of exits) {
         const p = pos();
-        // Stand adjacent on our side, then open the targeted door.
-        await sdk.sendWalk(door.x - Math.sign(door.x - p.x), door.z - Math.sign(door.z - p.z), true);
+        // Stand adjacent on our side first (interaction range).
+        await sdk.sendWalk(exit.x - Math.sign(exit.x - p.x), exit.z - Math.sign(exit.z - p.z), true);
         await sdk.waitForTicks(2);
-        const r = await bot.openDoor(/door|gate/i).catch(() => null) as null | { success?: boolean; message?: string };
-        log(`Jailbreak open: ${r?.success} ${r?.message ?? 'no result'} @ ${pos().x},${pos().z}`);
+        const opt = (exit.optionsWithIndex ?? []).find((o) => /open|cross|board|climb|pass|enter|exit|go through/i.test(o.text));
+        if (opt) {
+            await sdk.sendInteractLoc(exit.x, exit.z, exit.id, opt.opIndex);
+            log(`Jailbreak used ${exit.name} (${opt.text}) @ ${pos().x},${pos().z}`);
+        } else {
+            const r = await bot.openDoor().catch(() => null) as null | { success?: boolean; message?: string };
+            log(`Jailbreak openDoor fallback: ${r?.success} ${r?.message ?? 'no result'}`);
+        }
+        await sdk.waitForTicks(3);
         // Step through toward dest.
         const q = pos();
         await sdk.sendWalk(q.x + Math.sign(destX - q.x) * 3, q.z + Math.sign(destZ - q.z) * 3, true);
