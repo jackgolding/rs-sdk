@@ -1644,6 +1644,25 @@ const stages: QuestStage[] = [
                 if (count(LOW_KEG) === 0) await talk(ctx, 'poison', [/low alcohol/i, /^yes$/i]);
                 ctx.log(`reveller: low alcohol keg=${count(LOW_KEG)} coins=${count(COINS)}`);
             }
+            // 4b. Try the swap FIRST whenever both kegs are held. The pipe bit
+            //     (firecracker_placed) is server-side state that survives our own
+            //     restarts, but the stage's need list cannot see it — after a
+            //     restart the pass re-derived 'needs a firecracker' -> 'needs a
+            //     beer' and blocked on `STILL missing beer` (the only vendor is a
+            //     Varrock bartender, ~600 tiles away) while the swap was already
+            //     legal and one talk away from the vote. Cheapest goal first; only
+            //     fetch what the refusal actually demands.
+            if (count(LOW_KEG) > 0 && count(BEER_KEG) > 0 && !revellerSwapped) {
+                await approach(REVELLER_SWAP_SPOT);
+                await ticks(3);
+                await combine(ctx, LOW_KEG, BEER_KEG);
+                if (count(LOW_KEG) === 0) {
+                    revellerSwapped = true;
+                    ctx.log('reveller: swap done=true (early attempt, pipe bit already set)');
+                } else {
+                    ctx.log('reveller: early swap refused — the pipe step is genuinely needed');
+                }
+            }
             // 5+6. Reach the pipe FIRST, then light, then place — never split by a
             // walk. The lit cracker is on a fuse: viking_reveller.rs2 does
             // `longqueue(firecracker_explode, ~random_range(140, 200))` and the
@@ -1653,7 +1672,7 @@ const stages: QuestStage[] = [
             // 14:02:08 and reached the swap at 14:04:08 with the cracker already
             // gone, so `firecracker_placed` never set and Manni refused the swap
             // ("Thinking of cheating my test, outerlander?").
-            if ((count(FIRECRACKER) > 0 || count(LIT_CRACKER) > 0) && !revellerSwapped) {
+            if ((count(FIRECRACKER) > 0 || count(LIT_CRACKER) > 0) && !revellerSwapped && count(LOW_KEG) > 0) {
                 await go(ctx, [LONGHALL, PIPE], PIPE);
                 if (count(LIT_CRACKER) === 0 && count(FIRECRACKER) > 0) {
                     await combine(ctx, TINDERBOX, FIRECRACKER);
@@ -1688,7 +1707,7 @@ const stages: QuestStage[] = [
                 }
             }
             // 7. swap the keg (must be inside the longhall swap zone)
-            if (count(LOW_KEG) > 0 && count(BEER_KEG) > 0) {
+            if (count(LOW_KEG) > 0 && count(BEER_KEG) > 0 && !revellerSwapped) {
                 await approach(REVELLER_SWAP_SPOT);
                 await ticks(3);
                 await combine(ctx, LOW_KEG, BEER_KEG);
