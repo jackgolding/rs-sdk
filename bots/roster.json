@@ -187,10 +187,9 @@
         {
             "name": "jacklove12",
             "view": "loves",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/sheep-shearer.ts",
             "args": [
-                "jacklove12",
-                "--until-wc=40"
+                "jacklove12"
             ]
         },
         {
@@ -212,10 +211,10 @@
         {
             "name": "jacklove15",
             "view": "loves",
-            "script": "bots/quests/cut-gems.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
                 "jacklove15",
-                "--until=40"
+                "--until-wc=40"
             ]
         },
         {
@@ -340,10 +339,9 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/sheep-shearer.ts",
             "args": [
-                "ABGARMY10",
-                "--until-wc=40"
+                "ABGARMY10"
             ]
         },
         {
