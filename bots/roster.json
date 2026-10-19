@@ -45,8 +45,7 @@
             "view": "fleet",
             "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "Jackpoo3",
-                "--until-wc=60"
+                "Jackpoo3"
             ]
         },
         {
@@ -62,8 +61,7 @@
             "view": "fleet",
             "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "Jackpoo5",
-                "--until-wc=60"
+                "Jackpoo5"
             ]
         },
         {
@@ -71,8 +69,7 @@
             "view": "fleet",
             "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "fatpig",
-                "--until-wc=60"
+                "fatpig"
             ]
         },
         {
@@ -190,8 +187,7 @@
             "view": "loves",
             "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "jacklove12",
-                "--until-wc=60"
+                "jacklove12"
             ]
         },
         {
@@ -217,8 +213,7 @@
             "view": "loves",
             "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "jacklove15",
-                "--until-wc=60"
+                "jacklove15"
             ]
         },
         {
@@ -268,8 +263,7 @@
             "view": "army",
             "script": "bots/quests/bowstrings.ts",
             "args": [
-                "ABGARMY01",
-                "--until=60"
+                "ABGARMY01"
             ]
         },
         {
@@ -277,8 +271,7 @@
             "view": "army",
             "script": "bots/quests/bowstrings.ts",
             "args": [
-                "ABGARMY02",
-                "--until=60"
+                "ABGARMY02"
             ]
         },
         {
@@ -286,8 +279,7 @@
             "view": "army",
             "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY03",
-                "--until-wc=60"
+                "ABGARMY03"
             ]
         },
         {
@@ -295,8 +287,7 @@
             "view": "army",
             "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY04",
-                "--until-wc=60"
+                "ABGARMY04"
             ]
         },
         {
@@ -312,8 +303,7 @@
             "view": "army",
             "script": "bots/quests/bowstrings.ts",
             "args": [
-                "ABGARMY06",
-                "--until=60"
+                "ABGARMY06"
             ]
         },
         {
@@ -330,8 +320,7 @@
             "view": "army",
             "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY08",
-                "--until-wc=60"
+                "ABGARMY08"
             ]
         },
         {
@@ -347,8 +336,7 @@
             "view": "army",
             "script": "bots/quests/bowstrings.ts",
             "args": [
-                "ABGARMY10",
-                "--until=60"
+                "ABGARMY10"
             ]
         },
         {
@@ -364,8 +352,7 @@
             "view": "army",
             "script": "bots/quests/bowstrings.ts",
             "args": [
-                "ABGARMY12",
-                "--until=60"
+                "ABGARMY12"
             ]
         },
         {
@@ -381,8 +368,7 @@
             "view": "army",
             "script": "bots/quests/bowstrings.ts",
             "args": [
-                "ABGARMY14",
-                "--until=60"
+                "ABGARMY14"
             ]
         },
         {
@@ -390,8 +376,7 @@
             "view": "army",
             "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY15",
-                "--until-wc=60"
+                "ABGARMY15"
             ]
         },
         {
@@ -399,8 +384,7 @@
             "view": "army",
             "script": "bots/quests/bowstrings.ts",
             "args": [
-                "ABGARMY16",
-                "--until=60"
+                "ABGARMY16"
             ]
         },
         {
@@ -416,8 +400,7 @@
             "view": "army",
             "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY18",
-                "--until-wc=60"
+                "ABGARMY18"
             ]
         },
         {
@@ -425,8 +408,7 @@
             "view": "army",
             "script": "bots/quests/bowstrings.ts",
             "args": [
-                "ABGARMY19",
-                "--until=60"
+                "ABGARMY19"
             ]
         },
         {
