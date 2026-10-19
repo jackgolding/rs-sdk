@@ -376,7 +376,10 @@ function inArdougne(): boolean {
 
 function onKaramja(): boolean {
     const p = pos();
-    return p.x > 2680 && p.x < 3010 && p.z > 3040 && p.z < 3270;
+    // x<2900, not 3010: the old box swallowed Rimmington (2976,3246), so a bot
+    // standing at the copper rocks "was on Karamja" and looped the Brimhaven
+    // customs crossing forever instead of walking to the stronghold.
+    return p.x > 2680 && p.x < 2900 && p.z > 3040 && p.z < 3270;
 }
 
 function onDockedShip(): boolean {
