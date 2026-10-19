@@ -125,9 +125,10 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/jackthief-pickup-shields.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
-                "pigfat"
+                "pigfat",
+                "druids"
             ]
         },
         {
