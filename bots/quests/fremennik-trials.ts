@@ -2591,6 +2591,8 @@ const BUTTERFLIES: Tile[] = [
 ];
 
 async function huntDraugen(ctx: QuestContext): Promise<boolean> {
+    let step = 12;
+    let lastDir: string | null = null;
     const deadline = Date.now() + 20 * 60_000;
     let spot = 0;
     let round = 0;
@@ -2642,8 +2644,18 @@ async function huntDraugen(ctx: QuestContext): Promise<boolean> {
         );
         if (dir) {
             const v = DIRS[dir]!;
-            const dest = { x: pos().x + v.dx * 12, z: pos().z + v.dz * 12 };
-            ctx.log(`hunt: guided ${dir} -> ${dest.x},${dest.z}`);
+            // Adaptive step. A fixed 12-tile stride OVERSHOOTS a nearby Draugen
+            // and the talisman's guidance then reverses, so the bot bounces
+            // across the target forever (live: `guided north -> 2660,3645` then
+            // `guided south -> 2660,3633`, round and round, neither tile the
+            // spawn). Halve the stride on every reversal and restore it while
+            // the guidance keeps pointing the same way, so the bot bisects onto
+            // the tile instead of pacing over it.
+            if (lastDir && lastDir !== dir) step = Math.max(1, Math.floor(step / 2));
+            else step = 12;
+            lastDir = dir;
+            const dest = { x: pos().x + v.dx * step, z: pos().z + v.dz * step };
+            ctx.log(`hunt: guided ${dir} -> ${dest.x},${dest.z} (step ${step})`);
             await go(ctx, [dest], dest);
             continue;
         }
