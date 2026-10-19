@@ -145,9 +145,10 @@
         {
             "name": "jackthief",
             "view": "fleet",
-            "script": "bots/quests/fremennik-trials.ts",
+            "script": "bots/quests/jackthief-pickup-shields.ts",
             "args": [
-                "jackthief"
+                "jackthief",
+                "--drop"
             ]
         },
         {
