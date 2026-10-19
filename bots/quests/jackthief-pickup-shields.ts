@@ -15,9 +15,14 @@
  * and drops each one on the floor for the picker (pigfat) to bank. Waits
  * instead of farming while the picker is out of sight, and idles with a
  * visible log line when Duke stops handing shields out.
+ *
+ * On SIGTERM/SIGINT (docker stop, redeploy) both loops break out and the
+ * bot climbs down out of the Duke's room and walks to the middle of
+ * Lumbridge (3222,3218) instead of idling upstairs where the next start
+ * can get stuck behind the door.
  */
-import { appendFileSync } from 'fs';
-import { join } from 'path';
+import { appendFileSync, writeFileSync } from 'fs';
+import { dirname, join } from 'path';
 import { runScript } from '../../sdk/runner';
 
 const botName = process.argv.slice(2).find((a) => !a.startsWith('-')) ?? '';
@@ -35,6 +40,20 @@ const HEROES = { x: 2630, z: 3288 };
 const CASTLE_STAIRS = { x: 3205, z: 3208 };
 const DUKE = { x: 3212, z: 3220 };
 const LUMBRIDGE_BANK = { x: 3208, z: 3220 };
+/** Middle of Lumbridge town square — safe idle spot after a stop. */
+const LUMBRIDGE_CENTRE = { x: 3222, z: 3218 };
+
+/**
+ * Set when the process is asked to stop. runScript's own shutdown handler
+ * only drains ActivitySessions, and this duty uses none, so we watch the
+ * signals ourselves to break the infinite loops and park (3222,3218).
+ */
+let stopRequested = false;
+const onStopSignal = () => {
+    stopRequested = true;
+};
+process.on('SIGTERM', onStopSignal);
+process.on('SIGINT', onStopSignal);
 
 await runScript(async ({ bot, sdk }) => {
     const log = (msg: string) => {
@@ -247,7 +266,7 @@ await runScript(async ({ bot, sdk }) => {
     async function pickupSweep(): Promise<number> {
         let picked = 0;
         let misses = 0;
-        while (freeSlots() > 0 && misses < MAX_MISSES && !pos().isDead) {
+        while (freeSlots() > 0 && misses < MAX_MISSES && !pos().isDead && !stopRequested) {
             const scanned = (await sdk.scanGroundItems(12).catch(() => null)) ?? [];
             const pushed = sdk.getGroundItems() ?? [];
             const pool = scanned.length ? scanned : pushed;
@@ -305,6 +324,44 @@ await runScript(async ({ bot, sdk }) => {
         return banked > 0;
     }
 
+    /**
+     * Stop-time park: climb down out of the Duke's room (or wherever the
+     * duty was) and walk to the middle of Lumbridge, so the bot idles on
+     * open ground instead of behind the upstairs door. Best effort and
+     * bounded — the SIGTERM grace (5 min) caps everything anyway.
+     * Also refreshes park.json so the next job routes from the new spot.
+     */
+    async function parkAtLumbridgeCentre(): Promise<void> {
+        try {
+            log(`PARK leaving duty @ ${pos().x},${pos().z},${pos().level} — heading to Lumbridge centre`);
+            await closeUi();
+            if (!pos().isDead) {
+                let guard = 0;
+                while (pos().level > 0 && guard++ < 4) {
+                    if (!(await climb('down'))) break;
+                }
+                if (pos().level === 0) {
+                    for (let i = 0; i < 6 && distTo(LUMBRIDGE_CENTRE.x, LUMBRIDGE_CENTRE.z) > 3; i++) {
+                        await openToward(LUMBRIDGE_CENTRE.x, LUMBRIDGE_CENTRE.z);
+                        await walkNear(LUMBRIDGE_CENTRE.x, LUMBRIDGE_CENTRE.z, 3);
+                    }
+                }
+            }
+            const p = pos();
+            log(`PARK done @ ${p.x},${p.z},${p.level}`);
+            try {
+                writeFileSync(
+                    join(dirname(GRIND_LOG), 'park.json'),
+                    JSON.stringify({ x: p.x, z: p.z, level: p.level, banked: false, at: Date.now() })
+                );
+            } catch {
+                /* ignore */
+            }
+        } catch (e) {
+            log(`PARK failed: ${e instanceof Error ? e.message : e}`);
+        }
+    }
+
     /** Ask Duke for a dragonfire shield. Returns true when one lands in the bag. */
     async function claimShieldFromDuke(): Promise<boolean> {
         if (sdk.findInventoryItem(FIRE_SHIELD)) return true;
@@ -341,12 +398,12 @@ await runScript(async ({ bot, sdk }) => {
     }
 
     /** Drop mode (jackthief): farm shields from Duke and drop them for the picker. */
-    async function dropLoop(): Promise<never> {
+    async function dropLoop(): Promise<void> {
         let dropped = 0;
         let refusals = 0;
         let waits = 0;
         log(`DROP-SHIELDS start @ ${pos().x},${pos().z},${pos().level}`);
-        for (;;) {
+        for (; !stopRequested; ) {
             await closeUi();
             if (pos().isDead) {
                 const life = pos().lifeId;
@@ -393,6 +450,7 @@ await runScript(async ({ bot, sdk }) => {
                 await sdk.waitForTicks(5).catch(() => {});
             }
         }
+        if (stopRequested) log(`DROP-SHIELDS stopping after ${dropped} dropped`);
     }
 
     // ---- first leg: bank everything, die to Lumbridge, climb to the Duke ----
@@ -430,13 +488,11 @@ await runScript(async ({ bot, sdk }) => {
         await sdk.waitForTicks(2);
     }
     log(`PICKUP-SHIELDS at Duke: duke=${sdk.findNearbyNpc(/duke/i) ? 'yes' : 'no'} @ ${pos().x},${pos().z},${pos().level}`);
-    if (DROP_MODE) {
-        await dropLoop();
-    }
 
-    // ---- duty loop: sweep, bank full loads at Lumbridge, return ----
-    let idleSweeps = 0;
-    for (;;) {
+    // ---- duty loop: sweep, bank full loads at Draynor, return ----
+    async function dutyLoop(): Promise<void> {
+        let idleSweeps = 0;
+        for (; !stopRequested; ) {
         await closeUi();
         if (pos().isDead) {
             const life = pos().lifeId;
@@ -468,6 +524,26 @@ await runScript(async ({ bot, sdk }) => {
                 log(`PICKUP-SHIELDS waiting at Duke @ ${pos().x},${pos().z},${pos().level} — floor clear, banked ${banked}`);
             }
             await sdk.waitForTicks(5).catch(() => {});
+            }
+        }
+        if (stopRequested) log(`PICKUP-SHIELDS stopping (run banked total ${banked})`);
+    }
+
+    try {
+        if (DROP_MODE) {
+            await dropLoop();
+        } else {
+            await dutyLoop();
+        }
+    } finally {
+        process.off('SIGTERM', onStopSignal);
+        process.off('SIGINT', onStopSignal);
+        // A stop (docker stop, redeploy) lands here: get out of the Duke's
+        // room and idle in the middle of Lumbridge instead of sitting
+        // upstairs where the next start can get stuck.
+        if (stopRequested) {
+            await parkAtLumbridgeCentre();
+            process.exitCode = 143;
         }
     }
 });
