@@ -125,10 +125,9 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/sheep-shearer.ts",
             "args": [
-                "pigfat",
-                "--until-wc=40"
+                "pigfat"
             ]
         },
         {
