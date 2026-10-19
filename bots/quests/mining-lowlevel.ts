@@ -30,14 +30,16 @@ const FALADOR_SOUTH_EAST = { x: 3007, z: 3300 }; // hub on the bank <-> mine rou
 const MINE = { x: 2980, z: 3242 }; // walkable anchor between the two clusters
 
 const PICKAXE = /^(bronze|iron|steel|mithril|adamant|rune) pickaxe$/i;
-/** Best first: the roster's banks mostly hold a rune pickaxe. */
-const PICKAXE_TIERS = [
-    /^rune pickaxe$/i,
-    /^adamant pickaxe$/i,
-    /^mithril pickaxe$/i,
-    /^steel pickaxe$/i,
-    /^iron pickaxe$/i,
-    /^bronze pickaxe$/i
+/** Best first, WITH the Mining level each tier needs. A low-level bot cannot
+ *  swing a rune pickaxe: the server rejects the Mine op outright (observed as
+ *  0 xp with opRejected climbing), so the withdraw must respect the gate. */
+const PICKAXE_TIERS: Array<{ re: RegExp; level: number }> = [
+    { re: /^rune pickaxe$/i, level: 41 },
+    { re: /^adamant pickaxe$/i, level: 31 },
+    { re: /^mithril pickaxe$/i, level: 21 },
+    { re: /^steel pickaxe$/i, level: 6 },
+    { re: /^iron pickaxe$/i, level: 1 },
+    { re: /^bronze pickaxe$/i, level: 1 }
 ];
 const ORE = /^(copper ore|tin ore|clay)$/i;
 /** Live loc names at Rimmington are "Rocks copper ore" / "Rocks tin ore". */
@@ -174,13 +176,22 @@ await runScript(async ({ bot, sdk }) => {
         return true;
     }
 
+    function usablePickaxe(): boolean {
+        const held = sdk.findEquipmentItem(PICKAXE) ?? sdk.findInventoryItem(PICKAXE);
+        if (!held) return false;
+        const tier = PICKAXE_TIERS.find((t) => t.re.test(held.name));
+        return tier ? mining() >= tier.level : false;
+    }
+
     async function withdrawPickaxe(): Promise<boolean> {
-        for (const tier of PICKAXE_TIERS) {
+        const usable = PICKAXE_TIERS.filter((t) => mining() >= t.level);
+        if (usable.length === 0) return false;
+        for (const tier of usable) {
             if (!(await openBank())) {
                 session.noteFailure('bank_open', 'Falador east bank closed before withdraw');
                 return false;
             }
-            const banked = sdk.getBankItems().find((i) => tier.test(i.name) && (i.count ?? 0) > 0);
+            const banked = sdk.getBankItems().find((i) => tier.re.test(i.name) && (i.count ?? 0) > 0);
             if (!banked) continue;
             const r = await bot.withdrawItem(banked, 1);
             await sdk.waitForCondition(() => !!sdk.findInventoryItem(PICKAXE), 4_000).catch(() => undefined);
@@ -196,7 +207,7 @@ await runScript(async ({ bot, sdk }) => {
     /** 'ready' | 'no_pickaxe' | 'bank_failed'. Banks only when the run needs it. */
     async function prepare(): Promise<'ready' | 'no_pickaxe' | 'bank_failed'> {
         const junk = junkSlots();
-        if (hasPickaxe() && junk <= 6) return 'ready';
+        if (usablePickaxe() && junk <= 6) return 'ready';
         intent(hasPickaxe() ? `Banking ${junk} junk slots` : 'Banking for a pickaxe');
         await session.setPhase('bank');
         if (!(await goToBank()) || !(await openBank())) return 'bank_failed';
