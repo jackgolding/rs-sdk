@@ -107,10 +107,9 @@
         {
             "name": "jacklove5",
             "view": "fleet",
-            "script": "bots/quests/mining-guild.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
-                "jacklove5",
-                "--north"
+                "jacklove5"
             ]
         },
         {
