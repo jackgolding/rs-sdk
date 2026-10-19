@@ -351,14 +351,29 @@ function scanVotes(ctx: QuestContext): boolean {
  * catches each of them honestly and costs one string compare per log line.
  */
 let lastBagShape = '';
+let lastXpTotal = -1;
 function creditBagChange(): void {
     let shape = '';
     for (const i of sdk.getInventory()) {
         if ((i.count ?? 0) > 0) shape += `${i.name}x${i.count}|`;
     }
-    if (shape === lastBagShape) return;
-    lastBagShape = shape;
-    session.noteProgress('inventory', 'bag changed');
+    if (shape !== lastBagShape) {
+        lastBagShape = shape;
+        session.noteProgress('inventory', 'bag changed');
+        return;
+    }
+    // Quest work also earns XP (chopping the swaying tree, cooking the red
+    // herring, spinning the fleece) — a second honest effect source for the
+    // stretches where the bag does not move and the verdict would otherwise
+    // read no-effect.
+    const st = sdk.getState() as unknown as { xp?: Record<string, number> } | undefined;
+    const total = Object.values(st?.xp ?? {}).reduce((sum, v) => sum + (v ?? 0), 0);
+    if (total > 0 && lastXpTotal >= 0 && total !== lastXpTotal) {
+        lastXpTotal = total;
+        session.noteProgress('xp', 'xp gained');
+        return;
+    }
+    if (total > 0) lastXpTotal = total;
 }
 
 function log(msg: string): void {
