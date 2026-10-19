@@ -2200,6 +2200,31 @@ async function peerPuzzle(ctx: QuestContext): Promise<boolean> {
     }
     ctx.log(`peer: puzzle room (plane ${pos().level}) @ ${here()}`);
 
+    // Dismiss any modal an interaction opened. The Seer's room hands out its
+    // items through ~mesbox pages (viking_peer.rs2: the unicorn head runs
+    // `~mesbox("You notice there is something unusual about the left eye...")`
+    // and only THEN inv_add(viking_red_wooden_coin) — the disk arrives when the
+    // page is dismissed). A pick loop that immediately clicks the loc again
+    // clicks the modal instead and never receives the item, which is why the
+    // local run only ever succeeded on its SECOND attempt and the live run
+    // never succeeded at all.
+    const pumpModals = async (label: string): Promise<void> => {
+        for (let round = 0; round < 8; round++) {
+            const d = sdk.getDialog();
+            if (!d?.isOpen) return;
+            const text = dialogText();
+            if (text) ctx.log(`${label}: modal ${JSON.stringify(text.replace(/\s+/g, ' ').slice(0, 130))}`);
+            const opts = d.options ?? [];
+            const cont =
+                opts.find((o) => /click here to continue/i.test(o.text)) ??
+                opts.find((o) => /continue/i.test(o.text)) ??
+                opts[0];
+            if (!cont) return;
+            await sdk.sendClickDialog(cont.index).catch(() => undefined);
+            await ticks(3);
+        }
+    };
+
     // Step 1: collect the room items (each gated on its own item).
     const grabs: Array<{ item: RegExp; loc: RegExp; option: RegExp; label: string }> = [
         { item: RED_HERRING, loc: /^bookcase$/i, option: /search/i, label: 'red herring' },
@@ -2248,7 +2273,9 @@ async function peerPuzzle(ctx: QuestContext): Promise<boolean> {
                         .map((i) => i.name)
                         .join(',')}]`
             );
-            await ticks(4);
+            await ticks(3);
+            await pumpModals(g.label);
+            await ticks(1);
         }
         if (!have(g.item)) {
             // Decoys and already-placed items both land here: a head whose coin
