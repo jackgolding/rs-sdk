@@ -3024,8 +3024,18 @@ async function followPortalOrder(ctx: QuestContext): Promise<boolean> {
     }
     ctx.log(`maze: route complete — climbing the exit ladder @${(exit as { x?: number }).x},${(exit as { z?: number }).z}`);
     await bot.interactLoc(exit as never, /climb-up/i as never).catch(() => undefined);
-    await ticks(8);
-    scanVotes(ctx);
+    // The Navigator's vote is a chat line plus a JOURNAL write that lands a beat
+    // later. Judging 8 ticks after the click read 'no vote yet' on the live run
+    // even though the full numbered route had just executed with every landing
+    // matching the table (all seven `landedNearExpected=true`), and the stage
+    // then burned 12 re-entries through a maze that had already worked. Settle
+    // and poll the journal before deciding anything.
+    for (let i = 0; i < 15; i++) {
+        await ticks(4);
+        await refreshProgress(`swensen exit ladder ${i}`);
+        if (progress.votes.swensen) break;
+    }
+    ctx.log(`maze: exit ladder done — votes.swensen=${progress.votes.swensen} @${here()}`);
     return progress.votes.swensen;
 }
 
