@@ -131,7 +131,7 @@ services:
   quest-abgarmy04:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY04"]
+    command: ["bun", "bots/quests/seers-wc-fm.ts", "ABGARMY04", "--until-wc=60"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -233,7 +233,7 @@ services:
   quest-abgarmy07:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY07"]
+    command: ["bun", "bots/quests/seers-wc-fm.ts", "ABGARMY07", "--until-wc=60"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -267,7 +267,7 @@ services:
   quest-abgarmy08:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/red-dragons.ts", "ABGARMY08"]
+    command: ["bun", "bots/quests/seers-wc-fm.ts", "ABGARMY08", "--until-wc=60"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -709,7 +709,7 @@ services:
   quest-fatpig:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/edgeville-bank-all.ts", "fatpig"]
+    command: ["bun", "bots/quests/seers-wc-fm.ts", "fatpig", "--until-wc=60"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -845,7 +845,7 @@ services:
   quest-jacklove12:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/give-item.ts", "jacklove12", "receive", "pigfat", "--item=Dragonfire shield", "--count=20", "--bank=varrock-east"]
+    command: ["bun", "bots/quests/seers-wc-fm.ts", "jacklove12", "--until-wc=60"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -947,7 +947,7 @@ services:
   quest-jacklove15:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/give-item.ts", "jacklove15", "receive", "pigfat", "--item=Dragonfire shield", "--count=20", "--bank=varrock-east"]
+    command: ["bun", "bots/quests/seers-wc-fm.ts", "jacklove15", "--until-wc=60"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1015,7 +1015,7 @@ services:
   quest-jacklove17:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/give-item.ts", "jacklove17", "receive", "pigfat", "--item=Dragonfire shield", "--count=20", "--bank=varrock-east"]
+    command: ["bun", "bots/quests/air-rune-craft.ts", "jacklove17"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1117,7 +1117,7 @@ services:
   quest-jacklove2:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/give-item.ts", "jacklove2", "receive", "pigfat", "--item=Dragonfire shield", "--count=20", "--bank=varrock-east"]
+    command: ["bun", "bots/quests/air-rune-craft.ts", "jacklove2"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1491,7 +1491,7 @@ services:
   quest-jackpoo3:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/give-item.ts", "Jackpoo3", "receive", "pigfat", "--item=Dragonfire shield", "--count=20", "--bank=varrock-east"]
+    command: ["bun", "bots/quests/seers-wc-fm.ts", "Jackpoo3", "--until-wc=60"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1525,7 +1525,7 @@ services:
   quest-jackpoo4:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/give-item.ts", "Jackpoo4", "receive", "pigfat", "--item=Dragonfire shield", "--count=20", "--bank=varrock-east"]
+    command: ["bun", "bots/quests/air-rune-craft.ts", "Jackpoo4"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1559,7 +1559,7 @@ services:
   quest-jackpoo5:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/red-dragons.ts", "Jackpoo5"]
+    command: ["bun", "bots/quests/seers-wc-fm.ts", "Jackpoo5", "--until-wc=60"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1627,7 +1627,7 @@ services:
   quest-pigfat:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/give-item.ts", "pigfat", "give", "ABGARMY01", "ABGARMY02", "ABGARMY03", "ABGARMY06", "ABGARMY10", "ABGARMY11", "ABGARMY12", "ABGARMY14", "ABGARMY15", "ABGARMY16", "ABGARMY18", "ABGARMY19", "Jackpoo1", "Jackpoo3", "Jackpoo4", "jacklove1", "jacklove10", "jacklove11", "jacklove12", "jacklove13", "jacklove14", "jacklove15", "jacklove16", "jacklove17", "jacklove18", "jacklove19", "jacklove2", "jacklove20", "jacklove4", "jacklove6", "jacklove7", "jacklove8", "jacklove9", "--item=Dragonfire shield", "--each=20", "--bank=varrock-east"]
+    command: ["bun", "bots/quests/air-rune-craft.ts", "pigfat"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

@@ -43,43 +43,36 @@
         {
             "name": "Jackpoo3",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
                 "Jackpoo3",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "--until-wc=60"
             ]
         },
         {
             "name": "Jackpoo4",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/air-rune-craft.ts",
             "args": [
-                "Jackpoo4",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "Jackpoo4"
             ]
         },
         {
             "name": "Jackpoo5",
             "view": "fleet",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "Jackpoo5"
+                "Jackpoo5",
+                "--until-wc=60"
             ]
         },
         {
             "name": "fatpig",
             "view": "fleet",
-            "script": "bots/quests/edgeville-bank-all.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "fatpig"
+                "fatpig",
+                "--until-wc=60"
             ]
         },
         {
@@ -93,14 +86,9 @@
         {
             "name": "jacklove2",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/air-rune-craft.ts",
             "args": [
-                "jacklove2",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "jacklove2"
             ]
         },
         {
@@ -140,46 +128,9 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/air-rune-craft.ts",
             "args": [
-                "pigfat",
-                "give",
-                "ABGARMY01",
-                "ABGARMY02",
-                "ABGARMY03",
-                "ABGARMY06",
-                "ABGARMY10",
-                "ABGARMY11",
-                "ABGARMY12",
-                "ABGARMY14",
-                "ABGARMY15",
-                "ABGARMY16",
-                "ABGARMY18",
-                "ABGARMY19",
-                "Jackpoo1",
-                "Jackpoo3",
-                "Jackpoo4",
-                "jacklove1",
-                "jacklove10",
-                "jacklove11",
-                "jacklove12",
-                "jacklove13",
-                "jacklove14",
-                "jacklove15",
-                "jacklove16",
-                "jacklove17",
-                "jacklove18",
-                "jacklove19",
-                "jacklove2",
-                "jacklove20",
-                "jacklove4",
-                "jacklove6",
-                "jacklove7",
-                "jacklove8",
-                "jacklove9",
-                "--item=Dragonfire shield",
-                "--each=20",
-                "--bank=varrock-east"
+                "pigfat"
             ]
         },
         {
@@ -237,14 +188,10 @@
         {
             "name": "jacklove12",
             "view": "loves",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
                 "jacklove12",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "--until-wc=60"
             ]
         },
         {
@@ -268,14 +215,10 @@
         {
             "name": "jacklove15",
             "view": "loves",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
                 "jacklove15",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "--until-wc=60"
             ]
         },
         {
@@ -290,14 +233,9 @@
         {
             "name": "jacklove17",
             "view": "loves",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/air-rune-craft.ts",
             "args": [
-                "jacklove17",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "jacklove17"
             ]
         },
         {
@@ -355,9 +293,10 @@
         {
             "name": "ABGARMY04",
             "view": "army",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY04"
+                "ABGARMY04",
+                "--until-wc=60"
             ]
         },
         {
@@ -380,17 +319,19 @@
         {
             "name": "ABGARMY07",
             "view": "army",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY07"
+                "ABGARMY07",
+                "--until-wc=60"
             ]
         },
         {
             "name": "ABGARMY08",
             "view": "army",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY08"
+                "ABGARMY08",
+                "--until-wc=60"
             ]
         },
         {
