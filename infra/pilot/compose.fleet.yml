@@ -335,7 +335,7 @@ services:
   quest-abgarmy10:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/sheep-shearer.ts", "ABGARMY10"]
+    command: ["bun", "bots/quests/cut-gems.ts", "ABGARMY10", "--until=40"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -845,7 +845,7 @@ services:
   quest-jacklove12:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/sheep-shearer.ts", "jacklove12"]
+    command: ["bun", "bots/quests/cut-gems.ts", "jacklove12", "--until=40"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
