@@ -309,10 +309,9 @@
         {
             "name": "ABGARMY07",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
-                "ABGARMY07",
-                "--until-wc=60"
+                "ABGARMY07"
             ]
         },
         {

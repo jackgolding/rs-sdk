@@ -40,6 +40,8 @@ const PICKAXE_TIERS = [
     /^bronze pickaxe$/i
 ];
 const ORE = /^(copper ore|tin ore|clay)$/i;
+/** Live loc names at Rimmington are "Rocks copper ore" / "Rocks tin ore". */
+const LIVE_ROCK = /^rocks (copper|tin) ore$/i;
 
 /** Copper + tin only: the iron rocks 8 tiles west need Mining 15. */
 const ROCK_TILES: Array<[number, number, number, string]> = [
@@ -217,20 +219,32 @@ await runScript(async ({ bot, sdk }) => {
         return hasPickaxe() ? 'ready' : 'no_pickaxe';
     }
 
-    /** Live rocks: scan hit by tile, else the known tile + id (scans drop rocks). */
+    /** Live rocks: name-match the client scan first (map ids/tiles drift from
+     *  the live world), else fall back to the known tile + id. */
     function rockCandidates(): Rock[] {
         const now = Date.now();
-        const seen = new Map<string, NearbyLoc>((sdk.getNearbyLocs() ?? []).map((l) => [`${l.x},${l.z}`, l]));
+        const live = sdk.getNearbyLocs() ?? [];
         const out: Rock[] = [];
+        for (const loc of live) {
+            if (!LIVE_ROCK.test(loc.name) || (loc.distance ?? 99) > 16) continue;
+            const key = `${loc.x},${loc.z}`;
+            if ((depletedUntil.get(key) ?? 0) > now) continue;
+            const op = loc.optionsWithIndex.find((o) => /^mine$/i.test(o.text));
+            if (!op) {
+                depletedUntil.set(key, now + 8_000); // mined out; it respawns
+                continue;
+            }
+            const ore = /tin/i.test(loc.name) ? 'tin' : 'copper';
+            out.push({ x: loc.x, z: loc.z, id: loc.id, op: op.opIndex, ore, score: distTo(loc.x, loc.z) + crowd(loc.x, loc.z) * 2 });
+        }
+        if (out.length > 0) return out.sort((a, b) => a.score - b.score);
+        const seen = new Map<string, NearbyLoc>(live.map((l) => [`${l.x},${l.z}`, l]));
         for (const [x, z, id, ore] of ROCK_TILES) {
             const key = `${x},${z}`;
             if ((depletedUntil.get(key) ?? 0) > now) continue;
             const loc = seen.get(key);
             const op = loc?.optionsWithIndex.find((o) => /^mine$/i.test(o.text));
-            if (loc && !op) {
-                depletedUntil.set(key, now + 8_000); // mined out; it respawns
-                continue;
-            }
+            if (loc && !op) continue;
             out.push({ x, z, id: loc?.id ?? id, op: op?.opIndex ?? 1, ore, score: distTo(x, z) + crowd(x, z) * 2 });
         }
         return out.sort((a, b) => a.score - b.score);

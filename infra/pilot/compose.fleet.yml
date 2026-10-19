@@ -233,7 +233,7 @@ services:
   quest-abgarmy07:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/seers-wc-fm.ts", "ABGARMY07", "--until-wc=60"]
+    command: ["bun", "bots/quests/bowstrings.ts", "ABGARMY07"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
