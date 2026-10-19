@@ -26,14 +26,9 @@
         {
             "name": "Jackpoo1",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
-                "Jackpoo1",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "Jackpoo1"
             ]
         },
         {
@@ -90,14 +85,9 @@
         {
             "name": "jacklove1",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
-                "jacklove1",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "jacklove1"
             ]
         },
         {
@@ -124,22 +114,18 @@
         {
             "name": "jacklove4",
             "view": "fleet",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
-                "jacklove4",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "jacklove4"
             ]
         },
         {
             "name": "jacklove5",
             "view": "fleet",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/mining-guild.ts",
             "args": [
-                "jacklove5"
+                "jacklove5",
+                "--north"
             ]
         },
         {
@@ -385,35 +371,27 @@
         {
             "name": "ABGARMY01",
             "view": "army",
-            "script": "bots/quests/rimmington-iron.ts",
+            "script": "bots/quests/cut-gems.ts",
             "args": [
-                "ABGARMY01"
+                "ABGARMY01",
+                "--until=50"
             ]
         },
         {
             "name": "ABGARMY02",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/cut-gems.ts",
             "args": [
                 "ABGARMY02",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "--until=50"
             ]
         },
         {
             "name": "ABGARMY03",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/rimmington-iron.ts",
             "args": [
-                "ABGARMY03",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "ABGARMY03"
             ]
         },
         {
@@ -435,14 +413,10 @@
         {
             "name": "ABGARMY06",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/cut-gems.ts",
             "args": [
                 "ABGARMY06",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "--until=50"
             ]
         },
         {
@@ -464,7 +438,7 @@
         {
             "name": "ABGARMY09",
             "view": "army",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
                 "ABGARMY09"
             ]
@@ -472,33 +446,24 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/cut-gems.ts",
             "args": [
                 "ABGARMY10",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "--until=50"
             ]
         },
         {
             "name": "ABGARMY11",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
-                "ABGARMY11",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "ABGARMY11"
             ]
         },
         {
             "name": "ABGARMY12",
             "view": "army",
-            "script": "bots/quests/cut-gems.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "ABGARMY12",
                 "--until=50"
@@ -507,7 +472,7 @@
         {
             "name": "ABGARMY13",
             "view": "army",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
                 "ABGARMY13"
             ]
@@ -515,46 +480,33 @@
         {
             "name": "ABGARMY14",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/cut-gems.ts",
             "args": [
                 "ABGARMY14",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "--until=50"
             ]
         },
         {
             "name": "ABGARMY15",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/rimmington-iron.ts",
             "args": [
-                "ABGARMY15",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "ABGARMY15"
             ]
         },
         {
             "name": "ABGARMY16",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/cut-gems.ts",
             "args": [
                 "ABGARMY16",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "--until=50"
             ]
         },
         {
             "name": "ABGARMY17",
             "view": "army",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
                 "ABGARMY17"
             ]
@@ -562,14 +514,9 @@
         {
             "name": "ABGARMY18",
             "view": "army",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/rimmington-iron.ts",
             "args": [
-                "ABGARMY18",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "ABGARMY18"
             ]
         },
         {
@@ -584,7 +531,7 @@
         {
             "name": "ABGARMY20",
             "view": "army",
-            "script": "bots/quests/red-dragons.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
                 "ABGARMY20"
             ]
