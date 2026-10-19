@@ -1742,8 +1742,8 @@ async function jailbreakEnclosure(destX: number, destZ: number): Promise<boolean
     log(`Jailbreak scan: ${locs.map((l) => `${l.name}@${Math.round(Math.hypot(l.x - before.x, l.z - before.z))}`).join(', ') || 'no locs'}`);
     const exits = locs
         .filter((l) => exitRe.test(l.name ?? ''))
-        .sort((a, b) => Math.hypot(a.x - before.x, a.z - before.z) - Math.hypot(b.x - before.x, b.z - before.z))
-        .slice(0, 3);
+        .sort((a, b) => (/gangplank/i.test(b.name ?? '') ? 1000 : 0) - (/gangplank/i.test(a.name ?? '') ? 1000 : 0) || Math.hypot(a.x - before.x, a.z - before.z) - Math.hypot(b.x - before.x, b.z - before.z))
+        .slice(0, 5);
     if (!exits.length) {
         log(`Jailbreak: no exit object in range @ ${before.x},${before.z}`);
         return false;
