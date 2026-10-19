@@ -1725,15 +1725,49 @@ const stages: QuestStage[] = [
                 session.noteProgress('inventory', 'reveller keg swapped');
                 const reply = await talk(ctx, 'manni_sober', [/^yes$/i, /drinking contest/i, /start this drinking contest/i]);
                 ctx.log(`reveller: drink talk -> ${reply.replace(/\s+/g, ' ').slice(-150)}`);
-                const won = await waitUntil(() => /completed the revellers'? trial|completed the reveller/i.test(allText(sdk, 30)), 90_000);
-                ctx.log(`reveller: contest won=${won}`);
+                // Drain the contest pages BEFORE judging. The outcome lines are
+                // chatplayer/chatnpc pages that arrive after p_delay(4), and an open
+                // dialog also blanks the journal read — which is why the earlier run
+                // logged journal "" (the not-ready case) and looked like a missing
+                // vote. viking_reveller.rs2's drinkcontest only queues
+                // reveller_trial_complete on the LOW-ALCOHOL branch (the bit the keg
+                // swap sets) and prints "I conshede! You can probably outdrink me!";
+                // otherwise Manni wins with "I canna drink another drop!". Gate on
+                // those lines — 'completed the reveller' is a string this content
+                // never emits, which is why won was always false.
+                for (let i = 0; i < 12; i++) {
+                    const d = sdk.getDialog();
+                    if (!d?.isOpen) break;
+                    const opts = d.options ?? [];
+                    const cont =
+                        opts.find((o) => /click here to continue/i.test(o.text)) ?? opts[0];
+                    if (!cont) break;
+                    await sdk.sendClickDialog(cont.index).catch(() => undefined);
+                    await ticks(2);
+                }
+                const resolved = await waitUntil(
+                    () =>
+                        /conshede|drank that whole keg/i.test(chatText(40)) ||
+                        /canna drink another drop/i.test(chatText(40)),
+                    60_000
+                );
+                const conceded = /conshede|drank that whole keg/i.test(chatText(40));
+                ctx.log(
+                    `reveller: contest resolved=${resolved} conceded=${conceded} kegLeft=${count(BEER_KEG)}`
+                );
+                if (!conceded && count(BEER_KEG) === 0) {
+                    // Manni won: the low-alcohol bit was not set when the contest ran,
+                    // so the next pass must redo the swap before drinking again.
+                    revellerSwapped = false;
+                    ctx.log('reveller: drank the wrong keg — redoing the swap next pass');
+                }
                 // The trial also completes without the chat line surviving the ring
                 // (the queue fires ~5s after the drink and the message can scroll
                 // out), and the journal write lands a beat later still — so read
                 // the journal before the checkpoint rather than trusting the chat.
                 await ticks(8);
                 await refreshProgress('reveller drink');
-                ctx.log(`reveller: after the drink, journal "${progress.text.slice(0, 0)}" votes.reveller=${progress.votes.reveller}`);
+                ctx.log(`reveller: after the drink journal votes.reveller=${progress.votes.reveller} text="${progress.text.replace(/\s+/g, ' ').slice(0, 110)}"`);
             }
             if (!(await checkpoint('reveller', "Reveller's vote"))) {
                 ctx.log('reveller: vote line not in the journal yet — retrying');
