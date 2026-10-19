@@ -277,16 +277,15 @@
         {
             "name": "ABGARMY03",
             "view": "army",
-            "script": "bots/quests/mining-lowlevel.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
-                "ABGARMY03",
-                "--until=15"
+                "ABGARMY03"
             ]
         },
         {
             "name": "ABGARMY04",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
                 "ABGARMY04"
             ]
@@ -376,7 +375,7 @@
         {
             "name": "ABGARMY15",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
                 "ABGARMY15"
             ]
@@ -400,10 +399,9 @@
         {
             "name": "ABGARMY18",
             "view": "army",
-            "script": "bots/quests/mining-lowlevel.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
-                "ABGARMY18",
-                "--until=15"
+                "ABGARMY18"
             ]
         },
         {
