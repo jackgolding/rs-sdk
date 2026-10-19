@@ -187,10 +187,9 @@
         {
             "name": "jacklove12",
             "view": "loves",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/edgeville-bank-all.ts",
             "args": [
-                "jacklove12",
-                "thugs"
+                "jacklove12"
             ]
         },
         {
@@ -212,10 +211,9 @@
         {
             "name": "jacklove15",
             "view": "loves",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/edgeville-bank-all.ts",
             "args": [
-                "jacklove15",
-                "thugs"
+                "jacklove15"
             ]
         },
         {
@@ -340,11 +338,9 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/edgeville-bank-all.ts",
             "args": [
-                "ABGARMY10",
-                "druids",
-                "--weapon=Fire battlestaff"
+                "ABGARMY10"
             ]
         },
         {
@@ -358,11 +354,9 @@
         {
             "name": "ABGARMY12",
             "view": "army",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/edgeville-bank-all.ts",
             "args": [
-                "ABGARMY12",
-                "druids",
-                "--weapon=Fire battlestaff"
+                "ABGARMY12"
             ]
         },
         {
