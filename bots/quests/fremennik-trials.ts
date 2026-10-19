@@ -2061,10 +2061,13 @@ async function seerRiddle(ctx: QuestContext): Promise<boolean> {
     // dump; the live combo-lock evidently differs (dials read back GJSE for
     // FIRE and the submit answers solved=false). Publish what the client
     // actually sends so the real ids can be derived from evidence.
+    const ifaceComps = (): Array<{ componentId: number; text?: string }> =>
+        ((sdk.getState()?.interface as unknown as Record<string, unknown> | undefined)?.textComponents ??
+            []) as Array<{ componentId: number; text?: string }>;
     {
         const raw = sdk.getState()?.interface as unknown as Record<string, unknown> | undefined;
         ctx.log(`peer dump: ifaceId=${ifaceId} base=${base} keys=${Object.keys(raw ?? {}).join(',')}`);
-        const comps = (raw?.textComponents ?? []) as Array<{ componentId: number; text?: string }>;
+        const comps = ifaceComps();
         ctx.log(`peer dump: textComponents=${comps.length}`);
         for (const c of comps.slice(0, 45)) {
             ctx.log(
@@ -2077,18 +2080,32 @@ async function seerRiddle(ctx: QuestContext): Promise<boolean> {
         return [0, 1, 2, 3].map((i) => (comps.find((c) => c.componentId === base + 43 + i)?.text ?? 'A').trim().toUpperCase());
     };
     ctx.log(`peer dials before: ${letters().join('')}`);
-    for (let i = 0; i < 4; i++) {
-        const want = hit.word.charCodeAt(i) - 65;
-        for (let guard = 0; guard < 30; guard++) {
-            const cur = (letters()[i] ?? 'A').charCodeAt(0) - 65;
-            const need = (want - cur + 26) % 26;
-            if (need === 0) break;
-            await sdk.sendClickComponent(base + 48 + 2 * i).catch(() => undefined);
+    // Step a dial once and do not return until the read has actually moved.
+    // A fixed 1-tick wait counts a stale read over a slow link and overshoots.
+    const stepDial = async (i: number): Promise<void> => {
+        const was = (letters()[i] ?? 'A').toUpperCase();
+        await sdk.sendClickComponent(base + 48 + 2 * i).catch(() => undefined);
+        for (let w = 0; w < 8; w++) {
             await ticks(1);
+            if ((letters()[i] ?? 'A').toUpperCase() !== was) return;
         }
+    };
+    for (let i = 0; i < 4; i++) {
+        const target = hit.word[i]!.toUpperCase();
+        for (let guard = 0; guard < 40; guard++) {
+            if ((letters()[i] ?? 'A').toUpperCase() === target) break;
+            await stepDial(i);
+        }
+        const landed = (letters()[i] ?? 'A').toUpperCase();
+        if (landed !== target) ctx.log(`peer dial ${i}: ${landed} != ${target}`);
     }
     ctx.log(`peer dial set: ${letters().join('')} (want ${hit.word})`);
-    await sdk.sendClickComponent(base + 57).catch(() => undefined);
+    // ENTER is located by its own label, never by a guessed offset: the live
+    // layout puts it at base+58 where the local dump had base+57.
+    const enterComp = ifaceComps().find((c) => /enter/i.test(c.text ?? ''));
+    const enterId = enterComp?.componentId ?? base + 58;
+    ctx.log(`peer enter: id=${enterId} (off=${enterId - base})`);
+    await sdk.sendClickComponent(enterId).catch(() => undefined);
     // The solve verdict is a chat line; give it a generous window and read the
     // player's own message ring (visibleText's chat path is not this one).
     const verdict = await waitUntil(() => /solved the riddle|failed to solve the riddle/i.test(chatText(20)), 25_000);
