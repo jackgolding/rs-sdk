@@ -194,40 +194,28 @@
         {
             "name": "jacklove7",
             "view": "loves",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
                 "jacklove7",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "druids"
             ]
         },
         {
             "name": "jacklove8",
             "view": "loves",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
                 "jacklove8",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "druids"
             ]
         },
         {
             "name": "jacklove9",
             "view": "loves",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
                 "jacklove9",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "druids"
             ]
         },
         {
@@ -241,14 +229,9 @@
         {
             "name": "jacklove11",
             "view": "loves",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/hobgoblins.ts",
             "args": [
-                "jacklove11",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "jacklove11"
             ]
         },
         {
@@ -267,27 +250,19 @@
         {
             "name": "jacklove13",
             "view": "loves",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
                 "jacklove13",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "thugs"
             ]
         },
         {
             "name": "jacklove14",
             "view": "loves",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
                 "jacklove14",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "thugs"
             ]
         },
         {
@@ -306,14 +281,10 @@
         {
             "name": "jacklove16",
             "view": "loves",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
                 "jacklove16",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "thugs"
             ]
         },
         {
@@ -332,40 +303,26 @@
         {
             "name": "jacklove18",
             "view": "loves",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/hobgoblins.ts",
             "args": [
-                "jacklove18",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "jacklove18"
             ]
         },
         {
             "name": "jacklove19",
             "view": "loves",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/edgeville-dungeon-melee.ts",
             "args": [
                 "jacklove19",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "thugs"
             ]
         },
         {
             "name": "jacklove20",
             "view": "loves",
-            "script": "bots/quests/give-item.ts",
+            "script": "bots/quests/hobgoblins.ts",
             "args": [
-                "jacklove20",
-                "receive",
-                "pigfat",
-                "--item=Dragonfire shield",
-                "--count=20",
-                "--bank=varrock-east"
+                "jacklove20"
             ]
         },
         {
