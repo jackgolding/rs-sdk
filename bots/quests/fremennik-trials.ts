@@ -339,8 +339,31 @@ function scanVotes(ctx: QuestContext): boolean {
     return false;
 }
 
+/**
+ * Credit a real EFFECT when the bag changes. The fleet's verdict classes a bot
+ * as `alive-not-producing` the moment `minutesSinceEffect == null`, and effect
+ * kinds are only xp/inventory/bank/shop/trade — `location`/`dialog` notes
+ * refresh the stall clock but are not effects. A quest that only credits
+ * location/dialog therefore reads as effect-dead and the shepherd bounces it
+ * mid-quest (observed live: `jackthief: not_producing` in the shepherd log, and
+ * an 11-second-old field pick killed by the resulting restart). Every pick,
+ * purchase, disk, key and coin withdrawal is an inventory change, so this
+ * catches each of them honestly and costs one string compare per log line.
+ */
+let lastBagShape = '';
+function creditBagChange(): void {
+    let shape = '';
+    for (const i of sdk.getInventory()) {
+        if ((i.count ?? 0) > 0) shape += `${i.name}x${i.count}|`;
+    }
+    if (shape === lastBagShape) return;
+    lastBagShape = shape;
+    session.noteProgress('inventory', 'bag changed');
+}
+
 function log(msg: string): void {
     session.log('log', msg);
+    creditBagChange();
     // Also publish the line as an INTENT. ActivitySession flags a stall after
     // stallMs (120s) with no intent/progress, and this script speaks only in log
     // lines — so long legs (bank trips, the 12-link merchant chain) tripped the
@@ -1093,7 +1116,15 @@ const VEG_PATCHES: VegPatch[] = [
 
 /** Pick `want` of a vegetable from its plant locs, trying each anchor in turn. */
 async function pickVeg(ctx: QuestContext, patch: VegPatch, want: number): Promise<void> {
-    for (const anchor of patch.anchors) {
+    // Nearest patch first. A live bot is restarted periodically by the fleet's
+    // supervisor, and the long walk to a far anchor gets cut off mid-leg, so
+    // prefer whichever patch is closest to where the bot actually stands.
+    const ordered = [...patch.anchors].sort(
+        (a, b) =>
+            Math.max(Math.abs(a.x - pos().x), Math.abs(a.z - pos().z)) -
+            Math.max(Math.abs(b.x - pos().x), Math.abs(b.z - pos().z))
+    );
+    for (const anchor of ordered) {
         if (count(patch.item) >= want) break;
         await approach(anchor);
         for (let i = 0; i < want + 2 && count(patch.item) < want; i++) {
