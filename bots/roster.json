@@ -186,7 +186,7 @@
         {
             "name": "jacklove12",
             "view": "loves",
-            "script": "bots/quests/lost-city.ts",
+            "script": "bots/quests/varrock-west-bank-all.ts",
             "args": [
                 "jacklove12"
             ]
@@ -337,7 +337,7 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/lost-city.ts",
+            "script": "bots/quests/varrock-west-bank-all.ts",
             "args": [
                 "ABGARMY10"
             ]

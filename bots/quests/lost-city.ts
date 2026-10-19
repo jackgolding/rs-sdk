@@ -11,7 +11,7 @@
  * The ladder down drains prayer to 0 and the dungeon has no ladder up; food
  * carries the spirit fight and the Magic door is the only way out.
  */
-import { appendFileSync } from 'fs';
+import { appendFileSync, existsSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
 import { ActivitySession } from '../../sdk/activity';
@@ -69,6 +69,8 @@ const BANNED =
 
 const botName = process.argv.slice(2).find((a) => !a.startsWith('-')) ?? '';
 const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
+/** Written on the first completed run; a container restart must never re-run the shed trip. */
+const DONE_MARKER = join(process.cwd(), 'bots', botName, 'lost-city.done');
 
 await runScript(async ({ bot, sdk }) => {
     const session = new ActivitySession(sdk, bot, {
@@ -945,6 +947,22 @@ await runScript(async ({ bot, sdk }) => {
         `Lost City start @ ${pos().x},${pos().z} hp=${pos().hp}/${pos().maxHp} pray=${prayerPoints()}/${prayerBase()} craft=${sdk.getSkill('Crafting')?.baseLevel} wc=${sdk.getSkill('Woodcutting')?.baseLevel}`
     );
 
+    // Finished runs idle instead of exiting: quest containers restart on exit,
+    // and a re-run would walk the shed trip again with zero gain. Quest
+    // completion is permanent, so the marker cannot go stale.
+    async function idleDone(msg: string): Promise<never> {
+        log(`Lost City DONE: ${msg} — holding (no exit, no re-run)`);
+        for (;;) {
+            await sdk.waitForTicks(600).catch(() => {});
+            log(`Lost City DONE holding: ${msg}`);
+        }
+        throw new Error('unreachable');
+    }
+
+    if (existsSync(DONE_MARKER)) {
+        await idleDone('already complete in a previous run');
+    }
+
     /** Upstairs in the Seers spinning house. The ground-floor door is the way out. */
     function inWheelHouse(): boolean {
         const p = pos();
@@ -1076,5 +1094,11 @@ await runScript(async ({ bot, sdk }) => {
         const left = await leaveZanaris();
         await stepOutOfShed();
         log(`Left Zanaris ok=${left} @ ${pos().x},${pos().z} surface=${onSurface()}`);
+        try {
+            writeFileSync(DONE_MARKER, `${new Date().toISOString()} complete @ ${pos().x},${pos().z}\n`);
+        } catch {
+            /* ignore */
+        }
+        await idleDone('quest complete this run');
     } else throw new Error(`Lost City unfinished @ ${pos().x},${pos().z} branch=${count(BRANCH)} staff=${count(STAFF)}`);
 });
