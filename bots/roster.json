@@ -374,7 +374,7 @@
             "script": "bots/quests/cut-gems.ts",
             "args": [
                 "ABGARMY01",
-                "--until=50"
+                "--until=60"
             ]
         },
         {
@@ -383,15 +383,16 @@
             "script": "bots/quests/cut-gems.ts",
             "args": [
                 "ABGARMY02",
-                "--until=50"
+                "--until=60"
             ]
         },
         {
             "name": "ABGARMY03",
             "view": "army",
-            "script": "bots/quests/rimmington-iron.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY03"
+                "ABGARMY03",
+                "--until-wc=60"
             ]
         },
         {
@@ -416,7 +417,7 @@
             "script": "bots/quests/cut-gems.ts",
             "args": [
                 "ABGARMY06",
-                "--until=50"
+                "--until=60"
             ]
         },
         {
@@ -449,7 +450,7 @@
             "script": "bots/quests/cut-gems.ts",
             "args": [
                 "ABGARMY10",
-                "--until=50"
+                "--until=60"
             ]
         },
         {
@@ -466,7 +467,7 @@
             "script": "bots/quests/bowstrings.ts",
             "args": [
                 "ABGARMY12",
-                "--until=50"
+                "--until=60"
             ]
         },
         {
@@ -483,15 +484,16 @@
             "script": "bots/quests/cut-gems.ts",
             "args": [
                 "ABGARMY14",
-                "--until=50"
+                "--until=60"
             ]
         },
         {
             "name": "ABGARMY15",
             "view": "army",
-            "script": "bots/quests/rimmington-iron.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY15"
+                "ABGARMY15",
+                "--until-wc=60"
             ]
         },
         {
@@ -500,7 +502,7 @@
             "script": "bots/quests/cut-gems.ts",
             "args": [
                 "ABGARMY16",
-                "--until=50"
+                "--until=60"
             ]
         },
         {
@@ -514,9 +516,10 @@
         {
             "name": "ABGARMY18",
             "view": "army",
-            "script": "bots/quests/rimmington-iron.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY18"
+                "ABGARMY18",
+                "--until-wc=60"
             ]
         },
         {
