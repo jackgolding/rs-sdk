@@ -6,7 +6,7 @@
  */
 import { ActivitySession, BotSDK, deriveGatewayUrl, inWilderness } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
-import { initPathfinding } from '../../sdk/pathfinding';
+import { initPathfinding, isTileWalkable } from '../../sdk/pathfinding';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import {
@@ -34,16 +34,31 @@ const TO_BRIMHAVEN: Tile[] = [
     BRIMHAVEN_CUSTOMS
 ];
 const GNOME_GATE = { x: 2459, z: 3383 };
+/** `gnome_areagate` in m38_52 (`0 27 55: 190 10 2`). The gate tile itself is a
+ *  wall loc and NOT walkable, so walkTo(2459,3383) fails; this is the walkable
+ *  tile 1 south of it that gnome_gate.rs2 itself walks you to ($south_entrance). */
+const GNOME_GATE_ID = 190;
+const GNOME_GATE_STAND = { x: 2460, z: 3382 };
+const GNOME_GATE_INNER = { x: 2461, z: 3385 };
+/** Gate landing → course start. Every hop is 5-12 tiles and every tile is
+ *  walkable in sdk/collision-data.json (BFS-verified). The old list ended at
+ *  (2474,3430), a BLOCKED tile: walkTo failed, the sendWalk fallback dropped,
+ *  and bots ended up in the east pocket at (2494,3436) on every attempt. */
 const GNOME_ENTRANCE: Tile[] = [
-    { x: 2462, z: 3395 },
-    { x: 2470, z: 3415 },
-    { x: 2474, z: 3430 },
+    { x: 2460, z: 3396 },
+    { x: 2460, z: 3408 },
+    { x: 2463, z: 3412 },
+    { x: 2468, z: 3414 },
+    { x: 2468, z: 3419 },
+    { x: 2470, z: 3424 },
+    { x: 2470, z: 3430 },
+    { x: 2470, z: 3435 },
     GNOME_START
 ];
 const ARDY_TO_GNOME: Tile[] = [
     { x: 2662, z: 3375 },
     { x: 2550, z: 3410 },
-    GNOME_GATE
+    GNOME_GATE_STAND
 ];
 const GNOME_TO_ARDY: Tile[] = [
     { x: 2458, z: 3370 },
@@ -343,9 +358,15 @@ function onGnomeCourse(): boolean {
 
 function pastGnomeGate(): boolean {
     const p = pos();
-    // x<=2490: the course fence (server-side) strands walkers east of it at
-    // x>2490 — those are outside the course even when close to the start.
-    return p.z >= 3410 && p.x <= 2490 && distTo(GNOME_START.x, GNOME_START.z) < 60;
+    // z grows northward here (gnome_gate.rs2's $north_entrance is z+2), so the
+    // gate line at z=3383 divides outside from inside. z>=3410 (the old test)
+    // called the whole 3384-3409 garden "outside": a bot standing INSIDE at
+    // (2462,3395) walked back and re-clicked the gate, and the gate script
+    // force-moves an interior click 3 tiles OUT — the in/out bounce in the
+    // grind logs ("Entering gnome stronghold" → "Gate interact failed").
+    // x<=2488 keeps the east-of-fence pocket (2490+) out of "on the course" so
+    // it still runs through ensureGnomeEntrance and crosses at the fence gap.
+    return p.z >= 3388 && p.x <= 2488 && distTo(GNOME_START.x, GNOME_START.z) < 90;
 }
 
 function inArdougne(): boolean {
@@ -1418,28 +1439,140 @@ async function eatIfNeeded(belowHp = EAT_BELOW_HP): Promise<void> {
     await sdk.waitForTicks(2).catch(() => {});
 }
 
-async function openGnomeGate(): Promise<void> {
+/**
+ * Click the stronghold gate and let gnome_gate.rs2 do the crossing.
+ *
+ * The handler walks you to its own $north/$south entrance tile and then
+ * force-moves you 3 tiles through — the gate never stays open, and the tile
+ * itself is a wall loc. So: stand on the walkable approach tile, click ONCE,
+ * and judge the result by which side of z=3383 you end up on. `bot.interactLoc`
+ * cannot be used as the gate of that: a gate open produces no player-state
+ * evidence, so it always reports "Nothing happened interacting with Gate" — and
+ * its retry click, issued after the bot has been moved inside, runs the EXIT
+ * branch and ejects you.
+ *
+ * `expectInside=false` is the leaving path (exitGnomeStronghold): an interior
+ * click force-moves you out, which is exactly what that caller wants.
+ */
+async function openGnomeGate(expectInside = true): Promise<boolean> {
     await closeUi();
-    await walkNear(GNOME_GATE.x, GNOME_GATE.z, 2);
-    await sdk.scanNearbyLocs(8).catch(() => {});
-    const gate = sdk.findNearbyLoc(/^gate$/i);
-    if (!gate) {
-        log(`No gate found near ${pos().x},${pos().z}`);
-        return;
+    const inside = pos().z > GNOME_GATE.z;
+    if (expectInside && inside) return true;
+    if (!expectInside && !inside) return true;
+
+    const stand = expectInside ? GNOME_GATE_STAND : GNOME_GATE_INNER;
+    await walkNear(stand.x, stand.z, 2);
+    // The approach can overshoot to the far side of the gate line (tolerance
+    // 2); clicking from there would run the opposite branch and throw us back.
+    if ((expectInside && pos().z > GNOME_GATE.z) || (!expectInside && pos().z < GNOME_GATE.z)) {
+        log(`Gate already crossed while approaching @ ${pos().x},${pos().z}`);
+        return true;
     }
-    const openOpt = gate.optionsWithIndex.find((o) => /^open$/i.test(o.text));
-    if (!openOpt) {
-        log(`Gate found but no Open option (${gate.optionsWithIndex.map((o) => o.text).join(', ')})`);
-        return;
+
+    const crossedOk = () => (expectInside ? pos().z > GNOME_GATE.z : pos().z < GNOME_GATE.z);
+    const findGate = () =>
+        (sdk.getNearbyLocs() ?? []).find((l) => l.id === GNOME_GATE_ID) ??
+        sdk.findNearbyLoc(/^gate$/i);
+
+    // The open state swaps in gnome_areagate_open_left/right for 5 ticks: no
+    // name, no options, and an inviswall on the path — so a scan can see no
+    // gate at all, and walking through is impossible. Contention with ~40 bots
+    // means a click often loses that race; wait the window out and retry.
+    for (let attempt = 0; attempt < 4 && !crossedOk() && !session.isStopped(); attempt++) {
+        await sdk.scanNearbyLocs(10).catch(() => {});
+        const gate = findGate();
+        const openOpt = gate?.optionsWithIndex.find((o) => /^open$/i.test(o.text));
+        intent('Opening gnome stronghold gate');
+        log(
+            `Gate ${expectInside ? 'in' : 'out'} @ ${pos().x},${pos().z} → ${gate ? `${gate.x},${gate.z}` : 'none in scan'} (try ${attempt + 1})`
+        );
+        if (!gate) {
+            await sdk.waitForTicks(3).catch(() => {});
+            await sdk.sendInteractLoc(GNOME_GATE.x, GNOME_GATE.z, GNOME_GATE_ID, 1);
+        } else {
+            await sdk.sendInteractLoc(gate.x, gate.z, gate.id, openOpt?.opIndex ?? 1);
+        }
+        try {
+            await sdk.waitForCondition(
+                (s) => (expectInside ? (s.player?.worldZ ?? 0) > GNOME_GATE.z : (s.player?.worldZ ?? 0) < GNOME_GATE.z),
+                6_000
+            );
+        } catch {
+            /* judged below */
+        }
+        if (crossedOk()) break;
+        await sdk.waitForTicks(3).catch(() => {});
     }
-    intent('Opening gnome stronghold gate');
-    log(`Opening gate @ ${gate.x},${gate.z}`);
-    const r = await bot.interactLoc(gate, /open/i);
-    if (!r.success) {
-        log(`Gate interact failed: ${r.message}`);
-        await sdk.sendInteractLoc(gate.x, gate.z, gate.id, openOpt.opIndex);
+    log(`Gate ${expectInside ? 'entry' : 'exit'} ${crossedOk() ? 'ok' : 'blocked'} @ ${pos().x},${pos().z}`);
+    return crossedOk();
+}
+
+/**
+ * BFS a route over the static collision snapshot and raw-step it, one tile at a
+ * time. Needed east of the course fence: the client pathfinder has NO route to
+ * the course from there (`findLongPath(2494,3436 -> 2474,3436)` returns an
+ * empty path, and from (2495,3406) it returns a path that ENDS at (2494,3436),
+ * i.e. it walks bots back into the pocket). Per-tile walks are line-of-sight,
+ * so the server walks them.
+ */
+async function walkRawTo(x: number, z: number, maxTiles = 60): Promise<boolean> {
+    if (distTo(x, z) <= 1) return true;
+    const level = pos().level;
+    const start = pos();
+    const key = (a: number, b: number) => `${a},${b}`;
+    const prev = new Map<string, string | null>([[key(start.x, start.z), null]]);
+    let frontier: number[][] = [[start.x, start.z]];
+    let target: string | null = null;
+    while (frontier.length && prev.size < 12_000 && !target) {
+        const next: number[][] = [];
+        for (const [cx, cz] of frontier) {
+            if (cx === x && cz === z) {
+                target = key(cx, cz);
+                break;
+            }
+            for (const [dx, dz] of [
+                [1, 0],
+                [-1, 0],
+                [0, 1],
+                [0, -1]
+            ]) {
+                const nx = (cx ?? 0) + (dx ?? 0);
+                const nz = (cz ?? 0) + (dz ?? 0);
+                if (Math.abs(nx - start.x) > 40 || Math.abs(nz - start.z) > 40) continue;
+                const k = key(nx, nz);
+                if (prev.has(k)) continue;
+                if (!isTileWalkable(level, nx, nz)) continue;
+                prev.set(k, key(cx ?? 0, cz ?? 0));
+                next.push([nx, nz]);
+            }
+        }
+        frontier = next;
     }
-    await sdk.waitForTicks(3).catch(() => {});
+    if (!target) {
+        log(`raw route ${start.x},${start.z} → ${x},${z}: no walkable path`);
+        return false;
+    }
+    const path: number[][] = [];
+    let k: string | null = target;
+    while (k) {
+        const [px, pz] = k.split(',').map(Number);
+        path.push([px ?? 0, pz ?? 0]);
+        k = prev.get(k) ?? null;
+    }
+    path.reverse();
+    path.shift();
+    if (path.length > maxTiles) {
+        log(`raw route ${start.x},${start.z} → ${x},${z}: ${path.length} tiles > ${maxTiles}`);
+        return false;
+    }
+    for (const [px, pz] of path) {
+        if (session.isStopped()) return false;
+        await sdk.sendWalk(px!, pz!, true);
+        await sdk
+            .waitForCondition((s) => (s.player?.worldX ?? 0) === px && (s.player?.worldZ ?? 0) === pz, 1_200)
+            .catch(() => {});
+    }
+    return distTo(x, z) <= 2;
 }
 
 async function ensureGnomeEntrance(): Promise<void> {
@@ -1447,32 +1580,33 @@ async function ensureGnomeEntrance(): Promise<void> {
     await session.setPhase('gnome_entrance');
     intent('Entering gnome stronghold');
     log(`Entering gnome stronghold from ${pos().x},${pos().z}`);
-    await walkNear(GNOME_GATE.x, GNOME_GATE.z, 3);
-    await openGnomeGate();
+
+    // Clicking from inside ejects you, so only ever open the gate when the bot
+    // is actually on the outside of the z=3383 line.
+    for (let attempt = 0; attempt < 3 && pos().z <= GNOME_GATE.z && !session.isStopped(); attempt++) {
+        if (await openGnomeGate()) break;
+        await walkNear(GNOME_GATE_STAND.x, GNOME_GATE_STAND.z, 2);
+        await sdk.waitForTicks(2).catch(() => {});
+    }
+    if (pos().z <= GNOME_GATE.z) {
+        log(`Still outside the gate @ ${pos().x},${pos().z} — retrying next tick`);
+        return;
+    }
+
+    if (pos().x > 2488) {
+        // East of the course fence, where walkTo has no route to the course
+        // (see walkRawTo). Walking the corridor from here is what used to put
+        // bots back at (2494,3436) every attempt; raw-hop west first.
+        log(`East of course fence @ ${pos().x},${pos().z} — raw-hoping west at z=3437`);
+        await session.setPhase('gnome_entrance_east');
+        await walkRawTo(2474, 3437);
+    }
     await walkWaypoints(GNOME_ENTRANCE);
-    if (distTo(GNOME_START.x, GNOME_START.z) <= 12 || pos().x <= 2490) {
+    if (pastGnomeGate()) {
         log(`Inside stronghold @ ${pos().x},${pos().z}`);
         return;
     }
-    // Stranded east of the course fence: drop south below it on open ground,
-    // cross west, and re-enter through the proven south corridor. Every leg
-    // is verified — a silent failed leg is what stranded us here before.
-    log(`East of course fence @ ${pos().x},${pos().z} — detouring south around it`);
-    await session.setPhase('gnome_entrance_detour');
-    const detourX0 = pos().x;
-    const southOk = await walkNear(detourX0, 3405, 4);
-    log(`Detour south leg → ${pos().x},${pos().z} ok=${southOk}`);
-    for (const z of [3405, 3398, 3390]) {
-        const westOk = await walkNear(2465, z, 4);
-        log(`Detour west leg z=${z} → ${pos().x},${pos().z} ok=${westOk}`);
-        if (westOk || pos().x <= 2480) break;
-    }
-    await walkWaypoints(GNOME_ENTRANCE);
-    if (distTo(GNOME_START.x, GNOME_START.z) <= 12) {
-        log(`Inside stronghold @ ${pos().x},${pos().z}`);
-    } else {
-        log(`Detour failed, still @ ${pos().x},${pos().z} — will retry via gate`);
-    }
+    log(`Not on the course yet @ ${pos().x},${pos().z} — retrying next tick`);
 }
 
 async function travelToGnome(): Promise<void> {
@@ -1885,9 +2019,10 @@ async function exitGnomeStronghold(): Promise<boolean> {
     intent('Leaving gnome stronghold through gate');
     await walkWaypoints([
         { x: 2468, z: 3390 },
-        GNOME_GATE
+        GNOME_GATE_INNER
     ]);
-    await openGnomeGate();
+    // From the interior side one click force-moves you out (gnome_gate.rs2).
+    await openGnomeGate(false);
     await sdk.sendWalk(2458, 3368, true);
     const z0 = pos().z;
     await sdk
@@ -1911,7 +2046,7 @@ async function leaveGnomeCourse(): Promise<void> {
         await walkWaypoints([
             { x: 2470, z: 3415 },
             { x: 2462, z: 3395 },
-            GNOME_GATE
+            GNOME_GATE_INNER
         ]);
     }
     await exitGnomeStronghold();

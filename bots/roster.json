@@ -91,7 +91,7 @@
         {
             "name": "jacklove3",
             "view": "fleet",
-            "script": "bots/quests/air-rune-craft.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "jacklove3"
             ]
@@ -376,10 +376,9 @@
         {
             "name": "ABGARMY15",
             "view": "army",
-            "script": "bots/quests/mining-lowlevel.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY15",
-                "--until=15"
+                "ABGARMY15"
             ]
         },
         {

@@ -12,6 +12,27 @@ const STALL_LIMIT = 3;
 const LAP_BONUS_XP = 300;
 const WEST_X = 2478;
 
+/**
+ * Log balance (loc 2295, `gnome_log_balance1`, op1 Walk-across).
+ *
+ * m38_53.jm2 places it on PLANE 1 — `1 42 43: 2295 22`, with the rest of the
+ * log (`log_balance3`/`loc_2292`) on 1 42 38..42. The engine resolves a loc
+ * click at the PLAYER's plane only (`World.getLoc(x, z, player.level, id)`),
+ * and scanNearbyLocs publishes the current plane only, so a plane-0 bot can
+ * neither see nor click it: live at (2474,3436) the client lists 69 locs
+ * (Obstacle net 2473,3425 / Obstacle pipe 2484,3435 included) and no log.
+ *
+ * `agility_force_move` on success walks the player 7 tiles in -z, so the
+ * crossing test is `start.z - end.z >= 4` (same axis as `crossDz` below).
+ */
+const LOG_TILE = { x: 2474, z: 3435 };
+const LOG_LOC_ID = 2295;
+const LOG_BLIND_WAIT_MS = 4_000;
+/** Re-probe the log this many 6-obstacle cycles after a miss, so a server-side
+ *  map fix (log bridged to L0) turns full laps back on without a restart. */
+const LOG_RETRY_CYCLES = 5;
+const NET_UP_INDEX = 1;
+
 type Step = {
     id: string;
     label: string;
@@ -116,14 +137,20 @@ export type GnomeCourseDeps = {
 export class GnomeCourse {
     stepIndex = 0;
     laps = 0;
+    /** 6-obstacle cycles (net_up..pipe) run while the log is unreachable.
+     *  The pipe only pays the 390 bonus on a log-first lap, so these are
+     *  worth ~1000 xp each — but they still pay, which is the whole point. */
+    partialLaps = 0;
     private lastXp = 0;
     private fails = 0;
-    private logStand: { x: number; z: number } | null = null;
-    private logSwept = false;
-    /** The log balance loc is absent from the live map (plane-1 placement in
-     *  m38_53.jm2); once a full sweep misses it, skip the step every lap
-     *  instead of re-sweeping. Partial laps still pay per-obstacle XP. */
-    private logMissing = false;
+    /** Log balance is a plane-1 loc on the live map; while it is unreachable,
+     *  skip the step instead of stalling (a stall fires recovery tactics that
+     *  walk the bot out of the stronghold). */
+    private logUnavailable = false;
+    /** Re-probe boundary in partialLaps (laps never advances while the log is
+     *  missing, so a lap-based retry window would never reopen). */
+    private logRetryAtCycle = 0;
+    private logAttempts = 0;
 
     constructor(private readonly d: GnomeCourseDeps) {}
 
@@ -242,43 +269,56 @@ export class GnomeCourse {
         }
     }
 
-    /** One-time sweep for the log along the entrance corridor, south of the
-     *  start. The log (varp stage 1) sits somewhere on the approach; remember
-     *  where so later laps go straight there. */
-    private async sweepForLog(logStep: Step): Promise<NearbyLoc | null> {
-        const stops = [
-            { x: 2474, z: 3430 },
-            { x: 2470, z: 3415 },
-            { x: 2462, z: 3395 }
-        ];
-        for (const stop of stops) {
-            if (this.d.isStopped()) return null;
-            await this.walkTo(stop.x, stop.z, 4);
-            // Let the scene settle: zones stream in while walking.
-            await this.d.sdk.waitForTicks(3).catch(() => {});
-            // Wide radius: the client holds full zone data, so one big scan
-            // can cover the whole stronghold south half from the corridor.
-            const scanned = await this.d.sdk.scanNearbyLocs(40).catch(() => []);
-            const hit = this.findLoc(logStep, true);
-            this.d.log(
-                `Log sweep @ ${this.d.pos().x},${this.d.pos().z} (${scanned?.length ?? -1} locs): ${hit ? `${hit.name} @ ${hit.x},${hit.z} reach=${hit.reachable}` : 'nothing'}`
-            );
-            if (hit) {
-                this.logStand = { x: hit.x, z: hit.z };
-                return hit;
-            }
+    /** One blind click on the log tile before declaring it unavailable.
+     *  Covers the case where the loc exists server-side on L0 but the client
+     *  did not publish it (the previous sweep-based theory) — a 4s probe, and
+     *  the only way to discover that a server map fix restored the lap bonus. */
+    private async blindLogClick(): Promise<{ xp: number; x: number; z: number } | null> {
+        // Land on a tile adjacent to the log even if the approach stopped wide
+        // (standTolerance is 4): the engine resolves loc clicks from the tile
+        // the player stands on, and the log tile itself is not walkable.
+        if (this.d.distTo(LOG_TILE.x, LOG_TILE.z) > 4) {
+            await this.walkTo(GNOME_START.x, GNOME_START.z, 1);
         }
-        return null;
+        if (this.d.distTo(LOG_TILE.x, LOG_TILE.z) > 4) return null;
+        const start = this.d.pos();
+        const xp0 = this.d.agilityXp();
+        this.logAttempts++;
+        await this.d.sdk.sendInteractLoc(LOG_TILE.x, LOG_TILE.z, LOG_LOC_ID, 1).catch(() => {});
+        try {
+            await this.d.sdk.waitForCondition((s) => {
+                const xp = s.skills.find((sk) => sk.name === 'Agility')?.experience ?? 0;
+                if (xp > xp0) return true;
+                // Walk-across force-moves 7 tiles in -z.
+                return start.z - (s.player?.worldZ ?? start.z) >= 4;
+            }, LOG_BLIND_WAIT_MS);
+        } catch {
+            return null;
+        }
+        const end = this.d.pos();
+        return { xp: Math.max(0, this.d.agilityXp() - xp0), x: end.x, z: end.z };
     }
 
-    private async doStep(step: Step): Promise<{ ok: boolean; xpGained: number }> {
+    /** Latch the log as unreachable (bounded by LOG_RETRY_CYCLES) and say why. */
+    private markLogUnavailable(): void {
+        this.logUnavailable = true;
+        this.logRetryAtCycle = this.partialLaps + LOG_RETRY_CYCLES;
+        const p = this.d.pos();
+        this.d.log(
+            `Log absent near ${p.x},${p.z} L${p.level} (scan + blind click @ ${LOG_TILE.x},${LOG_TILE.z} id ${LOG_LOC_ID} miss, try ${this.logAttempts}) — 6-obstacle cycles, retry after cycle ${this.logRetryAtCycle}`
+        );
+    }
+
+    private logSkipped(): boolean {
+        return this.logUnavailable && this.partialLaps < this.logRetryAtCycle;
+    }
+
+    private async doStep(step: Step): Promise<{ ok: boolean; xpGained: number; skipped?: boolean }> {
         if (step.id === 'tree_down') await this.walkPlatformEast();
 
         const tol = step.standTolerance ?? 2;
         if (step.id === 'net_up' || step.id === 'net_down') {
             await this.ensureNetStand(step);
-        } else if (step.id === 'log' && this.logStand) {
-            await this.walkTo(this.logStand.x, this.logStand.z, 3);
         } else {
             await this.walkTo(step.stand.x, step.stand.z, tol);
         }
@@ -294,20 +334,23 @@ export class GnomeCourse {
         }
         if (step.id === 'log') {
             if (!loc) loc = this.findLoc(step, true);
-            if (!loc && !this.logSwept) {
-                this.logSwept = true;
-                loc = await this.sweepForLog(step);
-            } else if (!loc && this.logStand) {
-                await this.walkTo(this.logStand.x, this.logStand.z, 3);
-                await this.d.sdk.scanNearbyLocs(22).catch(() => {});
-                loc = this.findLoc(step, true);
+            if (!loc) {
+                const blind = await this.blindLogClick();
+                if (!blind) {
+                    this.markLogUnavailable();
+                    // Not a failure: the step is unreachable on this map, and
+                    // a fail here trips the stall clock into recovery tactics
+                    // that walk the bot out of the stronghold.
+                    return { ok: false, xpGained: 0, skipped: true };
+                }
+                this.logUnavailable = false;
+                this.d.log(
+                    `[${this.stepIndex + 1}/${STEPS.length}] log +${blind.xp}xp @ ${blind.x},${blind.z} (blind click)`
+                );
+                return { ok: true, xpGained: blind.xp };
             }
-            if (loc) {
-                this.d.log(`Log target ${loc.name} @ ${loc.x},${loc.z} reach=${loc.reachable}`);
-            } else {
-                this.logMissing = true;
-                this.d.log(`Log absent near ${this.d.pos().x},${this.d.pos().z} L${this.d.pos().level} — skipping the log step for this run`);
-            }
+            this.logUnavailable = false;
+            this.d.log(`Log target ${loc.name} @ ${loc.x},${loc.z} reach=${loc.reachable}`);
         }
         if (!loc || loc.reachable === false) return { ok: false, xpGained: 0 };
 
@@ -403,6 +446,7 @@ export class GnomeCourse {
     private advanceStep(step: Step, xpGained: number): void {
         const xp = this.d.agilityXp();
         if (step.id === 'pipe') {
+            this.partialLaps++;
             if (xpGained >= LAP_BONUS_XP) {
                 this.laps++;
                 this.d.log(`Lap ${this.laps} | Agility ${this.d.agilityLevel()} (${xp} xp, +${xpGained} pipe)`);
@@ -411,6 +455,21 @@ export class GnomeCourse {
                 if (this.d.pos().level === 0) {
                     void this.walkTo(GNOME_START.x, GNOME_START.z, 4);
                 }
+                return;
+            }
+            if (this.logUnavailable) {
+                if (this.logSkipped()) {
+                    // Log unreachable: loop net_up..pipe. Walking back to the
+                    // log every cycle was ~30-60s of dead time per 1000 xp.
+                    this.d.log(
+                        `Cycle ${this.partialLaps} | Agility ${this.d.agilityLevel()} (${xp} xp, +${xpGained} pipe, no log)`
+                    );
+                    this.stepIndex = NET_UP_INDEX;
+                    return;
+                }
+                // Retry window open: take one probe at the log next tick.
+                this.d.log(`Log retry window @ cycle ${this.partialLaps} — probing the log again`);
+                this.stepIndex = 0;
                 return;
             }
             // Pipe without the lap bonus: an obstacle was skipped (the server
@@ -434,9 +493,9 @@ export class GnomeCourse {
             this.fails = 0;
             return;
         }
-        if (step.id === 'log' && this.logMissing) {
-            // Loc absent from the live map: go straight to the net so laps
-            // keep flowing instead of sweeping the corridor every lap.
+        if (step.id === 'log' && this.logSkipped()) {
+            // Loc absent from the live map: go straight to the net so cycles
+            // keep flowing instead of walking back to an unreachable log.
             this.stepIndex = (this.stepIndex + 1) % STEPS.length;
             this.fails = 0;
             return;
@@ -465,6 +524,13 @@ export class GnomeCourse {
             this.advanceStep(step, result.xpGained);
             return;
         }
+        if (result.skipped) {
+            // Unreachable obstacle (log on plane 1), not a failed attempt:
+            // advancing here keeps the stall clock and recovery out of it.
+            this.fails = 0;
+            this.stepIndex = (this.stepIndex + 1) % STEPS.length;
+            return;
+        }
 
         this.fails++;
         if (step.optional && this.fails >= 2) {
@@ -481,9 +547,6 @@ export class GnomeCourse {
         if (step.id === 'tree_down') {
             await this.walkPlatformEast();
         } else if (step.id === 'log') {
-            // The corridor sweep runs on a still-loading scene after travel:
-            // allow a re-sweep next cycle instead of skipping forever.
-            this.logSwept = false;
             await this.walkTo(step.stand.x, step.stand.z, step.standTolerance ?? 2);
         } else if (step.id === 'net_down' || step.id === 'net_up') {
             await this.ensureNetStand(step);
