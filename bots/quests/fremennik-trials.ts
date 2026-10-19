@@ -1153,9 +1153,18 @@ async function sourceMissing(ctx: QuestContext, needs: ItemNeed[]): Promise<bool
         if (!/cabbage|potato|onion/i.test(n.label)) continue;
         ctx.log(`supply: ${n.label} still short after the field — using shops`);
     }
-    let still: ItemNeed[] = short0;
+    // Hudo (the only onion vendor) stands INSIDE the Grand Tree, and the tree's
+    // interior is entered from the BOTTOM — by its roots — not by walking to
+    // interior coordinates. A bare-walk shop leg can never reach him, so the
+    // onion is field-only: pick it or wait for the next pass.
+    const shopNeeds = short0.filter((n) => !/onion/i.test(n.label));
+    const onionShort = short0.filter((n) => /onion/i.test(n.label));
+    if (onionShort.length && onionShort.some((n) => count(n.pattern) < n.count)) {
+        ctx.log('supply: onion is field-only (Hudo sits inside the Grand Tree) — not walking to shops');
+    }
+    let still: ItemNeed[] = shopNeeds;
     try {
-        still = (await ensureSupplied(ctx, short0 as never)) as unknown as ItemNeed[];
+        still = (await ensureSupplied(ctx, shopNeeds as never)) as unknown as ItemNeed[];
     } catch (e) {
         ctx.log(`supply: chain failed (${String(e)}) — trying loc picks`);
     }
@@ -1165,6 +1174,7 @@ async function sourceMissing(ctx: QuestContext, needs: ItemNeed[]): Promise<bool
     // Re-approach with this script's door-aware travel, then retry the buy.
     for (const n of short0) {
         if (count(n.pattern) >= n.count) continue;
+        if (/onion/i.test(n.label)) continue; // Hudo is inside the Grand Tree
         const sources = SHOP_SOURCES[(n.label ?? '').toLowerCase()] ?? [];
         for (const shop of sources) {
             if (count(n.pattern) >= n.count) break;
