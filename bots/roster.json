@@ -211,10 +211,9 @@
         {
             "name": "jacklove15",
             "view": "loves",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/lost-city.ts",
             "args": [
-                "jacklove15",
-                "--until-wc=40"
+                "jacklove15"
             ]
         },
         {
@@ -356,10 +355,9 @@
         {
             "name": "ABGARMY12",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/lost-city.ts",
             "args": [
-                "ABGARMY12",
-                "--until-wc=40"
+                "ABGARMY12"
             ]
         },
         {

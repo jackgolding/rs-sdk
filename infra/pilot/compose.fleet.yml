@@ -403,7 +403,7 @@ services:
   quest-abgarmy12:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/seers-wc-fm.ts", "ABGARMY12", "--until-wc=40"]
+    command: ["bun", "bots/quests/lost-city.ts", "ABGARMY12"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -947,7 +947,7 @@ services:
   quest-jacklove15:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/seers-wc-fm.ts", "jacklove15", "--until-wc=40"]
+    command: ["bun", "bots/quests/lost-city.ts", "jacklove15"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
