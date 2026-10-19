@@ -1644,17 +1644,25 @@ const stages: QuestStage[] = [
                 if (count(LOW_KEG) === 0) await talk(ctx, 'poison', [/low alcohol/i, /^yes$/i]);
                 ctx.log(`reveller: low alcohol keg=${count(LOW_KEG)} coins=${count(COINS)}`);
             }
-            // 5. light the firecracker with the tinderbox
-            if (count(FIRECRACKER) > 0 && count(LIT_CRACKER) === 0 && !revellerSwapped) {
-                await combine(ctx, TINDERBOX, FIRECRACKER);
-                ctx.log(`reveller: lit cracker=${count(LIT_CRACKER)}`);
-            }
-            // 6. put it in the longhall pipe — this sets firecracker_placed, which
-            //    is what makes the swap legal
-            if (count(LIT_CRACKER) > 0 && !revellerSwapped) {
+            // 5+6. Reach the pipe FIRST, then light, then place — never split by a
+            // walk. The lit cracker is on a fuse: viking_reveller.rs2 does
+            // `longqueue(firecracker_explode, ~random_range(140, 200))` and the
+            // expiry line is "The strange object you lit earlier explodes in your
+            // inventory!" (140-200 ticks ≈ 1.5-2.5 min). Lighting at step 5 and
+            // walking at step 6 burns the fuse en route: the live run lit at
+            // 14:02:08 and reached the swap at 14:04:08 with the cracker already
+            // gone, so `firecracker_placed` never set and Manni refused the swap
+            // ("Thinking of cheating my test, outerlander?").
+            if ((count(FIRECRACKER) > 0 || count(LIT_CRACKER) > 0) && !revellerSwapped) {
                 await go(ctx, [LONGHALL, PIPE], PIPE);
-                await useOnLoc(ctx, LIT_CRACKER, /pipe/i);
-                ctx.log(`reveller: lit cracker left=${count(LIT_CRACKER)} (placed in the pipe)`);
+                if (count(LIT_CRACKER) === 0 && count(FIRECRACKER) > 0) {
+                    await combine(ctx, TINDERBOX, FIRECRACKER);
+                    ctx.log(`reveller: lit cracker at the pipe=${count(LIT_CRACKER)}`);
+                }
+                if (count(LIT_CRACKER) > 0) {
+                    await useOnLoc(ctx, LIT_CRACKER, /pipe/i);
+                    ctx.log(`reveller: placed in the pipe — lit left=${count(LIT_CRACKER)}`);
+                }
             }
             // 7. swap the keg (must be inside the longhall swap zone)
             if (count(LOW_KEG) > 0 && count(BEER_KEG) > 0) {
