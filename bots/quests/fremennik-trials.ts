@@ -67,7 +67,7 @@ import {
     requireSkills,
     type ItemNeed,
 } from './quest-lib';
-import { ensureSupplied } from './supply';
+import { ensureSupplied, buyFromShops, SHOP_SOURCES } from './supply';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 
@@ -1098,6 +1098,21 @@ async function sourceMissing(ctx: QuestContext, needs: ItemNeed[]): Promise<bool
         still = (await ensureSupplied(ctx, short0 as never)) as unknown as ItemNeed[];
     } catch (e) {
         ctx.log(`supply: chain failed (${String(e)}) — trying loc picks`);
+    }
+    // supply.ts approaches shops with a bare hop sender, which stops short of
+    // the shop INTERIOR: live, the bot sat 100+ tiles away and logged
+    // `could not open /^wydin$/i for cabbage` without ever entering the store.
+    // Re-approach with this script's door-aware travel, then retry the buy.
+    for (const n of short0) {
+        if (count(n.pattern) >= n.count) continue;
+        const sources = SHOP_SOURCES[(n.label ?? '').toLowerCase()] ?? [];
+        for (const shop of sources) {
+            if (count(n.pattern) >= n.count) break;
+            ctx.log(`supply: re-approaching ${String(shop.npc)} @ ${shop.tile.x},${shop.tile.z} for ${n.label}`);
+            await go(ctx, [shop.tile], shop.tile);
+            await buyFromShops(ctx, n as never).catch(() => undefined);
+            ctx.log(`supply: after re-approach ${n.label}=${count(n.pattern)}`);
+        }
     }
     for (const n of short0.filter((x) => /onion/i.test(x.label))) await pickOnions(ctx, n.count);
     const left = needs.filter((n) => count(n.pattern) < n.count);
