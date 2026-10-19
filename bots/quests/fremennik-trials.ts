@@ -919,16 +919,36 @@ async function operate(ctx: QuestContext, re: RegExp): Promise<boolean> {
 }
 
 async function combine(ctx: QuestContext, useRe: RegExp, onRe: RegExp): Promise<boolean> {
-    const a = invItem(useRe);
-    const b = invItem(onRe);
-    if (!a || !b) {
-        ctx.log(`combine: missing ${!a ? String(useRe) : String(onRe)}`);
-        return false;
+    // Silent-and-once was the old shape, and it is why the live vase never got
+    // its lid: slot numbers were resolved once, the client's slot cache lags
+    // gateway state (a known fleet quirk — the first use-on-item after banking
+    // fails on stale slots), and nothing was logged, so a no-op looked like
+    // success. Re-resolve every attempt, retry, and log each one.
+    const shape = (): string =>
+        sdk
+            .getInventory()
+            .filter((i) => (i.count ?? 0) > 0)
+            .map((i) => `${i.name}x${i.count}`)
+            .join(',');
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const a = invItem(useRe);
+        const b = invItem(onRe);
+        if (!a || !b) {
+            ctx.log(`combine: missing ${!a ? String(useRe) : String(onRe)}`);
+            return false;
+        }
+        const before = shape();
+        await closeUi(bot, sdk).catch(() => undefined);
+        await sdk.sendUseItemOnItem(a.slot, b.slot);
+        await ticks(3);
+        const changed = shape() !== before;
+        ctx.log(
+            `combine[${attempt}] ${String(useRe)}@${a.slot} -> ${String(onRe)}@${b.slot} changed=${changed}`
+        );
+        if (changed) return true;
+        await ticks(2);
     }
-    await closeUi(bot, sdk).catch(() => undefined);
-    await sdk.sendUseItemOnItem(a.slot, b.slot);
-    await ticks(3);
-    return true;
+    return false;
 }
 
 async function useOnLoc(ctx: QuestContext, itemRe: RegExp, locRe: RegExp, locOption?: RegExp): Promise<boolean> {
@@ -2377,7 +2397,13 @@ async function peerPuzzle(ctx: QuestContext): Promise<boolean> {
         if (have(SEALED_WATER)) await useOnLoc(ctx, SEALED_WATER, /frozen table/i);
         if (have(FROZEN_KEY)) await useOnLoc(ctx, FROZEN_KEY, /cooking range/i);
     }
-    ctx.log(`peer: state vase=${count(VASE)} water=${count(VASE_WATER)} lid=${count(VASE_LID)} sealed=${count(SEALED_WATER)} ice=${count(FROZEN_KEY)} key=${count(SEER_KEY)}`);
+    ctx.log(
+        `peer: state vase=${count(VASE)} water=${count(VASE_WATER)} lid=${count(VASE_LID)} sealed=${count(SEALED_WATER)} ice=${count(FROZEN_KEY)} key=${count(SEER_KEY)} inv=[${sdk
+            .getInventory()
+            .filter((i) => (i.count ?? 0) > 0)
+            .map((i) => i.name)
+            .join(',')}]`
+    );
     if (!have(SEER_KEY)) return false;
 
     // Step 6: down to plane 0 and unlock the exit door with the key.
