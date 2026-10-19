@@ -1727,6 +1727,42 @@ async function leaveHandelmortMansion(): Promise<void> {
     }
 }
 
+/**
+ * Last-resort exit from a walled enclosure (dock compound, shut house) whose
+ * doors sit beyond the 2-tile adjacent-door helper's reach. Approaches the
+ * nearest openable door/gate, opens it, and steps through toward dest.
+ * Only fires when the caller made zero progress, so a failure no-ops back
+ * to the previous spin rather than wandering.
+ */
+async function jailbreakEnclosure(destX: number, destZ: number): Promise<boolean> {
+    const before = pos();
+    await sdk.scanNearbyLocs(20).catch(() => {});
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const probe = await bot.openDoor().catch(() => null) as null | { success?: boolean; message?: string; door?: { x: number; z: number } };
+        const door = probe?.door;
+        if (!door) {
+            log(`Jailbreak: no door in range @ ${pos().x},${pos().z}`);
+            return false;
+        }
+        const p = pos();
+        // Stand adjacent on our side, then open the targeted door.
+        await sdk.sendWalk(door.x - Math.sign(door.x - p.x), door.z - Math.sign(door.z - p.z), true);
+        await sdk.waitForTicks(2);
+        const r = await bot.openDoor(/door|gate/i).catch(() => null) as null | { success?: boolean; message?: string };
+        log(`Jailbreak open: ${r?.success} ${r?.message ?? 'no result'} @ ${pos().x},${pos().z}`);
+        // Step through toward dest.
+        const q = pos();
+        await sdk.sendWalk(q.x + Math.sign(destX - q.x) * 3, q.z + Math.sign(destZ - q.z) * 3, true);
+        await sdk.waitForTicks(3);
+        const after = pos();
+        if (Math.hypot(after.x - before.x, after.z - before.z) > 3) {
+            log(`Jailbreak moved to ${after.x},${after.z}`);
+            return true;
+        }
+    }
+    return Math.hypot(pos().x - before.x, pos().z - before.z) > 3;
+}
+
 async function walkToCatherby(): Promise<void> {
     if (inCatherby()) return;
     await leaveHandelmortMansion();
@@ -1748,7 +1784,12 @@ async function walkToCatherby(): Promise<void> {
         await goToArdy();
     }
     intent('Walking Ardougne → Catherby');
+    const walkStart = pos();
     await walkWaypoints(ARDY_TO_CATHERBY);
+    if (!inCatherby() && Math.hypot(pos().x - walkStart.x, pos().z - walkStart.z) < 4) {
+        log(`No progress Ardougne → Catherby @ ${pos().x},${pos().z} — jailbreaking enclosure`);
+        if (await jailbreakEnclosure(2808, 3443)) await walkWaypoints(ARDY_TO_CATHERBY);
+    }
 }
 
 function harryCount(item: RegExp): number {
