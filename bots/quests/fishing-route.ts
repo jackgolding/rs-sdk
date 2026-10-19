@@ -616,7 +616,12 @@ function onArdyCatherbyRoad(): boolean {
 
 function onKaramja(): boolean {
     const p = pos();
-    return p.x > 2680 && p.x < 3010 && p.z > 3040 && p.z < 3270;
+    // East edge is 2920, not 3010: the Musa road, Karamja men (2889,3173)
+    // and Brimhaven all sit west of it, while mainland Rimmington (2955+)
+    // sits east. The old bound classified Rimmington as Karamja, so
+    // goToArdy() walked the Musa->Brimhaven island leg across open sea
+    // forever instead of routing via Port Sarim.
+    return p.x > 2680 && p.x < 2920 && p.z > 3040 && p.z < 3270;
 }
 
 function onMusa(): boolean {
