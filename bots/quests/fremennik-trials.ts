@@ -1043,28 +1043,76 @@ function snapshotGear(): GearPiece[] {
  *  Thorvald gate bans weapons/armour/runes/ammo/logs). Keeps nothing. */
 
 /**
- * Loc-picked onions. `supply.ts` covers inventory -> bank -> mule -> shops ->
- * dialogue vendors -> ground spawns, but the onion on this server comes from a
- * PLANT loc (option `pick`), which that chain cannot do. Proven source, same
- * tile the fleet's witchs-potion has used for every onion it ever held.
+ * Field patches for the stew vegetables — the ground beats the shop. Wydin's
+ * stock is finite and shared with the whole fleet (the live run sat at
+ * `could not open /^wydin$/i for cabbage` twice, then bought the potato on the
+ * next pass), whereas these plants regrow. Anchors are the loc placements for
+ * this content revision (`quest-lab-locfind.ts cabbage|potato|onion`), plus the
+ * Rimmington-area onion tile the fleet's witchs-potion has used all along.
  */
 const ONION_FIELD = { x: 2950, z: 3251 };
 
-async function pickOnions(ctx: QuestContext, want: number): Promise<void> {
-    for (let i = 0; i < want + 2 && count(ONION) < want; i++) {
-        await approach(ONION_FIELD);
-        const plant =
-            sdk.findNearbyLoc(/^onion$/i, { reachable: true }) ?? sdk.findNearbyLoc(/^onion$/i);
-        if (!plant) {
-            ctx.log(`onion pick[${i}] @ ${pos().x},${pos().z}: no plant in range`);
-            await ticks(4);
-            continue;
+interface VegPatch {
+    label: string;
+    item: RegExp;
+    loc: RegExp;
+    anchors: Tile[];
+}
+
+const VEG_PATCHES: VegPatch[] = [
+    {
+        label: 'cabbage',
+        item: CABBAGE,
+        loc: /^cabbage$/i,
+        anchors: [
+            { x: 2674, z: 3651 },
+            { x: 2676, z: 3667 },
+            ONION_FIELD,
+        ],
+    },
+    {
+        label: 'potato',
+        item: POTATO,
+        loc: /^potato$/i,
+        anchors: [
+            { x: 2737, z: 3583 },
+            ONION_FIELD,
+        ],
+    },
+    {
+        label: 'onion',
+        item: ONION,
+        loc: /^onion$/i,
+        anchors: [
+            { x: 2674, z: 3655 },
+            { x: 2676, z: 3674 },
+            ONION_FIELD,
+        ],
+    },
+];
+
+/** Pick `want` of a vegetable from its plant locs, trying each anchor in turn. */
+async function pickVeg(ctx: QuestContext, patch: VegPatch, want: number): Promise<void> {
+    for (const anchor of patch.anchors) {
+        if (count(patch.item) >= want) break;
+        await approach(anchor);
+        for (let i = 0; i < want + 2 && count(patch.item) < want; i++) {
+            const plant =
+                sdk.findNearbyLoc(patch.loc, { reachable: true }) ?? sdk.findNearbyLoc(patch.loc);
+            if (!plant) {
+                ctx.log(
+                    `pick ${patch.label}[${i}] @ ${pos().x},${pos().z}: no plant near ${anchor.x},${anchor.z}`
+                );
+                break;
+            }
+            const r = await bot
+                .interactLoc(plant, /pick|take/i)
+                .catch((e: unknown) => ({ success: false, message: String(e) }));
+            ctx.log(
+                `pick ${patch.label}[${i}] @ ${pos().x},${pos().z}: ok=${r.success} ${patch.label}=${count(patch.item)}`
+            );
+            await ticks(3);
         }
-        const r = await bot
-            .interactLoc(plant, /pick/i)
-            .catch((e: unknown) => ({ success: false, message: String(e) }));
-        ctx.log(`onion pick[${i}] @ ${pos().x},${pos().z}: ok=${r.success} onion=${count(ONION)}`);
-        await ticks(3);
     }
 }
 
@@ -1093,6 +1141,18 @@ async function sourceMissing(ctx: QuestContext, needs: ItemNeed[]): Promise<bool
         ctx.log(`supply: coins=${count(COINS)} after bank top-up`);
         await bot.closeBank().catch(() => undefined);
     }
+    // Ground before shop: the patches regrow and are local to Rellekka, while
+    // shop stock is finite and shared across the fleet.
+    for (const patch of VEG_PATCHES) {
+        const need = short0.find((n) => patch.item.source === n.pattern.source || patch.item.test(n.label));
+        if (!need || count(patch.item) >= need.count) continue;
+        ctx.log(`supply: picking ${patch.label} from the field`);
+        await pickVeg(ctx, patch, need.count);
+    }
+    for (const n of short0.filter((x) => count(x.pattern) < x.count)) {
+        if (!/cabbage|potato|onion/i.test(n.label)) continue;
+        ctx.log(`supply: ${n.label} still short after the field — using shops`);
+    }
     let still: ItemNeed[] = short0;
     try {
         still = (await ensureSupplied(ctx, short0 as never)) as unknown as ItemNeed[];
@@ -1114,7 +1174,6 @@ async function sourceMissing(ctx: QuestContext, needs: ItemNeed[]): Promise<bool
             ctx.log(`supply: after re-approach ${n.label}=${count(n.pattern)}`);
         }
     }
-    for (const n of short0.filter((x) => /onion/i.test(x.label))) await pickOnions(ctx, n.count);
     const left = needs.filter((n) => count(n.pattern) < n.count);
     if (left.length) ctx.log(`supply: STILL missing ${left.map((n) => n.label).join(',')}`);
     return left.length === 0;
