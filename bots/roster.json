@@ -68,7 +68,7 @@
         {
             "name": "fatpig",
             "view": "fleet",
-            "script": "bots/quests/rune-mysteries.ts",
+            "script": "bots/quests/edgeville-bank-all.ts",
             "args": [
                 "fatpig"
             ]
@@ -125,10 +125,9 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/edgeville-bank-all.ts",
             "args": [
-                "pigfat",
-                "thugs"
+                "pigfat"
             ]
         },
         {
