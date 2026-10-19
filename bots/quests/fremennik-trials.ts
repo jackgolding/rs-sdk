@@ -1058,6 +1058,21 @@ async function sourceMissing(ctx: QuestContext, needs: ItemNeed[]): Promise<bool
     const short0 = needs.filter((n) => count(n.pattern) < n.count);
     if (!short0.length) return true;
     ctx.log(`supply: sourcing ${short0.map((n) => n.label).join(',')}`);
+    // The shop leg needs coins IN THE PACK: supply.ts's takeCoins() only
+    // withdraws while the bank is already open, and ensureSupplied() closes the
+    // bank before it shops — so a bot carrying 0gp can never buy anything and
+    // every purchase logs `cannot afford`. Top up here, standing at the bank.
+    if (count(COINS) < 10_000 && (await openBankHere(ctx))) {
+        const bankCoins = (sdk.getBankItems() ?? []).find((i) => /^coins$/i.test(i.name));
+        if (bankCoins) {
+            await bot
+                .withdrawItem(bankCoins, 10_000 - count(COINS))
+                .catch(() => undefined);
+            await ticks(2);
+        }
+        ctx.log(`supply: coins=${count(COINS)} after bank top-up`);
+        await bot.closeBank().catch(() => undefined);
+    }
     let still: ItemNeed[] = short0;
     try {
         still = (await ensureSupplied(ctx, short0 as never)) as unknown as ItemNeed[];
@@ -1167,6 +1182,10 @@ const stages: QuestStage[] = [
             }
             await talk(ctx, 'brundt');
             await checkpoint('started', 'Brundt accepted the trials');
+            // Bank the quest pack NOW: every later stage withdraws on demand,
+            // and sourcing a missing item needs a bank plus coins. Doing it here
+            // keeps those detours out of the Rellekka legs entirely.
+            await ensurePack(ctx).catch((e: unknown) => ctx.log(`pack: ${String(e)}`));
         },
     },
     // -- Peer: riddle + water puzzle -----------------------------------------
