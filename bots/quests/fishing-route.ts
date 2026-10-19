@@ -616,6 +616,12 @@ function onArdyCatherbyRoad(): boolean {
 
 function onKaramja(): boolean {
     const p = pos();
+    // Riders on the Port Sarim <-> Musa Point ship deck count as Karamja:
+    // the musaToBrimhaven() branch retries leaveDockedShip() every pass,
+    // which is what gets them ashore at Musa. Without this, riders take
+    // the portSarimToMusa() branch, whose walkTo fails mid-voyage and
+    // spins "No sailor at Port Sarim" for the whole crossing.
+    if (p.level >= 1 && p.x >= 2948 && p.x <= 2962 && p.z >= 3138 && p.z <= 3148) return true;
     // East edge is 2920, not 3010: the Musa road, Karamja men (2889,3173)
     // and Brimhaven all sit west of it, while mainland Rimmington (2955+)
     // sits east. The old bound classified Rimmington as Karamja, so
