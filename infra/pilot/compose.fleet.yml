@@ -335,7 +335,7 @@ services:
   quest-abgarmy10:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/mining-lowlevel.ts", "ABGARMY10", "--until=15"]
+    command: ["bun", "bots/quests/bowstrings.ts", "ABGARMY10"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

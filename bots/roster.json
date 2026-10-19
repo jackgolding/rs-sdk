@@ -333,10 +333,9 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/mining-lowlevel.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
-                "ABGARMY10",
-                "--until=15"
+                "ABGARMY10"
             ]
         },
         {
