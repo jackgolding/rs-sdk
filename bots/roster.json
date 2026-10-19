@@ -277,9 +277,10 @@
         {
             "name": "ABGARMY03",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/mining-lowlevel.ts",
             "args": [
-                "ABGARMY03"
+                "ABGARMY03",
+                "--until=15"
             ]
         },
         {
@@ -334,9 +335,10 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/mining-lowlevel.ts",
             "args": [
-                "ABGARMY10"
+                "ABGARMY10",
+                "--until=15"
             ]
         },
         {
@@ -374,9 +376,10 @@
         {
             "name": "ABGARMY15",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/mining-lowlevel.ts",
             "args": [
-                "ABGARMY15"
+                "ABGARMY15",
+                "--until=15"
             ]
         },
         {
@@ -398,9 +401,10 @@
         {
             "name": "ABGARMY18",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/mining-lowlevel.ts",
             "args": [
-                "ABGARMY18"
+                "ABGARMY18",
+                "--until=15"
             ]
         },
         {
