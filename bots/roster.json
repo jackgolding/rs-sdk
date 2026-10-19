@@ -356,10 +356,10 @@
         {
             "name": "ABGARMY12",
             "view": "army",
-            "script": "bots/quests/cut-gems.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
                 "ABGARMY12",
-                "--until=40"
+                "--until-wc=40"
             ]
         },
         {
