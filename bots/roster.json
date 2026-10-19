@@ -266,7 +266,7 @@
         {
             "name": "ABGARMY01",
             "view": "army",
-            "script": "bots/quests/cut-gems.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "ABGARMY01",
                 "--until=60"
@@ -275,7 +275,7 @@
         {
             "name": "ABGARMY02",
             "view": "army",
-            "script": "bots/quests/cut-gems.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "ABGARMY02",
                 "--until=60"
@@ -310,7 +310,7 @@
         {
             "name": "ABGARMY06",
             "view": "army",
-            "script": "bots/quests/cut-gems.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "ABGARMY06",
                 "--until=60"
@@ -345,7 +345,7 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/cut-gems.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "ABGARMY10",
                 "--until=60"
@@ -379,7 +379,7 @@
         {
             "name": "ABGARMY14",
             "view": "army",
-            "script": "bots/quests/cut-gems.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "ABGARMY14",
                 "--until=60"
@@ -397,7 +397,7 @@
         {
             "name": "ABGARMY16",
             "view": "army",
-            "script": "bots/quests/cut-gems.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "ABGARMY16",
                 "--until=60"
@@ -423,10 +423,10 @@
         {
             "name": "ABGARMY19",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "ABGARMY19",
-                "--until-wc=60"
+                "--until=60"
             ]
         },
         {
