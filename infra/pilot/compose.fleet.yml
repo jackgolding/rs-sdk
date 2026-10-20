@@ -1593,7 +1593,7 @@ services:
   quest-jackthief:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/bank-report.ts", "jackthief", "--bank=seers", "--find=essence"]
+    command: ["bun", "bots/quests/bank-report.ts", "jackthief", "--bank=falador-east,falador-west,draynor,seers", "--find=essence"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

@@ -23,12 +23,14 @@ import { ActivitySession, BotSDK, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
 import { findLongPath, initPathfinding } from '../../sdk/pathfinding';
 import { installGracefulShutdown } from '../../sdk/runner';
-import { playerPos, walkSendHops, waitForPlayerState } from './movement';
+import { hopSend, playerPos, waitForPlayerState } from './movement';
+import { walkRoute } from './walk-route';
 import { FLEET_BANKS, type Tile } from './tiles';
 
 const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-'));
 const bankArg = argv.find((a) => a.startsWith('--bank='))?.slice('--bank='.length) ?? 'seers';
+const bankSlugs = bankArg.split(',').map((s) => s.trim()).filter(Boolean);
 const findArg = argv.find((a) => a.startsWith('--find='))?.slice('--find='.length);
 if (!botArg) throw new Error('usage: bank-report.ts <botname> [--bank=seers] [--find=essence]');
 
@@ -48,8 +50,12 @@ const username = process.env.BOT_USERNAME!;
 const password = process.env.PASSWORD!;
 const server = process.env.SERVER;
 const GRIND_LOG = join(process.cwd(), 'bots', username, 'grind.log');
-const BANK = FLEET_BANKS.find((b) => b.name.toLowerCase().replace(/\s+/g, '-') === bankArg);
-if (!BANK) throw new Error(`unknown --bank=${bankArg}`);
+const slug = (s: string): string => s.toLowerCase().replace(/\s+/g, '-');
+const BANK_CANDIDATES = bankSlugs.map((s) => {
+    const b = FLEET_BANKS.find((f) => slug(f.name) === s);
+    if (!b) throw new Error(`unknown bank '${s}' (have: ${FLEET_BANKS.map((f) => slug(f.name)).join(', ')})`);
+    return b;
+});
 const FIND = findArg ? new RegExp(findArg, 'i') : null;
 
 initPathfinding();
@@ -109,35 +115,54 @@ function planRoute(dest: Tile): Tile[] {
 }
 
 if (!(await waitForPlayerState(sdk))) throw new Error('no fresh player state');
-log(`start @ ${here()} — bank=${BANK.name} (${BANK.x},${BANK.z}) filter=${findArg ?? 'all'}`);
+log(`start @ ${here()} — banks=${BANK_CANDIDATES.map((b) => b.name).join(' -> ')} filter=${findArg ?? 'all'}`);
 log(`pack (${packLines().length} slots): ${packLines().join(', ') || 'empty'}`);
 
-const route = planRoute({ x: BANK.x, z: BANK.z });
-log(`walking to ${BANK.name} via ${route.length} waypoints @ ${here()}`);
-await walkSendHops(sdk, route.length ? route : [{ x: BANK.x, z: BANK.z }], { x: BANK.x, z: BANK.z }, 4);
-log(`arrived @ ${here()}`);
+// Canonical hop walker (skill: rs-sdk-movement). A single long sendWalk is
+// silently dropped, and walkSendHops filters its list by distance-to-destination
+// rather than verifying arrival per hop — which stranded this bot mid-route at
+// (2961,3290) for minutes with no log line. walkRoute caps every hop, waits for
+// each to land, measures displacement, and reports BLOCKED with the tile and
+// bearing instead of looping.
+const host = {
+    getPos: () => playerPos(sdk),
+    walk: (x: number, z: number) => hopSend(sdk, x, z, 10),
+    waitTicks: (n: number) => sdk.waitForTicks(n),
+};
 
 let opened = false;
-for (let attempt = 0; attempt < 4 && !opened; attempt++) {
-    if (sdk.getState()?.bank?.isOpen) {
-        opened = true;
-        break;
+let usedBank = BANK_CANDIDATES[0]!;
+for (const bank of BANK_CANDIDATES) {
+    usedBank = bank;
+    const wp = planRoute({ x: bank.x, z: bank.z });
+    log(`walking to ${bank.name} (${bank.x},${bank.z}) via ${wp.length} waypoints @ ${here()}`);
+    const res = await walkRoute(host, wp.length ? wp : [{ x: bank.x, z: bank.z }], {
+        maxHop: 10,
+        tolerance: 3,
+        log: (l: string) => log(`   ${l}`),
+    });
+    log(`walk to ${bank.name}: ok=${res.ok} at (${res.at.x},${res.at.z}) l${res.at.level}${res.blocked ? ` blocked=${res.blocked}` : ''}`);
+
+    for (let attempt = 0; attempt < 3 && !opened; attempt++) {
+        if (sdk.getState()?.bank?.isOpen) {
+            opened = true;
+            break;
+        }
+        const r = await bot.openBank().catch((e: unknown) => ({ success: false, message: String(e) }));
+        opened = r.success || !!sdk.getState()?.bank?.isOpen;
+        log(`${bank.name} open attempt ${attempt + 1}: ${opened} ${r.message ?? ''} @ ${here()}`);
+        if (!opened) await sdk.waitForTicks(4).catch(() => undefined);
     }
-    const r = await bot.openBank().catch((e: unknown) => ({ success: false, message: String(e) }));
-    opened = r.success || !!sdk.getState()?.bank?.isOpen;
-    log(`bank open attempt ${attempt + 1}: ${opened} ${r.message ?? ''} @ ${here()}`);
-    if (!opened) {
-        await walkSendHops(sdk, [{ x: BANK.x, z: BANK.z }], { x: BANK.x, z: BANK.z }, 2);
-        await sdk.waitForTicks(4).catch(() => undefined);
-    }
+    if (opened) break;
+    log(`${bank.name} unusable (no booth in view) — trying the next candidate`);
 }
 
 if (!opened) {
-    log(`FAILED — could not open ${BANK.name}; pack was: ${packLines().join(', ') || 'empty'}`);
+    log(`FAILED — could not open any of ${BANK_CANDIDATES.map((b) => b.name).join(', ')}; pack was: ${packLines().join(', ') || 'empty'}`);
 } else {
     await sdk.waitForTicks(4).catch(() => undefined);
     const bank = (sdk.getBankItems() ?? []).filter((i) => (i.count ?? 0) > 0);
-    log(`bank holds ${bank.length} distinct stacks`);
+    log(`bank holds ${bank.length} distinct stacks (booth: ${usedBank.name})`);
     if (FIND) {
         const hits = bank.filter((i) => FIND.test(i.name));
         log(
