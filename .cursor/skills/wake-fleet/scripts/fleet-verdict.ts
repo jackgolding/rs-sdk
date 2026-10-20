@@ -356,10 +356,14 @@ export function classify(input: ClassifyInput): VerdictRow {
         }
         const silent = telemetrySilent(input, owner, minutesSinceSnapshot, newest);
         if (silent) return set('alive-not-producing', 'telemetry_silent', silent);
-        const loop = detector(input);
-        if (loop) return set('alive-not-producing', loop.check, `${loop.reason}, ${ownerLabel(owner)}`);
         const limit = thresholdMinutes(bot);
-        if (minutesSinceEffect == null || minutesSinceEffect > limit) {
+        // A fresh effect outranks the log-shape detectors. Recovery/repeat counters in the
+        // grind tail are cumulative (`(×N)`) and stay in the window after the stall cleared,
+        // so flagging them while XP is still moving restarts bots that are working.
+        const effectFresh = minutesSinceEffect != null && minutesSinceEffect <= limit;
+        const loop = detector(input, { skipTail: effectFresh });
+        if (loop) return set('alive-not-producing', loop.check, `${loop.reason}, ${ownerLabel(owner)}`);
+        if (!effectFresh) {
             const effect = minutesSinceEffect == null ? 'no effect recorded' : `no effect ${Math.round(minutesSinceEffect)}m`;
             const snap = minutesSinceSnapshot == null ? 'no snapshot' : `snapshot ${Math.round(minutesSinceSnapshot)}m old`;
             return set('alive-not-producing', 'no_effect', `${effect}, ${snap}, ${ownerLabel(owner)}`);
@@ -398,7 +402,7 @@ function telemetrySilent(
     return null;
 }
 
-function detector(input: ClassifyInput): { check: string; reason: string } | null {
+function detector(input: ClassifyInput, opts: { skipTail?: boolean } = {}): { check: string; reason: string } | null {
     const events = eventsFor(input);
     const peaks = failurePeaks(events, input.now);
     if (input.events != null) {
@@ -407,10 +411,12 @@ function detector(input: ClassifyInput): { check: string; reason: string } | nul
             if (CYCLE_FAILURE_CODES.has(code)) continue;
             if (peak.count >= 5) return { check: 'repeat', reason: `${code} ×${peak.count}` };
         }
-    } else {
+    } else if (!opts.skipTail) {
         const repeated = repeatHeavy(input.grindTail);
         if (repeated) return { check: 'repeat', reason: repeated };
     }
+    // Tail counters are cumulative, so they are only evidence when nothing is producing.
+    if (opts.skipTail) return null;
     const recovery = recoveryHigh(input.grindTail);
     if (recovery) return { check: 'recovery', reason: recovery };
     if (pathfailBurst(input.grindTail)) return { check: 'pathfinding', reason: 'pathfinding failed 8+ times in the last 40 log lines' };

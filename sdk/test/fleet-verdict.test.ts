@@ -257,6 +257,26 @@ describe('fleet verdict precedence', () => {
         ];
         expect(classify(base({ bot: bot({ bursty: true, noEffectMinutes: 90 }), snapshots: burstySnaps })).kind).toBe('producing');
     });
+
+    test('a fresh effect outranks cumulative recovery counters in the grind tail', () => {
+        const tail = [
+            '2026-01-01T00:00:00.000Z WARN Recovering: stall phase=gnome (×560)',
+            '2026-01-01T00:00:30.000Z LOG Lap 138 | Agility 92 (624150 xp, +1163 pipe)',
+        ];
+        const lapping = [
+            snap(NOW - 6 * 60 * 1000, 1000, { lastEffectAt: NOW - 60 * 1000 }),
+            snap(NOW - 60 * 1000, 3000, { lastEffectAt: NOW - 60 * 1000 }),
+        ];
+        expect(classify(base({ snapshots: lapping, grindTail: tail })).kind).toBe('producing');
+
+        const stalled = [
+            snap(NOW - 60 * 60 * 1000, 1000, { lastEffectAt: NOW - 20 * 60 * 1000 }),
+            snap(NOW - 60 * 1000, 1000, { lastEffectAt: NOW - 20 * 60 * 1000 }),
+        ];
+        const row = classify(base({ snapshots: stalled, grindTail: tail }));
+        expect(row.kind).toBe('alive-not-producing');
+        expect(row.check).toBe('recovery');
+    });
 });
 
 describe('restart command and drift', () => {
