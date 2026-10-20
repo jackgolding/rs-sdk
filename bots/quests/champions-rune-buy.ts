@@ -108,7 +108,7 @@ let entryPos = { x: 0, z: 0 };
 const BANK_APPROACH = { x: 3195, z: 3440 };
 
 /** Coin pocket target per bank trip; MIN_POCKET triggers a top-up trip. */
-const POCKET_TARGET = 1_000_000;
+const POCKET_TARGET = 10_000_000;
 const MIN_POCKET = 50_000;
 /** Restock camp: 60s polls, then a bank round-trip every EMPTY_SWEEPS_TO_BANK. */
 const RESTOCK_POLLS = 10;
