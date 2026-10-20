@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "questId": "harvest",
+  "position": { "x": 2654, "z": 3284, "level": 0 },
+  "skills": "maxed",
+  "tutorial": true,
+  "bank": [
+    { "name": "coins", "count": 500 },
+    { "name": "shark", "count": 20 }
+  ],
+  "worn": [],
+  "varps": {},
+  "target": { "varp": "imp", "unstarted": 0 }
+}

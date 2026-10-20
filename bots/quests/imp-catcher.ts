@@ -77,6 +77,10 @@ const MIZGOG = { x: 3104, z: 3163, level: 2 };
 // (3102,3160).
 const TOWER_INTERIOR = { x: 3105, z: 3163 };
 /** Imp hunting ground: open field south of the Wizards' Tower. */
+// NOTE: the map data has NO static imp spawns within 40 tiles of this tile
+// (`quest-lab-npcfind.ts imp`); a hunt here waits for wanderers. Beads are
+// expected from the bank (bots/beads-harvester.ts farms a real camp), and the
+// local hunt is opt-in via --hunt.
 const IMP_CAMP = { x: 3108, z: 3154 };
 const HUNT_RADIUS = 30;
 const FOOD_RE = /trout|salmon|tuna|swordfish|shark|lobster|bread|cooked meat|stew|shrimp|anchovies|sardine/i;
@@ -679,12 +683,21 @@ async function acceptQuest(): Promise<{ started: boolean; reason?: string }> {
 async function huntBeads(): Promise<void> {
     if (pos().level !== 0) await climbTo(0, 'tower ground');
     await settleAndRescan('tower descent');
-    if (distTo(IMP_CAMP) > 8) await travelTo(IMP_CAMP, 'imp hunting ground');
-    await settleAndRescan('arrival at hunting ground');
     if (hasAllBeads()) {
         log('All four beads already held; skipping the hunt');
         return;
     }
+    // Beads are tradeable, so the intended supply is a harvester filling the
+    // bank. This camp has no static imp spawns, so hunting here is a slow
+    // wanderer lottery: fail fast with the fix instead of burning the budget.
+    const hunt = argv.includes('--hunt') || process.env.IMP_HUNT === '1';
+    if (!hunt) {
+        throw new Error(
+            `beads not stocked: ${beadCount()}/4 held after banking — run \`bun bots/beads-harvester.ts <bot> --camp=ardougne\` to stock the bank, or re-run with --hunt for the local wanderer hunt`,
+        );
+    }
+    if (distTo(IMP_CAMP) > 8) await travelTo(IMP_CAMP, 'imp hunting ground');
+    await settleAndRescan('arrival at hunting ground');
     intent('Hunting imps for beads');
     await collectBeads();
 }
