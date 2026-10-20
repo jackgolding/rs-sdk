@@ -67,7 +67,7 @@
         {
             "name": "fatpig",
             "view": "fleet",
-            "script": "bots/quests/rune-mysteries.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "fatpig"
             ]
@@ -185,7 +185,7 @@
         {
             "name": "jacklove12",
             "view": "loves",
-            "script": "bots/quests/rune-mysteries.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "jacklove12"
             ]
@@ -210,7 +210,7 @@
         {
             "name": "jacklove15",
             "view": "loves",
-            "script": "bots/quests/rune-mysteries.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "jacklove15"
             ]
