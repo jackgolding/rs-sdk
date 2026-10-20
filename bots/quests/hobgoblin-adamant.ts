@@ -47,7 +47,7 @@ const ADDY_ROCK = /rocks adamant/i;
 const DLONG = /^dragon longsword$/i;
 const LEGS = /^rune platelegs$/i;
 /** Sharks carried into the wildy per trip. */
-const FOOD_TARGET = 4;
+const FOOD_TARGET = 12;
 const SHARK = /^shark$/i;
 
 const argv = process.argv.slice(2);
@@ -737,7 +737,10 @@ function addyRocks() {
 }
 
 async function eatWild(): Promise<void> {
-    while (pos().hp <= pos().maxHp - 10 && !pos().isDead) {
+    // Conserve trip food for PK fights: ignore NPC chip damage out here and
+    // eat only below half HP. The bank heals to full for free, and the
+    // post-PK path heals to full from the trip stock.
+    while (pos().hp <= Math.floor(pos().maxHp / 2) && !pos().isDead) {
         const food = invEdible();
         if (!food) break;
         const before = pos().hp;
@@ -826,7 +829,7 @@ async function mineAddy(): Promise<boolean> {
         )
         .catch(() => {});
     await closeUi();
-    if (pos().hp <= pos().maxHp - 10 && foodCount() > 0) await eatWild();
+    await eatWild();
     if (countAddy() > before || miningXp() > xpBefore) {
         session.noteProgress('xp', 'adamant');
         log(`Mined addy ${countAddy()} free=${freeSlots()} @ ${pos().x},${pos().z}`);
