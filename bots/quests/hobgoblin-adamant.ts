@@ -785,13 +785,28 @@ async function handlePker(): Promise<void> {
     }
     const fb = await antiPk.fightBackIfPked();
     log(`PK fight: ${fb.reason}`);
-    // Wait for the fight to resolve (kill, flee, or death).
-    await sdk
-        .waitForCondition(
-            (s) => s.player?.isDead === true || s.player?.combat?.inCombat !== true,
-            60_000
-        )
-        .catch(() => {});
+    // Stay in the fight eating: one shark was never enough against a spec
+    // dump. Keep topping up until combat drops, we die, food runs out, or
+    // the cap hits. Prayer + spec + retaliation are already running.
+    const end = Date.now() + 75_000;
+    for (;;) {
+        if (pos().isDead) return;
+        if (Date.now() >= end) break;
+        const c = sdk.getState()?.player?.combat;
+        if (c?.inCombat !== true) break;
+        const p = pos();
+        if (p.hp < p.maxHp - 10) {
+            const food = invEdible();
+            if (!food) break;
+            const before = p.hp;
+            const r = await bot.eatFood(food);
+            if (!r.success) break;
+            session.noteProgress('inventory', 'eat');
+            await sdk.waitForCondition((s) => (s.player?.hp ?? 0) > before, 4_000).catch(() => {});
+        } else {
+            await sdk.waitForTicks(2).catch(() => {});
+        }
+    }
     if (pos().isDead) return;
     const loot = await antiPk.lootKill();
     if (loot.picked > 0) session.noteProgress('inventory', 'pk-loot');
