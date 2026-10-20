@@ -217,7 +217,8 @@
             "view": "loves",
             "script": "bots/quests/coal-trucks.ts",
             "args": [
-                "jacklove16"
+                "jacklove16",
+                "--wildy"
             ]
         },
         {

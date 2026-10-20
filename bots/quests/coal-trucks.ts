@@ -56,6 +56,26 @@ const RUNE_PICK = /^rune pickaxe$/i;
 const COAL_ROCK = /^(rocks coal ore|coalrock\d?|coal rock)$/i;
 const COAL = /^coal$/i;
 const PACK = 26;
+/** --wildy: the 34-rock skeleton mine NW of Edgeville (level ~9 wildy).
+ *  High-combat bots only; banks at Edgeville. */
+const WILDY = process.argv.includes('--wildy');
+const WILDY_MINE = { x: 3011, z: 3590 };
+const EDGEVILLE_BANK = { x: 3094, z: 3496 };
+/** BFS-verified Edgeville bank → skeleton mine (22 waypoints, every 3rd). */
+const WILDY_TO_MINE = [
+    { x: 3093, z: 3504, tol: 2 },
+    { x: 3084, z: 3518, tol: 2 },
+    { x: 3075, z: 3529, tol: 2 },
+    { x: 3068, z: 3534, tol: 2 },
+    { x: 3026, z: 3576, tol: 2 },
+    { x: 3014, z: 3585, tol: 2 },
+    { x: 3011, z: 3590, tol: 2 }
+];
+const WILDY_TO_BANK = [...WILDY_TO_MINE].reverse().map((h, i, arr) =>
+    i === arr.length - 1 ? { x: EDGEVILLE_BANK.x, z: EDGEVILLE_BANK.z, tol: 2 } : h
+);
+const MINE = WILDY ? WILDY_MINE : COAL_TRUCKS;
+const BANK = WILDY ? EDGEVILLE_BANK : SEERS_BANK;
 const TRUCK_ID = 2114;
 /** The cart run ends next to the Seers bank (2696,3504 / 2698,3507). */
 const SEERS_TRUCK = { x: 2696, z: 3504 };
@@ -94,10 +114,7 @@ await runScript(async ({ bot, sdk }) => {
     // free, so every loop tripped the "inventory full" branch and banked with nothing.
     const freeSlots = () => 28 - sdk.getInventory().length;
     const hasPick = () => !!(sdk.findInventoryItem(PICKAXE) || sdk.findEquipmentItem(PICKAXE));
-    const inTrucks = () => {
-        const p = pos();
-        return p.level === 0 && p.x >= 2566 && p.x <= 2592 && p.z >= 3468 && p.z <= 3492;
-    };
+    const inTrucks = () => pos().level === 0 && cheb(pos(), MINE) <= 14;
     const depletedUntil = new Map<string, number>();
     let trips = 0;
     let deposits = 0;
@@ -255,8 +272,8 @@ await runScript(async ({ bot, sdk }) => {
     async function goBank(): Promise<boolean> {
         await closeUi();
         if (!(await climbOut())) return false;
-        intent('Walking to Seers bank');
-        await followRoute(TO_BANK);
+        intent(WILDY ? 'Walking to Edgeville bank' : 'Walking to Seers bank');
+        await followRoute(WILDY ? WILDY_TO_BANK : TO_BANK);
         if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) return false;
         await sdk.waitForTicks(2);
         for (const item of [...sdk.getInventory()]) {
@@ -273,9 +290,13 @@ await runScript(async ({ bot, sdk }) => {
         await closeUi();
         if (inTrucks()) return true;
         if (!(await climbOut())) return false;
-        intent('Walking to the Coal Trucks');
-        if (pos().x > 2760) await followRoute(FALADOR_TO_TRUCKS);
-        await followRoute(TO_MINE);
+        intent(WILDY ? 'Walking to the skeleton mine' : 'Walking to the Coal Trucks');
+        if (WILDY) {
+            await followRoute(WILDY_TO_MINE);
+        } else {
+            if (pos().x > 2760) await followRoute(FALADOR_TO_TRUCKS);
+            await followRoute(TO_MINE);
+        }
         await sdk.scanNearbyLocs(18).catch(() => undefined);
         if (inTrucks() || rockCandidates().length > 0) return true;
         noteMiss('mine_walk', `Still @ ${pos().x},${pos().z}`);
@@ -337,7 +358,7 @@ await runScript(async ({ bot, sdk }) => {
         if (coalCount() >= PACK || freeSlots() < 2) {
             // Cart first: 4 packs ride the rails to Seers, so the 200-tile walk
             // happens once per ~104 coal instead of once per pack.
-            if (deposits < DEPOSITS_PER_RUN && (await depositToTruck())) {
+            if (!WILDY && deposits < DEPOSITS_PER_RUN && (await depositToTruck())) {
                 deposits++;
                 session.noteProgress('truck', `deposit ${deposits}/${DEPOSITS_PER_RUN}`);
                 continue;
