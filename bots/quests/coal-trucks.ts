@@ -170,14 +170,30 @@ await runScript(async ({ bot, sdk }) => {
         return pos().z <= 6400;
     }
 
+    /** Join a hop list at the nearest waypoint, then follow it forward. Walking
+     *  to hop 0 regardless sent a mid-route bot 340 tiles back to Falador. */
+    async function followRoute(route: Array<{ x: number; z: number; tol: number }>): Promise<boolean> {
+        let idx = 0;
+        let best = Infinity;
+        route.forEach((h, i) => {
+            const d = distTo(h.x, h.z);
+            if (d < best) {
+                best = d;
+                idx = i;
+            }
+        });
+        for (let i = idx; i < route.length; i++) {
+            if (session.isStopped()) return false;
+            await walkLeg(route[i].x, route[i].z, route[i].tol);
+        }
+        return true;
+    }
+
     async function goBank(): Promise<boolean> {
         await closeUi();
         if (!(await climbOut())) return false;
         intent('Walking to Seers bank');
-        for (const leg of TO_BANK) {
-            if (session.isStopped()) return false;
-            await walkLeg(leg.x, leg.z, leg.tol);
-        }
+        await followRoute(TO_BANK);
         if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) return false;
         await sdk.waitForTicks(2);
         for (const item of [...sdk.getInventory()]) {
@@ -195,11 +211,8 @@ await runScript(async ({ bot, sdk }) => {
         if (inTrucks()) return true;
         if (!(await climbOut())) return false;
         intent('Walking to the Coal Trucks');
-        const far = distTo(COAL_TRUCKS.x, COAL_TRUCKS.z) > 80;
-        for (const leg of far ? [...FALADOR_TO_TRUCKS, ...TO_MINE] : TO_MINE) {
-            if (session.isStopped()) return false;
-            await walkLeg(leg.x, leg.z, leg.tol);
-        }
+        if (pos().x > 2760) await followRoute(FALADOR_TO_TRUCKS);
+        await followRoute(TO_MINE);
         await sdk.scanNearbyLocs(18).catch(() => undefined);
         if (inTrucks() || rockCandidates().length > 0) return true;
         noteMiss('mine_walk', `Still @ ${pos().x},${pos().z}`);
