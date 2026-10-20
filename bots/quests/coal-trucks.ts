@@ -27,6 +27,16 @@ const TO_BANK = [
     { x: 2706, z: 3483, tol: 5 },
     { x: SEERS_BANK.x, z: SEERS_BANK.z, tol: 3 }
 ];
+/** Falador/Guild → trucks in ~45-tile legs (the approach from the east). */
+const FALADOR_TO_TRUCKS = [
+    { x: 3000, z: 3390, tol: 6 },
+    { x: 2955, z: 3425, tol: 6 },
+    { x: 2910, z: 3450, tol: 6 },
+    { x: 2865, z: 3462, tol: 6 },
+    { x: 2820, z: 3468, tol: 6 },
+    { x: 2775, z: 3472, tol: 6 },
+    { x: 2730, z: 3478, tol: 6 }
+];
 const TO_MINE = [
     { x: 2706, z: 3483, tol: 5 },
     { x: 2674, z: 3479, tol: 5 },
@@ -173,7 +183,8 @@ await runScript(async ({ bot, sdk }) => {
         if (inTrucks()) return true;
         if (!(await climbOut())) return false;
         intent('Walking to the Coal Trucks');
-        for (const leg of TO_MINE) {
+        const far = distTo(COAL_TRUCKS.x, COAL_TRUCKS.z) > 80;
+        for (const leg of far ? [...FALADOR_TO_TRUCKS, ...TO_MINE] : TO_MINE) {
             if (session.isStopped()) return false;
             await walkLeg(leg.x, leg.z, leg.tol);
         }
