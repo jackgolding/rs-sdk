@@ -115,11 +115,11 @@
         {
             "name": "jackthief",
             "view": "fleet",
-            "script": "bots/quests/wear-item.ts",
+            "script": "bots/quests/bank-report.ts",
             "args": [
                 "jackthief",
-                "--item=Berserker helm",
-                "--bank=lumbridge"
+                "--bank=seers",
+                "--find=essence"
             ]
         },
         {
