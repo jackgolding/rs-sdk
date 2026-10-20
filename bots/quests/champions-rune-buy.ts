@@ -62,8 +62,24 @@ function freshGreeting(base: { msgs: number; dialogs: number }): boolean {
     return GREET.test(tail);
 }
 
+/** Nearby NPC names for remote-visibility logs. */
+function npcSummary(): string {
+    return (
+        (sdk.getNearbyNpcs() ?? [])
+            .slice(0, 8)
+            .map((n) => `${n.name}@${n.x},${n.z}`)
+            .join(' ') || 'none'
+    );
+}
+
 /** Inside flag survives across reachScavvo calls; only OUR door Open clears it. */
 let insideGuild = false;
+/** Nearest openable door, or undefined. */
+function nearestOpenDoor() {
+    return (sdk.getNearbyLocs() ?? [])
+        .filter((l) => /door/i.test(l.name) && (l.optionsWithIndex ?? []).some((o) => /^open$/i.test(o.text)))
+        .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+}
 /** Where the confirmed entry landed — the interior sweep centres here. */
 let entryPos = { x: 0, z: 0 };
 /** Varrock West booths read UNREACHABLE from the west when crowded. */
@@ -283,28 +299,46 @@ async function reachScavvo(): Promise<'ok' | 'qp-blocked' | 'failed'> {
                 }
                 climbed = true;
             }
+            // Shop rooms sit behind interior doors: open the nearest one.
+            // A teleporter jump without a fresh greeting means the door led
+            // back outside — drop the flag and re-enter next round.
+            await sdk.scanNearbyLocs(10).catch(() => undefined);
+            let inner = nearestOpenDoor();
+            if (inner && (inner.distance ?? 99) > 4) {
+                await walkNear(bot, sdk, inner.x, inner.z, 2);
+                await sdk.scanNearbyLocs(8).catch(() => undefined);
+                inner = nearestOpenDoor();
+            }
+            if (inner && (inner.distance ?? 99) <= 4) {
+                const base = chatBaseline();
+                const before = playerPos(sdk);
+                await bot.interactLoc(inner, /open/i).catch(() => null);
+                await sdk.waitForTicks(4).catch(() => undefined);
+                if (qpRefused()) return 'qp-blocked';
+                const after = playerPos(sdk);
+                await sdk.scanNearbyLocs(10).catch(() => undefined);
+                if (Math.hypot(after.x - before.x, after.z - before.z) > 2 && !freshGreeting(base)) {
+                    insideGuild = false;
+                    session.log('warn', `door led outside @ ${here()} — re-entering`);
+                    continue;
+                }
+                if (scavvo()) continue;
+            }
             await sdk.waitForTicks(5).catch(() => undefined);
             continue;
         }
         // Outside: work the nearest openable door. The Open teleports us,
         // so nothing walks afterwards — the next round reads where we are.
-        const nearest = () =>
-            (sdk.getNearbyLocs() ?? [])
-                .filter(
-                    (l) =>
-                        /door/i.test(l.name) && (l.optionsWithIndex ?? []).some((o) => /^open$/i.test(o.text))
-                )
-                .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
-        let door = nearest();
+        let door = nearestOpenDoor();
         if (!door || (door.distance ?? 99) > 10) {
             await walkNear(bot, sdk, ENTRY.x, ENTRY.z, 3);
             await sdk.scanNearbyLocs(10).catch(() => undefined);
-            door = nearest();
+            door = nearestOpenDoor();
         }
         if (door && (door.distance ?? 99) > 3) {
             await walkNear(bot, sdk, door.x, door.z, 2);
             await sdk.scanNearbyLocs(8).catch(() => undefined);
-            door = nearest();
+            door = nearestOpenDoor();
         }
         if (door && (door.distance ?? 99) <= 3) {
             const base = chatBaseline();
@@ -389,7 +423,7 @@ try {
             continue;
         }
         if (there !== 'ok') {
-            session.log('warn', `could not reach Scavvo @ ${here()} — retrying`);
+            session.log('warn', `could not reach Scavvo @ ${here()} npcs: ${npcSummary()} — retrying`);
             await sdk.waitForTicks(10).catch(() => undefined);
             continue;
         }
