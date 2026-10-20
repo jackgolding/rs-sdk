@@ -131,10 +131,10 @@
         {
             "name": "jacklove6",
             "view": "loves",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/mining-lowlevel.ts",
             "args": [
                 "jacklove6",
-                "druids"
+                "--until=41"
             ]
         },
         {
