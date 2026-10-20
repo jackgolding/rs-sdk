@@ -19,14 +19,26 @@ import { installGracefulShutdown, runScript } from '../../sdk/runner';
 
 const COAL_TRUCKS = { x: 2578, z: 3480 };
 const SEERS_BANK = { x: 2726, z: 3485 };
-/** ~40-tile hops west→east along the road past the ranging guild. */
-const TO_BANK = [
-    { x: 2606, z: 3478, tol: 5 },
-    { x: 2640, z: 3477, tol: 5 },
-    { x: 2674, z: 3479, tol: 5 },
-    { x: 2706, z: 3483, tol: 5 },
-    { x: SEERS_BANK.x, z: SEERS_BANK.z, tol: 3 }
+/** Seers → trucks, BFS-verified offline (findLongPath, 88 waypoints sampled
+ *  every 8th): the direct west road is fenced by McGrubor's Wood and stalls
+ *  bots at ~2650,3465, so this goes south around the wood then back north. */
+const SEERS_TO_TRUCKS = [
+    { x: 2709, z: 3485, tol: 3 },
+    { x: 2691, z: 3475, tol: 3 },
+    { x: 2674, z: 3460, tol: 3 },
+    { x: 2663, z: 3449, tol: 3 },
+    { x: 2650, z: 3423, tol: 3 },
+    { x: 2629, z: 3401, tol: 3 },
+    { x: 2591, z: 3394, tol: 3 },
+    { x: 2580, z: 3411, tol: 3 },
+    { x: 2572, z: 3427, tol: 3 },
+    { x: 2574, z: 3437, tol: 3 },
+    { x: 2570, z: 3462, tol: 3 },
+    { x: COAL_TRUCKS.x, z: COAL_TRUCKS.z, tol: 3 }
 ];
+const TO_BANK = [...SEERS_TO_TRUCKS].reverse().map((h, i, arr) =>
+    i === arr.length - 1 ? { x: SEERS_BANK.x, z: SEERS_BANK.z, tol: 3 } : h
+);
 /** Falador/Guild → trucks in ~45-tile legs (the approach from the east). */
 const FALADOR_TO_TRUCKS = [
     { x: 3000, z: 3390, tol: 6 },
@@ -37,13 +49,7 @@ const FALADOR_TO_TRUCKS = [
     { x: 2775, z: 3472, tol: 6 },
     { x: 2730, z: 3478, tol: 6 }
 ];
-const TO_MINE = [
-    { x: 2706, z: 3483, tol: 5 },
-    { x: 2674, z: 3479, tol: 5 },
-    { x: 2640, z: 3477, tol: 5 },
-    { x: 2606, z: 3478, tol: 5 },
-    { x: COAL_TRUCKS.x, z: COAL_TRUCKS.z, tol: 4 }
-];
+const TO_MINE = SEERS_TO_TRUCKS;
 
 const PICKAXE = /^(bronze|iron|steel|mithril|adamant|rune) pickaxe$/i;
 const RUNE_PICK = /^rune pickaxe$/i;
