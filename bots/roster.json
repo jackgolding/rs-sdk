@@ -99,9 +99,12 @@
         {
             "name": "jacklove4",
             "view": "fleet",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/beads-harvester.ts",
             "args": [
-                "jacklove4"
+                "jacklove4",
+                "--camp=ardougne",
+                "--target=0",
+                "--minutes=0"
             ]
         },
         {

@@ -101,7 +101,33 @@ export async function walkRoute(
             log(`  hop -> (${step.x},${step.z}) reached=${reached} at (${now.x},${now.z}) l${now.level} moved=${moved.toFixed(1)} distToWp=${Math.round(dist(now, target))}`);
 
             if (moved < 1) {
-                // An obstacle on this bearing; retrying it cannot help.
+                // A refused hop is usually a too-long chord through hedge/wall
+                // geometry, not a dead end: shrink the step and try again from the
+                // same tile before calling the leg blocked. Observed live on the
+                // gnome-stronghold exit: every 10-tile hop was refused and the bot
+                // moved 3.6 tiles in four minutes while the PLAN was complete
+                // (findLongPath had a full route from the same tile).
+                const shortRemaining = dist(now, target);
+                if (shortRemaining > 2) {
+                    const shrink = Math.max(2, Math.min(6, Math.round(shortRemaining / 2)));
+                    const near: Tile = shortRemaining <= shrink
+                        ? target
+                        : {
+                            x: Math.round(now.x + ((target.x - now.x) / shortRemaining) * shrink),
+                            z: Math.round(now.z + ((target.z - now.z) / shortRemaining) * shrink),
+                        };
+                    log(`  hop refused — retrying a ${shrink}-tile step to (${near.x},${near.z})`);
+                    await host.walk(near.x, near.z);
+                    for (let p = 0; p < arrivalPolls; p++) {
+                        await host.waitTicks(pollTicks);
+                        if (dist(host.getPos(), near) <= tolerance) break;
+                    }
+                    if (dist(host.getPos(), now) >= 1) {
+                        noProgress = 0;
+                        continue;
+                    }
+                }
+                // An obstacle on this bearing, even at short range.
                 noProgress++;
                 if (noProgress >= 2) {
                     const why = `no progress at (${now.x},${now.z}) l${now.level} toward (${target.x},${target.z}), ${Math.round(dist(now, target))} tiles short`;
