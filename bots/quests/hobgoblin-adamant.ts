@@ -7,7 +7,10 @@
  * Edgeville, repeats. Southbound uses the east road past Bandit Camp
  * (3110,z) staying south of the green dragons; northbound is the reverse.
  * Never bot.walkTo north of the ditch (pathfinder avoids wilderness).
- * Never attacks anyone — on player combat, flees south immediately.
+ * On player combat with a dragon longsword worn: prays (best stack),
+ * Cleave spec, retaliates, loots the kill (see anti-pk.ts). Without the
+ * dlong worn, or when the fight turns bad, flees south immediately.
+ * Carries 4 sharks into the wildy; heals to full after a fight.
  * Needs Mining 40 (adamantite) and a pickaxe in Edgeville bank.
  */
 import { ActivitySession, BotSDK, deriveGatewayUrl } from '../../sdk/index';
@@ -26,6 +29,7 @@ import {
     type Tile
 } from './rune-rocks-route';
 import { installGracefulShutdown } from '../../sdk/runner';
+import { createAntiPk } from './anti-pk';
 
 const EDGEVILLE_BANK = { x: 3094, z: 3492 };
 const DITCH_NORTH = { x: 3088, z: 3525 };
@@ -40,7 +44,9 @@ const TO_EDGEVILLE = [
 const PICKAXE = /^(bronze|iron|steel|mithril|adamant|rune) pickaxe$/i;
 const ADDY = /^adamantite ore$/i;
 const ADDY_ROCK = /rocks adamant/i;
-const FOOD_TARGET = 8;
+/** Sharks carried into the wildy per trip. */
+const FOOD_TARGET = 4;
+const SHARK = /^shark$/i;
 
 const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-'));
@@ -92,6 +98,8 @@ const session = new ActivitySession(sdk, bot, {
 });
 
 installGracefulShutdown();
+
+const antiPk = createAntiPk({ sdk, bot, log });
 
 let banked = 0;
 let deaths = 0;
@@ -566,7 +574,8 @@ async function eatAtBank(): Promise<void> {
 }
 
 async function armTrip(): Promise<void> {
-    const best = bankFood();
+    // Trip food is sharks: prefer them over whatever heals best.
+    const best = sdk.findBankItem(SHARK) ?? bankFood();
     const have = foodCount();
     if (have < FOOD_TARGET && best) {
         const take = Math.min(FOOD_TARGET - have, best.count ?? 0);
@@ -664,6 +673,53 @@ async function eatWild(): Promise<void> {
         const r = await bot.eatFood(food);
         if (!r.success) break;
         await sdk.waitForCondition((s) => (s.player?.hp ?? 0) > before, 4_000).catch(() => {});
+    }
+}
+
+/** Heal to FULL hp (post-fight) — eats everything edible until topped. */
+async function healToFull(): Promise<void> {
+    let bites = 0;
+    while (pos().hp < pos().maxHp && !pos().isDead && bites < 12) {
+        const food = invEdible();
+        if (!food) break;
+        const before = pos().hp;
+        const r = await bot.eatFood(food);
+        if (!r.success) break;
+        await sdk.waitForCondition((s) => (s.player?.hp ?? 0) > before, 4_000).catch(() => {});
+        bites++;
+        session.noteProgress('inventory', 'eat');
+    }
+    log(`Heal-to-full ${pos().hp}/${pos().maxHp} (${bites} bites, ${foodCount()} food left)`);
+}
+
+/** PKer on us: fight back with the dlong if worn, else flee south. */
+async function handlePker(): Promise<void> {
+    if (!antiPk.wearingDlong()) {
+        log('Player attack, no dlong worn — fleeing south, no retaliation');
+        await leaveWildy();
+        if (pos().isDead) return;
+        await bankTrip();
+        return;
+    }
+    const fb = await antiPk.fightBackIfPked();
+    log(`PK fight: ${fb.reason}`);
+    // Wait for the fight to resolve (kill, flee, or death).
+    await sdk
+        .waitForCondition(
+            (s) => s.player?.isDead === true || s.player?.combat?.inCombat !== true,
+            60_000
+        )
+        .catch(() => {});
+    if (pos().isDead) return;
+    const loot = await antiPk.lootKill();
+    if (loot.picked > 0) session.noteProgress('inventory', 'pk-loot');
+    await healToFull();
+    // Fight turned bad (still hurt, no food): bank and re-arm.
+    if (needsHeal() && foodCount() === 0) {
+        log('Post-fight hurt with no food — banking to re-arm');
+        if (northOfDitch()) await leaveWildy();
+        if (pos().isDead) return;
+        await bankTrip();
     }
 }
 
@@ -805,10 +861,8 @@ try {
             continue;
         }
         if (seePker()) {
-            log('Player attack — fleeing south, no retaliation');
-            await leaveWildy();
+            await handlePker();
             if (pos().isDead) continue;
-            await bankTrip();
             continue;
         }
         if (session.needsRecovery()) {
