@@ -224,7 +224,17 @@ log(`Run record: ${run.directory} (mode=${MODE})`);
 
 /** Checkpoint gate. UNKNOWN is a failure like any other here: proceed on nothing. */
 async function checkpoint(name: Stage, label: string): Promise<boolean> {
-    const read = await readJournalCheckpoint(sdk, JOURNAL, RULES[name]!);
+    // The journal write lags the action that caused it — much more so on the prod
+    // link than in a local fixture. The first canary died at `started` seconds
+    // after the accept dialog while the journal still showed the unstarted text,
+    // so read it again (bounded) instead of failing on one sample: a stage that
+    // genuinely did not advance still fails, but a slow publication does not.
+    let read = await readJournalCheckpoint(sdk, JOURNAL, RULES[name]!);
+    for (let retry = 0; retry < 4 && (read.verdict?.verdict ?? 'UNKNOWN') !== 'PASS'; retry++) {
+        log(`checkpoint ${name} not settled (${read.verdict?.verdict ?? 'UNKNOWN'}) — re-reading the journal (${retry + 1}/4)`);
+        await sdk.waitForTicks(10);
+        read = await readJournalCheckpoint(sdk, JOURNAL, RULES[name]!);
+    }
     const verdict = read.verdict?.verdict ?? 'UNKNOWN';
     appendCheckpoint(run.directory, {
         checkpointId: name,
