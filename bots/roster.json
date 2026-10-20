@@ -256,7 +256,7 @@
         {
             "name": "ABGARMY01",
             "view": "army",
-            "script": "bots/quests/rune-mysteries.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "ABGARMY01"
             ]
@@ -264,7 +264,7 @@
         {
             "name": "ABGARMY02",
             "view": "army",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
                 "ABGARMY02"
             ]
