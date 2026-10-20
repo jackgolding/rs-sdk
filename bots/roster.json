@@ -83,7 +83,7 @@
         {
             "name": "jacklove2",
             "view": "fleet",
-            "script": "bots/quests/air-rune-craft.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
                 "jacklove2"
             ]
@@ -126,7 +126,7 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/air-rune-craft.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
                 "pigfat"
             ]
@@ -227,7 +227,7 @@
         {
             "name": "jacklove17",
             "view": "loves",
-            "script": "bots/quests/air-rune-craft.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
                 "jacklove17"
             ]
