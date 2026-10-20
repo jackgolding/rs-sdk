@@ -43,7 +43,7 @@
         {
             "name": "Jackpoo3",
             "view": "fleet",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
                 "Jackpoo3"
             ]
@@ -59,7 +59,7 @@
         {
             "name": "Jackpoo5",
             "view": "fleet",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
                 "Jackpoo5"
             ]
@@ -67,7 +67,7 @@
         {
             "name": "fatpig",
             "view": "fleet",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
                 "fatpig"
             ]
@@ -185,7 +185,7 @@
         {
             "name": "jacklove12",
             "view": "loves",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
                 "jacklove12"
             ]
@@ -193,10 +193,10 @@
         {
             "name": "jacklove13",
             "view": "loves",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/mining-lowlevel.ts",
             "args": [
                 "jacklove13",
-                "thugs"
+                "--until=41"
             ]
         },
         {
@@ -211,7 +211,7 @@
         {
             "name": "jacklove15",
             "view": "loves",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
                 "jacklove15"
             ]
@@ -219,10 +219,10 @@
         {
             "name": "jacklove16",
             "view": "loves",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/mining-lowlevel.ts",
             "args": [
                 "jacklove16",
-                "thugs"
+                "--until=41"
             ]
         },
         {
@@ -244,10 +244,10 @@
         {
             "name": "jacklove19",
             "view": "loves",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/mining-lowlevel.ts",
             "args": [
                 "jacklove19",
-                "thugs"
+                "--until=41"
             ]
         },
         {
@@ -317,7 +317,7 @@
         {
             "name": "ABGARMY08",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
                 "ABGARMY08"
             ]

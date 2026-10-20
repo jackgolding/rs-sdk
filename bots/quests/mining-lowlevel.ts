@@ -27,6 +27,7 @@ import { installGracefulShutdown, runScript } from '../../sdk/runner';
 const IRON_GATE = 10; // rimmington-iron.ts needs this to mine iron
 const FALADOR_EAST_BANK = { x: 3012, z: 3355 };
 const FALADOR_SOUTH_EAST = { x: 3007, z: 3300 }; // hub on the bank <-> mine route
+const BOBS_AXES = { x: 3232, z: 3203 }; // Lumbridge, bronze pickaxe
 const MINE = { x: 2980, z: 3242 }; // walkable anchor between the two clusters
 
 const PICKAXE = /^(bronze|iron|steel|mithril|adamant|rune) pickaxe$/i;
@@ -183,6 +184,38 @@ await runScript(async ({ bot, sdk }) => {
         return tier ? mining() >= tier.level : false;
     }
 
+    /** Bob's Axes, Lumbridge — the bronze pickaxe a Mining-1 bot can swing.
+     *  Same shop rune-mysteries.ts uses; only paid when the bank has no
+     *  usable tier, so it is a one-off per account. */
+    async function buyBronzeFromBob(): Promise<boolean> {
+        await session.setPhase('bob');
+        intent("Buying a bronze pickaxe from Bob's");
+        log(`No usable pickaxe — walking to Bob's Axes @ ${pos().x},${pos().z}`);
+        for (const leg of [
+            { x: FALADOR_SOUTH_EAST.x, z: FALADOR_SOUTH_EAST.z, tol: 6 },
+            { x: 3160, z: 3230, tol: 6 },
+            { x: BOBS_AXES.x, z: BOBS_AXES.z, tol: 2 }
+        ]) {
+            if (session.isStopped()) return false;
+            await walkLeg(leg.x, leg.z, leg.tol);
+        }
+        let opened = await bot.openShop(/^bob$/i);
+        if (!opened.success && !sdk.getState()?.shop?.isOpen) {
+            await bot.interactNpc(/^bob$/i, /trade/i).catch(() => undefined);
+            await sdk.waitForCondition((s) => s.shop?.isOpen, 8_000).catch(() => undefined);
+        }
+        if (!sdk.getState()?.shop?.isOpen) {
+            session.noteFailure('bob', `Bob's shop closed @ ${pos().x},${pos().z}`);
+            return false;
+        }
+        const bought = await bot.buyFromShop(/bronze pickaxe/i, 1);
+        log(`Buy bronze pickaxe: ${bought.success ? 'ok' : bought.message}`);
+        await bot.closeShop().catch(() => undefined);
+        const inv = sdk.findInventoryItem(/^bronze pickaxe$/i);
+        if (inv && !sdk.findEquipmentItem(PICKAXE)) await bot.equipItem(inv);
+        return !!sdk.findInventoryItem(PICKAXE) || !!sdk.findEquipmentItem(PICKAXE);
+    }
+
     async function withdrawPickaxe(): Promise<boolean> {
         const usable = PICKAXE_TIERS.filter((t) => mining() >= t.level);
         if (usable.length === 0) return false;
@@ -211,8 +244,9 @@ await runScript(async ({ bot, sdk }) => {
         intent(hasPickaxe() ? `Banking ${junk} junk slots` : 'Banking for a pickaxe');
         await session.setPhase('bank');
         if (!(await goToBank()) || !(await openBank())) return 'bank_failed';
-        if (!hasPickaxe() && !(await withdrawPickaxe())) {
-            await bot.closeBank().catch(() => undefined);
+        if (!usablePickaxe()) await withdrawPickaxe();
+        await bot.closeBank().catch(() => undefined);
+        if (!usablePickaxe() && !(await buyBronzeFromBob())) {
             return 'no_pickaxe';
         }
         for (let i = 0; i < 40; i++) {
@@ -227,7 +261,7 @@ await runScript(async ({ bot, sdk }) => {
             if (!eq.success) log(`WARN equip ${inv.name}: ${eq.message}`);
         }
         await session.setPhase('mine');
-        return hasPickaxe() ? 'ready' : 'no_pickaxe';
+        return usablePickaxe() ? 'ready' : 'no_pickaxe';
     }
 
     /** Live rocks: name-match the client scan first (map ids/tiles drift from
