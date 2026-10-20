@@ -28,6 +28,7 @@ const IRON_GATE = 10; // rimmington-iron.ts needs this to mine iron
 const FALADOR_EAST_BANK = { x: 3012, z: 3355 };
 const FALADOR_SOUTH_EAST = { x: 3007, z: 3300 }; // hub on the bank <-> mine route
 const BOBS_AXES = { x: 3232, z: 3203 }; // Lumbridge, bronze pickaxe
+const COINS = /^coins$/i;
 const MINE = { x: 2980, z: 3242 }; // walkable anchor between the two clusters
 
 const PICKAXE = /^(bronze|iron|steel|mithril|adamant|rune) pickaxe$/i;
@@ -194,11 +195,31 @@ await runScript(async ({ bot, sdk }) => {
         return true;
     }
 
+    function coinCount(): number {
+        return sdk.getInventory().filter((i) => COINS.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0);
+    }
+
+    function pickTier(name: string): { re: RegExp; level: number } | undefined {
+        return PICKAXE_TIERS.find((t) => t.re.test(name));
+    }
+
+    function usablePickaxeName(name: string): boolean {
+        const tier = pickTier(name);
+        return !!tier && mining() >= tier.level;
+    }
+
+    /** True when ANY pickaxe worn OR carried is within the bot's Mining level.
+     *  Must scan both: a level-1 bot commonly wears an unusable rune pick and
+     *  carries the bronze it just withdrew — checking equipment first said
+     *  "no usable pickaxe" and sent it back to Bob's forever. */
     function usablePickaxe(): boolean {
-        const held = sdk.findEquipmentItem(PICKAXE) ?? sdk.findInventoryItem(PICKAXE);
-        if (!held) return false;
-        const tier = PICKAXE_TIERS.find((t) => t.re.test(held.name));
-        return tier ? mining() >= tier.level : false;
+        const held = [...(sdk.getEquipment() ?? []), ...(sdk.getInventory() ?? [])].filter((i) =>
+            PICKAXE.test(i.name)
+        );
+        return held.some((i) => {
+            const tier = pickTier(i.name);
+            return !!tier && mining() >= tier.level;
+        });
     }
 
     /** Bob's Axes, Lumbridge — the bronze pickaxe a Mining-1 bot can swing.
@@ -222,6 +243,14 @@ await runScript(async ({ bot, sdk }) => {
         ]) {
             if (session.isStopped()) return false;
             await walkLeg(leg.x, leg.z, leg.tol);
+        }
+        if (coinCount() < 1) {
+            const man = sdk.findNearbyNpc(/^(man|woman)$/i, { reachable: true });
+            if (man) {
+                intent('Pickpocketing a Lumbridge local for pickaxe money');
+                await bot.pickpocketNpc(man).catch(() => undefined);
+                await sdk.waitForTicks(2).catch(() => undefined);
+            }
         }
         let opened = await bot.openShop(/^bob$/i);
         if (!opened.success && !sdk.getState()?.shop?.isOpen) {
@@ -269,6 +298,11 @@ await runScript(async ({ bot, sdk }) => {
         await session.setPhase('bank');
         if (!(await goToBank()) || !(await openBank())) return 'bank_failed';
         if (!usablePickaxe()) await withdrawPickaxe();
+        if (!usablePickaxe()) {
+            // Bob's needs coins in the bag, and every grinder banks them.
+            const coins = sdk.getBankItems().find((i) => COINS.test(i.name) && (i.count ?? 0) > 0);
+            if (coins) await bot.withdrawItem(coins, Math.min(coins.count ?? 1, 1_000));
+        }
         await bot.closeBank().catch(() => undefined);
         if (!usablePickaxe() && !(await buyBronzeFromBob())) {
             return 'no_pickaxe';
@@ -279,8 +313,13 @@ await runScript(async ({ bot, sdk }) => {
         }
         session.captureBankStock();
         await bot.closeBank().catch(() => undefined);
-        const inv = sdk.findInventoryItem(PICKAXE);
-        if (inv && !sdk.findEquipmentItem(PICKAXE)) {
+        // Wield the best pick this level actually allows (a bronze carried next
+        // to an unwearable rune pick must win).
+        const inv = sdk
+            .getInventory()
+            .filter((i) => PICKAXE.test(i.name) && usablePickaxeName(i.name))
+            .sort((a, b) => (pickTier(b.name)?.level ?? 0) - (pickTier(a.name)?.level ?? 0))[0];
+        if (inv) {
             const eq = await bot.equipItem(inv);
             if (!eq.success) log(`WARN equip ${inv.name}: ${eq.message}`);
         }
