@@ -118,7 +118,7 @@
         {
             "name": "jackthief",
             "view": "fleet",
-            "script": "bots/quests/hobgoblin-adamant.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
                 "jackthief"
             ]
