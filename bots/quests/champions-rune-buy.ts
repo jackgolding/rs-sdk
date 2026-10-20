@@ -43,6 +43,8 @@ const SCAVVO = /^scavvo$/i;
 const HALL = { x: 3200, z: 3352 };
 /** Staging tile outside the guild doors, by the Guildmaster's greeting spot. */
 const ENTRY = { x: 3193, z: 3361 };
+/** Only doors inside this box belong to the guild — ignore city doors. */
+const GUILD_BOX = { x0: 3184, x1: 3202, z0: 3348, z1: 3368 };
 /** The Guildmaster greets on entry: proof the last Open took us inside. */
 const GREET = /greetings bold adventurer|welcome to the guild/i;
 /** Char count of chat arrays before a door Open; only NEWER lines prove entry. */
@@ -74,10 +76,18 @@ function npcSummary(): string {
 
 /** Inside flag survives across reachScavvo calls; only OUR door Open clears it. */
 let insideGuild = false;
-/** Nearest openable door, or undefined. */
+/** Nearest openable door inside the guild box (city doors ignored). */
 function nearestOpenDoor() {
     return (sdk.getNearbyLocs() ?? [])
-        .filter((l) => /door/i.test(l.name) && (l.optionsWithIndex ?? []).some((o) => /^open$/i.test(o.text)))
+        .filter(
+            (l) =>
+                /door/i.test(l.name) &&
+                l.x >= GUILD_BOX.x0 &&
+                l.x <= GUILD_BOX.x1 &&
+                l.z >= GUILD_BOX.z0 &&
+                l.z <= GUILD_BOX.z1 &&
+                (l.optionsWithIndex ?? []).some((o) => /^open$/i.test(o.text))
+        )
         .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
 }
 /** Where the confirmed entry landed — the interior sweep centres here. */
@@ -259,12 +269,14 @@ async function reachScavvo(): Promise<'ok' | 'qp-blocked' | 'failed'> {
             }
             const sweep = [
                 { x: entryPos.x, z: entryPos.z },
-                { x: entryPos.x + 5, z: entryPos.z },
-                { x: entryPos.x - 5, z: entryPos.z },
-                { x: entryPos.x, z: entryPos.z + 5 },
-                { x: entryPos.x, z: entryPos.z - 5 },
-                { x: entryPos.x + 5, z: entryPos.z + 5 },
-                { x: entryPos.x - 5, z: entryPos.z - 5 }
+                { x: entryPos.x + 7, z: entryPos.z },
+                { x: entryPos.x - 7, z: entryPos.z },
+                { x: entryPos.x, z: entryPos.z + 7 },
+                { x: entryPos.x, z: entryPos.z - 7 },
+                { x: entryPos.x + 7, z: entryPos.z + 7 },
+                { x: entryPos.x - 7, z: entryPos.z - 7 },
+                { x: entryPos.x + 7, z: entryPos.z - 7 },
+                { x: entryPos.x - 7, z: entryPos.z + 7 }
             ];
             let found = false;
             for (const wp of sweep) {
