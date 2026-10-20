@@ -115,7 +115,7 @@
         {
             "name": "jackthief",
             "view": "fleet",
-            "script": "bots/quests/hobgoblin-adamant.ts",
+            "script": "bots/quests/kit-dlong-bank.ts",
             "args": [
                 "jackthief"
             ]
