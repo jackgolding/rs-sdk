@@ -215,7 +215,7 @@
         {
             "name": "jacklove16",
             "view": "loves",
-            "script": "bots/quests/mining-guild.ts",
+            "script": "bots/quests/coal-trucks.ts",
             "args": [
                 "jacklove16"
             ]
@@ -239,7 +239,7 @@
         {
             "name": "jacklove19",
             "view": "loves",
-            "script": "bots/quests/mining-guild.ts",
+            "script": "bots/quests/coal-trucks.ts",
             "args": [
                 "jacklove19"
             ]
