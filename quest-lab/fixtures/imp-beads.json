@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "questId": "imp",
+  "position": { "x": 3092, "z": 3243, "level": 0 },
+  "skills": "maxed",
+  "tutorial": true,
+  "bank": [
+    { "name": "coins", "count": 500 },
+    { "name": "shark", "count": 10 },
+    { "name": "black_bead", "count": 1 },
+    { "name": "red_bead", "count": 1 },
+    { "name": "white_bead", "count": 1 },
+    { "name": "yellow_bead", "count": 1 }
+  ],
+  "worn": [],
+  "varps": {},
+  "target": { "varp": "imp", "unstarted": 0 }
+}

@@ -21,7 +21,11 @@
  *     with explicit climb-up/climb-down loc interactions, each followed by
  *     a settle (ticks) plus a rescan of NPCs from fresh state — entity
  *     listings go stale across a teleport/plane change
- */
+  *
+ * Beads are tradeable, so a harvester account can stock the bank
+ * (`bots/beads-harvester.ts`); this script withdraws one of each missing bead
+ * before hunting, and only hunts for what the bank could not supply.
+*/
 import { existsSync, readFileSync, appendFileSync } from 'fs';
 import { dirname, join } from 'path';
 
@@ -33,6 +37,7 @@ import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
 import { createRun, appendCheckpoint, summarizeRun, safeRunId } from '../../quest-lab/records';
 import type { JournalRule } from '../../quest-lab/evidence';
 import { graph, type ImpCtx, type ImpStage } from './imp-catcher.graph';
+import { untilPlane } from './settle';
 
 // ── args / env ──────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -65,7 +70,12 @@ const DRAYNOR_BANK = { x: 3082, z: 3242 };
 const TOWER_DOOR = { x: 3109, z: 3160 };
 const MIZGOG = { x: 3104, z: 3163, level: 2 };
 /** Walkable tile inside the tower ground floor (verified against collision). */
-const TOWER_INTERIOR = { x: 3105, z: 3161 };
+// Probe-verified (bots/probe-tower.ts): teleporting to (3105,3163) puts the
+// player INSIDE the tower, where the staircase at (3103,3159) publishes
+// Climb-up. The old (3105,3161) is outside the wall, which is why the scan never
+// found the interior staircase and kept latching onto the outdoor one at
+// (3102,3160).
+const TOWER_INTERIOR = { x: 3105, z: 3163 };
 /** Imp hunting ground: open field south of the Wizards' Tower. */
 const IMP_CAMP = { x: 3108, z: 3154 };
 const HUNT_RADIUS = 30;
@@ -265,6 +275,20 @@ async function bankForSupplies(): Promise<void> {
     const bankItems = sdk.getState()?.bank?.items ?? [];
     const bankFood = bankItems.filter(i => FOOD_RE.test(i.name)).reduce((n, i) => n + (i.count ?? 0), 0);
     log(`Stock pre-check: food inv=${foodCount()} bank=${bankFood} beads=${beadCount()}/4`);
+
+    // Beads are tradeable, so a harvester account can stock the bank and the
+    // quest never has to hunt. Take one of each missing type; anything absent
+    // stays missing and the hunt covers it.
+    for (const bead of BEADS) {
+        if (invCount(bead.pattern) > 0) continue;
+        const banked = bankItems.filter(i => bead.pattern.test(i.name)).reduce((n, i) => n + (i.count ?? 0), 0);
+        if (banked === 0) continue;
+        if (!sdk.getState()?.bank?.isOpen && !(await bot.openBank()).success) {
+            throw new Error(`bank closed before withdrawing ${bead.name}`);
+        }
+        const res = await bot.withdrawItem(bead.pattern, 1);
+        log(`withdrew banked ${bead.name}: ${res.success}${res.success ? '' : ` (${res.message ?? '?'})`} — beads now ${beadCount()}/4`);
+    }
     if (foodCount() === 0 && bankFood === 0) {
         log('No food stocked anywhere — proceeding without (imps are level 2); fallback refills if stock appears');
         session.log('warn', 'no food in inventory or bank; hunting without');
@@ -327,23 +351,12 @@ async function settleAndRescan(what: string): Promise<void> {
 async function climbTo(targetLevel: number, what: string): Promise<void> {
     for (let i = 0; i < 6 && pos().level !== targetLevel; i++) {
         const up = pos().level < targetLevel;
-        await goToStairs(up);
-        const opt = up ? /climb-up|climb up/i : /climb-down|climb down/i;
-        const stairs = nearestLoc(/staircase|ladder/i, opt, 4);
-        if (!stairs) {
-            await settleAndRescan('stairs rescan');
-            continue;
-        }
-        // Pass the entity: a RegExp could re-resolve to a same-named neighbour
-        // after the approach walk.
-        const res = await bot.interactLoc(stairs, opt);
-        log(`climb ${up ? 'up' : 'down'} ${stairs.name} (${stairs.x},${stairs.z}) -> ${what}: ok=${res.success}${res.success ? '' : ` (${res.message ?? '?'})`}`);
-        await settleAndRescan(`climb ${up ? 'up' : 'down'}`);
+        const climbed = await goToStairs(up);
+        log(`climb ${up ? 'up' : 'down'} for ${what}: ${climbed ? 'plane changed' : 'no plane change'} (now l${pos().level}, want l${targetLevel})`);
     }
     if (pos().level !== targetLevel) throw new Error(`could not reach level ${targetLevel} for ${what}: at l${pos().level}`);
 }
 
-/** Nearest loc offering an option, from fresh state. Distances are Chebyshev. */
 function nearestLoc(nameRe: RegExp, optRe: RegExp, maxDist = 15) {
     return (sdk.getNearbyLocs() ?? [])
         .filter(l =>
@@ -388,7 +401,22 @@ async function enterTower(): Promise<void> {
         await sdk.waitForTicks(2);
         log(`enter leg ${i + 1}: at (${pos().x},${pos().z}) l${pos().level} ok=${w.success}`);
     }
-    if (chebTo(TOWER_INTERIOR) > 3) throw new Error(`could not enter the tower: at (${pos().x},${pos().z}) l${pos().level}`);
+    // The client pathfinder has no graph for the strip around the tower door
+    // (observed: `PATHFINDING FAILED: no waypoints` from (3102,3161) to
+    // (3105,3161)), so walkTo cannot close the last few tiles even with the door
+    // open. Raw short steps cross that gap; the tiles themselves are walkable.
+    for (let step = 0; step < 5 && chebTo(TOWER_INTERIOR) > 1; step++) {
+        const before = pos();
+        await sdk.sendWalk(TOWER_INTERIOR.x, TOWER_INTERIOR.z).catch(() => undefined);
+        await sdk.waitForTicks(2);
+        const after = pos();
+        const moved = Math.hypot(after.x - before.x, after.z - before.z) >= 1;
+        log(`raw entry step ${step + 1}: at (${after.x},${after.z}) l${after.level} moved=${moved} cheb=${chebTo(TOWER_INTERIOR)}`);
+        if (!moved) break;
+    }
+    // 3 tiles from the interior is OUTSIDE the door: the old gate accepted that
+    // as "inside", which sent the stair scan at an outdoor staircase.
+    if (chebTo(TOWER_INTERIOR) > 2) throw new Error(`could not enter the tower: at (${pos().x},${pos().z}) l${pos().level} (cheb ${chebTo(TOWER_INTERIOR)} from interior)`);
     log(`Inside the tower at (${pos().x},${pos().z}) l${pos().level}`);
 }
 
@@ -397,31 +425,66 @@ async function enterTower(): Promise<void> {
  * answers "can't reach" from 2+ tiles out even when the tiles between look
  * open, so adjacency is a precondition, not an optimization.
  */
-async function goToStairs(up: boolean): Promise<void> {
+/**
+ * Climb one plane. Returns true only when the plane ACTUALLY changed.
+ *
+ * Interact from where we stand: `interactLoc` routes the player itself. The old
+ * version pre-walked to a computed "adjacent" tile, which for the tower
+ * staircase is (3102,3160) — OUTSIDE the wall. The server ignored the click
+ * while the client reported success, so the script "climbed" six times and never
+ * left plane 0. Probe-verified: interacting from inside (3105,3163) works.
+ */
+/**
+ * Get OUT of the tower.
+ *
+ * The interior is a sealed room for the client pathfinder (door tiles are
+ * masked), so any leg that starts inside — a bank trip, the walk back to Mizgog
+ * — dies within a few tiles with "N tiles short". Exiting is an explicit step:
+ * open the door, then raw-step east of it.
+ */
+async function exitTower(): Promise<void> {
+    if (pos().level !== 0) await climbTo(0, 'tower ground');
+    if (chebTo(TOWER_INTERIOR) > 7) return; // already outside
+    const door = nearestLoc(/door/i, /open/i, 14);
+    if (door) {
+        const opened = await bot.interactLoc(door, /open/i);
+        log(`exit door (${door.x},${door.z}) open: ok=${opened.success}`);
+        await sdk.waitForTicks(2);
+    }
+    // The doorway teleports on open (general door script): never assume the
+    // landing tile, verify displacement and step clear of the door line.
+    const outside = { x: 3113, z: 3160 };
+    for (let step = 0; step < 5 && chebTo(outside) > 2; step++) {
+        const before = pos();
+        await sdk.sendWalk(outside.x, outside.z).catch(() => undefined);
+        await sdk.waitForTicks(2);
+        const after = pos();
+        if (Math.hypot(after.x - before.x, after.z - before.z) < 1) break;
+    }
+    log(`exited the tower at (${pos().x},${pos().z}) l${pos().level}`);
+    session.noteProgress('location', 'left the tower');
+}
+
+async function goToStairs(up: boolean): Promise<boolean> {
     const opt = up ? /climb-up|climb up/i : /climb-down|climb down/i;
-    for (let i = 0; i < 4; i++) {
-        const stairs = nearestLoc(/staircase|ladder/i, opt, 20);
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const before = pos().level;
+        const stairs = nearestLoc(/staircase|ladder/i, opt, 12);
         if (!stairs) {
             await settleAndRescan('stairs scan');
             continue;
         }
-        if (Math.max(Math.abs(pos().x - stairs.x), Math.abs(pos().z - stairs.z)) <= 1) {
-            log(`At the ${stairs.name} (${stairs.x},${stairs.z})`);
-            return;
-        }
-        const adj = adjacentTile(stairs);
-        if (!adj) throw new Error(`no walkable tile beside ${stairs.name} (${stairs.x},${stairs.z})`);
-        log(`approaching ${stairs.name} via (${adj.x},${adj.z})`);
-        await bot.walkTo(adj.x, adj.z, 1);
-        await sdk.waitForTicks(2);
+        const res = await bot.interactLoc(stairs, opt);
+        log(
+            `climb ${up ? 'up' : 'down'} ${stairs.name} (${stairs.x},${stairs.z}) from (${pos().x},${pos().z}) l${before}: ok=${res.success}${res.success ? '' : ` (${res.message ?? '?'})`}`,
+        );
+        if (res.success && (await untilPlane(sdk, up ? before + 1 : before - 1, { log }))) return true;
+        log(`plane did not change (still l${pos().level}) — retrying the climb`);
+        await settleAndRescan('climb retry');
     }
-    const stairs = nearestLoc(/staircase|ladder/i, opt, 20);
-    if (!stairs || Math.max(Math.abs(pos().x - stairs.x), Math.abs(pos().z - stairs.z)) > 1) {
-        throw new Error(`could not reach the stairs: at (${pos().x},${pos().z}) l${pos().level}`);
-    }
+    return false;
 }
 
-// ── bead hunt helpers ───────────────────────────────────────────────────────
 async function collectBeads(): Promise<void> {
     const deadline = Date.now() + 45 * 60_000;
     let sinceBankTrip = 0;
@@ -534,6 +597,7 @@ async function eatIfNeeded(): Promise<void> {
 async function foodFallbackTrip(): Promise<void> {
     await session.setPhase('fallback-bank');
     intent('Restocking food at Draynor');
+    await exitTower();
     await travelTo(DRAYNOR_BANK, 'Draynor bank (fallback)');
     await bot.dismissBlockingUI();
     if (!(await bot.openBank()).success) {
@@ -627,6 +691,8 @@ async function huntBeads(): Promise<void> {
 
 async function handIn(): Promise<void> {
     intent('Returning the beads to Mizgog');
+    // From inside the tower the client planner has no route to the door tile.
+    await exitTower();
     await travelTo(TOWER_DOOR, 'Wizards Tower door (return)');
     await enterTower();
     await goToStairs(true);
