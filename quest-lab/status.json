@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-20T20:37:46.414Z",
+  "generatedAt": "2026-10-20T20:39:23.518Z",
   "entries": [
     {
       "id": "arena",
@@ -1554,11 +1554,12 @@
       "canary": null,
       "blockers": [
         "no reviewed manifest (prerequisites/items/checkpoints)",
-        "dev gate 0/3: two world/route mechanics — (a) Varrock palace approach leg 19 stalls 34 tiles short at (3212,3438) with the planner returning a truncated plan, (b) Sir Vyvin's room stair/close walkTo returns 'no waypoints' from (2986,3332)->(2983,3335). Candidate d48e37fd1 in ~/rs-sdk-quests/squire (one pin-guard edit unamended). Evidence: quest-eval/reports/2026-10-20T18-34-20-393Z-squire"
+        "dev gate 0/3: two world/route mechanics — (a) Varrock palace approach leg 19 stalls 34 tiles short at (3212,3438) with the planner returning a truncated plan, (b) Sir Vyvin's room stair/close walkTo returns 'no waypoints' from (2986,3332)->(2983,3335). Candidate d48e37fd1 in ~/rs-sdk-quests/squire (one pin-guard edit unamended). Evidence: quest-eval/reports/2026-10-20T18-34-20-393Z-squire",
+        "0/3 and not greenable in this local world: (1) Sir Vyvin's room — door at (2983,3348) opens but the client answers 'no waypoints' for the last 3 tiles from (2984,3348) l2, so the portrait stage never lands; (2) HARD world blocker — the only bluriterock placements are the ice dungeon at (2817,9977-9982), whose entrance pocket (~2810,3510) is sealed: 1-tile client steps refuse every outbound direction, A* finds no surface route, the freedomfighterentrancer doors (loc 5061) are unpublished and coord+loc-id clicks no-op, and the only collision link is a 7065-tile fake corridor. Script now enters via Ladder@2823,3513 (Climb-Down)->(2824,9913) so it will work on a world where the pocket is open. Candidate d48e37fd1 + one unamended knockStep pin-guard edit. 6/9 checkpoints journal-backed: not_started, started, spoken_reldo, given_pie, spoken_thurgo, looking_portrait."
       ],
       "rolledOutTo": [],
       "notes": [],
-      "updatedAt": "2026-10-20T20:37:42.484Z"
+      "updatedAt": "2026-10-20T20:39:23.518Z"
     },
     {
       "id": "tbwt",
