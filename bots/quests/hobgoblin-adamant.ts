@@ -181,6 +181,8 @@ function isFood(name: string): boolean {
 
 function kept(name: string): boolean {
     if (PICKAXE.test(name)) return true;
+    if (DLONG.test(name)) return true;
+    if (LEGS.test(name)) return true;
     return isFood(name);
 }
 
@@ -703,13 +705,19 @@ async function bankTrip(): Promise<boolean> {
     // Re-open for the food top-up (eatAtBank closed the bank).
     if (sdk.getState()?.bank?.isOpen || (await bot.openBank()).success) {
         await armTrip();
-        // Keep one pair of rune legs in kit: the 3rd keeper (dlong + pick +
-        // legs always survive; a 4th valuable would risk the pick).
-        if (!sdk.findEquipmentItem(LEGS) && !sdk.findInventoryItem(LEGS)) {
-            const legs = sdk.findBankItem(LEGS);
-            if (legs) {
-                const w = await bot.withdrawItem(legs, 1, { asNote: false });
-                log(`Withdraw legs: ${w.success || w.partial ? 'ok' : w.message}`);
+        // Keep the fight kit stocked: dlong + rune legs. Either may be lost
+        // to a death or (before the kept() fix) a deposit sweep — pull from
+        // the bank when neither worn nor carried. The pick is never at risk:
+        // with only dlong + pick + legs as valuables all three are keepers.
+        for (const [pat, label] of [[DLONG, 'dlong'], [LEGS, 'legs']] as const) {
+            if (!sdk.findEquipmentItem(pat) && !sdk.findInventoryItem(pat)) {
+                const stocked = sdk.findBankItem(pat);
+                if (stocked) {
+                    const w = await bot.withdrawItem(stocked, 1, { asNote: false });
+                    log(`Withdraw ${label}: ${w.success || w.partial ? 'ok' : w.message}`);
+                } else {
+                    session.log('warn', `No ${label} in bank to restock`);
+                }
             }
         }
         session.captureBankStock();
