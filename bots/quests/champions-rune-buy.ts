@@ -31,6 +31,10 @@ const RUNE_WANTS = [/^rune chainbody$/i, /^rune platelegs$/i, /^rune plateskirt$
 const LOOT = /^(rune chainbody|rune platelegs|rune plateskirt)$/i;
 const COINS = /^coins$/i;
 const SCAVVO = /^scavvo$/i;
+/** Kit to wear: chainbody + plateskirt + mace (mace is never bought). */
+const KIT_BODY = /^rune chainbody$/i;
+const KIT_LEGS = /^rune plateskirt$/i;
+const KIT_WEAPON = /^rune mace$/i;
 
 /** Guild hall centre (labels.txt: Champions' Guild 3201,3354). */
 const HALL = { x: 3200, z: 3352 };
@@ -231,11 +235,24 @@ async function bankTrip(): Promise<boolean> {
             banked += Math.max(0, before - count(want));
         }
     }
-    // Sweep any other non-coin junk that slipped in, keep it clean.
+    // Sweep any other non-coin junk that slipped in, keep it clean —
+    // except the kit mace, which rides in the pack until it is worn.
     for (let i = 0; i < 8; i++) {
-        const junk = sdk.getInventory().find((it) => (it.count ?? 0) > 0 && !COINS.test(it.name) && !LOOT.test(it.name));
+        const junk = sdk
+            .getInventory()
+            .find((it) => (it.count ?? 0) > 0 && !COINS.test(it.name) && !LOOT.test(it.name) && !KIT_WEAPON.test(it.name));
         if (!junk) break;
         await bot.depositItem(new RegExp(`^${junk.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'), -1);
+    }
+    // Pull missing kit pieces (unnoted) so they can be worn.
+    for (const kit of [KIT_BODY, KIT_LEGS, KIT_WEAPON]) {
+        if (!sdk.findEquipmentItem(kit) && count(kit) === 0) {
+            const b = (sdk.getBankItems?.() ?? []).find((i) => kit.test(i.name));
+            if (b) {
+                const w = await bot.withdrawItem(b, 1);
+                session.log('log', `kit withdraw ${b.name}: ${w.success ? 'ok' : w.message}`);
+            }
+        }
     }
     const pocket = count(COINS);
     const vault = bankCoins();
@@ -389,6 +406,24 @@ async function reachScavvo(): Promise<'ok' | 'qp-blocked' | 'failed'> {
     return scavvo() ? 'ok' : 'failed';
 }
 
+/** Wear chainbody + plateskirt + mace from the pack. Loud on change only. */
+let kitSaidMissing = false;
+async function ensureKit(): Promise<void> {
+    for (const kit of [KIT_BODY, KIT_LEGS, KIT_WEAPON]) {
+        if (sdk.findEquipmentItem(kit)) continue;
+        const inv = sdk.findInventoryItem(kit);
+        if (!inv) continue;
+        const r = await bot.equipItem(inv).catch(() => null);
+        session.log('log', `wear ${inv.name}: ${r?.success ? 'ok' : r?.message ?? 'fail'}`);
+    }
+    const missing = [KIT_BODY, KIT_LEGS, KIT_WEAPON].filter((kit) => !sdk.findEquipmentItem(kit) && !sdk.findInventoryItem(kit));
+    if (missing.length > 0 && !kitSaidMissing) {
+        kitSaidMissing = true;
+        session.log('warn', `kit short: ${missing.map((m) => m.source).join(', ')} nowhere yet — bank/shop will supply`);
+    }
+    if (missing.length === 0) kitSaidMissing = false;
+}
+
 /** Buy every rune line with shelf stock. Assumes the shop is open. */
 async function buySweep(): Promise<{ bought: number; sawStock: boolean }> {
     let bought = 0;
@@ -428,6 +463,7 @@ try {
             break;
         }
         await closeUi(bot, sdk);
+        await ensureKit().catch(() => undefined);
 
         // 1. Keep a funded pocket.
         if (count(COINS) < MIN_POCKET) {
@@ -469,6 +505,7 @@ try {
         await session.showIntent('Sweeping rune shelf').catch(() => undefined);
         const { bought, sawStock } = await buySweep();
         await bot.closeShop().catch(() => undefined);
+        await ensureKit().catch(() => undefined);
         totalBought += bought;
         if (bought > 0) emptySweeps = 0;
         session.log(
