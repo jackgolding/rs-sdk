@@ -76,8 +76,11 @@ function npcSummary(): string {
 
 /** Inside flag survives across reachScavvo calls; only OUR door Open clears it. */
 let insideGuild = false;
+/** Doors already worked with no effect — retried only after real movement. */
+const triedDoors = new Set<string>();
+let triedAt = { x: 0, z: 0 };
 /** Nearest openable door inside the guild box (city doors ignored). */
-function nearestOpenDoor() {
+function nearestOpenDoor(skipTried = false) {
     return (sdk.getNearbyLocs() ?? [])
         .filter(
             (l) =>
@@ -86,6 +89,7 @@ function nearestOpenDoor() {
                 l.x <= GUILD_BOX.x1 &&
                 l.z >= GUILD_BOX.z0 &&
                 l.z <= GUILD_BOX.z1 &&
+                (!skipTried || !triedDoors.has(`${l.x},${l.z}`)) &&
                 (l.optionsWithIndex ?? []).some((o) => /^open$/i.test(o.text))
         )
         .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
@@ -344,13 +348,28 @@ async function reachScavvo(): Promise<'ok' | 'qp-blocked' | 'failed'> {
         await walkNear(bot, sdk, ENTRY.x, ENTRY.z, 2);
         await sdk.scanNearbyLocs(10).catch(() => undefined);
         if (scavvo()) continue;
-        let door = nearestOpenDoor();
+        let door = nearestOpenDoor(true);
+        if (!door) {
+            triedDoors.clear();
+            await sdk.waitForTicks(5).catch(() => undefined);
+            continue;
+        }
         if (door && (door.distance ?? 99) > 3) {
             await walkNear(bot, sdk, door.x, door.z, 2);
             await sdk.scanNearbyLocs(8).catch(() => undefined);
-            door = nearestOpenDoor();
+            door = nearestOpenDoor(true);
         }
         if (door && (door.distance ?? 99) <= 4) {
+            const key = `${door.x},${door.z}`;
+            const p0 = playerPos(sdk);
+            if (Math.hypot(p0.x - triedAt.x, p0.z - triedAt.z) > 6) {
+                triedDoors.clear();
+                triedAt = { x: p0.x, z: p0.z };
+            }
+            if (triedDoors.has(key)) {
+                await sdk.waitForTicks(3).catch(() => undefined);
+                continue;
+            }
             const base = chatBaseline();
             const opened = await bot.interactLoc(door, /open/i).catch(() => null);
             await sdk.waitForTicks(4).catch(() => undefined);
@@ -366,7 +385,23 @@ async function reachScavvo(): Promise<'ok' | 'qp-blocked' | 'failed'> {
                 entryPos = { x: p.x, z: p.z };
                 session.log('log', `inside the guild @ ${here()} — holding, no more doors`);
             } else {
+                const p1 = playerPos(sdk);
                 session.log('log', `door ${door.x},${door.z}: ${opened?.success ? 'ok' : opened?.message ?? 'fail'} @ ${here()} chat: ${newChat}`);
+                if (Math.hypot(p1.x - p0.x, p1.z - p0.z) <= 2) {
+                    // Open moved nothing: the door stands open (or the handle
+                    // is stale), so walk through to both sides and look.
+                    for (const side of [
+                        { x: door.x, z: door.z + 4 },
+                        { x: door.x, z: door.z - 4 }
+                    ]) {
+                        await walkNear(bot, sdk, side.x, side.z, 2);
+                        await sdk.scanNearbyLocs(10).catch(() => undefined);
+                        if (scavvo()) break;
+                    }
+                    session.log('log', `through ${key} -> @ ${here()} npcs: ${npcSummary()}`);
+                    if (scavvo()) continue;
+                }
+                triedDoors.add(key);
             }
             // Either way the door teleported us; next round reads the result.
             continue;
