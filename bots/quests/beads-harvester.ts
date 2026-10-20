@@ -24,7 +24,7 @@ import { BotActions } from '../../sdk/actions';
 import { findLongPath, initPathfinding } from '../../sdk/pathfinding';
 import { installGracefulShutdown } from '../../sdk/runner';
 import { hopSend, playerPos, waitForPlayerState } from './movement';
-import { walkRoute } from './walk-route';
+import { travelTo } from './travel';
 import { FLEET_BANKS, type Tile } from './tiles';
 
 const argv = process.argv.slice(2);
@@ -115,121 +115,18 @@ const foodCount = () => sdk.getInventory().filter((i) => FOOD.test(i.name)).redu
 const dist = (x: number, z: number) => Math.hypot(pos().x - x, pos().z - z);
 
 /**
- * Plan one hop of the journey.
+ * Walk to a destination using the shared chained traveller.
  *
- * `findLongPath` returns a TRUNCATED path when the destination is beyond what
- * its search reaches — silently, with no indication (prod: Ardougne from the
- * gnome stronghold returned 2 points ending 215 tiles short). Appending the
- * destination to that gave the walker a 215-tile leg, which the client refuses
- * to start, so the bot stood still forever. So a plan is reported as COMPLETE or
- * PARTIAL, and the caller walks a partial and re-plans from its end.
+ * A camp is a radius, not a tile — trees and boulders in the monastery grounds
+ * block the last few tiles, and an imp in view is all the camp is for.
  */
-function planRoute(dest: Tile): { waypoints: Tile[]; complete: boolean } {
-    try {
-        const p = pos();
-        const path = findLongPath(p.level, p.x, p.z, dest.x, dest.z) as Tile[] | null;
-        if (!path || !path.length) {
-            // No plan at all: only a short direct step is safe to attempt.
-            const d = Math.hypot(dest.x - p.x, dest.z - p.z);
-            return { waypoints: d <= 10 ? [{ x: dest.x, z: dest.z }] : [], complete: false };
-        }
-        const out: Tile[] = [];
-        for (let i = 0; i < path.length; i += 8) {
-            const t = path[Math.min(i + 7, path.length - 1)]!;
-            out.push({ x: t.x, z: t.z });
-        }
-        const last = path[path.length - 1]!;
-        const complete = Math.hypot(last.x - dest.x, last.z - dest.z) <= 8;
-        if (complete && (out[out.length - 1]!.x !== dest.x || out[out.length - 1]!.z !== dest.z)) {
-            out.push({ x: dest.x, z: dest.z });
-        }
-        return { waypoints: out, complete };
-    } catch {
-        return { waypoints: [], complete: false };
-    }
-}
-
-const host = {
-    getPos: () => pos(),
-    walk: (x: number, z: number) => hopSend(sdk, x, z, 10),
-    waitTicks: (n: number) => sdk.waitForTicks(n),
-};
-
-/**
- * Get back to the ground plane before planning.
- *
- * `findLongPath` only plans within a plane, so a bot parked on an upstairs level
- * (an agility course platform, a guild floor) has no route anywhere: prod showed
- * `plan frontier stuck at (2483,3420) l2, 251 tiles short`. Climb down first,
- * then plan.
- */
-async function normalisePlane(): Promise<void> {
-    for (let attempt = 0; attempt < 3 && pos().level > 0; attempt++) {
-        const level = pos().level;
-        await sdk.scanNearbyLocs(12).catch(() => undefined);
-        const down = (sdk.getNearbyLocs() ?? [])
-            .filter((l) => /stair|ladder/i.test(l.name) && (l.optionsWithIndex ?? []).some((o) => /climb-down|climb down|down/i.test(o.text)))
-            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
-        if (!down) {
-            log(`on plane ${level} with no climbable loc in range — cannot normalise`);
-            return;
-        }
-        const res = await bot.interactLoc(down, /climb-down|climb down|down/i).catch((e: unknown) => ({ success: false, message: String(e) }));
-        log(`climb-down ${down.name} (${down.x},${down.z}) from l${level}: ok=${res.success}`);
-        for (let wait = 0; wait < 20 && pos().level === level; wait++) await sdk.waitForTicks(1);
-        log(`  plane now l${pos().level} at (${pos().x},${pos().z})`);
-    }
-}
-
 async function travel(dest: Tile, what: string): Promise<void> {
-    // A route only exists within a plane; get to the ground first.
-    if (pos().level > 0) await normalisePlane();
-    const plan = (): { waypoints: Tile[]; complete: boolean } => planRoute(dest);
-    let frontier: string | null = null;
-    let res: Awaited<ReturnType<typeof walkRoute>> | null = null;
-
-    for (let attempt = 0; attempt < 24; attempt++) {
-        const d = Math.hypot(pos().x - dest.x, pos().z - dest.z);
-        if (d <= 8) {
-            log(`at ${what} (${pos().x},${pos().z}) l${pos().level}`);
-            return;
-        }
-
-        const { waypoints, complete } = plan();
-        if (!waypoints.length) {
-            // The planner cannot reach the destination from here at all.
-            if (what.includes('camp') && (d <= 12 || findImp())) {
-                log(`no plan the last ${Math.round(d)} tiles to ${what} — hunting from here`);
-                return;
-            }
-            throw new Error(`no route to ${what} from (${pos().x},${pos().z}) l${pos().level} — ${Math.round(d)} tiles away`);
-        }
-
-        res = await walkRoute(host, waypoints, { maxHop: 10, tolerance: 3, log: (l) => log(`   ${l}`) });
-        if (complete && Math.hypot(pos().x - dest.x, pos().z - dest.z) <= 8) {
-            log(`at ${what} (${pos().x},${pos().z}) l${pos().level}`);
-            return;
-        }
-
-        const now = `${pos().x},${pos().z}`;
-        if (now === frontier) {
-            // Walked a partial plan and ended where the last one ended: the
-            // planner's frontier is not advancing, so another lap is pointless.
-            if (what.includes('camp') && (d <= 12 || findImp())) {
-                log(`stuck ${Math.round(d)} tiles from ${what} at the plan frontier — hunting from here`);
-                return;
-            }
-            throw new Error(`no progress toward ${what}: plan frontier stuck at (${now}) l${pos().level}, ${Math.round(d)} tiles short`);
-        }
-        frontier = now;
-        if (!res.ok && !complete) {
-            log(`   blocked at (${now}) — re-planning from here (${Math.round(d)} tiles to go)`);
-        } else {
-            log(`   ${Math.round(d)} tiles from ${what} — re-planning from (${now})`);
-        }
-    }
-
-    throw new Error(`could not reach ${what} in 24 plans: ended ${Math.round(Math.hypot(pos().x - dest.x, pos().z - dest.z))} tiles short${res && !res.ok ? ` (${res.blocked})` : ''}`);
+    const res = await travelTo(sdk, bot, dest, {
+        log: (l: string) => log(`   ${l}`),
+        acceptShortOf: what.includes('camp') ? (d: number) => d <= 12 || findImp() !== null : undefined,
+    });
+    if (!res.ok) throw new Error(`could not reach ${what}: ${res.reason}`);
+    log(`at ${what} (${res.at.x},${res.at.z}) l${res.at.level}${res.reason ? ` (${res.reason})` : ''}`);
 }
 
 function findImp() {
