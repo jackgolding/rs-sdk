@@ -16,6 +16,8 @@ import { join } from 'path';
 import { ActivitySession } from '../../sdk/index';
 import { initPathfinding, isTileWalkable } from '../../sdk/pathfinding';
 import { installGracefulShutdown, runScript } from '../../sdk/runner';
+import { createAntiPk } from './anti-pk';
+import { foodHeal } from './food-heal';
 
 const COAL_TRUCKS = { x: 2578, z: 3480 };
 const SEERS_BANK = { x: 2726, z: 3485 };
@@ -118,6 +120,76 @@ await runScript(async ({ bot, sdk }) => {
     const depletedUntil = new Map<string, number>();
     let trips = 0;
     let deposits = 0;
+
+    // Wildy-mode PK protection (skeleton mine is level ~9 wildy): pray +
+    // retaliate with whatever is worn (no spec weapon — allowUnarmed), eat
+    // through the fight, flee south to bank when out of food. Seers mode
+    // is untouched.
+    const antiPk = WILDY ? createAntiPk({ sdk, bot, log, allowUnarmed: true }) : null;
+    const WILDY_FOOD = 6;
+    const northOfDitch = () => {
+        const p = sdk.getState()?.player;
+        const z = p?.worldZ ?? 0;
+        return z >= 3520 && z < 6400;
+    };
+    function invEdible() {
+        return sdk.getInventory().find(
+            (i) =>
+                (i.count ?? 0) > 0 &&
+                foodHeal(i.name) > 0 &&
+                (i.optionsWithIndex ?? []).some((o) => /eat/i.test(o.text))
+        );
+    }
+    function foodCount() {
+        return sdk
+            .getInventory()
+            .filter((i) => (i.count ?? 0) > 0 && foodHeal(i.name) > 0)
+            .reduce((n, i) => n + (i.count ?? 1), 0);
+    }
+    async function eatWild() {
+        const maxHp = sdk.getSkill('Hitpoints')?.baseLevel ?? 99;
+        while ((sdk.getState()?.player?.hp ?? 0) <= Math.floor(maxHp / 2) && !pos().isDead) {
+            const food = invEdible();
+            if (!food) break;
+            const before = sdk.getState()?.player?.hp ?? 0;
+            const r = await bot.eatFood(food);
+            if (!r.success) break;
+            await sdk.waitForCondition((s) => (s.player?.hp ?? 0) > before, 4_000).catch(() => undefined);
+        }
+    }
+    async function handleCoalPker(): Promise<void> {
+        if (!antiPk) {
+            await goBank();
+            return;
+        }
+        const fb = await antiPk.fightBackIfPked();
+        log(`PK fight: ${fb.reason}`);
+        const end = Date.now() + 75_000;
+        for (;;) {
+            if (pos().isDead) return;
+            if (Date.now() >= end) break;
+            if (sdk.getState()?.player?.combat?.inCombat !== true) break;
+            const maxHp = sdk.getSkill('Hitpoints')?.baseLevel ?? 99;
+            if ((sdk.getState()?.player?.hp ?? 0) < maxHp - 10) {
+                const food = invEdible();
+                if (!food) break;
+                const before = sdk.getState()?.player?.hp ?? 0;
+                const r = await bot.eatFood(food);
+                if (!r.success) break;
+                await sdk.waitForCondition((s) => (s.player?.hp ?? 0) > before, 4_000).catch(() => undefined);
+            } else {
+                await sdk.waitForTicks(2).catch(() => undefined);
+            }
+        }
+        if (pos().isDead) return;
+        const loot = await antiPk.lootKill();
+        if (loot.picked > 0) session.noteProgress('inventory', 'pk-loot');
+        await bot.deactivateAllPrayers().catch(() => undefined);
+        if (foodCount() === 0) {
+            log('Out of food after PK fight — banking');
+            await goBank();
+        }
+    }
     let totalCoal = 0;
     let missStreak = 0;
 
@@ -282,6 +354,23 @@ await runScript(async ({ bot, sdk }) => {
         for (const item of [...sdk.getInventory()]) {
             if ((item.count ?? 0) > 0 && !PICKAXE.test(item.name)) await bot.depositItem(item, -1).catch(() => undefined);
         }
+        // Wildy mode: carry sharks for PK fights (bank holds thousands).
+        if (WILDY && antiPk) {
+            const have = foodCount();
+            if (have < WILDY_FOOD) {
+                const best = sdk
+                    .getBankItems()
+                    .filter((i) => (i.count ?? 0) > 0 && foodHeal(i.name) > 0)
+                    .sort((a, b) => foodHeal(b.name) - foodHeal(a.name))[0];
+                if (best) {
+                    const take = Math.min(WILDY_FOOD - have, best.count ?? 0);
+                    if (take > 0) {
+                        const r = await bot.withdrawItem(best, take, { asNote: false });
+                        log(`Withdraw ${take} ${best.name}: ${r.success || r.partial ? 'ok' : r.message}`);
+                    }
+                }
+            }
+        }
         session.captureBankStock();
         await bot.closeBank().catch(() => undefined);
         trips++;
@@ -354,6 +443,11 @@ await runScript(async ({ bot, sdk }) => {
             await sdk.waitForCondition((s) => !s.player.isDead, 45_000).catch(() => undefined);
             continue;
         }
+        if (antiPk?.underAttack(northOfDitch()) ?? false) {
+            await handleCoalPker();
+            if (pos().isDead) continue;
+            continue;
+        }
         if (mining() !== lastLevel) {
             log(`LEVEL UP Mining ${mining()} (${miningXp()} xp)`);
             lastLevel = mining();
@@ -401,7 +495,8 @@ await runScript(async ({ bot, sdk }) => {
             .waitForCondition(
                 (s) =>
                     (s.skills.find((sk) => sk.name === 'Mining')?.experience ?? 0) > xpBefore ||
-                    s.inventory.filter((i) => COAL.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0) > coalBefore,
+                    s.inventory.filter((i) => COAL.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0) > coalBefore ||
+                    (antiPk?.underAttack((s.player?.worldZ ?? 0) >= 3520) ?? false),
                 20_000
             )
             .catch(() => undefined);

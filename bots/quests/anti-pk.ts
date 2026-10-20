@@ -72,6 +72,12 @@ export interface AntiPkDeps {
     log?: (msg: string) => void;
     /** Fight-back weapon. Defaults to the dragon longsword. */
     weapon?: WeaponProfile;
+    /**
+     * Allow pray+retaliate with no spec weapon worn (spec silently stays off
+     * — sa_enabled needs the weapon). Default false: worn-only policy for
+     * the dlong crew.
+     */
+    allowUnarmed?: boolean;
 }
 
 /**
@@ -100,7 +106,7 @@ export interface FightBackResult {
     prayers?: string[];
 }
 
-export function createAntiPk({ sdk, bot, log, weapon = DLONG_PROFILE }: AntiPkDeps) {
+export function createAntiPk({ sdk, bot, log, weapon = DLONG_PROFILE, allowUnarmed = false }: AntiPkDeps) {
     const say = (m: string) => log?.(m);
     let specEnergy = SPEC_MAX;
     let specArmed = false;
@@ -206,7 +212,7 @@ export function createAntiPk({ sdk, bot, log, weapon = DLONG_PROFILE }: AntiPkDe
     }
 
     async function fightBackIfPked(): Promise<FightBackResult> {
-        if (!wearingDlong()) return { fought: false, reason: 'no_dlong_worn' };
+        if (!allowUnarmed && !wearingDlong()) return { fought: false, reason: 'no_weapon_worn' };
         const attacker = resolveAttacker();
         if (!attacker) return { fought: false, reason: 'no_attacker' };
         const prayers = await prayBestStack();
@@ -256,11 +262,29 @@ export function createAntiPk({ sdk, bot, log, weapon = DLONG_PROFILE }: AntiPkDe
         return c?.inCombat === true && c?.targetType === 'player';
     }
 
+    /**
+     * PK pressure, confirmed OR suspected. Confirmed = our combat target is a
+     * player. Suspected = fresh damage with a player standing next to us
+     * while our target is something else (auto-retaliate vs the local NPCs).
+     * Hosts pass whether they are in the wild (ditch-gated, like seePker).
+     */
+    function underAttack(inWildy: boolean): boolean {
+        if (!inWildy) return false;
+        const s = sdk.getState?.();
+        const combat = s?.player?.combat;
+        if (!combat) return false;
+        if (combat.inCombat === true && combat.targetType === 'player') return true;
+        const tick = s?.tick ?? 0;
+        const lastDmg = combat.lastDamageTick ?? -1;
+        if (lastDmg < 0 || tick - lastDmg > 4) return false;
+        return (s?.nearbyPlayers ?? []).some((p: any) => (p.distance ?? 99) <= 4);
+    }
+
     function resetSpec(): void {
         specEnergy = SPEC_MAX;
         specArmed = false;
         lastSpecRegenTick = -1;
     }
 
-    return { fightBackIfPked, lootKill, inPkFight, wearingDlong, resetSpec };
+    return { fightBackIfPked, lootKill, inPkFight, underAttack, wearingDlong, resetSpec };
 }

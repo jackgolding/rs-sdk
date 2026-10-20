@@ -121,6 +121,7 @@ function pos() {
     return {
         x: p?.worldX ?? 0,
         z: p?.worldZ ?? 0,
+        level: p?.level ?? 0,
         hp: hpSkill?.level ?? p?.hp ?? 10,
         maxHp: hpSkill?.baseLevel ?? p?.maxHp ?? 10,
         isDead: p?.isDead ?? false,
@@ -227,6 +228,120 @@ function pkPressure(): boolean {
     const lastDmg = combat.lastDamageTick ?? -1;
     if (lastDmg < 0 || tick - lastDmg > 4) return false;
     return (s?.nearbyPlayers ?? []).some((p) => (p.distance ?? 99) <= 4);
+}
+
+const MONASTERY = { x: 3051, z: 3484 };
+
+function prayerPoints(): number {
+    return sdk.getPrayerState()?.prayerPoints ?? 0;
+}
+
+function prayerBase(): number {
+    return sdk.getPrayerState()?.prayerLevel ?? sdk.getSkill('Prayer')?.baseLevel ?? 0;
+}
+
+async function joinPrayerGuild(): Promise<boolean> {
+    const abbot = sdk.findNearbyNpc(/abbot langley/i) ?? sdk.findNearbyNpc(/abbot/i);
+    if (!abbot) {
+        log('No Abbot Langley nearby to join the order');
+        return false;
+    }
+    const talked = await bot.talkTo(abbot);
+    if (!talked.success && !sdk.getDialog()?.isOpen) {
+        log(`Talk Abbot: ${talked.message}`);
+        return false;
+    }
+    for (let i = 0; i < 8; i++) {
+        const dialog = sdk.getDialog();
+        if (!dialog?.isOpen) break;
+        const join = dialog.options.find((o) => /further into the monastery|join your order/i.test(o.text));
+        if (join) {
+            await sdk.clickDialogByText(new RegExp(join.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+            await sdk.waitForTicks(1);
+            continue;
+        }
+        const cont = dialog.options.find((o) => /click here to continue/i.test(o.text));
+        if (cont) {
+            await sdk.sendClickDialog(cont.index);
+            await sdk.waitForTicks(1);
+            continue;
+        }
+        await sdk.sendClickDialog(dialog.options[0]?.index ?? 0);
+        await sdk.waitForTicks(1);
+    }
+    log('Asked Abbot Langley to join the order');
+    return true;
+}
+
+async function climbMonasteryLadder(dir: RegExp): Promise<boolean> {
+    const before = pos().level;
+    const ladder = sdk.findNearbyLoc(/ladder/i, { withOption: dir });
+    if (!ladder) return false;
+    await bot.interactLoc(ladder, dir);
+    try {
+        await sdk.waitForCondition((s) => (s.player?.level ?? before) !== before || s.dialog.isOpen, 8_000);
+    } catch {
+        /* try again */
+    }
+    if (sdk.getDialog()?.isOpen) {
+        log('Ladder blocked by monk dialog — joining order');
+        await joinPrayerGuild();
+        return pos().level !== before;
+    }
+    return pos().level !== before;
+}
+
+async function ensureGroundFloor(): Promise<void> {
+    for (let i = 0; i < 8 && pos().level > 0; i++) {
+        if (await climbMonasteryLadder(/climb-down/i)) break;
+        const loc = sdk.findNearbyLoc(/ladder|stair/i, { withOption: /down/i });
+        if (loc) {
+            await bot.interactLoc(loc, /down/i);
+            await sdk.waitForCondition((s) => (s.player?.level ?? 1) === 0, 8_000).catch(() => {});
+        }
+        await sdk.waitForTicks(1);
+    }
+    if (pos().level > 0) log(`Still upstairs @ ${pos().x},${pos().z} L${pos().level}`);
+}
+
+/** Top up prayer at the Edgeville monastery altar (proven in range-druids). */
+async function rechargePrayer(): Promise<boolean> {
+    const pts = prayerPoints();
+    const max = prayerBase();
+    if (pts >= max) return true;
+    intent('Recharge prayer at monastery');
+    log(`Recharge prayer ${pts}/${max} at monastery`);
+    // Bank to monastery in short hops (single long walkTos no-op).
+    for (const hop of [
+        { x: 3070, z: 3490 },
+        { x: MONASTERY.x, z: MONASTERY.z }
+    ]) {
+        if (distTo(hop.x, hop.z) > 6) await walkNear(hop.x, hop.z, 4);
+    }
+    for (let attempt = 0; attempt < 6 && pos().level === 0; attempt++) {
+        if (await climbMonasteryLadder(/climb-up/i)) break;
+        if (attempt === 1 || sdk.findNearbyNpc(/abbot/i)) await joinPrayerGuild();
+        await sdk.waitForTicks(1);
+    }
+    if (pos().level === 0) {
+        log(`Still ground floor @ ${pos().x},${pos().z} — cannot reach monastery altar`);
+        return prayerPoints() >= prayerBase();
+    }
+    const altar = sdk.findNearbyLoc(/^altar$/i, { withOption: /pray/i }) ?? sdk.findNearbyLoc(/altar/i);
+    if (!altar) {
+        log(`No altar upstairs @ ${pos().x},${pos().z} L${pos().level}`);
+    } else {
+        const before = prayerPoints();
+        await bot.interactLoc(altar, /pray/i);
+        try {
+            await sdk.waitForCondition((s) => (s.prayers?.prayerPoints ?? 0) > before, 8_000);
+        } catch {
+            /* already full or miss */
+        }
+        log(`Altar pray ${before} -> ${prayerPoints()}/${prayerBase()}`);
+    }
+    await ensureGroundFloor();
+    return prayerPoints() >= prayerBase();
 }
 
 function bankFood() {
@@ -730,6 +845,15 @@ async function bankTrip(): Promise<boolean> {
     }
     session.noteProgress('bank', 'edgeville');
     log(`Banked ${deposited} addy | trip ${session.metrics().trips} total ${banked} | deaths ${deaths} | Mining ${mining()} (${miningXp()} xp)`);
+    // Top up prayer at the monastery while at Edgeville (skips when full).
+    await rechargePrayer();
+    // Re-stage at the bank tile (the trip — and goToHob after it — assumes it).
+    for (const hop of [
+        { x: 3070, z: 3490 },
+        { x: EDGEVILLE_BANK.x, z: EDGEVILLE_BANK.z }
+    ]) {
+        if (distTo(hop.x, hop.z) > 6) await walkNear(hop.x, hop.z, 4);
+    }
     return hasPickaxe();
 }
 
@@ -811,6 +935,8 @@ async function handlePker(): Promise<void> {
     const loot = await antiPk.lootKill();
     if (loot.picked > 0) session.noteProgress('inventory', 'pk-loot');
     await healToFull();
+    // Prayers off after the fight — no point draining points at the mine.
+    await bot.deactivateAllPrayers().catch(() => {});
     // Fight turned bad (still hurt, no food): bank and re-arm.
     if (needsHeal() && foodCount() === 0) {
         log('Post-fight hurt with no food — banking to re-arm');
