@@ -91,7 +91,7 @@
         {
             "name": "jacklove3",
             "view": "fleet",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
                 "jacklove3"
             ]
