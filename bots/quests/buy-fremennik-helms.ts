@@ -326,10 +326,14 @@ const banked = HELMS.map((h) => bankCount(h.re));
 log(
     `bank now holds: ${HELMS.map((h, i) => `${h.label}=${banked[i]}`).join(' ')} | pack coins=${invCount(COINS)}`
 );
-await bot.closeBank().catch(() => undefined);
 
-// Wear the Berserker helm (asked for). Withdraw one unnoted and equip it, then
-// verify it actually landed on the head slot — the equip receipt is weak.
+// Wear the Berserker helm (asked for) WHILE THE BANK IS STILL OPEN. An earlier
+// version closed it first, so the withdraw returned 'Bank is not open' and the
+// helm was never worn even though the whole buy-out had succeeded. The close
+// moves to after this block.
+if (!sdk.getState()?.bank?.isOpen) await openBankAt(SEERS_BANK, 'Seers (wear)');
+// Withdraw one unnoted, equip it, and confirm it landed on the head slot — the
+// equip receipt is weak.
 if (!sdk.findEquipmentItem(BERSERKER)) {
     const w = await bot.withdrawItem(BERSERKER, 1).catch((e: unknown) => ({ success: false, message: String(e) }));
     await sdk.waitForTicks(2).catch(() => undefined);
@@ -343,8 +347,13 @@ if (!sdk.findEquipmentItem(BERSERKER)) {
     log('berserker helm is already on the head slot');
 }
 
+await bot.closeBank().catch(() => undefined);
 const ok = HELMS.every((h, i) => (banked[i] ?? 0) > 0 || invCount(h.re) > 0);
-log(`${ok ? 'DONE' : 'INCOMPLETE'} — ${HELMS.map((h) => `${h.label}: bank=${bankCount(h.re)} pack=${invCount(h.re)}`).join(' | ')}`);
+// Report the counts captured while the bank was OPEN: re-reading here returns
+// zeros, which printed bank=0 for every helm on a fully successful run.
+log(
+    `${ok ? 'DONE' : 'INCOMPLETE'} — ${HELMS.map((h, i) => `${h.label}: bank=${banked[i]} pack=${invCount(h.re)}`).join(' | ')}`
+);
 session.stop(ok ? 'done' : 'incomplete', 'helms purchase finished', { restartable: false });
 
 // Idle rather than exit: a container that exits 0 is restarted by the supervisor
