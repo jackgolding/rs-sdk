@@ -215,9 +215,10 @@
         {
             "name": "jacklove16",
             "view": "loves",
-            "script": "bots/quests/hobgoblin-adamant.ts",
+            "script": "bots/quests/mining-guild.ts",
             "args": [
-                "jacklove16"
+                "jacklove16",
+                "--north"
             ]
         },
         {
@@ -239,9 +240,10 @@
         {
             "name": "jacklove19",
             "view": "loves",
-            "script": "bots/quests/hobgoblin-adamant.ts",
+            "script": "bots/quests/mining-guild.ts",
             "args": [
-                "jacklove19"
+                "jacklove19",
+                "--north"
             ]
         },
         {
