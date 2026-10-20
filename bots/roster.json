@@ -115,7 +115,7 @@
         {
             "name": "jackthief",
             "view": "fleet",
-            "script": "bots/quests/guild-stairs-down.ts",
+            "script": "bots/quests/edgeville-bank-all.ts",
             "args": [
                 "jackthief"
             ]
