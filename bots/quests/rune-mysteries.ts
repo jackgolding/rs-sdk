@@ -26,6 +26,7 @@ const ESSENCE_ROCKS = { x: 2926, z: 4818 };
 const VARROCK_EAST_BANK = { x: 3253, z: 3420 };
 const BOBS_AXES = { x: 3232, z: 3203 };
 const ARDOUGNE_BANK = { x: 2655, z: 3283 };
+const SEERS_BANK = { x: 2726, z: 3485 };
 const HEROES = { x: 2630, z: 3288 };
 const LUMBRIDGE_MEN = { x: 3222, z: 3218 };
 const TOWER_TO_VARROCK = [
@@ -632,9 +633,16 @@ async function goToAubury(): Promise<boolean> {
 
 async function depositEverything(): Promise<boolean> {
     await closeUi();
-    if (distTo(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z) > 8) {
-        intent('Walking to Ardougne bank to dump everything');
-        await walkNear(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 3);
+    // Pick the CLOSER bank: a Seers start (flax/bowstrings bots) is ~200 tiles
+    // from Ardougne, and one long walkNear silently no-ops, so every strip
+    // attempt failed with 'Bank open failed' in place.
+    const bank =
+        distTo(SEERS_BANK.x, SEERS_BANK.z) < distTo(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z)
+            ? SEERS_BANK
+            : ARDOUGNE_BANK;
+    if (distTo(bank.x, bank.z) > 8) {
+        intent(`Walking to ${bank === SEERS_BANK ? 'Seers' : 'Ardougne'} bank to dump everything`);
+        await walkNear(bank.x, bank.z, 3);
     }
     for (let round = 0; round < 6 && !packedEmpty(); round++) {
         if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
