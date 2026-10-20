@@ -115,7 +115,7 @@
         {
             "name": "jackthief",
             "view": "fleet",
-            "script": "bots/quests/edgeville-bank-all.ts",
+            "script": "bots/quests/buy-nurmof-pick.ts",
             "args": [
                 "jackthief"
             ]
