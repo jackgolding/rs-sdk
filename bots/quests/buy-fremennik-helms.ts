@@ -148,6 +148,24 @@ function planRoute(dest: Tile): Tile[] {
     }
 }
 
+/**
+ * Open the bank, walking onto the booth between attempts. The first live run
+ * logged 'No banker NPC or bank booth found nearby' from 27 tiles away and
+ * exited — which only "worked" because the container restarts on exit 1, and
+ * read as a failure. Step in and retry instead.
+ */
+async function openBankAt(tile: Tile, label: string): Promise<boolean> {
+    for (let attempt = 0; attempt < 4; attempt++) {
+        if (sdk.getState()?.bank?.isOpen) return true;
+        const r = await bot.openBank().catch((e: unknown) => ({ success: false, message: String(e) }));
+        if (r.success || sdk.getState()?.bank?.isOpen) return true;
+        log(`bank not open at ${label} (try ${attempt + 1}): ${r.message ?? ''} @ ${here()} — stepping to the booth`);
+        await walkSendHops(sdk, [{ x: tile.x, z: tile.z }], tile, 2);
+        await sdk.waitForTicks(4).catch(() => undefined);
+    }
+    return !!sdk.getState()?.bank?.isOpen;
+}
+
 const here = (): string => {
     const p = playerPos(sdk);
     return `${p.x},${p.z},${p.level}`;
@@ -164,13 +182,10 @@ const toBank = planRoute(SEERS_BANK);
 log(`travelling to Seers bank @ ${here()} via ${toBank.length} planned waypoints`);
 if (!toBank.length) log('WARN pathfinder gave no route — using the fixed north road as a fallback');
 await walkSendHops(sdk, toBank.length ? toBank : [...NORTH_ROAD].reverse(), SEERS_BANK, 4);
-if (!sdk.getState()?.bank?.isOpen) {
-    const opened = await bot.openBank();
-    if (!opened.success && !sdk.getState()?.bank?.isOpen) {
-        log(`bank would not open (${opened.message}) — stopping`);
-        await sdk.disconnect().catch(() => undefined);
-        process.exit(1);
-    }
+if (!(await openBankAt(SEERS_BANK, 'Seers'))) {
+    log('bank would not open at Seers after 4 tries — idling so this is visible');
+    session.stop('blocked', 'bank would not open', { restartable: false });
+    while (true) await sdk.waitForTicks(100).catch(() => undefined);
 }
 await sdk.waitForTicks(3).catch(() => undefined);
 
@@ -258,9 +273,8 @@ log(`pack now: ${bought.map((h) => h.label).join(',') || 'no helms'} — banking
 const backToBank = planRoute(SEERS_BANK);
 log(`travelling back to Seers bank @ ${here()} via ${backToBank.length} planned waypoints`);
 await walkSendHops(sdk, backToBank.length ? backToBank : [...NORTH_ROAD].reverse(), SEERS_BANK, 4);
-if (!sdk.getState()?.bank?.isOpen) {
-    const r = await bot.openBank();
-    if (!r.success && !sdk.getState()?.bank?.isOpen) log(`bank would not open for the deposit (${r.message})`);
+if (!(await openBankAt(SEERS_BANK, 'Seers (deposit)'))) {
+    log('WARN bank would not open for the deposit — the helms stay in the pack');
 }
 await sdk.waitForTicks(3).catch(() => undefined);
 for (const item of [...sdk.getInventory()]) {
@@ -270,12 +284,15 @@ for (const item of [...sdk.getInventory()]) {
     if (d.success) session.noteProgress('bank', `banked ${item.name}`);
 }
 await sdk.waitForTicks(3).catch(() => undefined);
+// Read the counts while the bank is OPEN — getBankItems() goes empty once it
+// closes, which made a fully successful run report INCOMPLETE.
+const banked = HELMS.map((h) => bankCount(h.re));
 log(
-    `bank now holds: ${HELMS.map((h) => `${h.label}=${bankCount(h.re)}`).join(' ')} | pack coins=${invCount(COINS)}`
+    `bank now holds: ${HELMS.map((h, i) => `${h.label}=${banked[i]}`).join(' ')} | pack coins=${invCount(COINS)}`
 );
 await bot.closeBank().catch(() => undefined);
 
-const ok = HELMS.every((h) => bankCount(h.re) > 0 || invCount(h.re) > 0);
+const ok = HELMS.every((h, i) => (banked[i] ?? 0) > 0 || invCount(h.re) > 0);
 log(`${ok ? 'DONE' : 'INCOMPLETE'} — ${HELMS.map((h) => `${h.label}: bank=${bankCount(h.re)} pack=${invCount(h.re)}`).join(' | ')}`);
 session.stop(ok ? 'done' : 'incomplete', 'helms purchase finished', { restartable: false });
 

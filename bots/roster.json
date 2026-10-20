@@ -115,9 +115,10 @@
         {
             "name": "jackthief",
             "view": "fleet",
-            "script": "bots/quests/buy-fremennik-helms.ts",
+            "script": "bots/quests/jackthief-pickup-shields.ts",
             "args": [
-                "jackthief"
+                "jackthief",
+                "--drop"
             ]
         },
         {
