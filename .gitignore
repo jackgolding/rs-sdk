@@ -48,3 +48,4 @@ server/engine/data/market.sqlite*
 
 # quest-lab run output is evidence, not source
 quest-lab/runs/
+travel-gaps.jsonl

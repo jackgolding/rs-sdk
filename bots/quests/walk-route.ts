@@ -19,6 +19,8 @@
 //   walk(x, z)  -> Promise
 //   waitTicks(n)-> Promise
 
+import { recordTravelGap } from '../../sdk/travel';
+
 export interface WalkHost {
     getPos(): { x: number; z: number; level: number };
     walk(x: number, z: number): Promise<unknown>;
@@ -55,6 +57,15 @@ const dist = (a: Tile, b: Tile): number => Math.hypot(a.x - b.x, a.z - b.z);
  * Walk a waypoint list in order. Waypoints advance by INDEX: selecting by
  * distance cannot mark one as passed and the bot walks back to it.
  */
+/**
+ * Which script is walking, for the gap registry. Falls back to argv's entry
+ * point, which is the script itself when run as `bun bots/quests/<x>.ts <bot>`.
+ */
+function walkingScript(): string {
+    const entry = process.argv[1] ?? 'unknown';
+    return entry.includes('/bots/') ? entry.slice(entry.indexOf('bots/')) : entry.split('/').pop() ?? 'unknown';
+}
+
 export async function walkRoute(
     host: WalkHost,
     waypoints: readonly Tile[],
@@ -106,6 +117,16 @@ export async function walkRoute(
                 if (noProgress >= 2) {
                     const why = `no progress at (${now.x},${now.z}) l${now.level} toward (${target.x},${target.z}), ${Math.round(dist(now, target))} tiles short`;
                     log(`BLOCKED leg ${leg + 1}: ${why}`);
+                    // A blocked hop is a travel gap, not just this run's bad luck:
+                    // record it so the same wall becomes one work item instead of
+                    // N scripts rediscovering it.
+                    recordTravelGap({
+                        kind: 'blocked',
+                        from: now,
+                        to: { x: target.x, z: target.z, level: now.level },
+                        script: walkingScript(),
+                        detail: why,
+                    });
                     return { ok: false, failedLeg: leg, at: now, blocked: why };
                 }
             } else {
@@ -117,6 +138,13 @@ export async function walkRoute(
         if (dist(now, target) > tolerance) {
             const why = `leg ${leg + 1} exhausted hops at (${now.x},${now.z}) l${now.level}, ${Math.round(dist(now, target))} tiles short of (${target.x},${target.z})`;
             log(`BLOCKED: ${why}`);
+            recordTravelGap({
+                kind: 'arrival-short',
+                from: now,
+                to: { x: target.x, z: target.z, level: now.level },
+                script: walkingScript(),
+                detail: why,
+            });
             return { ok: false, failedLeg: leg, at: now, blocked: why };
         }
         log(`  arrived leg ${leg + 1} at (${now.x},${now.z}) l${now.level}`);

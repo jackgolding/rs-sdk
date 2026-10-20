@@ -85,6 +85,60 @@ Rollback is a revert of that merge commit plus a roster switch away from the
 script; the frozen candidate stays on the branch, so re-promoting after a fix is
 another pass through the same four gates.
 
+## Where a discovered problem belongs
+
+A quest that hits a wall should not quietly carry the workaround. Decide by blast
+radius:
+
+| problem | owner | why |
+| --- | --- | --- |
+| movement that no script can do (pathfinder gap, blocked corridor) | the shared travel layer (`sdk/travel.ts` registry + a mover) | every script walking there will hit it |
+| a door/ladder/teleport with an activation rule | a named connector in the shared layer | it is a mechanic, not a route |
+| narrative one-off (an NPC escorts you, a one-time disguise) | the quest, but through the shared mover | nothing else can reuse it |
+
+Either way it is **recorded**: every `BLOCKED` / short arrival appends to
+`travel-gaps.jsonl` with coordinates, the script and the mover's reason.
+
+```bash
+bun sdk/travel-check.ts --gaps     # grouped work items, most-hit first
+bun sdk/travel-check.ts            # which scripts travel with no shared mover
+bun sdk/travel-check.ts --strict   # CI: fail while any script travels blind
+```
+
+Three rules that came out of the Wizards' Tower failure (three eval attempts,
+three different walls, each one dying in a single script's log):
+
+1. Cross-region legs use the shared hop walker. `bot.walkTo` plans with the
+   CLIENT pathfinder, which has no graph for stretches of the map and returns
+   `no waypoints` for walkable tiles — with no fallback the script just dies.
+2. A state that claims a position must verify it. `enterTower` accepted "inside"
+   at 3 tiles — outside the door — and sent the next step at the wrong staircase.
+3. A fix lands as its own commit, with a regression test, reviewed separately
+   from the quest that found it. The quest PR then just declares a route.
+
+## Dev ↔ prod parity
+
+Fixes get made where the failure shows up, and that is how the two trees drift:
+Dwarf Cannon, Fremennik Trials and Red Dragons were all worked on in prod while
+dev was being rewritten.
+
+```bash
+bun tools/quest-parity.ts --dev ~/rs-sdk-offline --prod ~/rs-sdk
+bun tools/quest-parity.ts --dev … --prod … --only 'cannon|fremennik|red-dragons'
+bun tools/quest-parity.ts --dev … --prod … --show red-dragons.ts   # prod -> dev diff
+bun tools/quest-parity.ts --dev … --prod … --strict                # CI gate
+```
+
+| status | meaning | action |
+| --- | --- | --- |
+| `same` | identical bytes | nothing |
+| `dev-only` | unmerged work | expected before a merge |
+| **`prod-only`** | a fix dev never received | port it into dev, never assume it is gone |
+| **`differs`** | both sides changed it | manual merge, never a copy in either direction |
+
+`prod-only` and `differs` are the two that silently revert someone's work. Run
+the parity check before every fleet merge and after every prod hotfix.
+
 ## Where the pieces live
 
 | Stage | Artifact |
