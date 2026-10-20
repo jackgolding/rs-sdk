@@ -307,6 +307,11 @@ async function closeUi(): Promise<void> {
             await sdk.waitForTicks(1);
         }
     }
+    // Quantity/spinning modal left open by the previous script blocks every
+    // loc click (bots sat on the wheel floor with interface.isOpen=true).
+    if (sdk.getState()?.interface?.isOpen) {
+        await bot.closeInterface().catch(() => undefined);
+    }
     if (sdk.getState()?.shop?.isOpen) {
         await bot.closeShop();
     } else if (sdk.getState()?.bank?.isOpen) {
