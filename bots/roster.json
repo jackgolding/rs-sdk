@@ -151,19 +151,17 @@
         {
             "name": "jacklove8",
             "view": "loves",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/edgeville-bank-all.ts",
             "args": [
-                "jacklove8",
-                "druids"
+                "jacklove8"
             ]
         },
         {
             "name": "jacklove9",
             "view": "loves",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/edgeville-bank-all.ts",
             "args": [
-                "jacklove9",
-                "druids"
+                "jacklove9"
             ]
         },
         {
@@ -201,10 +199,9 @@
         {
             "name": "jacklove14",
             "view": "loves",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/edgeville-bank-all.ts",
             "args": [
-                "jacklove14",
-                "thugs"
+                "jacklove14"
             ]
         },
         {
