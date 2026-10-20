@@ -4,8 +4,8 @@
  *   bun bots/quests/champions-rune-buy.ts jackthief
  *
  * Withdraws a healthy coin pocket from the bank, walks to the Champions'
- * Guild south-west of Varrock, buys out every rune line in Scavvo's shared
- * shop (chainbody, platelegs, plateskirt, longsword, sword, mace), and
+ * Guild south-west of Varrock, buys out the rune ARMOUR lines in Scavvo's
+ * shared shop (chainbody, platelegs, plateskirt — no weapons), and
  * repeats: when the backpack fills it banks the armour at Varrock West and
  * comes back. When the shelf is empty it waits in the guild for restock.
  *
@@ -26,16 +26,9 @@ import { closeUi, playerPos, walkNear } from './movement';
 import { VARROCK_WEST_BANK } from './tiles';
 import { installGracefulShutdown } from '../../sdk/runner';
 
-/** Rune lines in Scavvo's shop, most valuable first. */
-const RUNE_WANTS = [
-    /^rune chainbody$/i,
-    /^rune platelegs$/i,
-    /^rune plateskirt$/i,
-    /^rune longsword$/i,
-    /^rune sword$/i,
-    /^rune mace$/i
-];
-const LOOT = /^(rune chainbody|rune platelegs|rune plateskirt|rune longsword|rune sword|rune mace)$/i;
+/** Rune armour lines in Scavvo's shop, most valuable first (no weapons). */
+const RUNE_WANTS = [/^rune chainbody$/i, /^rune platelegs$/i, /^rune plateskirt$/i];
+const LOOT = /^(rune chainbody|rune platelegs|rune plateskirt)$/i;
 const COINS = /^coins$/i;
 const SCAVVO = /^scavvo$/i;
 
