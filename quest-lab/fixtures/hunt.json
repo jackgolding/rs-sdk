@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "questId": "hunt",
+  "position": { "x": 3092, "z": 3243, "level": 0 },
+  "skills": "maxed",
+  "tutorial": true,
+  "bank": [
+    { "name": "coins", "count": 500 },
+    { "name": "spade", "count": 1 },
+    { "name": "shark", "count": 10 }
+  ],
+  "worn": [],
+  "varps": {},
+  "target": { "varp": "hunt", "unstarted": 0 }
+}

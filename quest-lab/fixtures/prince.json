@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "questId": "prince",
+  "position": { "x": 3269, "z": 3167, "level": 0 },
+  "skills": "maxed",
+  "tutorial": true,
+  "bank": [
+    { "name": "coins", "count": 500 },
+    { "name": "bronze_bar", "count": 1 },
+    { "name": "rope", "count": 1 },
+    { "name": "pink_skirt", "count": 1 },
+    { "name": "wig", "count": 1 },
+    { "name": "beer", "count": 2 },
+    { "name": "paste", "count": 1 },
+    { "name": "shark", "count": 10 }
+  ],
+  "worn": [],
+  "varps": {},
+  "target": { "varp": "princequest", "unstarted": 0 }
+}

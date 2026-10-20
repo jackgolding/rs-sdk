@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "questId": "sheep",
+  "position": { "x": 3092, "z": 3243, "level": 0 },
+  "skills": "maxed",
+  "tutorial": true,
+  "bank": [
+    { "name": "coins", "count": 60 },
+    { "name": "shears", "count": 1 },
+    { "name": "shark", "count": 5 }
+  ],
+  "worn": [],
+  "varps": {},
+  "target": { "varp": "sheep", "unstarted": 0 }
+}

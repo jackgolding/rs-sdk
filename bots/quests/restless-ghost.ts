@@ -441,41 +441,55 @@ async function exitBasement(what: string): Promise<void> {
  * so the walk is retried regardless and displacement is the gate.
  */
 async function exitTower(): Promise<void> {
-    const hops = [{ x: 3108, z: 3162 }, { x: 3110, z: 3163 }, { x: 3113, z: 3162 }];
-    for (const hop of hops) {
-        const before = pos();
-        if (Math.hypot(before.x - hop.x, before.z - hop.z) <= 2) continue;
-        let res = await bot.walkTo(hop.x, hop.z, 2);
+    const OUTSIDE = { x: 3113, z: 3162 };
+    // 1. Open the door FIRST, from the interior side. The door's own tile is
+    //    masked in the collision graph, so the planner reports "no waypoints"
+    //    for every route out of the room while the door is shut — and the
+    //    interact may itself move the player (rule 19b: a door open is a
+    //    teleport with an unknown destination, so displacement is re-read).
+    await sdk.scanNearbyLocs(12).catch(() => {});
+    const doors = (sdk.getNearbyLocs() ?? [])
+        .filter(l => /door|gate/i.test(l.name ?? '') && (l.distance ?? 99) <= 6)
+        .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99));
+    for (const door of doors) {
+        if (!door.optionsWithIndex.some(o => /open/i.test(o.text))) continue;
+        const opened = await bot.interactLoc(door, /open/i);
         await sdk.waitForTicks(2);
-        let after = pos();
-        // A shut door on the hop blocks the planner ("No path ... no
-        // waypoints"); the nearest shut door may be behind us, so open EVERY
-        // shut door nearby, settle, and retry — up to 3 rounds.
-        for (let round = 0; round < 3
-            && (!res.success || Math.hypot(after.x - hop.x, after.z - hop.z) > 3); round++) {
-            await sdk.scanNearbyLocs(12).catch(() => {});
-            const shut = (sdk.getNearbyLocs() ?? [])
-                .filter(l => /door|gate/i.test(l.name)
-                    && (l.distance ?? 99) <= 6
-                    && l.optionsWithIndex.some(o => /open/i.test(o.text)))
-                .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99));
-            if (shut.length === 0) break;
-            for (const door of shut) {
-                const opened = await bot.interactLoc(door, /open/i);
-                log(`open tower exit door @ (${door.x},${door.z}): ${opened.success}${opened.success ? '' : ` (${opened.message ?? '?'})`}`);
-                await sdk.waitForTicks(2);
-            }
-            res = await bot.walkTo(hop.x, hop.z, 2);
-            await sdk.waitForTicks(2);
-            after = pos();
-        }
-        const step = Math.hypot(after.x - before.x, after.z - before.z);
-        log(`tower exit hop -> (${hop.x},${hop.z}) moved=${step.toFixed(1)} at (${after.x},${after.z}) l${after.level} ok=${res.success}`);
-        if (step < 1 && Math.hypot(after.x - hop.x, after.z - hop.z) > 3) {
-            throw new Error(`BLOCKED tower exit hop to (${hop.x},${hop.z}): no progress at (${after.x},${after.z}) l${after.level}`);
-        }
+        log(`open tower exit door @ (${door.x},${door.z}): ${opened.success}${opened.success ? '' : ` (${opened.message ?? '?'})`} now (${pos().x},${pos().z})`);
     }
-    log(`Outside the tower at (${pos().x},${pos().z}) l${pos().level}`);
+    // 2. Raw steps east with sendWalk. The static map the planner reads still
+    //    calls the door tile unwalkable after the door opens, so a planned
+    //    route can never cross it; the server's collision does allow the step.
+    //    Short verified hops only — a long chord through the masked tile dies
+    //    as "no waypoints" and moves nothing.
+    for (let attempt = 0; attempt < 6 && distTo(OUTSIDE) > 3; attempt++) {
+        const before = pos();
+        const dx = OUTSIDE.x - before.x;
+        const dz = OUTSIDE.z - before.z;
+        const len = Math.hypot(dx, dz) || 1;
+        const step = Math.min(4, len);
+        await sdk.sendWalk(
+            Math.round(before.x + (dx / len) * step),
+            Math.round(before.z + (dz / len) * step),
+            true,
+        ).catch(() => undefined);
+        await sdk.waitForTicks(3);
+        const after = pos();
+        const moved = Math.hypot(after.x - before.x, after.z - before.z);
+        log(`tower exit raw step -> (${after.x},${after.z}) l${after.level} moved=${moved.toFixed(1)}`);
+        if (moved < 1) break;
+    }
+    // 3. One planned attempt from wherever the raw steps landed (they may have
+    //    cleared the door line), then a hard verdict.
+    if (distTo(OUTSIDE) > 3) {
+        await bot.walkTo(OUTSIDE.x, OUTSIDE.z, 3).catch(() => undefined);
+        await sdk.waitForTicks(2);
+    }
+    const at = pos();
+    if (Math.hypot(at.x - OUTSIDE.x, at.z - OUTSIDE.z) > 6) {
+        throw new Error(`BLOCKED tower exit: still inside at (${at.x},${at.z}) l${at.level}`);
+    }
+    log(`Outside the tower at (${at.x},${at.z}) l${at.level}`);
     session.noteProgress('location', 'exited the tower');
 }
 

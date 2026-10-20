@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "name": "priest",
+  "runs": 3,
+  "timeoutMs": 900000,
+  "gate": { "minPassRate": 0.8, "minRuns": 3 },
+  "quests": [
+    { "questId": "priest", "script": "bots/quests/restless-ghost.ts", "fixture": "quest-lab/fixtures/priest.json", "accountCode": "priest" }
+  ]
+}

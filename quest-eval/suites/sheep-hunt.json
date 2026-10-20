@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "name": "sheep-hunt",
+  "runs": 3,
+  "timeoutMs": 1500000,
+  "gate": { "minPassRate": 0.8, "minRuns": 3 },
+  "quests": [
+    { "questId": "sheep", "script": "bots/quests/sheep-shearer.ts", "fixture": "quest-lab/fixtures/sheep.json", "accountCode": "sheep" }
+  ]
+}

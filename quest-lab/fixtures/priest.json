@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "questId": "priest",
+  "position": { "x": 3082, "z": 3242, "level": 0 },
+  "skills": "maxed",
+  "tutorial": true,
+  "bank": [
+    { "name": "coins", "count": 200 },
+    { "name": "shark", "count": 12 }
+  ],
+  "worn": [],
+  "varps": {},
+  "target": { "varp": "prieststart", "unstarted": 0 }
+}
