@@ -208,7 +208,7 @@
         {
             "name": "jacklove15",
             "view": "loves",
-            "script": "bots/quests/rune-mysteries.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "jacklove15"
             ]
