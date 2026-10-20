@@ -131,10 +131,9 @@
         {
             "name": "jacklove6",
             "view": "loves",
-            "script": "bots/quests/mining-lowlevel.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
-                "jacklove6",
-                "--until=41"
+                "jacklove6"
             ]
         },
         {
@@ -216,7 +215,7 @@
         {
             "name": "jacklove16",
             "view": "loves",
-            "script": "bots/quests/rimmington-iron.ts",
+            "script": "bots/quests/hobgoblin-adamant.ts",
             "args": [
                 "jacklove16"
             ]
@@ -240,7 +239,7 @@
         {
             "name": "jacklove19",
             "view": "loves",
-            "script": "bots/quests/rimmington-iron.ts",
+            "script": "bots/quests/hobgoblin-adamant.ts",
             "args": [
                 "jacklove19"
             ]
