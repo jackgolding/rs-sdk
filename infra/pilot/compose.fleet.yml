@@ -947,7 +947,7 @@ services:
   quest-jacklove15:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/bowstrings.ts", "jacklove15"]
+    command: ["bun", "bots/quests/rune-mysteries.ts", "jacklove15"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
