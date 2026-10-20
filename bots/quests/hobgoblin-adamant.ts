@@ -937,9 +937,9 @@ async function handlePker(): Promise<void> {
     await healToFull();
     // Prayers off after the fight — no point draining points at the mine.
     await bot.deactivateAllPrayers().catch(() => {});
-    // Fight turned bad (still hurt, no food): bank and re-arm.
-    if (needsHeal() && foodCount() === 0) {
-        log('Post-fight hurt with no food — banking to re-arm');
+    // No food left = no business in the wildy, whatever the HP gauge says.
+    if (foodCount() === 0) {
+        log('Out of food after PK fight — banking to re-arm');
         if (northOfDitch()) await leaveWildy();
         if (pos().isDead) return;
         await bankTrip();
@@ -1086,6 +1086,13 @@ try {
         if (seePker() || pkPressure()) {
             await handlePker();
             if (pos().isDead) continue;
+            continue;
+        }
+        if (foodCount() === 0 && northOfDitch()) {
+            log('No trip food left in the wildy — banking to re-arm');
+            await leaveWildy();
+            if (pos().isDead) continue;
+            await bankTrip();
             continue;
         }
         if (session.needsRecovery()) {
