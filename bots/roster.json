@@ -320,9 +320,10 @@
         {
             "name": "ABGARMY09",
             "view": "army",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY09"
+                "ABGARMY09",
+                "--knights"
             ]
         },
         {
@@ -408,9 +409,10 @@
         {
             "name": "ABGARMY20",
             "view": "army",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY20"
+                "ABGARMY20",
+                "--knights"
             ]
         }
     ]
