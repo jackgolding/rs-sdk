@@ -25,13 +25,14 @@
 import { existsSync, readFileSync, appendFileSync } from 'fs';
 import { dirname, join } from 'path';
 
-import { BotSDK, deriveGatewayUrl } from '../../sdk/index';
+import { BotSDK, Machine, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
 import { initPathfinding, findLongPath, isTileWalkable } from '../../sdk/pathfinding';
 import { ActivitySession } from '../../sdk/activity';
 import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
 import { createRun, appendCheckpoint, summarizeRun, safeRunId } from '../../quest-lab/records';
 import type { JournalRule } from '../../quest-lab/evidence';
+import { graph, type ImpCtx, type ImpStage } from './imp-catcher.graph';
 
 // ── args / env ──────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -228,21 +229,59 @@ async function readStage(): Promise<'unstarted' | 'active' | 'complete' | 'unkno
     return 'unknown';
 }
 
-const STAGE = await readStage();
-log(`Quest stage at start: ${STAGE}`);
-if (STAGE === 'complete') {
-    log('Imp Catcher is already complete — nothing to do');
-    session.log('log', 'quest already complete; nothing to do');
-    sdk.disconnect();
-    process.exit(0);
-}
-if (STAGE === 'unknown') throw new Error('could not determine the quest stage from the journal');
+// The decision that follows lives in `imp-catcher.graph.ts` (`inspect`), not
+// here: this file supplies the probe, the graph routes on the answer.
 
-// ── travel ──────────────────────────────────────────────────────────────────
 /**
- * Walk to a destination via planned waypoints. Each leg is verified: a leg that
- * moves nothing is an obstacle, and retrying the same bearing cannot help.
+ * Deposit carry-over (never the beads — they are the quest), then top up food.
+ * Food is opportunistic, never mandatory: imps are level 2 and the fallback
+ * refills mid-hunt, so an empty food stock warns instead of idling the run.
  */
+async function bankForSupplies(): Promise<void> {
+    // A bot may be anywhere on restart (mid-quest, or left by an earlier leg), so
+    // travel to the bank first rather than assuming the start tile.
+    if (distTo(DRAYNOR_BANK) > 8) await travelTo(DRAYNOR_BANK, 'Draynor bank');
+
+    const keep = (name: string) => BEADS.some(b => b.pattern.test(name)) || FOOD_RE.test(name);
+    const junk = sdk.getInventory().filter(i => (i.count ?? 0) > 0 && !keep(i.name));
+    if (junk.length > 0) {
+        log(`Depositing ${junk.length} carried stack(s) before withdrawing`);
+        if (!(await bot.openBank()).success) throw new Error(`could not open bank at ${pos().x},${pos().z}`);
+        for (const item of junk) await bot.depositItem(item, -1);
+        session.noteProgress('bank', 'deposited carry-over inventory');
+    }
+
+    // Pre-check stock before the first withdraw: read the bank once, then act.
+    await bot.closeInterface();
+    if (!(await bot.openBank()).success) {
+        // Booths can fail to open from a tile, and contents read empty right after
+        // open: close, step to the booth, retry once before declaring failure.
+        await bot.closeInterface();
+        await bot.walkTo(DRAYNOR_BANK.x - 1, DRAYNOR_BANK.z, 1);
+        if (!(await bot.openBank()).success) throw new Error('could not open Draynor bank for withdrawal');
+    }
+    await sdk.waitForTicks(2);
+
+    const bankItems = sdk.getState()?.bank?.items ?? [];
+    const bankFood = bankItems.filter(i => FOOD_RE.test(i.name)).reduce((n, i) => n + (i.count ?? 0), 0);
+    log(`Stock pre-check: food inv=${foodCount()} bank=${bankFood} beads=${beadCount()}/4`);
+    if (foodCount() === 0 && bankFood === 0) {
+        log('No food stocked anywhere — proceeding without (imps are level 2); fallback refills if stock appears');
+        session.log('warn', 'no food in inventory or bank; hunting without');
+    } else if (foodCount() < FOOD_WITHDRAW && bankFood > 0) {
+        // The interface can drop between the open check and the withdraw.
+        if (!sdk.getState()?.bank?.isOpen && !(await bot.openBank()).success) {
+            throw new Error('bank closed before withdrawing food');
+        }
+        const res = await bot.withdrawItem(FOOD_RE, Math.min(FOOD_WITHDRAW - foodCount(), bankFood));
+        log(`withdrew food: ${res.success}${res.success ? '' : ` (${res.message ?? '?'})`}`);
+        if (res.success) session.noteProgress('bank', `withdrew food (now ${foodCount()})`);
+    }
+    await bot.closeInterface();
+    log(`Bag: foodx${foodCount()} beads=${beadCount()}/4`);
+}
+
+// ── world helpers (unchanged by the conversion) ─────────────────────────────
 async function travelTo(dest: { x: number; z: number }, what: string): Promise<void> {
     const waypoints = planWaypoints(pos(), dest);
     log(`Route to ${what}: ${waypoints.length} waypoint(s) from (${pos().x},${pos().z}) to (${dest.x},${dest.z})`);
@@ -382,124 +421,7 @@ async function goToStairs(up: boolean): Promise<void> {
     }
 }
 
-// ── 2. bank, but only for supplies we still lack ────────────────────────────
-await session.setPhase('bank');
-await bot.dismissBlockingUI();
-await bankForSupplies();
-
-/**
- * Deposit carry-over (never the beads — they are the quest), then top up food.
- * Food is opportunistic, never mandatory: imps are level 2 and the fallback
- * refills mid-hunt, so an empty food stock warns instead of idling the run.
- */
-async function bankForSupplies(): Promise<void> {
-    // A bot may be anywhere on restart (mid-quest, or left by an earlier leg), so
-    // travel to the bank first rather than assuming the start tile.
-    if (distTo(DRAYNOR_BANK) > 8) await travelTo(DRAYNOR_BANK, 'Draynor bank');
-
-    const keep = (name: string) => BEADS.some(b => b.pattern.test(name)) || FOOD_RE.test(name);
-    const junk = sdk.getInventory().filter(i => (i.count ?? 0) > 0 && !keep(i.name));
-    if (junk.length > 0) {
-        log(`Depositing ${junk.length} carried stack(s) before withdrawing`);
-        if (!(await bot.openBank()).success) throw new Error(`could not open bank at ${pos().x},${pos().z}`);
-        for (const item of junk) await bot.depositItem(item, -1);
-        session.noteProgress('bank', 'deposited carry-over inventory');
-    }
-
-    // Pre-check stock before the first withdraw: read the bank once, then act.
-    await bot.closeInterface();
-    if (!(await bot.openBank()).success) {
-        // Booths can fail to open from a tile, and contents read empty right after
-        // open: close, step to the booth, retry once before declaring failure.
-        await bot.closeInterface();
-        await bot.walkTo(DRAYNOR_BANK.x - 1, DRAYNOR_BANK.z, 1);
-        if (!(await bot.openBank()).success) throw new Error('could not open Draynor bank for withdrawal');
-    }
-    await sdk.waitForTicks(2);
-
-    const bankItems = sdk.getState()?.bank?.items ?? [];
-    const bankFood = bankItems.filter(i => FOOD_RE.test(i.name)).reduce((n, i) => n + (i.count ?? 0), 0);
-    log(`Stock pre-check: food inv=${foodCount()} bank=${bankFood} beads=${beadCount()}/4`);
-    if (foodCount() === 0 && bankFood === 0) {
-        log('No food stocked anywhere — proceeding without (imps are level 2); fallback refills if stock appears');
-        session.log('warn', 'no food in inventory or bank; hunting without');
-    } else if (foodCount() < FOOD_WITHDRAW && bankFood > 0) {
-        // The interface can drop between the open check and the withdraw.
-        if (!sdk.getState()?.bank?.isOpen && !(await bot.openBank()).success) {
-            throw new Error('bank closed before withdrawing food');
-        }
-        const res = await bot.withdrawItem(FOOD_RE, Math.min(FOOD_WITHDRAW - foodCount(), bankFood));
-        log(`withdrew food: ${res.success}${res.success ? '' : ` (${res.message ?? '?'})`}`);
-        if (res.success) session.noteProgress('bank', `withdrew food (now ${foodCount()})`);
-    }
-    await bot.closeInterface();
-    log(`Bag: foodx${foodCount()} beads=${beadCount()}/4`);
-}
-
-// ── 3. travel to Mizgog (top floor of the Wizards' Tower) ───────────────────
-await session.setPhase('travel');
-intent('Heading to Wizard Mizgog');
-if (pos().level !== 0 || distTo(TOWER_DOOR) > 6) await travelTo(TOWER_DOOR, 'Wizards Tower door');
-await enterTower();
-await goToStairs(true);
-if (pos().level !== MIZGOG.level) await climbTo(MIZGOG.level, 'Mizgog floor');
-await settleAndRescan('tower climb');
-await travelTo(mizgogApproach(), 'Wizard Mizgog');
-
-// ── 4. start the quest, only from the unstarted stage ───────────────────────
-if (STAGE === 'unstarted') {
-    // Gate BEFORE acting: the quest must really be unstarted, or the dialog below
-    // acts on an assumption.
-    if (!(await checkpoint('unstarted', 'quest not yet started'))) {
-        throw new Error('unstarted checkpoint failed before starting the quest');
-    }
-    await session.setPhase('start-quest');
-    intent('Starting Imp Catcher');
-    const talked = await bot.talkTo(/^wizard mizgog$/i);
-    if (!talked.success) throw new Error(`could not talk to Mizgog: ${talked.message ?? '?'}`);
-
-    for (let i = 0; i < 30; i++) {
-        const dialog = sdk.getDialog();
-        if (!dialog?.isOpen) {
-            await sdk.waitForTicks(1);
-            if (!sdk.getDialog()?.isOpen && i > 2) break;
-            continue;
-        }
-        const options = dialog.options ?? [];
-        const pick = options.find(o => /give me a quest please/i.test(o.text))
-            ?? options.find(o => /give me a quest!/i.test(o.text))
-            ?? options.find(o => /i'll try/i.test(o.text))
-            ?? options[0];
-        if (pick) {
-            log(`dialog -> ${pick.text}`);
-            await sdk.sendClickDialog(pick.index);
-        }
-        await sdk.waitForTicks(2);
-    }
-    await bot.dismissBlockingUI();
-
-    if (!(await checkpoint('active', 'accepted the quest, beads requested'))) {
-        throw new Error('active checkpoint failed after accepting the quest');
-    }
-} else {
-    log('Resuming mid-quest: the bead request is already journal-confirmed');
-}
-
-// ── 5. bead collection ──────────────────────────────────────────────────────
-await session.setPhase('collect');
-if (pos().level !== 0) await climbTo(0, 'tower ground');
-await settleAndRescan('tower descent');
-if (distTo(IMP_CAMP) > 8) await travelTo(IMP_CAMP, 'imp hunting ground');
-await settleAndRescan('arrival at hunting ground');
-
-if (!hasAllBeads()) {
-    intent('Hunting imps for beads');
-    await collectBeads();
-} else {
-    log('All four beads already held; skipping the hunt');
-}
-
-/** Hunt imps until all four beads are held. Gated on connection + fresh state. */
+// ── bead hunt helpers ───────────────────────────────────────────────────────
 async function collectBeads(): Promise<void> {
     const deadline = Date.now() + 45 * 60_000;
     let sinceBankTrip = 0;
@@ -642,50 +564,133 @@ async function foodFallbackTrip(): Promise<void> {
     await settleAndRescan('fallback return');
 }
 
-// ── 6. return to Mizgog and hand in ─────────────────────────────────────────
-await session.setPhase('hand-in');
-intent('Returning the beads to Mizgog');
-await travelTo(TOWER_DOOR, 'Wizards Tower door (return)');
-await enterTower();
-await goToStairs(true);
-if (pos().level !== MIZGOG.level) await climbTo(MIZGOG.level, 'Mizgog floor (return)');
-await settleAndRescan('return climb');
-await travelTo(mizgogApproach(), 'Wizard Mizgog (return)');
+// ── 3. run the declared flow ────────────────────────────────────────────────
+// The flow (stage routing, bank, travel, start, bead hunt, hand-in, verify, and
+// every recovery edge) is declared in `imp-catcher.graph.ts`:
+//   bun sdk/fsm-cli.ts bots/quests/imp-catcher.graph.ts
 
-if (!hasAllBeads()) throw new Error(`reached Mizgog without all beads (${beadCount()}/4)`);
-const again = await bot.talkTo(/^wizard mizgog$/i);
-if (!again.success) throw new Error(`could not talk to Mizgog to hand in: ${again.message ?? '?'}`);
-for (let i = 0; i < 30; i++) {
-    const dialog = sdk.getDialog();
-    if (!dialog?.isOpen) {
-        await sdk.waitForTicks(1);
-        if (!sdk.getDialog()?.isOpen && i > 2) break;
-        continue;
+/** Click through a conversation, preferring the stated choices, then clear the UI. */
+async function drainDialog(preferred: RegExp[]): Promise<void> {
+    for (let i = 0; i < 30; i++) {
+        const dialog = sdk.getDialog();
+        if (!dialog?.isOpen) {
+            await sdk.waitForTicks(1);
+            if (!sdk.getDialog()?.isOpen && i > 2) break;
+            continue;
+        }
+        const options = dialog.options ?? [];
+        const pick = preferred.map((re) => options.find((o) => re.test(o.text))).find(Boolean) ?? options[0];
+        if (pick) {
+            log(`dialog -> ${pick.text}`);
+            await sdk.sendClickDialog(pick.index);
+        }
+        await sdk.waitForTicks(2);
     }
-    const options = dialog.options ?? [];
-    const pick = options.find(o => /i've got all four beads|all four beads/i.test(o.text)) ?? options[0];
-    if (pick) log(`dialog -> ${pick.text}`);
-    if (pick) await sdk.sendClickDialog(pick.index);
-    await sdk.waitForTicks(2);
+    await bot.dismissBlockingUI();
 }
-await bot.dismissBlockingUI();
 
-// ── 7. completion is proven by the journal, never by XP or a chat line ──────
-await session.setPhase('verify');
-if (!(await checkpoint('complete', 'journal reports QUEST COMPLETE'))) {
-    throw new Error('completion checkpoint failed: journal does not report the quest complete');
+/** Route to the top floor of the Wizards' Tower, where Mizgog stands. */
+async function travelToMizgog(): Promise<void> {
+    intent('Heading to Wizard Mizgog');
+    if (pos().level !== 0 || distTo(TOWER_DOOR) > 6) await travelTo(TOWER_DOOR, 'Wizards Tower door');
+    await enterTower();
+    await goToStairs(true);
+    if (pos().level !== MIZGOG.level) await climbTo(MIZGOG.level, 'Mizgog floor');
+    await settleAndRescan('tower climb');
+    await travelTo(mizgogApproach(), 'Wizard Mizgog');
+}
+
+async function acceptQuest(): Promise<{ started: boolean; reason?: string }> {
+    intent('Starting Imp Catcher');
+    const talked = await bot.talkTo(/^wizard mizgog$/i);
+    if (!talked.success) return { started: false, reason: `could not talk to Mizgog: ${talked.message ?? '?'}` };
+    await drainDialog([/give me a quest please/i, /give me a quest!/i, /i'?ll try/i]);
+    if (!(await checkpoint('active', 'accepted the quest, beads requested'))) {
+        return { started: false, reason: 'active checkpoint failed after accepting the quest' };
+    }
+    return { started: true };
+}
+
+/** The hunt: descend the tower, get to the camp, collect until all four beads are held. */
+async function huntBeads(): Promise<void> {
+    if (pos().level !== 0) await climbTo(0, 'tower ground');
+    await settleAndRescan('tower descent');
+    if (distTo(IMP_CAMP) > 8) await travelTo(IMP_CAMP, 'imp hunting ground');
+    await settleAndRescan('arrival at hunting ground');
+    if (hasAllBeads()) {
+        log('All four beads already held; skipping the hunt');
+        return;
+    }
+    intent('Hunting imps for beads');
+    await collectBeads();
+}
+
+async function handIn(): Promise<void> {
+    intent('Returning the beads to Mizgog');
+    await travelTo(TOWER_DOOR, 'Wizards Tower door (return)');
+    await enterTower();
+    await goToStairs(true);
+    if (pos().level !== MIZGOG.level) await climbTo(MIZGOG.level, 'Mizgog floor (return)');
+    await settleAndRescan('return climb');
+    await travelTo(mizgogApproach(), 'Wizard Mizgog (return)');
+
+    if (!hasAllBeads()) throw new Error(`reached Mizgog without all beads (${beadCount()}/4)`);
+    const again = await bot.talkTo(/^wizard mizgog$/i);
+    if (!again.success) throw new Error(`could not talk to Mizgog to hand in: ${again.message ?? '?'}`);
+    await drainDialog([/i'?ve got all four beads|all four beads/i]);
+}
+
+const ctx: ImpCtx = {
+    stage: null,
+    readStage,
+    checkpoint: (name, label) => checkpoint(name, label),
+    bankForSupplies,
+    travelToMizgog,
+    acceptQuest,
+    huntBeads,
+    handIn,
+    promotionGate: () => summarizeRun(run.directory),
+    log,
+};
+
+const machine = new Machine(graph, {
+    onEnter: (state) => {
+        if (!state.startsWith('$')) void session.setPhase(state).catch(() => undefined);
+    },
+    onTransition: (e) =>
+        session.event(
+            'transition',
+            {
+                machine: e.machine,
+                from: e.from,
+                to: e.to,
+                via: e.via,
+                reason: e.reason,
+                visit: e.visit,
+                durationMs: e.durationMs,
+                elapsedMs: e.elapsedMs,
+                edgeRepeats: e.edgeRepeats,
+            },
+            `${e.from} -> ${e.to} (${e.via})${e.reason ? `: ${e.reason}` : ''}`,
+        ),
+    stopping: () => session.isStoppedOrRequested(),
+});
+
+const result = await machine.run(ctx);
+log(`route: ${result.path.join(' -> ')}`);
+
+if (result.outcome === 'failed') {
+    log(`FAILED — ${result.reason}`);
+    session.stop('failed', `imp catcher failed: ${result.reason}`, { restartable: false });
+    sdk.disconnect();
+    process.exit(1);
 }
 
 session.log('log', 'Imp Catcher verified complete');
 session.noteProgress('inventory', 'quest complete (journal-verified)');
-const summary = summarizeRun(run.directory);
-if (!summary.ok) {
-    // Every declared checkpoint must carry a PASS before this counts as done.
-    throw new Error(`promotion gate failed: missing/unpassed ${JSON.stringify(summary.missing)}`);
-}
-log(`Run record verified: ${summary.ok} (${summary.missing.length} outstanding)`);
-log(`DONE Imp Catcher verified via journal at (${pos().x},${pos().z})`);
+log(`DONE Imp Catcher verified via journal at (${pos().x},${pos().z}) in ${Math.round(result.elapsedMs / 1000)}s (${result.transitions.length} transitions)`);
 log(`Metrics: ${JSON.stringify(session.metrics())}`);
 
+session.stop('done', 'Imp Catcher complete', { restartable: false });
 sdk.disconnect();
 process.exit(0);

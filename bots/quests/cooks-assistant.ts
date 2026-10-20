@@ -26,13 +26,14 @@
 import { existsSync, readFileSync, appendFileSync } from 'fs';
 import { dirname, join } from 'path';
 
-import { BotSDK, deriveGatewayUrl } from '../../sdk/index';
+import { BotSDK, Machine, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
 import { initPathfinding, findLongPath, isTileWalkable } from '../../sdk/pathfinding';
 import { ActivitySession } from '../../sdk/activity';
 import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
 import { createRun, appendCheckpoint, summarizeRun, safeRunId } from '../../quest-lab/records';
 import type { JournalRule } from '../../quest-lab/evidence';
+import { graph, type CookCtx, type CookStage } from './cooks-assistant.graph';
 
 // ── args / env ──────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -205,10 +206,12 @@ async function checkpoint(name: keyof typeof RULES, label: string): Promise<bool
 // a bot resumed mid-quest should bank only for what it still lacks. Banking
 // first made a completed quest report "insufficient stock" instead of "already
 // complete" — and walked to Draynor to do it.
-await session.setPhase('inspect');
+//
+// The decision that follows lives in `cooks-assistant.graph.ts` (`inspect`), not
+// here: this file supplies the probe, the graph routes on the answer.
 
 /** The first stage rule that PASSes is the account's real stage. */
-async function readStage(): Promise<'unstarted' | 'active' | 'complete' | 'unknown'> {
+async function readStage(): Promise<CookStage> {
     for (const name of ['complete', 'active', 'unstarted'] as const) {
         const read = await readJournalCheckpoint(sdk, JOURNAL, RULES[name]!);
         log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
@@ -216,23 +219,6 @@ async function readStage(): Promise<'unstarted' | 'active' | 'complete' | 'unkno
     }
     return 'unknown';
 }
-
-const STAGE = await readStage();
-log(`Quest stage at start: ${STAGE}`);
-if (STAGE === 'complete') {
-    log("Cook's Assistant is already complete — nothing to do");
-    session.log('log', 'quest already complete; nothing to do');
-    sdk.disconnect();
-    process.exit(0);
-}
-if (STAGE === 'unknown') throw new Error('could not determine the quest stage from the journal');
-
-// ── 2. bank, but only for supplies we still lack ────────────────────────────
-await session.setPhase('bank');
-const needsBanking = NEEDED.some(n => invCount(n.pattern) === 0);
-await bot.dismissBlockingUI();
-if (needsBanking) await bankForSupplies();
-else log('Supplies already carried; skipping the bank leg');
 
 /** Deposit carry-over, then withdraw whatever ingredients are missing. */
 async function bankForSupplies(): Promise<void> {
@@ -591,82 +577,102 @@ async function travelTo(dest: { x: number; z: number }, what: string): Promise<v
     log(`Arrived ${what} at (${at.x},${at.z}) l${at.level}`);
 }
 
-// ── 3. travel to the Cook (route planned from wherever we are) ──────────────
-await session.setPhase('travel');
-await travelTo(cookApproach(), 'the Cook');
+// ── 3. run the declared flow ────────────────────────────────────────────────
+// Everything below is the runner: the flow itself (stage routing, bank/travel/
+// start/hand-in/verify, and every recovery edge) is declared in
+// `cooks-assistant.graph.ts` and can be drawn or validated without a client:
+//   bun sdk/fsm-cli.ts bots/quests/cooks-assistant.graph.ts
 
-// ── 4. start the quest, only from the unstarted stage ───────────────────────
-if (STAGE === 'unstarted') {
-// Gate BEFORE acting: the quest must really be unstarted, or the dialog below
-// acts on an assumption.
-if (!(await checkpoint('unstarted', 'quest not yet started'))) {
-    throw new Error('unstarted checkpoint failed before starting the quest');
-}
-await session.setPhase('start-quest');
-const talked = await bot.talkTo(/^cook$/i);
-if (!talked.success) throw new Error(`could not talk to the Cook: ${talked.message ?? '?'}`);
-
-for (let i = 0; i < 30; i++) {
-    const dialog = sdk.getDialog();
-    if (!dialog?.isOpen) {
-        await sdk.waitForTicks(1);
-        if (!sdk.getDialog()?.isOpen && i > 2) break;
-        continue;
+/** Click through a conversation, preferring the stated choices, then clear the UI. */
+async function drainDialog(preferred: RegExp[]): Promise<void> {
+    for (let i = 0; i < 30; i++) {
+        const dialog = sdk.getDialog();
+        if (!dialog?.isOpen) {
+            await sdk.waitForTicks(1);
+            if (!sdk.getDialog()?.isOpen && i > 2) break;
+            continue;
+        }
+        const options = dialog.options ?? [];
+        const pick = preferred.map((re) => options.find((o) => re.test(o.text))).find(Boolean) ?? options[0];
+        if (pick) {
+            log(`dialog -> ${pick.text}`);
+            await sdk.sendClickDialog(pick.index);
+        }
+        await sdk.waitForTicks(2);
     }
-    const options = dialog.options ?? [];
-    const pick = options.find(o => /yes, i'?ll help you/i.test(o.text))
-        ?? options.find(o => /what'?s wrong/i.test(o.text))
-        ?? options[0];
-    if (pick) {
-        log(`dialog -> ${pick.text}`);
-        await sdk.sendClickDialog(pick.index);
+    await bot.dismissBlockingUI();
+}
+
+/** Start the quest. Returns started=false with a reason instead of throwing, so the graph decides. */
+async function acceptQuest(): Promise<{ started: boolean; reason?: string }> {
+    const talked = await bot.talkTo(/^cook$/i);
+    if (!talked.success) return { started: false, reason: `could not talk to the Cook: ${talked.message ?? '?'}` };
+    await drainDialog([/yes, i'?ll help you/i, /what'?s wrong/i]);
+    if (!(await checkpoint('active', 'accepted the quest, ingredients requested'))) {
+        return { started: false, reason: 'active checkpoint failed after accepting the quest' };
     }
-    await sdk.waitForTicks(2);
-}
-await bot.dismissBlockingUI();
-
-if (!(await checkpoint('active', 'accepted the quest, ingredients requested'))) {
-    throw new Error('active checkpoint failed after accepting the quest');
-}
-} else {
-    log('Resuming mid-quest: the ingredients request is already journal-confirmed');
+    return { started: true };
 }
 
-// ── 5. hand in ──────────────────────────────────────────────────────────────
-await session.setPhase('hand-in');
-const again = await bot.talkTo(/^cook$/i);
-if (!again.success) throw new Error(`could not talk to the Cook to hand in: ${again.message ?? '?'}`);
-for (let i = 0; i < 30; i++) {
-    const dialog = sdk.getDialog();
-    if (!dialog?.isOpen) {
-        await sdk.waitForTicks(1);
-        if (!sdk.getDialog()?.isOpen && i > 2) break;
-        continue;
-    }
-    const options = dialog.options ?? [];
-    const pick = options.find(o => /i now have everything|milk, flour, and an egg/i.test(o.text)) ?? options[0];
-    if (pick) log(`dialog -> ${pick.text}`);
-    if (pick) await sdk.sendClickDialog(pick.index);
-    await sdk.waitForTicks(2);
+async function handIn(): Promise<void> {
+    const again = await bot.talkTo(/^cook$/i);
+    if (!again.success) throw new Error(`could not talk to the Cook to hand in: ${again.message ?? '?'}`);
+    await drainDialog([/i now have everything|milk, flour, and an egg/i]);
 }
-await bot.dismissBlockingUI();
 
-// ── 6. completion is proven by the journal, never by XP or a chat line ──────
-await session.setPhase('verify');
-if (!(await checkpoint('complete', 'journal reports QUEST COMPLETE'))) {
-    throw new Error('completion checkpoint failed: journal does not report the quest complete');
+const ctx: CookCtx = {
+    stage: null,
+    readStage,
+    checkpoint: (name, label) => checkpoint(name, label),
+    suppliesCarried: () => !NEEDED.some((n) => invCount(n.pattern) === 0),
+    bankForSupplies,
+    travelToCook: () => travelTo(cookApproach(), 'the Cook'),
+    acceptQuest,
+    handIn,
+    promotionGate: () => summarizeRun(run.directory),
+    log,
+};
+
+const machine = new Machine(graph, {
+    // Phase tracking is derived from the graph now: entering a state IS the phase
+    // change, so the two can never disagree.
+    onEnter: (state) => {
+        if (!state.startsWith('$')) void session.setPhase(state).catch(() => undefined);
+    },
+    onTransition: (e) =>
+        session.event(
+            'transition',
+            {
+                machine: e.machine,
+                from: e.from,
+                to: e.to,
+                via: e.via,
+                reason: e.reason,
+                visit: e.visit,
+                durationMs: e.durationMs,
+                elapsedMs: e.elapsedMs,
+                edgeRepeats: e.edgeRepeats,
+            },
+            `${e.from} -> ${e.to} (${e.via})${e.reason ? `: ${e.reason}` : ''}`,
+        ),
+    stopping: () => session.isStoppedOrRequested(),
+});
+
+const result = await machine.run(ctx);
+log(`route: ${result.path.join(' -> ')}`);
+
+if (result.outcome === 'failed') {
+    log(`FAILED — ${result.reason}`);
+    session.stop('failed', `cook's assistant failed: ${result.reason}`, { restartable: false });
+    sdk.disconnect();
+    process.exit(1);
 }
 
 session.log('log', "Cook's Assistant verified complete");
 session.noteProgress('inventory', 'quest complete (journal-verified)');
-const summary = summarizeRun(run.directory);
-if (!summary.ok) {
-    // Every declared checkpoint must carry a PASS before this counts as done.
-    throw new Error(`promotion gate failed: missing/unpassed ${JSON.stringify(summary.missing)}`);
-}
-log(`Run record verified: ${summary.ok} (${summary.missing.length} outstanding)`);
-log(`DONE Cook's Assistant verified via journal at (${pos().x},${pos().z})`);
+log(`DONE Cook's Assistant verified via journal at (${pos().x},${pos().z}) in ${Math.round(result.elapsedMs / 1000)}s (${result.transitions.length} transitions)`);
 log(`Metrics: ${JSON.stringify(session.metrics())}`);
 
+session.stop('done', "Cook's Assistant complete", { restartable: false });
 sdk.disconnect();
 process.exit(0);
