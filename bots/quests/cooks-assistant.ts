@@ -34,6 +34,7 @@ import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
 import { createRun, appendCheckpoint, summarizeRun, safeRunId } from '../../quest-lab/records';
 import type { JournalRule } from '../../quest-lab/evidence';
 import { graph, type CookCtx, type CookStage } from './cooks-assistant.graph';
+import { inventorySignature, untilBankReady, untilInventoryChange } from './settle';
 
 // ── args / env ──────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -244,7 +245,9 @@ if (!(await bot.openBank()).success) {
     await bot.walkTo(DRAYNOR_BANK.x - 1, DRAYNOR_BANK.z, 1);
     if (!(await bot.openBank()).success) throw new Error('could not open Draynor bank for withdrawal');
 }
-await sdk.waitForTicks(2);
+// Contents lag `isOpen` by a tick or two, and how long that is depends on the
+// clock and the link. Wait for the items, not for a fixed number of ticks.
+await untilBankReady(sdk, { log });
 
 const bankItems = sdk.getState()?.bank?.items ?? [];
 const have = (re: RegExp) => bankItems.filter(i => re.test(i.name)).reduce((n, i) => n + (i.count ?? 0), 0);
@@ -427,9 +430,10 @@ async function gatherFlour(): Promise<void> {
                 await sdk.waitForTicks(4);
                 continue;
             }
+            const bagBefore = inventorySignature(sdk);
             const res = await bot.interactLoc(wheat, /pick/i);
             log(`picked wheat: ${res.success}${res.success ? '' : ` (${res.message ?? '?'})`}`);
-            await sdk.waitForTicks(3);
+            await untilInventoryChange(sdk, bagBefore, { log });
         }
         if (invCount(GRAIN) === 0) throw new Error('gathering failed: no grain from the wheat field');
     }
@@ -440,10 +444,11 @@ async function gatherFlour(): Promise<void> {
     await sdk.scanNearbyLocs(10).catch(() => {});
     const hopper = sdk.findNearbyLoc(/^hopper$/i);
     if (!hopper) throw new Error(`gathering failed: no hopper in range @ (${pos().x},${pos().z}) l${pos().level}`);
+    const beforeHopper = inventorySignature(sdk);
     const fill = await bot.useItemOnLoc(GRAIN, hopper);
     log(`grain into the hopper: ${fill.success}${fill.success ? '' : ` (${fill.message ?? '?'})`}`);
     if (!fill.success) throw new Error(`gathering failed: the hopper rejected the grain (${fill.message ?? '?'})`);
-    await sdk.waitForTicks(2);
+    await untilInventoryChange(sdk, beforeHopper, { log });
     await sdk.scanNearbyLocs(10).catch(() => {});
     const controls = sdk.findNearbyLoc(/^hopper controls$/i);
     if (!controls) throw new Error('gathering failed: no hopper controls in range');
@@ -457,9 +462,10 @@ async function gatherFlour(): Promise<void> {
     await sdk.scanNearbyLocs(10).catch(() => {});
     const bin = sdk.findNearbyLoc(/^flour bin$/i);
     if (!bin) throw new Error(`gathering failed: no flour bin in range @ (${pos().x},${pos().z}) l${pos().level}`);
+    const beforeBin = inventorySignature(sdk);
     const fillPot = await bot.useItemOnLoc(POT_EMPTY, bin);
     log(`pot from the flour bin: ${fillPot.success}${fillPot.success ? '' : ` (${fillPot.message ?? '?'})`}`);
-    await sdk.waitForTicks(2);
+    await untilInventoryChange(sdk, beforeBin, { log });
     if (invCount(FLOUR) === 0) throw new Error('gathering failed: the flour bin gave no flour');
     log('Bag: pot of flour x1 (gathered)');
 }

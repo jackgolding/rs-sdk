@@ -139,6 +139,32 @@ bun tools/quest-parity.ts --dev … --prod … --strict                # CI gate
 `prod-only` and `differs` are the two that silently revert someone's work. Run
 the parity check before every fleet merge and after every prod hotfix.
 
+## Three clocks
+
+Timing is two axes, and the local world has neither of the prod ones:
+
+| regime | tick | latency | purpose |
+| --- | --- | --- | --- |
+| **dev-fast** | 60ms | none | get from rough to locally-working: cook's 2 minutes becomes 23s |
+| **dev-prod-sim** | 300ms | 150ms each way (lag proxy) | verify before a canary: same clock and RTT class as the demo server |
+| **prod canary** | 300ms | ~250ms (Perth → iad) | the real thing, one account |
+
+```bash
+tools/clock-gate.sh 60  --runs 1 --min-runs 1      # fast iteration
+bun tools/lag-proxy.ts --delay 150 &               # :7781 -> :7780
+tools/clock-gate.sh 300 --runs 3 --gateway http://127.0.0.1:7781
+```
+
+The clock-gate rewrites `server/engine/.env`, restarts the launchd engine, runs
+the suite, then restores. **It boots every local session** — only run it when
+that is acceptable.
+
+A fast clock is a development clock, never a verification one: at 20ms/tick a
+two-tick settle is 40ms and races disappear. That is why the gate is at 300ms,
+and why waits are written as conditions with wall-clock budgets (`bots/quests/timing.ts`,
+`bots/quests/settle.ts`) rather than tick counts — a condition finishes early on
+a fast clock and still fits on a slow one.
+
 ## Where the pieces live
 
 | Stage | Artifact |
