@@ -139,6 +139,45 @@ bun tools/quest-parity.ts --dev … --prod … --strict                # CI gate
 `prod-only` and `differs` are the two that silently revert someone's work. Run
 the parity check before every fleet merge and after every prod hotfix.
 
+## The canary tier, and its rules
+
+Between "works in dev" and "on the roster" there is exactly one useful tier: **one
+account, on the production image, at the production clock and latency**, driven by
+a container the deployment pipeline did not create.
+
+```
+dev (local world) ──▶ canary (1 account, prod image) ──▶ roster (supervised)
+```
+
+It is not optional. Every bug that only production has — a pathfinder that
+truncates long routes, 10-tile hops refused by hedge geometry, a stronghold with no
+route off its plane — was found here, on one account, instead of by 48.
+
+**But the tier only works when it is a tool, not an improvisation.** Doing it by
+hand cost us three incidents in one afternoon:
+
+| what happened | why it happened | the rule it produced |
+| --- | --- | --- |
+| the shepherd recreated the roster service mid-run and pre-empted the controller | nothing had paused the bot | the tool pauses by *mechanism* (skip file + stop), never by memory |
+| a `scp`'d dev file imported a module the deployed revision lacks, crashing every container that shares it | code reached prod outside git | a canary runs **committed, already-deployed** code; never a copy |
+| a test container sat running long enough to look like production | no label, no expiry, no sweep | every canary is labelled and TTL'd, and `--gc` removes the expired |
+
+```bash
+tools/canary.sh <bot> <script.ts> [args...]   # run, follow, auto-restore on exit
+tools/canary.sh --dry <bot> <script.ts>       # print the plan, touch nothing
+tools/canary.sh --status                      # what is running as a canary
+tools/canary.sh --gc                          # remove expired canaries
+```
+
+The script refuses to run if the box tree is dirty, or if the script is not on the
+box (i.e. not deployed), and its `EXIT` trap restores the bot on success, failure,
+`^C` or timeout.
+
+**What a canary is not:** a place for state. Anything that should survive an hour
+or be monitored — a standing harvester, a lapper, a mule — belongs in the roster,
+where the shepherd heals it and the desk shows it. Discovery in a canary, permanence
+in the roster, promotion through the four stages above.
+
 ## Three clocks
 
 Timing is two axes, and the local world has neither of the prod ones:
