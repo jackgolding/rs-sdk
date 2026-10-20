@@ -85,7 +85,9 @@ await runScript(async ({ bot, sdk }) => {
     const mining = () => sdk.getSkill('Mining')?.baseLevel ?? 1;
     const miningXp = () => sdk.getSkill('Mining')?.experience ?? 0;
     const coalCount = () => sdk.getInventory().filter((i) => COAL.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0);
-    const freeSlots = () => sdk.getInventory().filter((i) => (i.count ?? 0) <= 0).length;
+    // 28 slots, one entry per slot: counting zero-count entries always read 0
+    // free, so every loop tripped the "inventory full" branch and banked with nothing.
+    const freeSlots = () => 28 - sdk.getInventory().length;
     const hasPick = () => !!(sdk.findInventoryItem(PICKAXE) || sdk.findEquipmentItem(PICKAXE));
     const inTrucks = () => {
         const p = pos();
