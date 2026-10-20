@@ -56,6 +56,11 @@ const RUNE_PICK = /^rune pickaxe$/i;
 const COAL_ROCK = /^(rocks coal ore|coalrock\d?|coal rock)$/i;
 const COAL = /^coal$/i;
 const PACK = 26;
+const TRUCK_ID = 2114;
+/** The cart run ends next to the Seers bank (2696,3504 / 2698,3507). */
+const SEERS_TRUCK = { x: 2696, z: 3504 };
+/** ^coal_truck_max is 120; 4 packs (104) leaves headroom for a second bot. */
+const DEPOSITS_PER_RUN = 4;
 
 const botName = process.argv.slice(2).find((a) => !a.startsWith('-')) ?? '';
 const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
@@ -95,6 +100,7 @@ await runScript(async ({ bot, sdk }) => {
     };
     const depletedUntil = new Map<string, number>();
     let trips = 0;
+    let deposits = 0;
     let totalCoal = 0;
     let missStreak = 0;
 
@@ -189,6 +195,63 @@ await runScript(async ({ bot, sdk }) => {
         return true;
     }
 
+    function truckAt(x: number, z: number, range = 12) {
+        for (const loc of sdk.getNearbyLocs() ?? []) {
+            if (loc.id !== TRUCK_ID && !/^coal truck$/i.test(loc.name)) continue;
+            if (distTo(loc.x, loc.z) > range) continue;
+            return loc;
+        }
+        return null;
+    }
+
+    /** Use coal on the truck (oplocu) so it rides the rails to Seers instead
+     *  of being carried 200 tiles on foot. */
+    async function depositToTruck(): Promise<boolean> {
+        await closeUi();
+        const truck = truckAt(pos().x, pos().z, 12) ?? truckAt(COAL_TRUCKS.x, COAL_TRUCKS.z, 16);
+        if (!truck) return false;
+        if (cheb(pos(), truck) > 2) {
+            const stand = standTile(truck.x, truck.z);
+            await walkLeg(stand.x, stand.z, 1);
+        }
+        for (const item of sdk.getInventory().filter((i) => COAL.test(i.name))) {
+            await bot.useItemOnLoc(item, truck).catch(() => undefined);
+            await sdk.waitForTicks(1);
+        }
+        await sdk.waitForTicks(2);
+        return coalCount() === 0;
+    }
+
+    /** Empty the Seers-side cart into the bank, then walk back to the rocks. */
+    async function collectAndBank(): Promise<boolean> {
+        await closeUi();
+        intent('Collecting coal at the Seers truck');
+        await followRoute(TO_BANK);
+        for (let i = 0; i < 8 && !session.isStopped(); i++) {
+            await walkLeg(SEERS_TRUCK.x, SEERS_TRUCK.z, 2);
+            await sdk.scanNearbyLocs(10).catch(() => undefined);
+            const truck = truckAt(SEERS_TRUCK.x, SEERS_TRUCK.z, 6);
+            if (!truck) break;
+            const op = truck.optionsWithIndex.find((o) => /remove-coal/i.test(o.text));
+            if (!op) break;
+            const before = coalCount();
+            await sdk.sendInteractLoc(truck.x, truck.z, truck.id, op.opIndex);
+            await sdk.waitForTicks(3);
+            if (coalCount() <= before) break;
+            await walkLeg(SEERS_BANK.x, SEERS_BANK.z, 3);
+            if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) break;
+            for (const item of [...sdk.getInventory()]) {
+                if ((item.count ?? 0) > 0 && !PICKAXE.test(item.name)) await bot.depositItem(item, -1).catch(() => undefined);
+            }
+            trips++;
+            log(`Banked trip ${trips} (truck run) | mining ${mining()} (${miningXp()} xp)`);
+            session.captureBankStock();
+            await bot.closeBank().catch(() => undefined);
+        }
+        await goMine();
+        return true;
+    }
+
     async function goBank(): Promise<boolean> {
         await closeUi();
         if (!(await climbOut())) return false;
@@ -272,6 +335,17 @@ await runScript(async ({ bot, sdk }) => {
             lastLevel = mining();
         }
         if (coalCount() >= PACK || freeSlots() < 2) {
+            // Cart first: 4 packs ride the rails to Seers, so the 200-tile walk
+            // happens once per ~104 coal instead of once per pack.
+            if (deposits < DEPOSITS_PER_RUN && (await depositToTruck())) {
+                deposits++;
+                session.noteProgress('truck', `deposit ${deposits}/${DEPOSITS_PER_RUN}`);
+                continue;
+            }
+            if (deposits > 0 && (await collectAndBank())) {
+                deposits = 0;
+                continue;
+            }
             if (await goBank()) continue;
         }
         if (!inTrucks()) {
