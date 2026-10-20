@@ -633,6 +633,8 @@ async function goToAubury(): Promise<boolean> {
 
 async function depositEverything(): Promise<boolean> {
     await closeUi();
+    // Bowstrings/WC bots start on the Seers wheel floor: no booth upstairs.
+    if (pos().level > 0) await climb('down');
     // Pick the CLOSER bank: a Seers start (flax/bowstrings bots) is ~200 tiles
     // from Ardougne, and one long walkNear silently no-ops, so every strip
     // attempt failed with 'Bank open failed' in place.
