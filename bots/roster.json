@@ -193,7 +193,7 @@
         {
             "name": "jacklove13",
             "view": "loves",
-            "script": "bots/quests/rune-mysteries.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
                 "jacklove13"
             ]
