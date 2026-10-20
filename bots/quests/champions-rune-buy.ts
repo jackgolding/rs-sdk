@@ -43,8 +43,8 @@ const SCAVVO = /^scavvo$/i;
 const HALL = { x: 3200, z: 3352 };
 /** Staging tile outside the guild doors, by the Guildmaster's greeting spot. */
 const ENTRY = { x: 3193, z: 3361 };
-/** Step-to tile just inside the doors after an Open. */
-const INSIDE = { x: 3190, z: 3361 };
+/** The Guildmaster greets on entry: proof the last Open took us inside. */
+const GREET = /greetings bold adventurer|welcome to the guild/i;
 /** Varrock West booths read UNREACHABLE from the west when crowded. */
 const BANK_APPROACH = { x: 3195, z: 3440 };
 
@@ -191,13 +191,16 @@ async function bankTrip(): Promise<boolean> {
 }
 
 /**
- * Reach Scavvo's side: walk at the hall (pathfinder routes via the guild
- * door), open a closed door we end up pressed against, climb up if the shop
- * is on another floor. Returns 'qp-blocked' when the door refuses entry.
+ * Reach Scavvo's side. The guild doors are TELEPORTERS: opening one moves
+ * the bot by itself, so this never walks after an Open — walking would
+ * route straight back through the door and pace in/out forever. Once the
+ * Guildmaster's greeting lands we are inside and stay inside, exploring
+ * toward him and the stairs instead of touching doors again.
  */
 async function reachScavvo(): Promise<'ok' | 'qp-blocked' | 'failed'> {
+    let inside = false;
     let climbed = false;
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 16; i++) {
         if (session.stopRequested) return 'failed';
         await closeUi(bot, sdk);
         const s = scavvo();
@@ -206,11 +209,53 @@ async function reachScavvo(): Promise<'ok' | 'qp-blocked' | 'failed'> {
             await walkNear(bot, sdk, s.x, s.z, 2);
             continue;
         }
-        // Stage at the guild entrance (the hall label sits in the chicken
-        // farmhouse outside the walls, so walking at it never enters).
-        await walkNear(bot, sdk, ENTRY.x, ENTRY.z, 3);
         await sdk.scanNearbyLocs(10).catch(() => undefined);
         if (scavvo()) continue;
+        if (!inside) {
+            const tail = JSON.stringify([
+                ...(sdk.getState()?.gameMessages ?? []).slice(-8),
+                ...(sdk.getState()?.recentDialogs ?? []).slice(-4)
+            ]);
+            if (GREET.test(tail)) {
+                inside = true;
+                session.log('log', `inside the guild @ ${here()} — holding, no more doors`);
+                continue;
+            }
+        }
+        if (inside) {
+            // Explore the interior: drift at the Guildmaster, then stairs.
+            const master = (sdk.getNearbyNpcs() ?? [])
+                .filter((n) => /guild master/i.test(n.name))
+                .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+            if (master && (master.distance ?? 99) > 4) {
+                await walkNear(bot, sdk, master.x, master.z, 3);
+                await sdk.scanNearbyLocs(10).catch(() => undefined);
+                if (scavvo()) continue;
+            }
+            if (!climbed) {
+                const stairs = (sdk.getNearbyLocs() ?? [])
+                    .filter(
+                        (l) =>
+                            /stair/i.test(l.name) &&
+                            (l.optionsWithIndex ?? []).some((o) => /climb-?up/i.test(o.text))
+                    )
+                    .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+                if (stairs && (stairs.distance ?? 99) <= 10) {
+                    const before = playerPos(sdk).level;
+                    await walkNear(bot, sdk, stairs.x, stairs.z, 2);
+                    await bot.interactLoc(stairs, /climb-?up/i).catch(() => null);
+                    await sdk
+                        .waitForCondition(() => playerPos(sdk).level !== before, 8_000)
+                        .catch(() => undefined);
+                    climbed = true;
+                    continue;
+                }
+            }
+            await sdk.waitForTicks(5).catch(() => undefined);
+            continue;
+        }
+        // Outside: work the nearest openable door. No staging walks after
+        // the first — the Open teleports us, walking would undo it.
         const nearest = () =>
             (sdk.getNearbyLocs() ?? [])
                 .filter(
@@ -219,41 +264,26 @@ async function reachScavvo(): Promise<'ok' | 'qp-blocked' | 'failed'> {
                 )
                 .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
         let door = nearest();
-        if (door && (door.distance ?? 99) <= 8) {
+        if (!door || (door.distance ?? 99) > 10) {
+            await walkNear(bot, sdk, ENTRY.x, ENTRY.z, 3);
+            await sdk.scanNearbyLocs(10).catch(() => undefined);
+            door = nearest();
+        }
+        if (door && (door.distance ?? 99) > 3) {
             await walkNear(bot, sdk, door.x, door.z, 2);
             await sdk.scanNearbyLocs(8).catch(() => undefined);
             door = nearest();
         }
         if (door && (door.distance ?? 99) <= 3) {
             await bot.interactLoc(door, /open/i).catch(() => null);
-            await sdk.waitForTicks(3).catch(() => undefined);
+            await sdk.waitForTicks(4).catch(() => undefined);
             if (qpRefused()) return 'qp-blocked';
-            // Step through to the inside and re-scan for the shopkeeper.
-            await walkNear(bot, sdk, INSIDE.x, INSIDE.z, 3);
-            await walkNear(bot, sdk, HALL.x, HALL.z, 6);
             await sdk.scanNearbyLocs(10).catch(() => undefined);
-            if (scavvo()) continue;
+            // No walking here: the door teleports on Open. Next round sees
+            // where we landed (greeting => inside, Scavvo => shop side).
+            continue;
         }
-        if (!climbed) {
-            const stairs = (sdk.getNearbyLocs() ?? [])
-                .filter(
-                    (l) =>
-                        /stair/i.test(l.name) &&
-                        (l.optionsWithIndex ?? []).some((o) => /climb-?up/i.test(o.text))
-                )
-                .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
-            if (stairs && (stairs.distance ?? 99) <= 8) {
-                const before = playerPos(sdk).level;
-                await walkNear(bot, sdk, stairs.x, stairs.z, 2);
-                await bot.interactLoc(stairs, /climb-?up/i).catch(() => null);
-                await sdk
-                    .waitForCondition(() => playerPos(sdk).level !== before, 8_000)
-                    .catch(() => undefined);
-                climbed = true;
-                continue;
-            }
-        }
-        await sdk.waitForTicks(2).catch(() => undefined);
+        await sdk.waitForTicks(3).catch(() => undefined);
     }
     return scavvo() ? 'ok' : 'failed';
 }
