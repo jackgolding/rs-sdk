@@ -67,7 +67,7 @@
         {
             "name": "fatpig",
             "view": "fleet",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
                 "fatpig"
             ]
@@ -107,7 +107,7 @@
         {
             "name": "jacklove5",
             "view": "fleet",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/mining-guild.ts",
             "args": [
                 "jacklove5"
             ]
@@ -193,7 +193,7 @@
         {
             "name": "jacklove13",
             "view": "loves",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/edgeville-bank-all.ts",
             "args": [
                 "jacklove13"
             ]
