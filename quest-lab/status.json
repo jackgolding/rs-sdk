@@ -1,0 +1,1861 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-20T20:37:46.414Z",
+  "entries": [
+    {
+      "id": "arena",
+      "name": "Fight Arena",
+      "script": null,
+      "fixture": "quest-lab/fixtures/arena.json",
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "arthur",
+      "name": "Merlin's Crystal",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "ball",
+      "name": "Witch's House",
+      "script": "bots/quests/witchs-house.ts",
+      "fixture": null,
+      "stage": "fixture",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "existing script needs completion-predicate audit",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "biohazard",
+      "name": "Biohazard",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "blackarmgang",
+      "name": "Shield of Arrav",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "alternate completion branches: 2",
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "chompybird",
+      "name": "Big Chompy Bird Hunting",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "cog",
+      "name": "Clock Tower",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "cook",
+      "name": "Cook's Assistant",
+      "script": "bots/quests/cooks-assistant.ts",
+      "fixture": "quest-lab/fixtures/cook.json",
+      "stage": "dev-verified",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "existing script needs completion-predicate audit",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "crest",
+      "name": "Family Crest",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "death",
+      "name": "Death Plateau",
+      "script": "bots/quests/death-plateau.ts",
+      "fixture": null,
+      "stage": "fixture",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "existing script needs completion-predicate audit",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "demon",
+      "name": "Demon Slayer",
+      "script": "bots/quests/demon-slayer.ts",
+      "fixture": "quest-lab/fixtures/demon.json",
+      "stage": "drafting",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "desertrescue",
+      "name": "The Tourist Trap",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "doric",
+      "name": "Doric's Quest",
+      "script": "bots/quests/dorics-quest.ts",
+      "fixture": null,
+      "stage": "fleet-ready",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 2
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": {
+        "sha": "6f096660e",
+        "scriptHash": "67354cbf66cb24e2",
+        "frozenAt": "2026-10-20T19:59:23.009Z"
+      },
+      "canary": {
+        "account": "jacklove9",
+        "runId": "doric-jacklove9-2026-10-20t19-21-23-618z",
+        "verdict": "PASS",
+        "attempts": 1,
+        "at": "2026-10-20T19:59:23.038Z"
+      },
+      "blockers": [
+        "existing script needs completion-predicate audit",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T19:59:23.038Z"
+    },
+    {
+      "id": "dragon",
+      "name": "Dragon Slayer",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "druid",
+      "name": "Druidic Ritual",
+      "script": "bots/quests/druidic-ritual.ts",
+      "fixture": null,
+      "stage": "fixture",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "existing script needs completion-predicate audit",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "druidspirit",
+      "name": "Nature Spirit",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "drunkmonk",
+      "name": "Monk's Friend",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "eadgar",
+      "name": "Eadgar's Ruse",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "elemental_workshop",
+      "name": "Elemental Workshop",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "elena",
+      "name": "Plague City",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "fishingcompo",
+      "name": "Fishing Contest",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "fluffs",
+      "name": "Gertrude's Cat",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "fortress",
+      "name": "Black Knight's Fortress",
+      "script": "bots/quests/black-knights-fortress.ts",
+      "fixture": null,
+      "stage": "fixture",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "existing script needs completion-predicate audit",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "gobdip",
+      "name": "Goblin Diplomacy",
+      "script": "bots/quests/goblin-diplomacy.ts",
+      "fixture": null,
+      "stage": "fixture",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "existing script needs completion-predicate audit",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "grail",
+      "name": "Holy Grail",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "grandtree",
+      "name": "The Grand Tree",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "haunted",
+      "name": "Ernest the Chicken",
+      "script": "bots/quests/ernest-chicken.ts",
+      "fixture": "quest-lab/fixtures/haunted.json",
+      "stage": "drafting",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 1
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": {
+        "account": "jacklove8",
+        "runId": "haunted-jacklove8-2026-10-20t20-31-06-865z",
+        "verdict": "FAIL",
+        "attempts": 1,
+        "at": "2026-10-20T20:37:26.288Z"
+      },
+      "blockers": [
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T20:37:26.288Z"
+    },
+    {
+      "id": "hauntedmine",
+      "name": "Haunted Mine",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "hazeelcult",
+      "name": "Hazeel Cult",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "hero",
+      "name": "Hero's Quest",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "hetty",
+      "name": "Witch's Potion",
+      "script": "bots/quests/witchs-potion.ts",
+      "fixture": null,
+      "stage": "fixture",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "existing script needs completion-predicate audit",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "horror",
+      "name": "Horror from the Deep",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "hunt",
+      "name": "Pirate's Treasure",
+      "script": "bots/quests/pirates-treasure.ts",
+      "fixture": null,
+      "stage": "fixture",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "existing script needs completion-predicate audit",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "ikov",
+      "name": "Temple of Ikov",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "imp",
+      "name": "Imp Catcher",
+      "script": "bots/quests/imp-catcher.ts",
+      "fixture": "quest-lab/fixtures/imp.json",
+      "stage": "dev-verified",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "itexam",
+      "name": "Digsite Quest",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "itgronigen",
+      "name": "Observatory Quest",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "itwatchtower",
+      "name": "Watch Tower",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "junglepotion",
+      "name": "Jungle Potion",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "legends",
+      "name": "Legends Quest",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "mcannon",
+      "name": "Dwarf Cannon",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "misc",
+      "name": "Throne of Miscellania",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "mm",
+      "name": "Monkey Madness",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "mortton",
+      "name": "Shades of Mortton",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "murder",
+      "name": "Murder Mystery",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "priest",
+      "name": "The Restless Ghost",
+      "script": "bots/quests/restless-ghost.ts",
+      "fixture": null,
+      "stage": "fixture",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 2
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": {
+        "account": "jacklove14",
+        "runId": "priest-jacklove14-2026-10-20t20-22-34-211z",
+        "verdict": "FAIL",
+        "attempts": 1,
+        "at": "2026-10-20T20:29:51.350Z"
+      },
+      "blockers": [
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T20:29:51.350Z"
+    },
+    {
+      "id": "priestperil",
+      "name": "Priest in Peril",
+      "script": "bots/quests/priest-in-peril.ts",
+      "fixture": "quest-lab/fixtures/priestperil.json",
+      "stage": "drafting",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "existing script needs completion-predicate audit",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "prince",
+      "name": "Prince Ali Rescue",
+      "script": "bots/quests/prince-ali-rescue.ts",
+      "fixture": null,
+      "stage": "fixture",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "regicide",
+      "name": "Regicide",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "romeojuliet",
+      "name": "Romeo & Juliet",
+      "script": "bots/quests/romeo-and-juliet.ts",
+      "fixture": null,
+      "stage": "fixture",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "existing script needs completion-predicate audit",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "routequest",
+      "name": "In Search of the Myreque",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "runemysteries",
+      "name": "Rune Mysteries Quest",
+      "script": "bots/quests/rune-mysteries.ts",
+      "fixture": null,
+      "stage": "fixture",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "existing script needs completion-predicate audit",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "scorpcatcher",
+      "name": "Scorpion Catcher",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "seaslug",
+      "name": "Sea Slug Quest",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "sheep",
+      "name": "Sheep Shearer",
+      "script": "bots/quests/sheep-shearer.ts",
+      "fixture": null,
+      "stage": "blocked",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "existing script needs completion-predicate audit",
+        "no reviewed manifest (prerequisites/items/checkpoints)",
+        "dev gate: sheared 20 wool and spun it, then the Fred turn-in stalled at '10 balls left' with no further log line for 10+ min and the attempt timed out; talkFred() returns false without logging, so the loop spins invisibly. Evidence: quest-eval/reports/2026-10-20T17-32-42-302Z-sheep-hunt (logs only; run never wrote a report)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T20:37:46.414Z"
+    },
+    {
+      "id": "sheepherder",
+      "name": "Sheep Herder",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "squire",
+      "name": "The Knight's Sword",
+      "script": "bots/quests/knights-sword.ts",
+      "fixture": null,
+      "stage": "blocked",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no reviewed manifest (prerequisites/items/checkpoints)",
+        "dev gate 0/3: two world/route mechanics — (a) Varrock palace approach leg 19 stalls 34 tiles short at (3212,3438) with the planner returning a truncated plan, (b) Sir Vyvin's room stair/close walkTo returns 'no waypoints' from (2986,3332)->(2983,3335). Candidate d48e37fd1 in ~/rs-sdk-quests/squire (one pin-guard edit unamended). Evidence: quest-eval/reports/2026-10-20T18-34-20-393Z-squire"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T20:37:42.484Z"
+    },
+    {
+      "id": "tbwt",
+      "name": "Tai Bwo Wannai Trio",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "totem",
+      "name": "Tribal Totem",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "tree",
+      "name": "Tree Gnome Village",
+      "script": null,
+      "fixture": "quest-lab/fixtures/tree.json",
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "troll",
+      "name": "Troll Stronghold",
+      "script": "bots/quests/troll-stronghold.ts",
+      "fixture": null,
+      "stage": "fixture",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "existing script needs completion-predicate audit",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "troll_love",
+      "name": "Troll Romance",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "upass",
+      "name": "Underground Pass",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "alternate completion branches: 2",
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "vampire",
+      "name": "Vampire Slayer",
+      "script": "bots/quests/vampire-slayer.ts",
+      "fixture": null,
+      "stage": "fixture",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "existing script needs completion-predicate audit",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "viking",
+      "name": "The Fremennik Trials",
+      "script": "bots/quests/fremennik-trials.ts",
+      "fixture": "quest-lab/fixtures/viking.json",
+      "stage": "drafting",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "waterfall",
+      "name": "Waterfall Quest",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "zanaris",
+      "name": "Lost City",
+      "script": "bots/quests/lost-city.ts",
+      "fixture": null,
+      "stage": "fixture",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "existing script needs completion-predicate audit",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    },
+    {
+      "id": "zombiequeen",
+      "name": "Shilo Village",
+      "script": null,
+      "fixture": null,
+      "stage": "catalogued",
+      "owner": null,
+      "claimedAt": null,
+      "attempts": {
+        "dev": 0,
+        "canary": 0
+      },
+      "budget": {
+        "maxDevAttempts": 6,
+        "maxCanaryAttempts": 4,
+        "deadline": null
+      },
+      "candidate": null,
+      "canary": null,
+      "blockers": [
+        "no primary quest script yet",
+        "no reviewed manifest (prerequisites/items/checkpoints)"
+      ],
+      "rolledOutTo": [],
+      "notes": [],
+      "updatedAt": "2026-10-20T16:17:18.366Z"
+    }
+  ]
+}
