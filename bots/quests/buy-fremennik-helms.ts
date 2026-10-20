@@ -1,6 +1,7 @@
 /**
- * One-off: buy the three Fremennik combat helms from Skulgrimen's Battle Gear
- * in Rellekka and bank them at Seers'.
+ * One-off: buy OUT the Fremennik helm shelf at Skulgrimen's Battle Gear in
+ * Rellekka (all four: Berserker, Archer, Warrior, Farseer), bank them at Seers',
+ * and wear the Berserker helm.
  *
  *   bun bots/quests/buy-fremennik-helms.ts jackthief
  *
@@ -8,7 +9,8 @@
  *   scripts/areas/area_vt/configs/viking.inv  [viking_weapons_shop]
  *     stock8=viking_helmet_range   -> "Archer helm"
  *     stock9=viking_helmet_crush   -> "Berserker helm"
- *     stock10=viking_helmet_slash  -> "Warrior helm"      (each 5 in stock)
+ *     stock10=viking_helmet_slash  -> "Warrior helm"
+ *     stock11=viking_helmet_magic  -> "Farseer helm"      (each 5 in stock)
  *   configs/viking.obj: each carries cost=60000
  *   scripts/quests/quest_viking/scripts/viking_weapon_salesman.rs2: the counter
  *     opens ONLY once the Fremennik Trials are complete
@@ -20,9 +22,11 @@
  * from the obj cost — the NPC carries shop_buy_multiplier 700 — and every buy
  * is verified by the pack count growing, never by the click receipt.
  *
- * Idempotent: buys only what the account lacks (pack + bank) and then IDLES
- * with DONE instead of exiting, because a container that exits 0 is restarted
- * and would run the whole purchase again.
+ * Takes as much of each as the shelf currently holds (chunked and verified by
+ * the pack growing, not by the click receipt), spending at most COIN_CAP, then
+ * IDLES with DONE instead of exiting — a container that exits 0 is restarted and
+ * would run the whole purchase again. A restart with an empty shelf therefore
+ * logs DONE without buying.
  */
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
@@ -55,7 +59,9 @@ const server = process.env.SERVER;
 const GRIND_LOG = join(process.cwd(), 'bots', username, 'grind.log');
 
 const SKULGRIMEN: Tile = { x: 2663, z: 3694 };
-const COIN_CAP = 300_000;
+const COIN_CAP = 2_000_000;
+/** Keep the pack from filling up before we bank: 28 slots, coins stack. */
+const MAX_ITEMS = 24;
 const COINS = /^coins$/i;
 
 interface Helm {
@@ -67,7 +73,9 @@ const HELMS: Helm[] = [
     { label: 'Berserker helm', re: /^berserker helm$/i },
     { label: 'Archer helm', re: /^archer helm$/i },
     { label: 'Warrior helm', re: /^warrior helm$/i },
+    { label: 'Farseer helm', re: /^farseer helm$/i },
 ];
+const BERSERKER = /^berserker helm$/i;
 
 /** Seers' <-> Rellekka road, as walked (and proven) by fremennik-trials.ts.
  *  A single leg of this length silently no-ops, so it is crossed in chunks. */
@@ -189,19 +197,11 @@ if (!(await openBankAt(SEERS_BANK, 'Seers'))) {
 }
 await sdk.waitForTicks(3).catch(() => undefined);
 
-const missing = HELMS.filter((h) => invCount(h.re) === 0 && bankCount(h.re) === 0);
 log(
-    `already held: ${inPack.length ? inPack.map((h) => h.label).join(',') : 'none'} | ` +
+    `held now: ${inPack.length ? inPack.map((h) => h.label).join(',') : 'none'} | ` +
         `in bank: ${HELMS.filter((h) => bankCount(h.re) > 0).map((h) => h.label).join(',') || 'none'} | ` +
-        `to buy: ${missing.map((h) => h.label).join(',') || 'nothing'}`
+        `goal: buy out the shelf of ${HELMS.map((h) => h.label).join(', ')}`
 );
-
-if (missing.length === 0) {
-    await bot.closeBank().catch(() => undefined);
-    log('DONE — all three helms already held; nothing to buy');
-    session.stop('done', 'nothing to buy', { restartable: false });
-    while (true) await sdk.waitForTicks(100).catch(() => undefined);
-}
 
 const packCoins = invCount(COINS);
 if (packCoins < COIN_CAP) {
@@ -218,7 +218,7 @@ if (packCoins < COIN_CAP) {
 await sdk.waitForTicks(2).catch(() => undefined);
 log(`coins in pack: ${invCount(COINS)}`);
 if (invCount(COINS) < 60_000) {
-    log(`underfunded: ${invCount(COINS)} coins — a single helm costs 60000; stopping so this is visible`);
+    log(`underfunded: ${invCount(COINS)} coins in the pack — the shelf charges 78000 per helm; stopping so this is visible`);
     await sdk.disconnect().catch(() => undefined);
     process.exit(1);
 }
@@ -242,32 +242,68 @@ if (!opened) {
     process.exit(1);
 }
 
-const shelf = sdk.getState()?.shop?.shopItems ?? [];
+const readShelf = (): Array<{ name: string; count?: number; buyPrice?: number }> =>
+    (sdk.getState()?.shop?.shopItems ?? []) as Array<{ name: string; count?: number; buyPrice?: number }>;
+const shelf0 = readShelf();
 log(
-    `shelf: ${shelf
+    `shelf: ${shelf0
         .filter((i) => HELMS.some((h) => h.re.test(i.name)))
         .map((i) => `${i.name} x${i.count} @${i.buyPrice}gp`)
         .join(' | ')}`
 );
 
-for (const helm of missing) {
-    const line = shelf.find((i) => helm.re.test(i.name));
+// Take the whole shelf, per helm, in verified chunks. Chunking because the
+// shop action has a per-request quantity cap, and verifying by the pack growing
+// because the buy receipt is only a dispatch acknowledgement.
+let totalBought = 0;
+for (const helm of HELMS) {
+    if (totalBought >= MAX_ITEMS) {
+        log(`pack item budget (${MAX_ITEMS}) reached — stopping the buy-out`);
+        break;
+    }
+    const line = readShelf().find((i) => helm.re.test(i.name));
     if (!line) {
-        log(`${helm.label}: not on the shelf — skipped`);
+        log(`${helm.label}: not on the shelf`);
         continue;
     }
-    const before = invCount(helm.re);
-    const r = await bot.buyFromShop(helm.re, 1).catch((e: unknown) => ({ success: false, message: String(e) }));
-    await sdk.waitForTicks(3).catch(() => undefined);
-    const after = invCount(helm.re);
-    log(`${helm.label}: buy success=${r.success} ${r.message ?? ''} pack ${before}->${after} @${line.buyPrice}gp`);
-    if (after > before) session.noteProgress('shop', `bought ${helm.label}`);
+    const onShelf = line.count ?? 0;
+    if (onShelf <= 0) {
+        log(`${helm.label}: shelf empty`);
+        continue;
+    }
+    const price = Math.max(1, line.buyPrice ?? 1);
+    const afford = Math.floor(invCount(COINS) / price);
+    const want = Math.min(onShelf, afford, MAX_ITEMS - totalBought);
+    if (want <= 0) {
+        log(`${helm.label}: cannot afford any (price ${price}gp, pack ${invCount(COINS)}gp)`);
+        continue;
+    }
+    let got = 0;
+    for (let attempt = 0; attempt < 6 && got < want; attempt++) {
+        const chunk = Math.min(want - got, 5);
+        const before = invCount(helm.re);
+        const r = await bot
+            .buyFromShop(helm.re, chunk)
+            .catch((e: unknown) => ({ success: false, message: String(e) }));
+        await sdk.waitForTicks(3).catch(() => undefined);
+        const after = invCount(helm.re);
+        log(
+            `${helm.label}: buy ${chunk} of ${onShelf} success=${r.success} ${r.message ?? ''} ` +
+                `pack ${before}->${after} @${price}gp`
+        );
+        if (after <= before) break;
+        got += after - before;
+        session.noteProgress('shop', `bought ${after - before}x ${helm.label}`);
+    }
+    totalBought += got;
+    if (got < onShelf) log(`${helm.label}: took ${got} of the ${onShelf} on the shelf`);
 }
+log(`buy-out finished: ${totalBought} helms, pack coins now ${invCount(COINS)}`);
 await bot.closeShop().catch(() => undefined);
 await sdk.waitForTicks(2).catch(() => undefined);
 
-const bought = HELMS.filter((h) => invCount(h.re) > 0);
-log(`pack now: ${bought.map((h) => h.label).join(',') || 'no helms'} — banking`);
+const carried = HELMS.filter((h) => invCount(h.re) > 0);
+log(`pack now: ${carried.map((h) => `${h.label} x${invCount(h.re)}`).join(',') || 'no helms'} — banking`);
 
 // ---- bank them (helms are the deliverable; coins stay in the pack) ----
 const backToBank = planRoute(SEERS_BANK);
@@ -291,6 +327,21 @@ log(
     `bank now holds: ${HELMS.map((h, i) => `${h.label}=${banked[i]}`).join(' ')} | pack coins=${invCount(COINS)}`
 );
 await bot.closeBank().catch(() => undefined);
+
+// Wear the Berserker helm (asked for). Withdraw one unnoted and equip it, then
+// verify it actually landed on the head slot — the equip receipt is weak.
+if (!sdk.findEquipmentItem(BERSERKER)) {
+    const w = await bot.withdrawItem(BERSERKER, 1).catch((e: unknown) => ({ success: false, message: String(e) }));
+    await sdk.waitForTicks(2).catch(() => undefined);
+    log(`berserker withdraw for wearing: ${w.success} ${w.message ?? ''}`);
+    const e = await bot.equipItem(BERSERKER).catch((err: unknown) => ({ success: false, message: String(err) }));
+    await sdk.waitForTicks(3).catch(() => undefined);
+    const onHead = !!sdk.findEquipmentItem(BERSERKER);
+    log(`wear berserker helm: success=${e.success} ${e.message ?? ''} — on the head slot=${onHead}`);
+    if (onHead) session.noteProgress('inventory', 'wore the berserker helm');
+} else {
+    log('berserker helm is already on the head slot');
+}
 
 const ok = HELMS.every((h, i) => (banked[i] ?? 0) > 0 || invCount(h.re) > 0);
 log(`${ok ? 'DONE' : 'INCOMPLETE'} — ${HELMS.map((h) => `${h.label}: bank=${bankCount(h.re)} pack=${invCount(h.re)}`).join(' | ')}`);
