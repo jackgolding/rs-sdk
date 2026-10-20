@@ -151,17 +151,19 @@
         {
             "name": "jacklove8",
             "view": "loves",
-            "script": "bots/quests/edgeville-bank-all.ts",
+            "script": "bots/quests/mining-lowlevel.ts",
             "args": [
-                "jacklove8"
+                "jacklove8",
+                "--until=15"
             ]
         },
         {
             "name": "jacklove9",
             "view": "loves",
-            "script": "bots/quests/edgeville-bank-all.ts",
+            "script": "bots/quests/mining-lowlevel.ts",
             "args": [
-                "jacklove9"
+                "jacklove9",
+                "--until=15"
             ]
         },
         {
@@ -199,9 +201,10 @@
         {
             "name": "jacklove14",
             "view": "loves",
-            "script": "bots/quests/edgeville-bank-all.ts",
+            "script": "bots/quests/mining-lowlevel.ts",
             "args": [
-                "jacklove14"
+                "jacklove14",
+                "--until=15"
             ]
         },
         {
