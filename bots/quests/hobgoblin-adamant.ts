@@ -44,6 +44,7 @@ const TO_EDGEVILLE = [
 const PICKAXE = /^(bronze|iron|steel|mithril|adamant|rune) pickaxe$/i;
 const ADDY = /^adamantite ore$/i;
 const ADDY_ROCK = /rocks adamant/i;
+const DLONG = /^dragon longsword$/i;
 /** Sharks carried into the wildy per trip. */
 const FOOD_TARGET = 4;
 const SHARK = /^shark$/i;
@@ -686,6 +687,15 @@ async function bankTrip(): Promise<boolean> {
     }
     session.captureBankStock();
     await bot.closeBank();
+    // Re-wear the dlong after a PK death: keepers land in the pack, and an
+    // unworn blade means flee-only. Wields from the pack, never the bank.
+    if (!sdk.findEquipmentItem(DLONG)) {
+        const carried = sdk.findInventoryItem(DLONG);
+        if (carried) {
+            const e = await bot.equipItem(carried);
+            log(`Re-wear dlong: ${e.success ? 'ok' : e.message}`);
+        }
+    }
     await eatAtBank();
     // Re-open for the food top-up (eatAtBank closed the bank).
     if (sdk.getState()?.bank?.isOpen || (await bot.openBank()).success) {
