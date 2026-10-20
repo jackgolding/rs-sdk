@@ -217,8 +217,7 @@
             "view": "loves",
             "script": "bots/quests/mining-guild.ts",
             "args": [
-                "jacklove16",
-                "--north"
+                "jacklove16"
             ]
         },
         {
@@ -242,8 +241,7 @@
             "view": "loves",
             "script": "bots/quests/mining-guild.ts",
             "args": [
-                "jacklove19",
-                "--north"
+                "jacklove19"
             ]
         },
         {
