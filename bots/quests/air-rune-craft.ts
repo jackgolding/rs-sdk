@@ -208,7 +208,7 @@ async function hop(tile: Tile): Promise<void> {
 
 async function leaveWilderness(): Promise<void> {
     const p = pos();
-    if (!inWilderness(p.x, p.z) || p.dead) return;
+    if (inAirAltar(p.x, p.z) || !inWilderness(p.x, p.z) || p.dead) return;
     // Repeating setPhase refreshes the stall timer, so a standstill never recovers.
     if (session.metrics().phase !== 'wildy') await session.setPhase('wildy');
     if (southOfLavaMaze(p.x, p.z)) await hop(LAVA_MAZE_EAST);
@@ -456,7 +456,10 @@ try {
             await leaveMine(bot, sdk, log);
             continue;
         }
-        if (inWilderness(pos().x, pos().z)) {
+        // The air altar's world coords (z~4830) sit inside the SDK's
+        // wilderness test, so this branch must not own an altar visit: every
+        // lap used to run leaveWilderness() and loop there forever.
+        if (inWilderness(pos().x, pos().z) && !inAirAltar(pos().x, pos().z)) {
             await leaveWilderness();
             continue;
         }

@@ -24,7 +24,10 @@ import { WildyCourse } from './wildy-course';
 import { installGracefulShutdown } from '../../sdk/runner';
 
 const TARGET_LEVEL = 99;
-const GNOME_UNTIL = 52;
+// Stay on the gnome course all the way to 99: the wilderness course's Mage
+// Arena food restock loops (walkToMage never lands), so every bot that crossed
+// 52 stalled in wildy_prep. Gnome laps pay the full +1162 bonus and are safe.
+const GNOME_UNTIL = 99;
 const GNOME_BANK = ARDOUGNE_BANK;
 /** Karamja → Brimhaven dock (mainland crossing is a separate boat step). */
 const TO_BRIMHAVEN: Tile[] = [
