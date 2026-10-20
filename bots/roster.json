@@ -115,11 +115,10 @@
         {
             "name": "jackthief",
             "view": "fleet",
-            "script": "bots/quests/equip-item.ts",
+            "script": "bots/quests/jackthief-pickup-shields.ts",
             "args": [
                 "jackthief",
-                "--item=Berserker helm",
-                "--bank=seers"
+                "--drop"
             ]
         },
         {
