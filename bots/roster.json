@@ -115,7 +115,7 @@
         {
             "name": "jackthief",
             "view": "fleet",
-            "script": "bots/quests/buy-nurmof-pick.ts",
+            "script": "bots/quests/hobgoblin-adamant.ts",
             "args": [
                 "jackthief"
             ]
