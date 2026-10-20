@@ -115,11 +115,9 @@
         {
             "name": "jackthief",
             "view": "fleet",
-            "script": "bots/quests/bank-report.ts",
+            "script": "bots/quests/champions-rune-buy.ts",
             "args": [
-                "jackthief",
-                "--bank=falador-east,falador-west,draynor,seers",
-                "--find=essence"
+                "jackthief"
             ]
         },
         {
