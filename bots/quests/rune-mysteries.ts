@@ -1084,7 +1084,9 @@ try {
 
         if (!questComplete) {
             if (inKandarin() || onKaramja()) {
-                await suicideToLumbridge();
+                // Same walk-first rule as the start leg: the mountain route
+                // works at any HP, the Hero suicide only at low HP.
+                await reachLumbridge();
                 continue;
             }
             if (has(NOTES)) {
