@@ -4,6 +4,8 @@
  *
  * Trees: willows → maples (WC 45) → yews (WC 80). Stays at Seers bank.
  * After Firemaking 99, chops the same trees and fletches unstrung bows.
+ * `--fletch` forces that fletching leg now, without waiting for Firemaking 99
+ * (tier still follows Woodcutting + Fletching, so it starts on normal logs).
  *
  *   bun bots/quests/seers-wc-fm.ts jackthief
  *   bun bots/quests/seers-wc-fm.ts Jackpoo1 --yews   # chop + bank churchyard yews (no FM)
@@ -155,6 +157,8 @@ const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-'));
 /** Chop Seers yews and bank the logs — no firemaking or fletching. */
 const BANK_YEWS = argv.includes('--yews');
+/** Force the fletching leg early: chop + fletch bows instead of burning to FM 99 first. */
+const FLETCH_FORCE = argv.includes('--fletch');
 const untilWcArg = argv.find((a) => a.startsWith('--until-wc='));
 const untilWc = Number(untilWcArg?.split('=')[1]);
 /** Chop-only stop. Tree choice follows Woodcutting, logs are dropped, no FM. */
@@ -316,7 +320,8 @@ function bestUsableAxeName(): string | null {
 }
 
 function fletchingNow(): boolean {
-    return !BANK_YEWS && fm() >= TARGET;
+    if (BANK_YEWS || WC_UNTIL > 0) return false;
+    return FLETCH_FORCE || fm() >= TARGET;
 }
 
 function chopOnly(): boolean {

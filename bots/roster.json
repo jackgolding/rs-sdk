@@ -93,7 +93,8 @@
             "view": "fleet",
             "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "jacklove3"
+                "jacklove3",
+                "--fletch"
             ]
         },
         {
