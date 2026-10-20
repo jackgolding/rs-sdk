@@ -879,7 +879,7 @@ services:
   quest-jacklove13:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/edgeville-bank-all.ts", "jacklove13"]
+    command: ["bun", "bots/quests/agility-route.ts", "jacklove13"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -981,7 +981,7 @@ services:
   quest-jacklove16:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/mining-lowlevel.ts", "jacklove16", "--until=41"]
+    command: ["bun", "bots/quests/rimmington-iron.ts", "jacklove16"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1083,7 +1083,7 @@ services:
   quest-jacklove19:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/mining-lowlevel.ts", "jacklove19", "--until=41"]
+    command: ["bun", "bots/quests/rimmington-iron.ts", "jacklove19"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

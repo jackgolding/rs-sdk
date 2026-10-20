@@ -191,7 +191,7 @@
         {
             "name": "jacklove13",
             "view": "loves",
-            "script": "bots/quests/edgeville-bank-all.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
                 "jacklove13"
             ]
@@ -216,10 +216,9 @@
         {
             "name": "jacklove16",
             "view": "loves",
-            "script": "bots/quests/mining-lowlevel.ts",
+            "script": "bots/quests/rimmington-iron.ts",
             "args": [
-                "jacklove16",
-                "--until=41"
+                "jacklove16"
             ]
         },
         {
@@ -241,10 +240,9 @@
         {
             "name": "jacklove19",
             "view": "loves",
-            "script": "bots/quests/mining-lowlevel.ts",
+            "script": "bots/quests/rimmington-iron.ts",
             "args": [
-                "jacklove19",
-                "--until=41"
+                "jacklove19"
             ]
         },
         {
