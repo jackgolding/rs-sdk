@@ -184,12 +184,29 @@ export async function walkKandarinToEdgeville(
     }
 ): Promise<boolean> {
     if (!(await waitForPlayerState(sdk))) return false;
-    if (playerPos(sdk).x >= 2990 || playerPos(sdk).z > 6400) return true;
-    if (playerPos(sdk).x < 2780) {
+    const start = playerPos(sdk);
+    if (start.x >= 2990 || start.z > 6400) return true;
+    // Ardougne leg only from the far west: Seers (2726) is also x<2780, and
+    // reversing the whole chain there walked bots SOUTH-WEST to Ardougne
+    // before turning round for the mountain.
+    if (start.x < 2700 && start.z < 3410) {
         await walkWaypoints(bot, sdk, [...CATHERBY_TO_ARDY].reverse(), {
             walkNear: opts.walkNear,
             beforeStep: opts.eat
         });
+    } else if (start.x < 2812 && start.z > 3430) {
+        // Seers/Catherby side: hop east onto the White Wolf chain's west end.
+        await walkWaypoints(
+            bot,
+            sdk,
+            [
+                { x: 2726, z: 3485 },
+                { x: 2758, z: 3477 },
+                { x: 2788, z: 3460 },
+                { x: 2808, z: 3443 }
+            ],
+            { walkNear: opts.walkNear, beforeStep: opts.eat }
+        );
     }
     const hops = [...WHITE_WOLF_TO_CATHERBY].reverse();
     const dest = hops[hops.length - 1]!;
