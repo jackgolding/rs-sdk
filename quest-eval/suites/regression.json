@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "name": "regression",
+  "runs": 3,
+  "timeoutMs": 1200000,
+  "gate": { "minPassRate": 0.8, "minRuns": 3 },
+  "quests": [
+    {
+      "questId": "cook",
+      "script": "bots/quests/cooks-assistant.ts",
+      "fixture": "quest-lab/fixtures/cook.json",
+      "accountCode": "cook"
+    },
+    {
+      "questId": "demon",
+      "script": "bots/quests/demon-slayer.ts",
+      "fixture": "quest-lab/fixtures/demon.json",
+      "accountCode": "demon"
+    },
+    {
+      "questId": "priestperil",
+      "script": "bots/quests/priest-in-peril.ts",
+      "fixture": "quest-lab/fixtures/priestperil.json",
+      "accountCode": "prst"
+    }
+  ]
+}

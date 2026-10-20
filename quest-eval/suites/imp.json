@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "name": "imp",
+  "runs": 1,
+  "timeoutMs": 2400000,
+  "gate": { "minPassRate": 0.8, "minRuns": 1 },
+  "quests": [
+    {
+      "questId": "imp",
+      "script": "bots/quests/imp-catcher.ts",
+      "fixture": "quest-lab/fixtures/imp.json",
+      "accountCode": "imp"
+    }
+  ]
+}

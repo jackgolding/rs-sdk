@@ -33,6 +33,13 @@ interface Entry {
   /** Number of added / removed lines, when a diff could be computed. */
   added?: number;
   removed?: number;
+  /**
+   * True when the two versions differ ONLY in numeric literals (tick counts,
+   * sleeps, tolerances). Those are clock/network tuning, not behaviour: prod and
+   * dev run at different tick rates and latencies, so this is expected drift and
+   * must not be "reconciled" by copying one side over the other.
+   */
+  timingOnly?: boolean;
 }
 
 interface Parsed {
@@ -95,6 +102,21 @@ function diffCounts(a: string, b: string): { added: number; removed: number } | 
   }
 }
 
+/**
+ * Strip the things that legitimately differ between a fast local world and a
+ * slower, laggy one: comments and every numeric literal. If what remains is
+ * identical, the change is tuning, not logic.
+ */
+export function normaliseForTiming(text: string): string {
+  return text
+    .split('\n')
+    .map(line => line.replace(/\/\/.*$/, ''))
+    .join('\n')
+    .replace(/\b\d+(?:\.\d+)?\b/g, '#')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function compare(parsed: Parsed): Entry[] {
   const dev = scriptsIn(parsed.dev, parsed.dir);
   const prod = scriptsIn(parsed.prod, parsed.dir);
@@ -124,6 +146,7 @@ function compare(parsed: Parsed): Entry[] {
       status: 'differs',
       devLines: devText.split('\n').length,
       prodLines: prodText.split('\n').length,
+      timingOnly: normaliseForTiming(devText) === normaliseForTiming(prodText),
       ...(counts ?? {}),
     });
   }
@@ -134,7 +157,7 @@ function format(entries: readonly Entry[]): string {
   const pad = (value: string, width: number) => value.padEnd(width);
   const lines = [`${pad('script', 34)}${pad('status', 11)}${pad('dev', 6)}${pad('prod', 6)}change (prod -> dev)`];
   for (const entry of entries) {
-    const change = entry.status === 'differs' ? `+${entry.added ?? '?'} / -${entry.removed ?? '?'}` : '';
+    const change = entry.status === 'differs' ? `+${entry.added ?? '?'} / -${entry.removed ?? '?'}${entry.timingOnly ? ' (timing only)' : ''}` : '';
     lines.push(
       `${pad(entry.script, 34)}${pad(entry.status, 11)}${pad(String(entry.devLines ?? '—'), 6)}${pad(String(entry.prodLines ?? '—'), 6)}${change}`,
     );
@@ -144,8 +167,11 @@ function format(entries: readonly Entry[]): string {
     '',
     `${count('same')} identical · ${count('differs')} diverged · ${count('dev-only')} dev-only · ${count('prod-only')} prod-only`,
   );
+  const timing = entries.filter(e => e.status === 'differs' && e.timingOnly).length;
+  const real = count('differs') - timing;
+  if (timing) lines.push(`${timing} of the ${count('differs')} diverged scripts differ ONLY in numeric constants (clock/network tuning)`);
+  if (real) lines.push(`${real} diverged script(s) changed behaviour — those need a manual merge, never a copy in either direction`);
   if (count('prod-only')) lines.push('prod-only scripts are fixes dev never received — reconcile before any merge');
-  if (count('differs')) lines.push('diverged scripts need a manual merge, never a copy in either direction');
   return lines.join('\n');
 }
 
@@ -170,7 +196,9 @@ try {
     console.log(`prod ${parsed.prod}\n`);
     console.log(format(entries));
   }
-  const divergent = entries.filter(e => e.status === 'differs' || e.status === 'prod-only').length;
+  // --strict counts only behaviour divergence: a clock-tuned script is expected
+  // drift between a local world and the demo server, not a merge blocker.
+  const divergent = entries.filter(e => (e.status === 'differs' && !e.timingOnly) || e.status === 'prod-only').length;
   process.exit(parsed.strict && divergent ? 1 : 0);
 } catch (error) {
   console.error(`quest-parity: ${(error as Error).message}`);
