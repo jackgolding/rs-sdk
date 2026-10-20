@@ -74,6 +74,24 @@ export interface AntiPkDeps {
     weapon?: WeaponProfile;
 }
 
+/**
+ * What a PK kill is worth looting. Default-deny: hobgoblin junk (bones,
+ * herbs, limpwurt, feathers) stays on the ground. Takes named valuables
+ * (rune/dragon/magic kit, sharks, prayer restores, high runes, clues,
+ * splitdrops) plus any coin pile — coins stack and PK coin drops are the
+ * prize. Everything else is left to rot.
+ */
+const PK_LOOT_TAKE =
+    /rune|runite|dragon|magic shortbow|magic longbow|yew longbow|shark|prayer potion|restore potion|super |clue scroll|shield left half|half of a key|nature rune|law rune|death rune|blood rune|chaos rune|cosmic rune|adamant|diamond|dragonstone|uncut dragonstone|ring of |amulet of glory|dorgeshuun|granite/i;
+const PK_LOOT_SKIP = /^(bones|ashes|big bones|herb|unidentified herb|limpwurt root|snape grass|feather|raw (beef|rat meat|chicken)|cooked (chicken|meat)|burnt .*|spinach roll|jug of (wine|water)|beer|pot|vial|eye of newt|air rune|water rune|earth rune|fire rune|mind rune|body rune|iron arrow|bronze arrow|steel arrow|mithril arrow|bones.*|oyster|seaweed)$/i;
+
+function worthLooting(name: string, count: number): boolean {
+    if (!name) return false;
+    if (PK_LOOT_SKIP.test(name)) return false;
+    if (/^coins$/i.test(name)) return true;
+    return PK_LOOT_TAKE.test(name);
+}
+
 export interface FightBackResult {
     fought: boolean;
     reason: string;
@@ -206,7 +224,7 @@ export function createAntiPk({ sdk, bot, log, weapon = DLONG_PROFILE }: AntiPkDe
         return { fought: true, reason: `retaliating: ${r.message}`, attacker: attacker.name, specced, prayers };
     }
 
-    /** Vacuum the kill spot after the fight. Call when combat drops. */
+    /** Vacuum the kill spot after the fight. Valuables only — see worthLooting. */
     async function lootKill(maxPickups = 8, radius = 4): Promise<{ picked: number; names: string[] }> {
         const names: string[] = [];
         let scanned: any[] = [];
@@ -222,6 +240,7 @@ export function createAntiPk({ sdk, bot, log, weapon = DLONG_PROFILE }: AntiPkDe
                 const gz = g.z ?? g.worldZ ?? 0;
                 return Math.hypot(gx - killX, gz - killZ) <= radius + 1;
             })
+            .filter((g: any) => worthLooting(g.name ?? '', g.count ?? 1))
             .slice(0, maxPickups);
         for (const g of near) {
             const r = await bot.pickupItem?.(g).catch?.(() => null);
