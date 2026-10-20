@@ -324,6 +324,19 @@ export class ActivitySession {
      * Effect kinds also move lastEffectAt. A location note whose tile has not
      * changed since the last credited location note is ignored.
      */
+    /**
+     * Emit one structured event of an arbitrary type.
+     *
+     * The FSM layer calls this once per transition (`event('transition', ...)`),
+     * which is what makes a looping edge visible in `events.log`. `summary`,
+     * when given, also lands in grind.log so a human reading the session log
+     * sees the route without parsing JSON.
+     */
+    event(type: string, fields: Record<string, unknown> = {}, summary?: string): void {
+        if (summary) this.log('log', `${type} ${summary}`);
+        this.emitEvent({ type, ...fields });
+    }
+
     noteProgress(kind: ProgressKind, detail?: string): void {
         if (kind === 'location' && !this.tileAdvanced()) return;
         this.creditProgress(kind, detail);
