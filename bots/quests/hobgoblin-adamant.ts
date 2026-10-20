@@ -206,6 +206,25 @@ function seePker(): boolean {
     return combat?.inCombat === true && combat?.targetType === 'player';
 }
 
+/**
+ * PK pressure, confirmed OR suspected. Confirmed = our combat target is a
+ * player. Suspected = we took damage in the last few ticks with a player
+ * standing next to us while our target is something else (usually a
+ * hobgoblin we auto-retaliated against first). Without this the bot stands
+ * in NPC combat and gets beaten to death without ever noticing the PKer.
+ */
+function pkPressure(): boolean {
+    if (!northOfDitch()) return false;
+    const s = sdk.getState();
+    const combat = s?.player?.combat;
+    if (!combat) return false;
+    if (combat.inCombat === true && combat.targetType === 'player') return true;
+    const tick = s?.tick ?? 0;
+    const lastDmg = combat.lastDamageTick ?? -1;
+    if (lastDmg < 0 || tick - lastDmg > 4) return false;
+    return (s?.nearbyPlayers ?? []).some((p) => (p.distance ?? 99) <= 4);
+}
+
 function bankFood() {
     return sdk
         .getBankItems()
@@ -401,15 +420,20 @@ function resumeHop(hops: Tile[]): number {
 async function walkHops(hops: Tile[], arrive: () => boolean, label: string): Promise<boolean> {
     let cursor = resumeHop(hops);
     let stuck = 0;
+    let cursorStaticSince = Date.now();
+    let lastCursor = cursor;
     for (let n = 0; n < 280 && !arrive() && !pos().isDead; n++) {
         session.maybeHeartbeat();
-        if (seePker()) return false;
+        if (pkPressure()) return false;
         if (arrive()) return true;
-        while (cursor < hops.length - 1 && distTo(hops[cursor]!.x, hops[cursor]!.z) <= 3) cursor++;
+        // Advance past any hop already reached: 6 matches the success
+        // radius below AND runClick's no-op radius (5). A tighter bound
+        // deadbands here — dist 5 neither advances nor moves (hop 38 stall).
+        while (cursor < hops.length - 1 && distTo(hops[cursor]!.x, hops[cursor]!.z) <= 6) cursor++;
         if (cursor >= hops.length) return arrive();
         const click = clickAhead(pos(), hops, cursor, (x, z) => getDoorAt(0, x, z) != null);
         const hop = click.tile;
-        if (distTo(hop.x, hop.z) <= 3) {
+        if (distTo(hop.x, hop.z) <= 6) {
             cursor = Math.max(cursor, click.index) + 1;
             continue;
         }
@@ -417,7 +441,7 @@ async function walkHops(hops: Tile[], arrive: () => boolean, label: string): Pro
         await openDoorAhead(hop);
         const moved = click.straight ? await runClick(hop.x, hop.z) : await stepToward(hop);
         if (distTo(hop.x, hop.z) <= 6) {
-            cursor = click.index;
+            cursor = click.index + 1;
             stuck = 0;
         } else if (!moved && pos().x === before.x && pos().z === before.z) {
             stuck++;
@@ -427,6 +451,15 @@ async function walkHops(hops: Tile[], arrive: () => boolean, label: string): Pro
             }
         } else {
             stuck = 0;
+        }
+        // Cross-iteration guard: cursor pinned with no advance for 90s means
+        // the success/advance radii disagree again — fail loud, never spin.
+        if (cursor !== lastCursor) {
+            lastCursor = cursor;
+            cursorStaticSince = Date.now();
+        } else if (Date.now() - cursorStaticSince > 90_000) {
+            session.noteFailure('wildy_hop_static', `${label} cursor pinned at ${cursor} @ ${pos().x},${pos().z}`);
+            return false;
         }
         if (n % 8 === 0) session.noteProgress('location', `${pos().x},${pos().z}`);
         if (n % 10 === 0) {
@@ -493,6 +526,9 @@ function ditchToHobHops(): Tile[] {
     return northHops;
 }
 
+// Cross-call spin guard: walkHops failing from the same tile twice in a row
+// means zero progress — cool down so the main loop can never hot-spin.
+let lastHobWalk = { x: -1, z: -1, repeats: 0 };
 async function goToHob(): Promise<boolean> {
     if (atHobgoblin()) return true;
     if (session.metrics().phase !== 'wildy') await session.setPhase('wildy');
@@ -506,7 +542,20 @@ async function goToHob(): Promise<boolean> {
     if (inBanditCamp()) await escapeBanditCamp();
     session.setAnchor(HOBGOBLIN.x, HOBGOBLIN.z);
     intent('Hobgoblin mine adamant, east road');
-    return walkHops(ditchToHobHops(), () => atHobgoblin(), 'north');
+    const ok = await walkHops(ditchToHobHops(), () => atHobgoblin(), 'north');
+    const p = pos();
+    if (!ok && !atHobgoblin()) {
+        if (p.x === lastHobWalk.x && p.z === lastHobWalk.z) {
+            lastHobWalk.repeats++;
+            session.noteFailure('wildy_noprogress', `north stalled @ ${p.x},${p.z} x${lastHobWalk.repeats}`);
+            await sdk.waitForTicks(10).catch(() => {});
+        } else {
+            lastHobWalk = { x: p.x, z: p.z, repeats: 0 };
+        }
+    } else {
+        lastHobWalk = { x: p.x, z: p.z, repeats: 0 };
+    }
+    return ok;
 }
 
 async function leaveWildy(): Promise<boolean> {
@@ -750,7 +799,7 @@ async function mineAddy(): Promise<boolean> {
                 s.player?.lifeId !== life ||
                 s.inventory.filter((i) => ADDY.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0) > before ||
                 (s.skills.find((sk) => sk.name === 'Mining')?.experience ?? 0) > xpBefore ||
-                (s.player?.combat?.inCombat === true && s.player?.combat?.targetType === 'player'),
+                pkPressure(),
             20_000
         )
         .catch(() => {});
@@ -761,7 +810,7 @@ async function mineAddy(): Promise<boolean> {
         log(`Mined addy ${countAddy()} free=${freeSlots()} @ ${pos().x},${pos().z}`);
         return true;
     }
-    if (seePker() || pos().isDead) return false;
+    if (pkPressure() || pos().isDead) return false;
     session.noteFailure('addy', `Nothing from ${rock.name}`);
     return false;
 }
@@ -769,7 +818,7 @@ async function mineAddy(): Promise<boolean> {
 async function mineAllAddy(): Promise<void> {
     if (session.metrics().phase !== 'addy') await session.setPhase('addy');
     let dry = 0;
-    while (!pos().isDead && freeSlots() > 0 && dry < 3 && !seePker()) {
+    while (!pos().isDead && freeSlots() > 0 && dry < 3 && !pkPressure()) {
         session.maybeHeartbeat();
         if (!atHobgoblin()) return;
         if (needsHeal() && foodCount() === 0) return;
@@ -860,7 +909,7 @@ try {
             }
             continue;
         }
-        if (seePker()) {
+        if (seePker() || pkPressure()) {
             await handlePker();
             if (pos().isDead) continue;
             continue;

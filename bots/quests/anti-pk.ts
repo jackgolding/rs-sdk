@@ -29,9 +29,35 @@ const DLONG = /^dragon longsword$/i;
 /** combat_hacksword:specbar — Cleave, 25% (250/1000). */
 const HACKSWORD_SPECBAR = 7587;
 const DLONG_SPEC_COST = 250;
+/** combat_bow:specbar — Snapshot, 35% (350/1000). */
+const BOW_SPECBAR = 7537;
+const MSB_SPEC_COST = 350;
 const SPEC_MAX = 1000;
 const SPEC_REGEN = 100;
 const SPEC_REGEN_TICKS = 50;
+
+export interface WeaponProfile {
+    pattern: RegExp;
+    specbar: number;
+    specCost: number;
+    specName: string;
+}
+
+/** Dragon longsword: Cleave, 25%. Needs 60 Attack + Lost City. */
+export const DLONG_PROFILE: WeaponProfile = {
+    pattern: DLONG,
+    specbar: HACKSWORD_SPECBAR,
+    specCost: DLONG_SPEC_COST,
+    specName: 'Cleave'
+};
+
+/** Magic shortbow: Snapshot, 35%. No quest gate (ranged level only). */
+export const MSB_PROFILE: WeaponProfile = {
+    pattern: /^magic shortbow/i,
+    specbar: BOW_SPECBAR,
+    specCost: MSB_SPEC_COST,
+    specName: 'Snapshot'
+};
 
 const FOOD = /shark|lobster|swordfish|tuna|bass|monkfish|cake|bread|shrimp|anchov|trout|salmon|pike/i;
 
@@ -44,6 +70,8 @@ export interface AntiPkDeps {
     sdk: any;
     bot: any;
     log?: (msg: string) => void;
+    /** Fight-back weapon. Defaults to the dragon longsword. */
+    weapon?: WeaponProfile;
 }
 
 export interface FightBackResult {
@@ -54,7 +82,7 @@ export interface FightBackResult {
     prayers?: string[];
 }
 
-export function createAntiPk({ sdk, bot, log }: AntiPkDeps) {
+export function createAntiPk({ sdk, bot, log, weapon = DLONG_PROFILE }: AntiPkDeps) {
     const say = (m: string) => log?.(m);
     let specEnergy = SPEC_MAX;
     let specArmed = false;
@@ -64,7 +92,7 @@ export function createAntiPk({ sdk, bot, log }: AntiPkDeps) {
     let haveKillSpot = false;
 
     function wearingDlong(): boolean {
-        return !!sdk.findEquipmentItem?.(DLONG);
+        return !!sdk.findEquipmentItem?.(weapon.pattern);
     }
 
     function tickSpecRegen(): void {
@@ -83,30 +111,30 @@ export function createAntiPk({ sdk, bot, log }: AntiPkDeps) {
     async function enableDlongSpec(): Promise<boolean> {
         tickSpecRegen();
         if (!wearingDlong()) return false;
-        if (specEnergy < DLONG_SPEC_COST) return false;
+        if (specEnergy < weapon.specCost) return false;
         if (specArmed) return true;
         await sdk.sendSetTab?.(0).catch?.(() => {});
-        const r = await sdk.sendClickComponent?.(HACKSWORD_SPECBAR);
+        const r = await sdk.sendClickComponent?.(weapon.specbar);
         if (!r?.success) {
             say(`AntiPK: spec bar click failed: ${r?.message ?? 'no component API'}`);
             return false;
         }
         specArmed = true;
-        say(`AntiPK: Cleave armed ${Math.floor(specEnergy / 10)}%`);
+        say(`AntiPK: ${weapon.specName} armed ${Math.floor(specEnergy / 10)}%`);
         return true;
     }
 
     function noteSpecUsed(): void {
         if (!specArmed) return;
         specArmed = false;
-        specEnergy = Math.max(0, specEnergy - DLONG_SPEC_COST);
+        specEnergy = Math.max(0, specEnergy - weapon.specCost);
     }
 
     function noteSpecRejected(): void {
         const noPower = sdk.getNewChat?.({ types: [0] })?.some?.((m: any) => /enough power/i.test(m.text ?? ''));
         if (!noPower) return;
         specArmed = false;
-        specEnergy = Math.min(specEnergy, DLONG_SPEC_COST - 1);
+        specEnergy = Math.min(specEnergy, weapon.specCost - 1);
         say(`AntiPK: spec rejected (no power) — tracked ${specEnergy}`);
     }
 
