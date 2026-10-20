@@ -227,15 +227,18 @@ await runScript(async ({ bot, sdk }) => {
         await closeUi();
         const truck = truckAt(pos().x, pos().z, 12) ?? truckAt(COAL_TRUCKS.x, COAL_TRUCKS.z, 16);
         if (!truck) return false;
-        if (cheb(pos(), truck) > 2) {
+        // Use-item-on-loc needs the bot standing next to the cart.
+        if (cheb(pos(), truck) > 1) {
             const stand = standTile(truck.x, truck.z);
             await walkLeg(stand.x, stand.z, 1);
+            if (cheb(pos(), truck) > 1) return false;
         }
         for (const item of sdk.getInventory().filter((i) => COAL.test(i.name))) {
             await bot.useItemOnLoc(item, truck).catch(() => undefined);
             await sdk.waitForTicks(1);
         }
         await sdk.waitForTicks(2);
+        log(`Truck deposit @ ${truck.x},${truck.z}: ${coalCount()} coal left in pack`);
         return coalCount() === 0;
     }
 
