@@ -15,6 +15,7 @@ import { existsSync, readFileSync, appendFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
 import type { JournalRule } from '../../quest-lab/evidence';
+import { walkKandarinToEdgeville } from './movement';
 
 const DUKE = { x: 3212, z: 3220 };
 const CASTLE_STAIRS = { x: 3205, z: 3208 };
@@ -724,11 +725,40 @@ async function pickpocketForCoins(): Promise<void> {
     await bot.pickpocketNpc(npc);
 }
 
+async function eatIfNeeded(): Promise<void> {
+    const p = pos();
+    if (p.hp > Math.max(20, p.maxHp - 12)) return;
+    const food = sdk.findInventoryItem(FOOD);
+    if (!food) return;
+    await bot.eatFood(food).catch(() => undefined);
+}
+
 async function reachLumbridge(): Promise<boolean> {
     if (sdk.findNearbyNpc(/duke/i) || (pos().x > 3180 && pos().x < 3240 && pos().z > 3200 && pos().z < 3235 && pos().z < 6400)) {
         return true;
     }
     if (inKandarin() || onKaramja()) {
+        // Walk over White Wolf Mountain instead of dying: the suicide leg only
+        // lands on a low-HP account, and the 99-HP grinders tank the Hero
+        // forever. The mountain route is the same one edgeville-dungeon-melee
+        // uses; from Edgeville it is a short hop chain to Lumbridge.
+        if (pos().hp >= 40) {
+            await session.setPhase('white-wolf');
+            intent('Kandarin → White Wolf → Edgeville → Lumbridge');
+            await walkKandarinToEdgeville(bot, sdk, { eat: eatIfNeeded, walkNear });
+            for (const leg of [
+                { x: 3094, z: 3493 },
+                { x: 3092, z: 3400 },
+                { x: 3110, z: 3320 },
+                { x: 3150, z: 3280 },
+                { x: 3190, z: 3240 },
+                { x: 3205, z: 3212 }
+            ]) {
+                if (session.isStopped()) return false;
+                await walkNear(leg.x, leg.z, 6);
+            }
+            return false;
+        }
         await suicideToLumbridge();
         return false;
     }
