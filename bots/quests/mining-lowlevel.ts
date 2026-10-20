@@ -142,8 +142,24 @@ await runScript(async ({ bot, sdk }) => {
         return false;
     }
 
+    /** Walk-only legs cannot leave a dungeon plane: the melee script parks bots
+     *  underground when its goal is reached, so climb out before planning. */
+    async function climbToSurface(): Promise<boolean> {
+        if (pos().z <= 6400) return true;
+        intent('Climbing out of the dungeon');
+        await walkLeg(3096, 9867, 2);
+        const ladder = sdk.findNearbyLoc(/^ladder$/i, { withOption: /climb-up/i });
+        if (ladder) {
+            await bot.interactLoc(ladder, /climb-up/i);
+            await sdk.waitForCondition((s) => (s.player?.worldZ ?? 0) < 6400, 10_000).catch(() => undefined);
+        }
+        log(`Surface ${pos().z <= 6400} @ ${pos().x},${pos().z}`);
+        return pos().z <= 6400;
+    }
+
     async function goToBank(): Promise<boolean> {
         await closeUi();
+        if (!(await climbToSurface())) return false;
         if (distTo(FALADOR_EAST_BANK.x, FALADOR_EAST_BANK.z) > 45) {
             await walkLeg(FALADOR_SOUTH_EAST.x, FALADOR_SOUTH_EAST.z, 5);
         }
@@ -155,6 +171,7 @@ await runScript(async ({ bot, sdk }) => {
     async function goToMine(): Promise<boolean> {
         await closeUi();
         if (inMine()) return true;
+        if (!(await climbToSurface())) return false;
         intent('Walking to Rimmington copper/tin');
         session.setAnchor(MINE.x, MINE.z);
         if (distTo(MINE.x, MINE.z) > 45) await walkLeg(FALADOR_SOUTH_EAST.x, FALADOR_SOUTH_EAST.z, 6);

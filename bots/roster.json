@@ -43,7 +43,7 @@
         {
             "name": "Jackpoo3",
             "view": "fleet",
-            "script": "bots/quests/rune-mysteries.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "Jackpoo3"
             ]
@@ -59,7 +59,7 @@
         {
             "name": "Jackpoo5",
             "view": "fleet",
-            "script": "bots/quests/rune-mysteries.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "Jackpoo5"
             ]
@@ -193,10 +193,9 @@
         {
             "name": "jacklove13",
             "view": "loves",
-            "script": "bots/quests/mining-lowlevel.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
-                "jacklove13",
-                "--until=41"
+                "jacklove13"
             ]
         },
         {
