@@ -339,30 +339,34 @@ async function reachScavvo(): Promise<'ok' | 'qp-blocked' | 'failed'> {
             await sdk.waitForTicks(5).catch(() => undefined);
             continue;
         }
-        // Outside: work the nearest openable door. The Open teleports us,
-        // so nothing walks afterwards — the next round reads where we are.
+        // Outside: stage off any door tile, then work the nearest guild door.
+        // The Open teleports us, so nothing walks afterwards.
+        await walkNear(bot, sdk, ENTRY.x, ENTRY.z, 2);
+        await sdk.scanNearbyLocs(10).catch(() => undefined);
+        if (scavvo()) continue;
         let door = nearestOpenDoor();
-        if (!door || (door.distance ?? 99) > 10) {
-            await walkNear(bot, sdk, ENTRY.x, ENTRY.z, 3);
-            await sdk.scanNearbyLocs(10).catch(() => undefined);
-            door = nearestOpenDoor();
-        }
         if (door && (door.distance ?? 99) > 3) {
             await walkNear(bot, sdk, door.x, door.z, 2);
             await sdk.scanNearbyLocs(8).catch(() => undefined);
             door = nearestOpenDoor();
         }
-        if (door && (door.distance ?? 99) <= 3) {
+        if (door && (door.distance ?? 99) <= 4) {
             const base = chatBaseline();
-            await bot.interactLoc(door, /open/i).catch(() => null);
+            const opened = await bot.interactLoc(door, /open/i).catch(() => null);
             await sdk.waitForTicks(4).catch(() => undefined);
             if (qpRefused()) return 'qp-blocked';
             await sdk.scanNearbyLocs(10).catch(() => undefined);
+            const newChat = JSON.stringify([
+                ...(sdk.getState()?.gameMessages ?? []).slice(base.msgs),
+                ...(((sdk.getState()?.recentDialogs as unknown[] | undefined) ?? []).slice(base.dialogs) as object[])
+            ]).slice(-200);
             if (freshGreeting(base)) {
                 insideGuild = true;
                 const p = playerPos(sdk);
                 entryPos = { x: p.x, z: p.z };
                 session.log('log', `inside the guild @ ${here()} — holding, no more doors`);
+            } else {
+                session.log('log', `door ${door.x},${door.z}: ${opened?.success ? 'ok' : opened?.message ?? 'fail'} @ ${here()} chat: ${newChat}`);
             }
             // Either way the door teleported us; next round reads the result.
             continue;
