@@ -41,6 +41,10 @@ const SCAVVO = /^scavvo$/i;
 
 /** Guild hall centre (labels.txt: Champions' Guild 3201,3354). */
 const HALL = { x: 3200, z: 3352 };
+/** Staging tile outside the guild doors, by the Guildmaster's greeting spot. */
+const ENTRY = { x: 3193, z: 3361 };
+/** Step-to tile just inside the doors after an Open. */
+const INSIDE = { x: 3190, z: 3361 };
 /** Varrock West booths read UNREACHABLE from the west when crowded. */
 const BANK_APPROACH = { x: 3195, z: 3440 };
 
@@ -180,9 +184,9 @@ async function bankTrip(): Promise<boolean> {
         const w = await bot.withdrawItem(COINS, Math.min(POCKET_TARGET - pocket, vault));
         if (!w.success) session.log('warn', `coin withdraw: ${w.message}`);
     }
-    await bot.closeBank().catch(() => undefined);
     const now = count(COINS);
     session.log('log', `banked +${banked} loot=${count(LOOT)} pocket=${now} vault~${bankCoins()} @ ${here()}`);
+    await bot.closeBank().catch(() => undefined);
     return now >= MIN_POCKET;
 }
 
@@ -193,7 +197,7 @@ async function bankTrip(): Promise<boolean> {
  */
 async function reachScavvo(): Promise<'ok' | 'qp-blocked' | 'failed'> {
     let climbed = false;
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 14; i++) {
         if (session.stopRequested) return 'failed';
         await closeUi(bot, sdk);
         const s = scavvo();
@@ -202,20 +206,33 @@ async function reachScavvo(): Promise<'ok' | 'qp-blocked' | 'failed'> {
             await walkNear(bot, sdk, s.x, s.z, 2);
             continue;
         }
-        await walkNear(bot, sdk, HALL.x, HALL.z, 6);
+        // Stage at the guild entrance (the hall label sits in the chicken
+        // farmhouse outside the walls, so walking at it never enters).
+        await walkNear(bot, sdk, ENTRY.x, ENTRY.z, 3);
         await sdk.scanNearbyLocs(10).catch(() => undefined);
         if (scavvo()) continue;
-        const doors = (sdk.getNearbyLocs() ?? [])
-            .filter(
-                (l) =>
-                    /door/i.test(l.name) && (l.optionsWithIndex ?? []).some((o) => /^open$/i.test(o.text))
-            )
-            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99));
-        if (doors[0] && (doors[0].distance ?? 99) <= 4) {
-            await bot.interactLoc(doors[0], /open/i).catch(() => null);
+        const nearest = () =>
+            (sdk.getNearbyLocs() ?? [])
+                .filter(
+                    (l) =>
+                        /door/i.test(l.name) && (l.optionsWithIndex ?? []).some((o) => /^open$/i.test(o.text))
+                )
+                .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+        let door = nearest();
+        if (door && (door.distance ?? 99) <= 8) {
+            await walkNear(bot, sdk, door.x, door.z, 2);
+            await sdk.scanNearbyLocs(8).catch(() => undefined);
+            door = nearest();
+        }
+        if (door && (door.distance ?? 99) <= 3) {
+            await bot.interactLoc(door, /open/i).catch(() => null);
             await sdk.waitForTicks(3).catch(() => undefined);
             if (qpRefused()) return 'qp-blocked';
-            continue;
+            // Step through to the inside and re-scan for the shopkeeper.
+            await walkNear(bot, sdk, INSIDE.x, INSIDE.z, 3);
+            await walkNear(bot, sdk, HALL.x, HALL.z, 6);
+            await sdk.scanNearbyLocs(10).catch(() => undefined);
+            if (scavvo()) continue;
         }
         if (!climbed) {
             const stairs = (sdk.getNearbyLocs() ?? [])
