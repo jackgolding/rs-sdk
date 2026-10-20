@@ -2194,6 +2194,21 @@ export {
 } from './activity';
 export { climbTowardLevel } from './unstuck';
 export {
+    DONE,
+    FAILED,
+    FsmDefinitionError,
+    Machine,
+    defineGraph,
+    toMermaid,
+    validateGraph,
+    type GraphSpec,
+    type MachineOptions,
+    type RunResult,
+    type StateApi,
+    type StateSpec,
+    type TransitionEvent,
+} from './fsm';
+export {
     atSeersFlax,
     inEssenceMine,
     inMiningGuild,

@@ -88,7 +88,7 @@
 
 | Signature | Description |
 |---|---|
-| `async openBank(timeout: number = 10000): Promise<OpenBankResult>` | Open a bank booth or talk to a banker. |
+| `async openBank(timeout: number = 10000): Promise<OpenBankResult>` | Open a bank booth or talk to a banker. Logs the full bank to bank-opens.log on success. |
 | `async closeBank(timeout: number = 5000): Promise<ActionResult>` | Close the bank interface. |
 | `async depositItem(target: InventoryItem \| string \| RegExp, amount: number = -1): Promise<BankDepositResult>` | Deposit an item into the bank. Use -1 for all. A pattern with `-1` deposits every distinct matching item: an alternation like `/^(shark\|burnt shark)$/i` covers both ids, not just whichever matched first. |
 | `async withdrawItem(target: BankItem \| string \| RegExp \| number, amount: number = 1, options: { asNote?: boolean } = {}): Promise<BankWithdrawResult>` | Withdraw an item from the bank by slot, name, or BankItem. `asNote: true` withdraws as a banknote: the note/item toggle is synced first (and synced back to items on the next plain withdrawal), and completion is detected on the noted item's arrival. Items the engine cannot note are withdrawn unnoted with a game message; the result then carries the unnoted item. |
@@ -320,7 +320,8 @@ Long-running grind supervisor: stall clock, bounded recovery, sampled grind-log 
 | `registerRecovery(tactics: RecoveryTactic[]): void` | Extra tactics run after the defaults (close UI, step off, re-walk, climb floor). |
 | `setAnchor(x: number, z: number, level?: number): void` | Phase re-walk target used by the default `rewalk` tactic. Pass the floor and the `climb_floor` tactic climbs toward it whenever recovery runs off-level. |
 | `async setPhase(phase: string): Promise<void>` | Sets the current step. A phase change refreshes the in-script stall timer so a long walk is not interrupted. Repeating the same phase does not: that is how a stuck loop used to look busy. Does not clear failure counters, end a recovery, or count as an effect. |
-| `noteProgress(kind: ProgressKind, detail?: string): void` | Records observed progress. A non-phase kind exits an in-progress recovery. Effect kinds also move lastEffectAt. A location note whose tile has not changed since the last credited location note is ignored. |
+| `event(type: string, fields: Record<string, unknown> = {}, summary?: string): void` | Emit one structured event of an arbitrary type. The FSM layer calls this once per transition (`event('transition', ...)`), which is what makes "the shield loop" visible as a repeating edge in `events.log` rather than a phase string that quietly repeats. `summary`, when given, also lands in grind.log so a human reading the session log sees the route without parsing JSON. |
+| `noteProgress(kind: ProgressKind, detail?: string): void` | _No description provided._ |
 | `noteFailure(code: string, message: string): void` | Records a failure; five identical codes in the window arm recovery. |
 | `needsRecovery(): boolean` | True when stalled or repeat-failed, and the session has not stopped. |
 | `consumeFallback(): boolean` | True once after tactics are used up. The session is still running; the caller should switch to another productive approach. |
