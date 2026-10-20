@@ -28,7 +28,7 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { ActivitySession, BotSDK, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
-import { initPathfinding } from '../../sdk/pathfinding';
+import { findLongPath, initPathfinding } from '../../sdk/pathfinding';
 import { installGracefulShutdown } from '../../sdk/runner';
 import { playerPos, walkSendHops, waitForPlayerState } from './movement';
 import { SEERS_BANK, type Tile } from './tiles';
@@ -122,6 +122,32 @@ const invCount = (re: RegExp): number =>
     sdk.getInventory().filter((i) => re.test(i.name)).reduce((n, i) => n + (i.count ?? 0), 0);
 const bankCount = (re: RegExp): number =>
     (sdk.getBankItems?.() ?? []).filter((i) => re.test(i.name)).reduce((n, i) => n + (i.count ?? 0), 0);
+/**
+ * Route from where the bot actually stands. The fixed NORTH_ROAD below only
+ * covers Catherby/Seers -> Rellekka; `walkSendHops` filters hops by
+ * distance-to-destination, so handing it that list from Lumbridge walks NORTH to
+ * Rellekka first (~500 tiles) and only then comes back south to the bank — the
+ * first live run started exactly there. Compute the leg from the live position
+ * and keep the fixed road only as a fallback.
+ */
+function planRoute(dest: Tile): Tile[] {
+    try {
+        const p = playerPos(sdk);
+        const path = findLongPath(p.level, p.x, p.z, dest.x, dest.z) as Tile[] | null;
+        if (!path || path.length === 0) return [];
+        const out: Tile[] = [];
+        for (let i = 0; i < path.length; i += 8) {
+            const t = path[Math.min(i + 7, path.length - 1)]!;
+            out.push({ x: t.x, z: t.z });
+        }
+        const last = out[out.length - 1];
+        if (!last || last.x !== dest.x || last.z !== dest.z) out.push({ x: dest.x, z: dest.z });
+        return out;
+    } catch {
+        return [];
+    }
+}
+
 const here = (): string => {
     const p = playerPos(sdk);
     return `${p.x},${p.z},${p.level}`;
@@ -134,8 +160,10 @@ log(`start @ ${here()} — buying ${HELMS.map((h) => h.label).join(' + ')}`);
 const inPack = HELMS.filter((h) => invCount(h.re) > 0);
 
 // ---- coins and the bank half of the idempotency check ----
-log(`travelling to Seers bank @ ${here()}`);
-await walkSendHops(sdk, [...NORTH_ROAD].reverse(), SEERS_BANK, 4);
+const toBank = planRoute(SEERS_BANK);
+log(`travelling to Seers bank @ ${here()} via ${toBank.length} planned waypoints`);
+if (!toBank.length) log('WARN pathfinder gave no route — using the fixed north road as a fallback');
+await walkSendHops(sdk, toBank.length ? toBank : [...NORTH_ROAD].reverse(), SEERS_BANK, 4);
 if (!sdk.getState()?.bank?.isOpen) {
     const opened = await bot.openBank();
     if (!opened.success && !sdk.getState()?.bank?.isOpen) {
@@ -182,8 +210,9 @@ if (invCount(COINS) < 60_000) {
 await bot.closeBank().catch(() => undefined);
 
 // ---- travel to Skulgrimen and open his counter ----
-log(`travelling to Skulgrimen @ ${here()}`);
-await walkSendHops(sdk, NORTH_ROAD, SKULGRIMEN, 4);
+const toShop = planRoute(SKULGRIMEN);
+log(`travelling to Skulgrimen @ ${here()} via ${toShop.length} planned waypoints`);
+await walkSendHops(sdk, toShop.length ? toShop : NORTH_ROAD, SKULGRIMEN, 4);
 
 let opened = false;
 for (let attempt = 0; attempt < 4 && !opened; attempt++) {
@@ -226,8 +255,9 @@ const bought = HELMS.filter((h) => invCount(h.re) > 0);
 log(`pack now: ${bought.map((h) => h.label).join(',') || 'no helms'} — banking`);
 
 // ---- bank them (helms are the deliverable; coins stay in the pack) ----
-log(`travelling back to Seers bank @ ${here()}`);
-await walkSendHops(sdk, [...NORTH_ROAD].reverse(), SEERS_BANK, 4);
+const backToBank = planRoute(SEERS_BANK);
+log(`travelling back to Seers bank @ ${here()} via ${backToBank.length} planned waypoints`);
+await walkSendHops(sdk, backToBank.length ? backToBank : [...NORTH_ROAD].reverse(), SEERS_BANK, 4);
 if (!sdk.getState()?.bank?.isOpen) {
     const r = await bot.openBank();
     if (!r.success && !sdk.getState()?.bank?.isOpen) log(`bank would not open for the deposit (${r.message})`);
