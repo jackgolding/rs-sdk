@@ -67,7 +67,7 @@ await runScript(async ({ bot, sdk }) => {
     const session = new ActivitySession(sdk, bot, {
         name: 'coal-trucks',
         grindLogPath: GRIND_LOG,
-        stallMs: 150_000,
+        stallMs: 600_000,
         maxRecoveryTactics: 6
     });
     installGracefulShutdown({ graceMs: 30_000 });
@@ -113,7 +113,11 @@ await runScript(async ({ bot, sdk }) => {
     async function walkLeg(x: number, z: number, tol = 4): Promise<boolean> {
         if (distTo(x, z) <= tol) return true;
         const r = await bot.walkTo(x, z, tol);
-        return r.success || distTo(x, z) <= tol + 1;
+        const ok = r.success || distTo(x, z) <= tol + 1;
+        // The trucks are a ~200-tile walk; without a progress note the fleet
+        // watchdog SIGTERMs the container mid-walk and the bot never arrives.
+        if (ok) session.noteProgress('walk', `${x},${z}`);
+        return ok;
     }
 
     /** Rock tiles are solid: stand on the nearest walkable neighbour. */
