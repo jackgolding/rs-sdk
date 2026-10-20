@@ -1,3 +1,11 @@
+// Shared hop walker for quest scripts.
+//
+// Copied from the rs-sdk-movement skill (see that skill for the rules and why
+// each one exists). A raw sendWalk to a distant tile is silently dropped, and
+// re-issuing walks every few ticks makes a bot oscillate between waypoints with
+// zero net progress while every hop looks healthy. This walks one capped hop at
+// a time, waits for arrival, measures displacement and fails with a diagnostic.
+//
 // Hop walker for rs-sdk bots.
 //
 // Why this exists: a raw `sendWalk` to a distant tile is silently dropped, and
