@@ -208,9 +208,16 @@ await runScript(async ({ bot, sdk }) => {
         await session.setPhase('bob');
         intent("Buying a bronze pickaxe from Bob's");
         log(`No usable pickaxe — walking to Bob's Axes @ ${pos().x},${pos().z}`);
+        // ~40-tile hops: a single Falador->Lumbridge walkTo silently no-ops
+        // and the bot bounces bank -> bob forever.
         for (const leg of [
             { x: FALADOR_SOUTH_EAST.x, z: FALADOR_SOUTH_EAST.z, tol: 6 },
-            { x: 3160, z: 3230, tol: 6 },
+            { x: 3030, z: 3290, tol: 6 },
+            { x: 3070, z: 3270, tol: 6 },
+            { x: 3110, z: 3250, tol: 6 },
+            { x: 3150, z: 3230, tol: 6 },
+            { x: 3190, z: 3215, tol: 6 },
+            { x: 3225, z: 3205, tol: 3 },
             { x: BOBS_AXES.x, z: BOBS_AXES.z, tol: 2 }
         ]) {
             if (session.isStopped()) return false;
