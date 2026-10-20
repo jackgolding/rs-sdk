@@ -742,8 +742,17 @@ async function eatAtBank(): Promise<void> {
 }
 
 async function armTrip(): Promise<void> {
-    // Trip food is sharks: prefer them over whatever heals best.
+    // Trip food is sharks: prefer them over whatever heals best. If the bank
+    // is down to cod-tier, stop for a roster switch to fishing/cooking
+    // sharks instead of PKing on junk food.
     const best = sdk.findBankItem(SHARK) ?? bankFood();
+    if (best && foodHeal(best.name) < foodHeal('Shark')) {
+        session.stop(
+            'no_shark_stock',
+            `Edgeville bank out of sharks (best: ${best.name}) — switch to fishing-route to fish/cook more`
+        );
+        return;
+    }
     const have = foodCount();
     if (have < FOOD_TARGET && best) {
         const take = Math.min(FOOD_TARGET - have, best.count ?? 0);
