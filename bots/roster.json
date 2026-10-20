@@ -280,7 +280,7 @@
         {
             "name": "ABGARMY04",
             "view": "army",
-            "script": "bots/quests/draynor-bank-all.ts",
+            "script": "bots/quests/agility-route.ts",
             "args": [
                 "ABGARMY04"
             ]

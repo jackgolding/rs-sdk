@@ -1615,8 +1615,29 @@ async function ensureGnomeEntrance(): Promise<void> {
     log(`Not on the course yet @ ${pos().x},${pos().z} — retrying next tick`);
 }
 
+/** March south out of the wilderness in ~40-tile hops, then cross the ditch.
+ *  Needed when a bot is left standing at the wildy course after the schedule
+ *  moved to gnome-only: walkTo cannot path across the ditch from there. */
+async function walkOutOfWildy(): Promise<void> {
+    await leaveWildyAgilityCourse();
+    for (let i = 0; i < 24 && inWilderness(pos().x, pos().z) && !session.isStopped(); i++) {
+        const x = pos().x > 3130 ? Math.max(3130, pos().x - 20) : pos().x;
+        await sdk.sendWalk(x, Math.max(DITCH_SOUTH.z, pos().z - 40), true);
+        await sdk.waitForTicks(6).catch(() => {});
+    }
+    if (inWilderness(pos().x, pos().z)) {
+        await sdk.sendWalk(DITCH_SOUTH.x, DITCH_SOUTH.z, true);
+        await sdk.waitForTicks(6).catch(() => {});
+    }
+    log(`Left wilderness ${!inWilderness(pos().x, pos().z)} @ ${pos().x},${pos().z}`);
+}
+
 async function travelToGnome(): Promise<void> {
     if (onGnomeCourse() && pastGnomeGate() && distTo(GNOME_START.x, GNOME_START.z) <= 12) return;
+    if (inWilderness(pos().x, pos().z)) {
+        await walkOutOfWildy();
+        return;
+    }
     await session.setPhase('gnome_travel');
 
     if (onKaramja()) {
