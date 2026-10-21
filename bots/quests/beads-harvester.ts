@@ -237,11 +237,22 @@ async function armUp(): Promise<void> {
     }
 
     // Otherwise walk the ladder from the top: wield level first, then stock.
-    let bankItems = sdk.getState()?.bank?.items ?? [];
-    if (!sdk.getState()?.bank?.isOpen && !(await bot.openBank().success)) {
-        log('armoury: bank not open — skipping the weapon step');
-        return;
+    // Booths fail to open from some tiles (observed: the Ardougne booth answers
+    // nothing from the tile the walker stops on). Close, step to the booth, retry
+    // once before giving up — same shape the quest scripts use for withdrawals.
+    if (!(await bot.openBank()).success) {
+        await bot.closeInterface().catch(() => undefined);
+        await bot.walkTo(BANK.x - 1, BANK.z, 1).catch(() => undefined);
+        await sdk.waitForTicks(2);
+        if (!(await bot.openBank()).success) {
+            log('armoury: bank would not open at either tile — skipping the weapon step');
+            return;
+        }
     }
+    await sdk.waitForTicks(2);
+    let bankItems = sdk.getState()?.bank?.items ?? [];
+    const weaponsInBank = bankItems.filter(i => /scimitar|longsword|sword|dagger|battleaxe|mace/i.test(i.name));
+    log(`armoury: bank has ${weaponsInBank.length} weapon stack(s): ${weaponsInBank.slice(0, 8).map(i => `${i.name}x${i.count}`).join(', ') || '(none)'}`);
     await sdk.waitForTicks(2);
     bankItems = sdk.getState()?.bank?.items ?? [];
     for (const step of WEAPON_LADDER) {
