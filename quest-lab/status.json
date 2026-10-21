@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-21T13:16:28.566Z",
+  "generatedAt": "2026-10-21T14:19:31.095Z",
   "entries": [
     {
       "id": "arena",
@@ -731,12 +731,16 @@
         "maxCanaryAttempts": 4,
         "deadline": null
       },
-      "candidate": null,
+      "candidate": {
+        "sha": "619786510",
+        "scriptHash": "c6ac0e40b26025ff",
+        "frozenAt": "2026-10-21T13:17:07.279Z"
+      },
       "canary": null,
       "blockers": [],
       "rolledOutTo": [],
-      "notes": "\n[2026-10-21] operator reset of canary attempts: #4 failed on a START-FLOOR precondition (account parked at 2956,3143 l1; bankForSupplies blocked 165 tiles short), not on quest logic. ensureGroundFloor() prelude added.",
-      "updatedAt": "2026-10-21T13:17:07.180283+00:00"
+      "notes": "\n[2026-10-21] operator reset of canary attempts: #4 failed on a START-FLOOR precondition (account parked at 2956,3143 l1; bankForSupplies blocked 165 tiles short), not on quest logic. ensureGroundFloor() prelude added.\n[2026-10-21] attempt reset: canary 14:13 ran on jacklove8 which had ALREADY completed the quest (script: 'already complete \u2014 nothing to do'); account marked unfit, driver now retires such accounts automatically.",
+      "updatedAt": "2026-10-21T14:21:27.161179+00:00"
     },
     {
       "id": "hauntedmine",
