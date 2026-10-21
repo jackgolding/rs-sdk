@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-21T11:05:29.936Z",
+  "generatedAt": "2026-10-21T12:25:25.790Z",
   "entries": [
     {
       "id": "arena",
@@ -724,7 +724,7 @@
       "claimedAt": null,
       "attempts": {
         "dev": 0,
-        "canary": 2
+        "canary": 3
       },
       "budget": {
         "maxDevAttempts": 6,
@@ -734,17 +734,17 @@
       "candidate": null,
       "canary": {
         "account": "jacklove8",
-        "runId": "haunted-jacklove8-2026-10-21t07-44-25-850z",
+        "runId": "haunted-jacklove8-2026-10-21t11-30-31-085z",
         "verdict": "FAIL",
         "attempts": 1,
-        "at": "2026-10-21T07:54:46.580Z"
+        "at": "2026-10-21T12:25:25.790Z"
       },
       "blockers": [
         "no reviewed manifest (prerequisites/items/checkpoints)"
       ],
       "rolledOutTo": [],
       "notes": [],
-      "updatedAt": "2026-10-21T07:54:46.580Z"
+      "updatedAt": "2026-10-21T12:25:25.790Z"
     },
     {
       "id": "hauntedmine",
@@ -1491,25 +1491,29 @@
       "name": "Sheep Shearer",
       "script": "bots/quests/sheep-shearer.ts",
       "fixture": null,
-      "stage": "dev-verified",
+      "stage": "fleet-ready",
       "owner": null,
       "claimedAt": null,
       "attempts": {
         "dev": 1,
-        "canary": 1
+        "canary": 2
       },
       "budget": {
         "maxDevAttempts": 6,
         "maxCanaryAttempts": 4,
         "deadline": null
       },
-      "candidate": null,
+      "candidate": {
+        "sha": "9d317a4cd",
+        "scriptHash": "6ae25fe965f549c7",
+        "frozenAt": "2026-10-21T11:22:54.259Z"
+      },
       "canary": {
-        "account": "jacklove8",
-        "runId": "sheep-jacklove8-2026-10-21t10-50-27-263z",
-        "verdict": "FAIL",
+        "account": "jacklove9",
+        "runId": "sheep-jacklove9-2026-10-21t10-59-31-483z",
+        "verdict": "PASS",
         "attempts": 1,
-        "at": "2026-10-21T11:05:29.936Z"
+        "at": "2026-10-21T11:23:03.397Z"
       },
       "blockers": [],
       "rolledOutTo": [],
@@ -1517,7 +1521,7 @@
         "dev gate 3/3 PASS after fixing the completion checkpoint: the default invocation (suite/canary) inferred completion from the Crafting XP+coin delta and only wrote the `complete` checkpoint under --quest-only, so a finished quest graded as missing evidence. Median 7m09s. The earlier 'turn-in stall' was latency/DC, not the script.",
         "dev PASS 3/3 runs — quest-eval/reports/2026-10-21T07-44-30-022Z-sheep-hunt"
       ],
-      "updatedAt": "2026-10-21T11:05:29.936Z"
+      "updatedAt": "2026-10-21T11:23:03.397Z"
     },
     {
       "id": "sheepherder",
