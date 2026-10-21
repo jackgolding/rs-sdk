@@ -143,10 +143,9 @@
         {
             "name": "jacklove7",
             "view": "loves",
-            "script": "bots/quests/edgeville-dungeon-melee.ts",
+            "script": "bots/quests/edgeville-bank-all.ts",
             "args": [
-                "jacklove7",
-                "druids"
+                "jacklove7"
             ]
         },
         {
@@ -300,10 +299,9 @@
         {
             "name": "ABGARMY06",
             "view": "army",
-            "script": "bots/quests/wildy-range.ts",
+            "script": "bots/quests/edgeville-bank-all.ts",
             "args": [
-                "ABGARMY06",
-                "thugs"
+                "ABGARMY06"
             ]
         },
         {
