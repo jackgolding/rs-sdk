@@ -42,6 +42,11 @@ LOG="$REPO/quest-lab/driver.log"
 # here for 6h so the loop does not retry them every tick and starve the rest of
 # the queue — cook/imp sat in front of haunted and blocked it for two ticks.
 SKIPFILE="$REPO/quest-lab/.driver-skip"
+# Accounts that already completed a quest are useless for its canary: the script
+# answers "already complete — nothing to do", the grade then reports missing
+# checkpoints as an assisted run, and the attempt is burned for nothing. Recorded
+# per quest so the next pick is a different account.
+UNFITFILE="$REPO/quest-lab/.canary-unfit"
 SKIP_TTL=21600
 
 say() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
@@ -116,6 +121,17 @@ skipped_recently() {
   return 1
 }
 
+account_unfit() {   # $1=quest $2=account
+  [ -f "$UNFITFILE" ] || return 1
+  grep -qx "$1	$2" "$UNFITFILE" 2>/dev/null
+}
+
+mark_unfit() {      # $1=quest $2=account
+  grep -vqx "$1	$2" "$UNFITFILE" 2>/dev/null > "$UNFITFILE.tmp" || true
+  printf '%s\t%s\n' "$1" "$2" >> "$UNFITFILE.tmp"
+  mv "$UNFITFILE.tmp" "$UNFITFILE"
+}
+
 park_quest() {
   local id="$1"
   grep -v "^$id	" "$SKIPFILE" 2>/dev/null > "$SKIPFILE.tmp" || true
@@ -138,7 +154,7 @@ canary_busy() {
 }
 
 free_account() {
-  local used skipped
+  local quest="$1" used skipped
   used=$(ssh -n -o BatchMode=yes -o ConnectTimeout=8 -i ~/.ssh/fleet-actions root@5.223.71.192 \
          "docker ps --format '{{.Names}}' | sed -n 's/^canary-//p'" 2>/dev/null)
   skipped=$(ssh -n -o BatchMode=yes -o ConnectTimeout=8 -i ~/.ssh/fleet-actions root@5.223.71.192 \
@@ -146,6 +162,7 @@ free_account() {
   for a in $ACCOUNTS; do
     case " $used " in *" $a "*) continue ;; esac
     case " $skipped " in *" $a "*) continue ;; esac
+    account_unfit "$quest" "$a" && continue
     echo "$a"; return 0
   done
   return 1
@@ -176,9 +193,9 @@ while :; do
     if skipped_recently "$id"; then
       continue
     fi
-    acct=$(free_account)
+    acct=$(free_account "$id")
     if [ -z "${acct:-}" ]; then
-      say "no free canary account — waiting"
+      say "no free canary account for $id — waiting"
       continue
     fi
     say "canary: $id ($stage, attempt $((attempts+1))) on $acct"
@@ -189,6 +206,11 @@ while :; do
     fi
     runlog="/tmp/ql-canary-$id-$(date -u +%H%M%S).log"
     tools/canary.sh "$acct" "$(basename "$script")" --then-grade "$id" >"$runlog" 2>&1
+    if grep -qiE "already complete|assisted run is not a pass" "$runlog"; then
+      say "canary $id: $acct cannot start it (already complete / assisted) — marking unfit, retrying another account"
+      mark_unfit "$id" "$acct"
+      continue 2
+    fi
     verdict=$(grep -oE -- '--verdict (PASS|FAIL)' "$runlog" | tail -1 | awk '{print $2}')
     runid=$(grep -oE 'run-id [A-Za-z0-9._-]+' "$runlog" | tail -1 | awk '{print $2}')
     if [ -n "${verdict:-}" ] && [ -n "${runid:-}" ]; then
