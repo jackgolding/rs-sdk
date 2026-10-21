@@ -123,11 +123,13 @@ skipped_recently() {
 
 account_unfit() {   # $1=quest $2=account
   [ -f "$UNFITFILE" ] || return 1
-  grep -qx "$1	$2" "$UNFITFILE" 2>/dev/null
+  local pat; pat=$(printf '%s\t%s' "$1" "$2")
+  grep -qxF -- "$pat" "$UNFITFILE" 2>/dev/null
 }
 
 mark_unfit() {      # $1=quest $2=account
-  grep -vqx "$1	$2" "$UNFITFILE" 2>/dev/null > "$UNFITFILE.tmp" || true
+  local pat; pat=$(printf '%s\t%s' "$1" "$2")
+  grep -vxF -- "$pat" "$UNFITFILE" 2>/dev/null > "$UNFITFILE.tmp" || true
   printf '%s\t%s\n' "$1" "$2" >> "$UNFITFILE.tmp"
   mv "$UNFITFILE.tmp" "$UNFITFILE"
 }
@@ -209,6 +211,12 @@ while :; do
     if grep -qiE "already complete|assisted run is not a pass" "$runlog"; then
       say "canary $id: $acct cannot start it (already complete / assisted) — marking unfit, retrying another account"
       mark_unfit "$id" "$acct"
+      if ! free_account "$id" >/dev/null; then
+        say "canary $id: EVERY canary account has already completed it — parking 2h (needs a fresh account or a quest reset)"
+        grep -v "^$id	" "$SKIPFILE" 2>/dev/null > "$SKIPFILE.tmp" || true
+        printf '%s\t%s\n' "$id" "$(date +%s)" >> "$SKIPFILE.tmp"
+        mv "$SKIPFILE.tmp" "$SKIPFILE"
+      fi
       continue 2
     fi
     verdict=$(grep -oE -- '--verdict (PASS|FAIL)' "$runlog" | tail -1 | awk '{print $2}')
