@@ -519,7 +519,34 @@ async function enterTower(): Promise<void> {
     await travelTo(TOWER_DOOR_STEP, 'tower door');
     const door = await bot.interactLoc(/door/i, /open/i);
     log(`open tower door: ${door.success}${door.success ? '' : ` (${door.message ?? '?'})`}`);
-    await travelTo(approach(TOWER_LADDER), 'tower interior');
+    // The door tile is masked in the collision graph, so a PLANNED route from the
+    // outside to an interior tile cannot cross it — the canary died exactly here
+    // with `BLOCKED leg 2 to tower interior: no progress at (3110,3163), 3 tiles
+    // short of (3107,3164)`. Open the door, then raw-step through the door line
+    // with sendWalk (the server honours the open door even though the static map
+    // does not) and verify displacement; only then plan inside the room.
+    const INSIDE = { x: TOWER_LADDER.x + 1, z: TOWER_LADDER.z };
+    for (let attempt = 0; attempt < 6 && Math.hypot(pos().x - INSIDE.x, pos().z - INSIDE.z) > 2; attempt++) {
+        const before = pos();
+        const dx = INSIDE.x - before.x;
+        const dz = INSIDE.z - before.z;
+        const len = Math.hypot(dx, dz) || 1;
+        const step = Math.min(3, len);
+        await sdk.sendWalk(
+            Math.round(before.x + (dx / len) * step),
+            Math.round(before.z + (dz / len) * step),
+            true,
+        ).catch(() => undefined);
+        await sdk.waitForTicks(3);
+        const after = pos();
+        const moved = Math.hypot(after.x - before.x, after.z - before.z);
+        log(`tower entry raw step -> (${after.x},${after.z}) l${after.level} moved=${moved.toFixed(1)}`);
+        if (moved < 1) break;
+    }
+    if (Math.hypot(pos().x - TOWER_LADDER.x, pos().z - TOWER_LADDER.z) > 4) {
+        throw new Error(`BLOCKED tower entry: still outside at (${pos().x},${pos().z}) l${pos().level}`);
+    }
+    log(`Inside the tower at (${pos().x},${pos().z}) l${pos().level}`);
 }
 
 /** Talk with settle retries: a dispatched talk can miss its dialog on a stale
