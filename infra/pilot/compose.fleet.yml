@@ -199,7 +199,7 @@ services:
   quest-abgarmy06:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/edgeville-bank-all.ts", "ABGARMY06"]
+    command: ["bun", "bots/quests/seers-wc-fm.ts", "ABGARMY06", "--fletch"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1321,7 +1321,7 @@ services:
   quest-jacklove7:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/edgeville-bank-all.ts", "jacklove7"]
+    command: ["bun", "bots/quests/seers-wc-fm.ts", "jacklove7", "--fletch"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

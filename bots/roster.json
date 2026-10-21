@@ -142,9 +142,10 @@
         {
             "name": "jacklove7",
             "view": "loves",
-            "script": "bots/quests/edgeville-bank-all.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "jacklove7"
+                "jacklove7",
+                "--fletch"
             ]
         },
         {
@@ -298,9 +299,10 @@
         {
             "name": "ABGARMY06",
             "view": "army",
-            "script": "bots/quests/edgeville-bank-all.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY06"
+                "ABGARMY06",
+                "--fletch"
             ]
         },
         {
