@@ -300,10 +300,39 @@ if (STAGE === 'unknown') throw new Error('could not determine the quest stage fr
 await session.setPhase('bank');
 const needsBanking = NEEDED.some(n => invCount(n.pattern) === 0);
 await bot.dismissBlockingUI();
+await ensureGroundFloor();
 if (needsBanking) await bankForSupplies();
 else log('Spade already carried; skipping the bank leg');
 
 /** Deposit carry-over (keeping quest items), then withdraw a spade if missing. */
+/**
+ * Start on the ground floor.
+ *
+ * Canary #4 (jacklove14) died for a reason that has nothing to do with the quest:
+ * the account was parked UPSTAIRS (2956,3143 l1) when the script booted, so the
+ * first `travelTo(Draynor bank)` planned a surface route the bot could never walk
+ * and blocked 165 tiles short. Every script that starts by walking somewhere needs
+ * this prelude — the account's position is not ours to choose.
+ */
+async function ensureGroundFloor(): Promise<void> {
+    for (let i = 0; i < 3 && pos().level !== 0; i++) {
+        await sdk.scanNearbyLocs(14).catch(() => undefined);
+        const down = (sdk.getNearbyLocs() ?? [])
+            .filter(l => /stair|ladder/i.test(l.name ?? ''))
+            .filter(l => (l.optionsWithIndex ?? []).some(o => /climb[- ]down/i.test(o.text)))
+            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+        if (!down) {
+            log(`startup: on level ${pos().level} at (${pos().x},${pos().z}) with no climb-down in view`);
+            return;
+        }
+        const opt = (down.optionsWithIndex ?? []).find(o => /climb[- ]down/i.test(o.text))!;
+        const before = pos().level;
+        await bot.interactLoc(down, new RegExp(`^${opt.text}$`, 'i')).catch(() => undefined);
+        await sdk.waitForTicks(3);
+        log(`startup: ${down.name ?? 'stairs'} @ ${down.x},${down.z} (${opt.text}) level ${before} -> ${pos().level}`);
+    }
+}
+
 async function bankForSupplies(): Promise<void> {
 // A bot may be anywhere on restart (mid-quest, or left by an earlier leg), so
 // travel to the bank first rather than assuming the start tile.
