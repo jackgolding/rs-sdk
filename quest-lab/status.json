@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-21T07:54:46.580Z",
+  "generatedAt": "2026-10-21T08:14:39.436Z",
   "entries": [
     {
       "id": "arena",
@@ -1266,7 +1266,7 @@
       "rolledOutTo": [],
       "notes": [
         "operator reset of canary attempts after the dialog-pump fix (probe-aereck proved the accept works on the wire)",
-        "verified live across two canary runs: jacklove9-2026-10-21t04-32-35 (fresh account) proved unstarted, started, spoken_urhney, spoken_ghost; jacklove14-2026-10-21t05-39-10 (resume at spoken_urhney) PASSED with spoken_ghost, obtained_skull, complete and the journal's QUEST COMPLETE line. No single run covers all six from unstarted \u2014 the only unstarted accounts were consumed in earlier attempts.",
+        "verified live across two canary runs: jacklove9-2026-10-21t04-32-35 (fresh account) proved unstarted, started, spoken_urhney, spoken_ghost; jacklove14-2026-10-21t05-39-10 (resume at spoken_urhney) PASSED with spoken_ghost, obtained_skull, complete and the journal's QUEST COMPLETE line. No single run covers all six from unstarted — the only unstarted accounts were consumed in earlier attempts.",
         "live-only fixes found by the tier: dialog pump must click one option per page keyed on component ids (a repeat click on a stale choice page is dropped and the accept never takes); requiredCheckpoints must exclude the stage the run RESUMED at; the tower door and coffin are toggles that may already be open, and both crossings need a raw sendWalk step because the door tile is masked in the collision graph."
       ],
       "updatedAt": "2026-10-21T05:59:05.536Z"
@@ -1491,7 +1491,7 @@
       "name": "Sheep Shearer",
       "script": "bots/quests/sheep-shearer.ts",
       "fixture": null,
-      "stage": "blocked",
+      "stage": "fixture",
       "owner": null,
       "claimedAt": null,
       "attempts": {
@@ -1510,7 +1510,7 @@
       "notes": [
         "dev gate 3/3 PASS after fixing the completion checkpoint: the default invocation (suite/canary) inferred completion from the Crafting XP+coin delta and only wrote the `complete` checkpoint under --quest-only, so a finished quest graded as missing evidence. Median 7m09s. The earlier 'turn-in stall' was latency/DC, not the script."
       ],
-      "updatedAt": "2026-10-20T20:37:46.414Z"
+      "updatedAt": "2026-10-21T08:14:39.436Z"
     },
     {
       "id": "sheepherder",
@@ -1560,8 +1560,8 @@
       "canary": null,
       "blockers": [
         "no reviewed manifest (prerequisites/items/checkpoints)",
-        "dev gate 0/3: two world/route mechanics \u2014 (a) Varrock palace approach leg 19 stalls 34 tiles short at (3212,3438) with the planner returning a truncated plan, (b) Sir Vyvin's room stair/close walkTo returns 'no waypoints' from (2986,3332)->(2983,3335). Candidate d48e37fd1 in ~/rs-sdk-quests/squire (one pin-guard edit unamended). Evidence: quest-eval/reports/2026-10-20T18-34-20-393Z-squire",
-        "0/3 and not greenable in this local world: (1) Sir Vyvin's room \u2014 door at (2983,3348) opens but the client answers 'no waypoints' for the last 3 tiles from (2984,3348) l2, so the portrait stage never lands; (2) HARD world blocker \u2014 the only bluriterock placements are the ice dungeon at (2817,9977-9982), whose entrance pocket (~2810,3510) is sealed: 1-tile client steps refuse every outbound direction, A* finds no surface route, the freedomfighterentrancer doors (loc 5061) are unpublished and coord+loc-id clicks no-op, and the only collision link is a 7065-tile fake corridor. Script now enters via Ladder@2823,3513 (Climb-Down)->(2824,9913) so it will work on a world where the pocket is open. Candidate d48e37fd1 + one unamended knockStep pin-guard edit. 6/9 checkpoints journal-backed: not_started, started, spoken_reldo, given_pie, spoken_thurgo, looking_portrait."
+        "dev gate 0/3: two world/route mechanics — (a) Varrock palace approach leg 19 stalls 34 tiles short at (3212,3438) with the planner returning a truncated plan, (b) Sir Vyvin's room stair/close walkTo returns 'no waypoints' from (2986,3332)->(2983,3335). Candidate d48e37fd1 in ~/rs-sdk-quests/squire (one pin-guard edit unamended). Evidence: quest-eval/reports/2026-10-20T18-34-20-393Z-squire",
+        "0/3 and not greenable in this local world: (1) Sir Vyvin's room — door at (2983,3348) opens but the client answers 'no waypoints' for the last 3 tiles from (2984,3348) l2, so the portrait stage never lands; (2) HARD world blocker — the only bluriterock placements are the ice dungeon at (2817,9977-9982), whose entrance pocket (~2810,3510) is sealed: 1-tile client steps refuse every outbound direction, A* finds no surface route, the freedomfighterentrancer doors (loc 5061) are unpublished and coord+loc-id clicks no-op, and the only collision link is a 7065-tile fake corridor. Script now enters via Ladder@2823,3513 (Climb-Down)->(2824,9913) so it will work on a world where the pocket is open. Candidate d48e37fd1 + one unamended knockStep pin-guard edit. 6/9 checkpoints journal-backed: not_started, started, spoken_reldo, given_pie, spoken_thurgo, looking_portrait."
       ],
       "rolledOutTo": [],
       "notes": [],
