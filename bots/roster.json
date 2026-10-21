@@ -91,7 +91,7 @@
         {
             "name": "jacklove3",
             "view": "fleet",
-            "script": "bots/quests/edgeville-bank-all.ts",
+            "script": "bots/quests/druidic-ritual.ts",
             "args": [
                 "jacklove3"
             ]
