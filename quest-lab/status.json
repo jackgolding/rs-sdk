@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-21T08:14:45.990Z",
+  "generatedAt": "2026-10-21T08:15:16.843Z",
   "entries": [
     {
       "id": "arena",
@@ -1491,11 +1491,11 @@
       "name": "Sheep Shearer",
       "script": "bots/quests/sheep-shearer.ts",
       "fixture": null,
-      "stage": "drafting",
+      "stage": "dev-verified",
       "owner": null,
       "claimedAt": null,
       "attempts": {
-        "dev": 0,
+        "dev": 1,
         "canary": 0
       },
       "budget": {
@@ -1508,9 +1508,10 @@
       "blockers": [],
       "rolledOutTo": [],
       "notes": [
-        "dev gate 3/3 PASS after fixing the completion checkpoint: the default invocation (suite/canary) inferred completion from the Crafting XP+coin delta and only wrote the `complete` checkpoint under --quest-only, so a finished quest graded as missing evidence. Median 7m09s. The earlier 'turn-in stall' was latency/DC, not the script."
+        "dev gate 3/3 PASS after fixing the completion checkpoint: the default invocation (suite/canary) inferred completion from the Crafting XP+coin delta and only wrote the `complete` checkpoint under --quest-only, so a finished quest graded as missing evidence. Median 7m09s. The earlier 'turn-in stall' was latency/DC, not the script.",
+        "dev PASS 3/3 runs — quest-eval/reports/2026-10-21T07-44-30-022Z-sheep-hunt"
       ],
-      "updatedAt": "2026-10-21T08:14:45.990Z"
+      "updatedAt": "2026-10-21T08:15:16.843Z"
     },
     {
       "id": "sheepherder",
