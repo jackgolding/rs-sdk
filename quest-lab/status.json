@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-21T05:59:05.536Z",
+  "generatedAt": "2026-10-21T07:54:46.580Z",
   "entries": [
     {
       "id": "arena",
@@ -724,7 +724,7 @@
       "claimedAt": null,
       "attempts": {
         "dev": 0,
-        "canary": 1
+        "canary": 2
       },
       "budget": {
         "maxDevAttempts": 6,
@@ -734,17 +734,17 @@
       "candidate": null,
       "canary": {
         "account": "jacklove8",
-        "runId": "haunted-jacklove8-2026-10-20t20-31-06-865z",
+        "runId": "haunted-jacklove8-2026-10-21t07-44-25-850z",
         "verdict": "FAIL",
         "attempts": 1,
-        "at": "2026-10-20T20:37:26.288Z"
+        "at": "2026-10-21T07:54:46.580Z"
       },
       "blockers": [
         "no reviewed manifest (prerequisites/items/checkpoints)"
       ],
       "rolledOutTo": [],
       "notes": [],
-      "updatedAt": "2026-10-20T20:37:26.288Z"
+      "updatedAt": "2026-10-21T07:54:46.580Z"
     },
     {
       "id": "hauntedmine",
@@ -1505,13 +1505,11 @@
       },
       "candidate": null,
       "canary": null,
-      "blockers": [
-        "existing script needs completion-predicate audit",
-        "no reviewed manifest (prerequisites/items/checkpoints)",
-        "dev gate: sheared 20 wool and spun it, then the Fred turn-in stalled at '10 balls left' with no further log line for 10+ min and the attempt timed out; talkFred() returns false without logging, so the loop spins invisibly. Evidence: quest-eval/reports/2026-10-20T17-32-42-302Z-sheep-hunt (logs only; run never wrote a report)"
-      ],
+      "blockers": [],
       "rolledOutTo": [],
-      "notes": [],
+      "notes": [
+        "dev gate 3/3 PASS after fixing the completion checkpoint: the default invocation (suite/canary) inferred completion from the Crafting XP+coin delta and only wrote the `complete` checkpoint under --quest-only, so a finished quest graded as missing evidence. Median 7m09s. The earlier 'turn-in stall' was latency/DC, not the script."
+      ],
       "updatedAt": "2026-10-20T20:37:46.414Z"
     },
     {
