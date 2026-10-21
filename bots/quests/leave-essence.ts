@@ -31,7 +31,7 @@ for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
     if (eq > 0) process.env[t.slice(0, eq)] = t.slice(eq + 1);
 }
 const username = process.env.BOT_USERNAME!;
-const gatewayUrl = deriveGatewayUrl(process.env);
+const gatewayUrl = deriveGatewayUrl(process.env.SERVER);
 
 const sdk = new BotSDK({ botUsername: username, gatewayUrl });
 const bot = new BotActions(sdk);
