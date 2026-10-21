@@ -284,7 +284,11 @@ log(`Quest stage at start: ${stage}`);
 // run.json, so rewriting it here fixes the in-script gate and the tier at once.
 if (stage !== 'unknown') {
     const from = STAGE_ORDER.indexOf(stage as Stage);
-    const required = STAGE_ORDER.slice(from);
+    // Only the stages this run will actually DEMONSTRATE: a resume at X skips the
+    // X block (`reached(X)` is already true), so requiring X makes every resume
+    // ungradeable — that is what failed the canary that had just written
+    // `complete PASS` on jacklove9 (missing: spoken_ghost, which it never re-ran).
+    const required = STAGE_ORDER.slice(stage === 'unstarted' ? 0 : from + 1);
     if (!required.includes('complete')) required.push('complete');
     try {
         const runPath = join(run.directory, 'run.json');
