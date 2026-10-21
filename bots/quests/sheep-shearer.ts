@@ -729,10 +729,17 @@ try {
 
         if (questComplete && (questOnly || craft() >= CRAFT_UNTIL)) {
             log(`Done. Crafting ${craft()} (${craftXp()} xp) questComplete=${questComplete}`);
-            if (questOnly) {
-                if (!(await checkpoint('complete', 'final verification'))) {
-                    throw new Error('completion checkpoint failed: journal does not report the quest complete');
-                }
+            // ALWAYS record the completion checkpoint before leaving, not just in
+            // --quest-only mode: the default invocation (what the eval suite and
+            // the canary actually run) used to infer completion from the Crafting
+            // XP/coins delta and exit 0 without ever reading the journal, so a
+            // finished quest graded as `missing: complete`. Observed live: a run
+            // printed "QUEST COMPLETE Sheep Shearer | +3750 crafting xp +60 gp"
+            // and the harness correctly refused to believe it.
+            if (!(await checkpoint('complete', 'final verification'))) {
+                if (questOnly) throw new Error('completion checkpoint failed: journal does not report the quest complete');
+                log('WARN: journal does not report the quest complete — not claiming it');
+            } else if (questOnly) {
                 const summary = summarizeRun(run.directory);
                 if (!summary.ok) {
                     throw new Error(`promotion gate failed: missing/unpassed ${JSON.stringify(summary.missing)}`);

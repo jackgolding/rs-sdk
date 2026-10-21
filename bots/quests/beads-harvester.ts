@@ -120,11 +120,65 @@ const dist = (x: number, z: number) => Math.hypot(pos().x - x, pos().z - z);
  * A camp is a radius, not a tile — trees and boulders in the monastery grounds
  * block the last few tiles, and an imp in view is all the camp is for.
  */
+/**
+ * Last-resort escape when every hop is refused: a bot can end up boxed in a
+ * stall/store room (observed live: jacklove4 sat at 2648,3265 among Counters,
+ * Tables, Crates and Bullrushes with every 10-tile and 6-tile chord refused, for
+ * four hours, banking nothing). Transport was healthy -- a fresh controller
+ * walked fine from the same tile -- so the cure is geometry: open the door we are
+ * behind, then nudge one tile at a time until the client accepts a step.
+ */
+async function escapeStuck(why: string): Promise<boolean> {
+    const from = pos();
+    log(`stuck escape @ ${from.x},${from.z}: ${why}`);
+    await sdk.scanNearbyLocs(8).catch(() => undefined);
+    const doors = (sdk.getNearbyLocs() ?? [])
+        .filter((l) => /door|gate/i.test(l.name ?? '') && (l.distance ?? 99) <= 7)
+        .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99));
+    for (const door of doors) {
+        if (!door.optionsWithIndex.some((o) => /^open$/i.test(o.text))) continue;
+        const opened = await bot.interactLoc(door, /^open$/i).catch(() => ({ success: false } as any));
+        log(`  opened ${door.name ?? 'door'} @ ${door.x},${door.z}: ${opened?.success ?? false}`);
+        await sdk.waitForTicks(3);
+        if (Math.hypot(pos().x - from.x, pos().z - from.z) >= 1) return true;
+    }
+    // One-tile nudges in every direction: a short raw step is what the client
+    // accepts when a chord across a corner is refused.
+    for (const [dx, dz] of [[0, 1], [1, 0], [0, -1], [-1, 0], [1, 1], [-1, -1], [1, -1], [-1, 1]] as [number, number][]) {
+        const tx = from.x + dx;
+        const tz = from.z + dz;
+        await sdk.sendWalk(tx, tz, false).catch(() => undefined);
+        for (let i = 0; i < 6; i++) {
+            await sdk.waitForTicks(1);
+            if (Math.hypot(pos().x - from.x, pos().z - from.z) >= 1) {
+                log(`  nudged to ${pos().x},${pos().z} (${dx},${dz})`);
+                return true;
+            }
+        }
+    }
+    const near = (sdk.getNearbyLocs() ?? []).filter((l) => (l.distance ?? 99) <= 3).map((l) => l.name);
+    log(`  still stuck — nothing within 3 tiles: ${near.join(', ') || '(none)'}`);
+    return false;
+}
+
 async function travel(dest: Tile, what: string): Promise<void> {
-    const res = await travelTo(sdk, bot, dest, {
-        log: (l: string) => log(`   ${l}`),
-        acceptShortOf: what.includes('camp') ? (d: number) => d <= 12 || findImp() !== null : undefined,
-    });
+    // Accept "short" only when the spot is genuinely good enough to work from:
+    // an imp merely IN SIGHT is not — that rule let the harvester declare a spot
+    // 47 tiles from the camp "the camp" and then harvest nothing forever.
+    const acceptShort = what.includes('camp')
+        ? (d: number) => {
+            if (d <= 6) return true;
+            const imp = findImp();
+            return imp !== null && (imp.distance ?? 99) <= 8 && imp.reachable !== false;
+        }
+        : undefined;
+
+    let res = await travelTo(sdk, bot, dest, { log: (l: string) => log(`   ${l}`), acceptShortOf: acceptShort });
+    if (!res.ok) {
+        // One escape attempt, then re-plan from wherever the nudge landed.
+        await escapeStuck(res.reason ?? 'travel failed');
+        res = await travelTo(sdk, bot, dest, { log: (l: string) => log(`   ${l}`), acceptShortOf: acceptShort, maxPlans: 12 });
+    }
     if (!res.ok) throw new Error(`could not reach ${what}: ${res.reason}`);
     log(`at ${what} (${res.at.x},${res.at.z}) l${res.at.level}${res.reason ? ` (${res.reason})` : ''}`);
 }
@@ -181,6 +235,7 @@ function reportRate(): void {
     log(`rate: ${kills} kills, ${attacks} attacks, ${beadCount()} beads held (${perKill}/kill, ${perHour}/hour, ${trips} trip(s))`);
 }
 const deadline = MINUTES > 0 ? Date.now() + MINUTES * 60_000 : Number.POSITIVE_INFINITY;
+let lastKillAt = Date.now();
 
 log(
     `harvesting ${TARGET > 0 ? `${TARGET} bead(s)` : 'continuously'} at '${CAMP_NAME}' (${IMP_CAMP.x},${IMP_CAMP.z}, ${CAMP.imps} static spawns) -> ${BANK.name} bank; ${MINUTES > 0 ? `budget ${MINUTES} min` : 'until stopped'}`,
@@ -201,6 +256,13 @@ while (TARGET <= 0 || beadCount() < TARGET) {
         continue;
     }
     if (dist(IMP_CAMP.x, IMP_CAMP.z) > 10) await travel(IMP_CAMP, 'imp camp');
+    // If nothing dies for a long stretch we are parked somewhere useless: escape
+    // once and force a fresh plan instead of cycling the same refused hops.
+    if (Date.now() - lastKillAt > 8 * 60_000) {
+        log(`no kill for ${Math.round((Date.now() - lastKillAt) / 60000)} min — forcing a stuck escape`);
+        lastKillAt = Date.now();
+        await escapeStuck('no kills while standing still');
+    }
 
     // Restock when the bag fills or the food runs out.
     const bagFull = sdk.getInventory().filter((i) => (i.count ?? 0) > 0).length >= 26;
@@ -238,6 +300,7 @@ while (TARGET <= 0 || beadCount() < TARGET) {
         continue;
     }
     attacks++;
+    lastKillAt = Date.now();
     const targetX = imp.x;
     const targetZ = imp.z;
     for (let i = 0; i < 40 && vitals().inCombat; i++) await sdk.waitForTicks(1);
