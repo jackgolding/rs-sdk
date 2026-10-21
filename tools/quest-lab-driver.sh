@@ -33,6 +33,11 @@ cd "$REPO" || exit 1
 LOCK="${TMPDIR:-/tmp}/quest-lab-driver.lock"
 DIGEST="$REPO/quest-lab/digest.md"
 LOG="$REPO/quest-lab/driver.log"
+# Quests whose deploy was refused (not loadable on the deployed image) are parked
+# here for 6h so the loop does not retry them every tick and starve the rest of
+# the queue — cook/imp sat in front of haunted and blocked it for two ticks.
+SKIPFILE="$REPO/quest-lab/.driver-skip"
+SKIP_TTL=21600
 
 say() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
@@ -95,6 +100,24 @@ for e in d['entries']:
   } > "$DIGEST.tmp" && mv "$DIGEST.tmp" "$DIGEST"
 }
 
+skipped_recently() {
+  local id="$1" now line ts
+  now=$(date +%s)
+  [ -f "$SKIPFILE" ] || return 1
+  while IFS=$'\t' read -r line ts; do
+    [ "$line" = "$id" ] || continue
+    [ $((now - ts)) -lt "$SKIP_TTL" ] && return 0
+  done < "$SKIPFILE"
+  return 1
+}
+
+park_quest() {
+  local id="$1"
+  grep -v "^$id	" "$SKIPFILE" 2>/dev/null > "$SKIPFILE.tmp" || true
+  printf '%s\t%s\n' "$id" "$(date +%s)" >> "$SKIPFILE.tmp"
+  mv "$SKIPFILE.tmp" "$SKIPFILE"
+}
+
 canary_busy() {
   # NOTE: `set -o pipefail` makes the remote `grep -c` exit 1 when it counts 0
   # matches, so a piped `| grep -q '^0$'` reads that as failure and the driver
@@ -140,6 +163,9 @@ while :; do
       say "canary container already running — waiting"
       continue
     fi
+    if skipped_recently "$id"; then
+      continue
+    fi
     acct=$(free_account)
     if [ -z "${acct:-}" ]; then
       say "no free canary account — waiting"
@@ -147,7 +173,8 @@ while :; do
     fi
     say "canary: $id ($stage, attempt $((attempts+1))) on $acct"
     if ! tools/quest-deploy-canary.sh "$id" "$script" >>"$LOG" 2>&1; then
-      say "deploy refused for $id — leaving it for a human"
+      say "deploy refused for $id — parked for 6h (needs a rollout, not a canary)"
+      park_quest "$id"
       continue
     fi
     runlog="/tmp/ql-canary-$id-$(date -u +%H%M%S).log"
