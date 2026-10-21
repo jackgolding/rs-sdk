@@ -30,7 +30,12 @@ while [ $# -gt 0 ]; do
 done
 
 cd "$REPO" || exit 1
-LOCK="${TMPDIR:-/tmp}/quest-lab-driver.lock"
+# LOCK is overridable and the loop honours a stop file: a stale instance that is
+# wedged (e.g. on a bug already fixed) must not require `kill` — process
+# termination is approval-gated, and a stuck driver plus a blocked kill is a
+# deadlock. `touch quest-lab/.driver-stop` retires any driver at its next tick.
+LOCK="${QUEST_LAB_LOCK:-${TMPDIR:-/tmp}/quest-lab-driver.lock}"
+STOPFILE="$REPO/quest-lab/.driver-stop"
 DIGEST="$REPO/quest-lab/digest.md"
 LOG="$REPO/quest-lab/driver.log"
 # Quests whose deploy was refused (not loadable on the deployed image) are parked
@@ -149,6 +154,11 @@ free_account() {
 # Main loop -----------------------------------------------------------------
 say "driver up (repo $REPO, interval ${INTERVAL}s, accounts: $ACCOUNTS)"
 while :; do
+  if [ -f "$STOPFILE" ]; then
+    say "stop file present — exiting"
+    rm -f "$STOPFILE"
+    break
+  fi
   queue_json > /tmp/ql-queue.$$
   if [ ! -s /tmp/ql-queue.$$ ]; then
     say "nothing in the canary tier — sleeping"
