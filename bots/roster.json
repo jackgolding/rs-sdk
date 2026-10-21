@@ -110,7 +110,7 @@
         {
             "name": "jacklove5",
             "view": "fleet",
-            "script": "bots/quests/mining-guild.ts",
+            "script": "bots/quests/essence.ts",
             "args": [
                 "jacklove5"
             ]
