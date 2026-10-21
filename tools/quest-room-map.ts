@@ -61,10 +61,14 @@ function route(a: { x: number; z: number }, b: { x: number; z: number }): { x: n
     while (queue.length) {
         const cur = queue.shift()!;
         if (cur.x === b.x && cur.z === b.z) break;
-        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
+        // 8-way, like the game: a diagonal is only blocked when BOTH orthogonals
+        // beside it are — corner-cutting through a single wall is legal, and a
+        // 4-way BFS reports "no path" across a diagonal gap that a player walks.
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as [number, number][]) {
             const nx = cur.x + dx;
             const nz = cur.z + dz;
             if (!inBox(nx, nz) || !open(nx, nz)) continue;
+            if (dx !== 0 && dz !== 0 && !open(cur.x + dx, cur.z) && !open(cur.x, cur.z + dz)) continue;
             const k = key(nx, nz);
             if (seen.has(k)) continue;
             seen.add(k);

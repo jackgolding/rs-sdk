@@ -592,9 +592,53 @@ async function buyShears(): Promise<boolean> {
     return hasShears();
 }
 
+/**
+ * Bank trip SPECIFICALLY for shears: withdraw a pair if banked, otherwise
+ * withdraw coins so the shop step can buy one.
+ *
+ * Live gap found by the first sheep canary (jacklove8): a fresh account arrives
+ * with no shears, no coins in the bag, and nowhere near a bank — `bankJunk()`
+ * returns early when not near one, so `buyShears()` walked to Lumbridge, found
+ * 0 coins, said "No coins for shears" twice and the quest died with
+ * `Could not get shears`. Dev never saw it because the fixture hands over shears.
+ * The ladder is: worn/bagged -> banked -> buy (with banked coins).
+ */
+async function stockUpForShears(): Promise<void> {
+    const draynor = distTo(DRAYNOR_BANK.x, DRAYNOR_BANK.z) <= distTo(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z);
+    const bank = draynor ? DRAYNOR_BANK : EDGEVILLE_BANK;
+    const bankName = draynor ? 'Draynor' : 'Edgeville';
+    intent(`Banking for shears at ${bankName}`);
+    await bot.walkTo(bank.x, bank.z, 2).catch(() => undefined);
+    await sdk.waitForTicks(2);
+    if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
+        log(`shears: ${bankName} bank would not open — falling through to the shop`);
+        return;
+    }
+    const items = sdk.getState()?.bank?.items ?? [];
+    const shears = items.find(i => /^shears$/i.test(i.name));
+    if (shears) {
+        const got = await bot.withdrawItem(shears, 1).catch(() => ({ success: false } as any));
+        await sdk.waitForTicks(2);
+        log(`shears: withdrew from bank: ${got?.success ?? false}`);
+    }
+    if (coinCount() < 30) {
+        const coins = items.find(i => /^coins?$/i.test(i.name));
+        if (coins) {
+            const got = await bot.withdrawItem(coins, 100).catch(() => ({ success: false } as any));
+            await sdk.waitForTicks(2);
+            log(`shears: withdrew coins: ${got?.success ?? false} (now ${coinCount()})`);
+        } else {
+            log('shears: the bank has no coins either — the shop step will fail');
+        }
+    }
+    await bot.closeInterface().catch(() => undefined);
+}
+
 async function ensureShears(): Promise<boolean> {
     if (hasShears()) return true;
     await bankJunk();
+    if (hasShears()) return true;
+    if (coinCount() < 30) await stockUpForShears();
     if (hasShears()) return true;
     return buyShears();
 }
