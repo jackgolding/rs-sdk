@@ -129,7 +129,7 @@ canary_busy() {
   # waits forever with nothing running (observed: 6 ticks of "already running"
   # with zero canary containers). Read the count into a variable instead.
   local n
-  n=$(ssh -o BatchMode=yes -o ConnectTimeout=8 -i ~/.ssh/fleet-actions root@5.223.71.192 \
+  n=$(ssh -n -o BatchMode=yes -o ConnectTimeout=8 -i ~/.ssh/fleet-actions root@5.223.71.192 \
       "docker ps --format '{{.Names}}' | grep -c '^canary-'" 2>/dev/null | tr -d '[:space:]')
   if [ -z "${n:-}" ]; then
     return 0   # ssh failed: wait rather than collide with a live run
@@ -139,9 +139,9 @@ canary_busy() {
 
 free_account() {
   local used skipped
-  used=$(ssh -o BatchMode=yes -o ConnectTimeout=8 -i ~/.ssh/fleet-actions root@5.223.71.192 \
+  used=$(ssh -n -o BatchMode=yes -o ConnectTimeout=8 -i ~/.ssh/fleet-actions root@5.223.71.192 \
          "docker ps --format '{{.Names}}' | sed -n 's/^canary-//p'" 2>/dev/null)
-  skipped=$(ssh -o BatchMode=yes -o ConnectTimeout=8 -i ~/.ssh/fleet-actions root@5.223.71.192 \
+  skipped=$(ssh -n -o BatchMode=yes -o ConnectTimeout=8 -i ~/.ssh/fleet-actions root@5.223.71.192 \
          "cat /srv/fleet/state/skip-bots.txt 2>/dev/null" 2>/dev/null)
   for a in $ACCOUNTS; do
     case " $used " in *" $a "*) continue ;; esac
