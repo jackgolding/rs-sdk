@@ -208,7 +208,7 @@ while :; do
     fi
     runlog="/tmp/ql-canary-$id-$(date -u +%H%M%S).log"
     tools/canary.sh "$acct" "$(basename "$script")" --then-grade "$id" >"$runlog" 2>&1
-    if grep -qiE "already complete|assisted run is not a pass" "$runlog"; then
+    if grep -qiE "already complete|quest already complete|nothing to do" "$runlog"; then
       say "canary $id: $acct cannot start it (already complete / assisted) — marking unfit, retrying another account"
       mark_unfit "$id" "$acct"
       if ! free_account "$id" >/dev/null; then
