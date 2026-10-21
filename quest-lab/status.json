@@ -719,7 +719,7 @@
       "name": "Ernest the Chicken",
       "script": "bots/quests/ernest-chicken.ts",
       "fixture": "quest-lab/fixtures/haunted.json",
-      "stage": "blocked",
+      "stage": "canary",
       "owner": null,
       "claimedAt": null,
       "attempts": {
@@ -732,20 +732,11 @@
         "deadline": null
       },
       "candidate": null,
-      "canary": {
-        "account": "jacklove14",
-        "runId": "haunted-jacklove14-2026-10-21t12-26-44-430z",
-        "verdict": "FAIL",
-        "attempts": 1,
-        "at": "2026-10-21T13:16:28.566Z"
-      },
-      "blockers": [
-        "no reviewed manifest (prerequisites/items/checkpoints)",
-        "canary budget exhausted (4/4): haunted-jacklove14-2026-10-21t12-26-44-430z"
-      ],
+      "canary": null,
+      "blockers": [],
       "rolledOutTo": [],
       "notes": "\n[2026-10-21] operator reset of canary attempts: #4 failed on a START-FLOOR precondition (account parked at 2956,3143 l1; bankForSupplies blocked 165 tiles short), not on quest logic. ensureGroundFloor() prelude added.",
-      "updatedAt": "2026-10-21T13:16:28.605708+00:00"
+      "updatedAt": "2026-10-21T13:17:07.180283+00:00"
     },
     {
       "id": "hauntedmine",
