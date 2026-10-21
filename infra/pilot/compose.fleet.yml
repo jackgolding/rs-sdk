@@ -1185,7 +1185,7 @@ services:
   quest-jacklove3:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/seers-wc-fm.ts", "jacklove3", "--fletch"]
+    command: ["bun", "bots/quests/edgeville-bank-all.ts", "jacklove3"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

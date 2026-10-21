@@ -91,10 +91,9 @@
         {
             "name": "jacklove3",
             "view": "fleet",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/edgeville-bank-all.ts",
             "args": [
-                "jacklove3",
-                "--fletch"
+                "jacklove3"
             ]
         },
         {
