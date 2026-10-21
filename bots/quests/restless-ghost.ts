@@ -780,8 +780,26 @@ if (!reached('spoken_ghost')) {
     await travelTo(approach(COFFIN), 'graveyard coffin');
     // The ghost spawns when the coffin is opened (quest_priest.rs2:
     // check_restlessghost_spawn), so open first, then talk.
-    const opened = await bot.interactLoc(/coffin/i, /open/i);
-    log(`open coffin: ${opened.success}${opened.success ? '' : ` (${opened.message ?? '?'})`}`);
+    // The coffin is a toggle: if a previous run left it OPEN it offers only
+    // Close, a bare /open/ matcher reports `No matching option on Coffin`, and the
+    // ghost never (re)spawns — the canary then polls `Restless Ghost` eight times
+    // into `NPC not found`. Close-then-open forces the spawn event, which is what
+    // quest_priest.rs2's check_restlessghost_spawn hangs off.
+    const coffinOpen = async () => {
+        const loc = (sdk.getNearbyLocs() ?? [])
+            .filter(l => /coffin/i.test(l.name ?? ''))
+            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+        if (!loc) { log('no coffin in view'); return false; }
+        if (!loc.optionsWithIndex.some(o => /^open$/i.test(o.text))) {
+            const shut = await bot.interactLoc(loc, /close/i).catch(() => ({ success: false } as any));
+            log(`coffin already open — closed it first: ${shut?.success ?? false}`);
+            await sdk.waitForTicks(4);
+        }
+        const opened = await bot.interactLoc(loc, /^open$/i).catch(() => ({ success: false } as any));
+        log(`open coffin: ${opened?.success ?? false}${opened?.success ? '' : ` (${opened?.message ?? '?'})`}`);
+        return opened?.success === true;
+    };
+    await coffinOpen();
     // The ghost spawns fresh on the coffin open and the client scene lags
     // reality for seconds afterwards, so a one-shot find misses it (observed:
     // 'NPC not found' standing adjacent). Settle and poll: each talkTo
@@ -792,6 +810,17 @@ if (!reached('spoken_ghost')) {
         const r = await bot.talkTo(/restless ghost/i);
         talked = { success: r.success, message: r.message ?? '?' };
         if (!talked.success) log(`ghost talk attempt ${i + 1}/8: ${talked.message}`);
+    }
+    if (!talked.success) {
+        // One more spawn cycle before failing: the coffin toggle above races the
+        // client's scene update, and a second close/open makes the ghost appear.
+        log(`ghost still missing after 8 talks — re-opening the coffin once`);
+        await coffinOpen();
+        for (let i = 0; i < 6 && !talked.success; i++) {
+            await sdk.waitForTicks(4);
+            const r = await bot.talkTo(/restless ghost/i);
+            talked = { success: r.success, message: r.message ?? '?' };
+        }
     }
     if (!talked.success) throw new Error(`could not talk to the Restless Ghost: ${talked.message ?? '?'}`);
     // Every listed option converges on priest_ghost_certain_task, which sets
