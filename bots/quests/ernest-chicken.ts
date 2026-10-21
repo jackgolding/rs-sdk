@@ -388,9 +388,76 @@ async function openNearbyDoors(what: string): Promise<void> {
  * Walk to a destination via planned waypoints. Each leg is verified: a leg that
  * moves nothing is an obstacle, and retrying the same bearing cannot help.
  */
+/**
+ * Escape a sealed pocket by raw stepping, then re-plan from the new tile.
+ *
+ * The compost leg died at (3085,3349) — "range 11 of (3084,3360)" — because that
+ * tile is inside a walled void: the collision data shows every walkable face of
+ * the heap (3083,3360 / 3084,3359 / 3086,3360 / 3082,3360 / 3084,3362) DOES
+ * route to the manor's front door in 24-28 tiles, so the heap was never the
+ * problem — the bot was standing somewhere the planner cannot leave. walkTo
+ * reports "no waypoints" there and the leg BLOCKS.
+ *
+ * Same shape as demon-slayer's tower pocket: open whatever door is in reach,
+ * then raw-sendWalk toward the anchor until displacement is real, fanning out
+ * when a straight step is refused. Returns true once we moved.
+ */
+async function escapePocket(anchor: { x: number; z: number }, what: string): Promise<boolean> {
+    const start = pos();
+    await openNearbyDoors(what);
+    await sdk.scanNearbyLocs(10).catch(() => undefined);
+    for (const loc of (sdk.getNearbyLocs() ?? []).filter(l => /door|gate/i.test(l.name ?? '') && (l.distance ?? 99) <= 8)) {
+        const opt = loc.optionsWithIndex?.[0]?.text ?? 'Open';
+        await bot.interactLoc(loc, new RegExp(`^${opt}$`, 'i')).catch(() => undefined);
+        await sdk.waitForTicks(2);
+        if (Math.hypot(pos().x - start.x, pos().z - start.z) >= 1) {
+            log(`pocket escape: ${loc.name ?? 'door'} @ ${loc.x},${loc.z} (${opt}) moved us to (${pos().x},${pos().z})`);
+            break;
+        }
+    }
+    for (let round = 0; round < 8; round++) {
+        const before = pos();
+        if (Math.hypot(before.x - anchor.x, before.z - anchor.z) < 6) return true;
+        // Straight at the anchor first, then a fan of short steps.
+        const dx = anchor.x - before.x;
+        const dz = anchor.z - before.z;
+        const d = Math.hypot(dx, dz) || 1;
+        const tries = [
+            { x: Math.round(before.x + (dx / d) * Math.min(2, d)), z: Math.round(before.z + (dz / d) * Math.min(2, d)) },
+            { x: before.x + 1, z: before.z }, { x: before.x - 1, z: before.z },
+            { x: before.x, z: before.z + 1 }, { x: before.x, z: before.z - 1 },
+            { x: before.x + 1, z: before.z + 1 }, { x: before.x - 1, z: before.z - 1 },
+            { x: before.x + 1, z: before.z - 1 }, { x: before.x - 1, z: before.z + 1 },
+        ];
+        for (const t of tries) {
+            await sdk.sendWalk(t.x, t.z, true).catch(() => undefined);
+            await sdk.waitForTicks(2);
+            const after = pos();
+            if (Math.hypot(after.x - before.x, after.z - before.z) >= 0.5) {
+                log(`pocket escape: raw step (${t.x},${t.z}) -> (${after.x},${after.z})`);
+                break;
+            }
+        }
+        if (Math.hypot(pos().x - before.x, pos().z - before.z) < 0.5) {
+            log(`pocket escape: no direction moved from (${before.x},${before.z}) — pocket is sealed`);
+            return false;
+        }
+    }
+    log(`pocket escape: at (${pos().x},${pos().z}) from (${start.x},${start.z})`);
+    return true;
+}
+
 async function travelTo(dest: { x: number; z: number }, what: string): Promise<void> {
-    const waypoints = planWaypoints(pos(), dest);
+    let waypoints = planWaypoints(pos(), dest);
     log(`Route to ${what}: ${waypoints.length} waypoint(s) from (${pos().x},${pos().z}) to (${dest.x},${dest.z})`);
+    // "1 waypoint" means the planner gave up and returned the goal alone — from a
+    // sealed pocket that is the signature. Raw-step out, then plan again.
+    if (waypoints.length <= 1 && Math.hypot(pos().x - dest.x, pos().z - dest.z) > 4) {
+        if (await escapePocket(dest, what)) {
+            waypoints = planWaypoints(pos(), dest);
+            log(`Route to ${what} (after pocket escape): ${waypoints.length} waypoint(s) from (${pos().x},${pos().z})`);
+        }
+    }
     for (let i = 0; i < waypoints.length; i++) {
         const wp = waypoints[i]!;
         const before = pos();
