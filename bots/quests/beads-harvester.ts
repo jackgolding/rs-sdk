@@ -196,6 +196,77 @@ function findImp() {
         .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0] ?? null;
 }
 
+/**
+ * Wear the best weapon this account can actually wield.
+ *
+ * The harvester is armed for two reasons: a wandering imp/dog that aggroes is
+ * killable instead of shrugged off, and an account that is parked at a camp with
+ * 1M coins should not be swinging its fists. The ladder is static on purpose
+ * (tier + wield level), sourced from the bank/inventory only — a shop trip for a
+ * weapon is a quest-style errand, not something a harvester should do mid-run.
+ * Wield failures are silent engine-side, so the equip is verified against
+ * `getState().equipment` and logged with before/after names.
+ */
+const WEAPON_LADDER: { name: RegExp; label: string; level: number }[] = [
+    { name: /^dragon (longsword|scimitar)$/i, label: 'dragon longsword', level: 60 },
+    { name: /^rune (scimitar|longsword)$/i, label: 'rune scimitar', level: 40 },
+    { name: /^adamant (scimitar|longsword)$/i, label: 'adamant scimitar', level: 30 },
+    { name: /^mithril (scimitar|longsword)$/i, label: 'mithril scimitar', level: 20 },
+    { name: /^black (scimitar|longsword)$/i, label: 'black scimitar', level: 10 },
+    { name: /^steel (scimitar|longsword)$/i, label: 'steel scimitar', level: 5 },
+    { name: /^iron (scimitar|longsword)$/i, label: 'iron scimitar', level: 1 },
+    { name: /^bronze (scimitar|longsword)$/i, label: 'bronze scimitar', level: 1 },
+];
+
+async function armUp(): Promise<void> {
+    const attack = sdk.getSkill('Attack')?.baseLevel ?? 1;
+    const worn = (sdk.getState()?.equipment ?? []).map(e => e.name).join(',') || '(nothing)';
+    const carry = sdk.getInventory();
+    log(`armoury: Attack ${attack}, wielding ${worn}`);
+
+    // Already holding something from the top of the ladder? Leave it alone.
+    const best = WEAPON_LADDER.find(w => attack >= w.level);
+    if (!best) { log('armoury: no ladder entry usable at Attack 1'); return; }
+    if (carry.some(i => best.name.test(i.name)) || (sdk.getState()?.equipment ?? []).some(e => best.name.test(e.name))) {
+        const held = carry.find(i => best.name.test(i.name)) ?? (sdk.getState()?.equipment ?? []).find(e => best.name.test(e.name));
+        if (held && !(sdk.getState()?.equipment ?? []).some(e => e.name === held.name)) {
+            const res = await bot.equipItem(held).catch(() => ({ success: false } as any));
+            log(`armoury: equipped ${held.name}: ${res?.success ?? false}`);
+        }
+        return;
+    }
+
+    // Otherwise walk the ladder from the top: wield level first, then stock.
+    let bankItems = sdk.getState()?.bank?.items ?? [];
+    if (!sdk.getState()?.bank?.isOpen && !(await bot.openBank().success)) {
+        log('armoury: bank not open — skipping the weapon step');
+        return;
+    }
+    await sdk.waitForTicks(2);
+    bankItems = sdk.getState()?.bank?.items ?? [];
+    for (const step of WEAPON_LADDER) {
+        if (attack < step.level) continue;
+        const inBank = bankItems.find(i => step.name.test(i.name));
+        if (!inBank) continue;
+        if (!sdk.getState()?.bank?.isOpen && !(await bot.openBank().success)) {
+            log('armoury: bank closed before the withdraw');
+            return;
+        }
+        const got = await bot.withdrawItem(inBank, 1).catch(() => ({ success: false } as any));
+        await sdk.waitForTicks(2);
+        log(`armoury: withdrew ${inBank.name}: ${got?.success ?? false}`);
+        const held = sdk.getInventory().find(i => step.name.test(i.name));
+        if (!held) { log('armoury: withdraw did not land in the bag'); continue; }
+        await bot.closeInterface().catch(() => undefined);
+        const worn2 = await bot.equipItem(held).catch(() => ({ success: false } as any));
+        await sdk.waitForTicks(2);
+        const nowWorn = (sdk.getState()?.equipment ?? []).some(e => e.name === held.name);
+        log(`armoury: equipped ${held.name} (${step.label}): ok=${worn2?.success ?? false} worn=${nowWorn}`);
+        if (nowWorn) return;
+    }
+    log(`armoury: nothing on the ladder banked for Attack ${attack} — wielding ${worn}`);
+}
+
 async function bankTrip(): Promise<void> {
     session.setPhase('bank').catch(() => undefined);
     await travel({ x: BANK.x, z: BANK.z }, `${BANK.name} bank`);
@@ -240,6 +311,9 @@ let lastKillAt = Date.now();
 log(
     `harvesting ${TARGET > 0 ? `${TARGET} bead(s)` : 'continuously'} at '${CAMP_NAME}' (${IMP_CAMP.x},${IMP_CAMP.z}, ${CAMP.imps} static spawns) -> ${BANK.name} bank; ${MINUTES > 0 ? `budget ${MINUTES} min` : 'until stopped'}`,
 );
+// Bank first so the armoury step has stock to withdraw, then walk to the camp.
+await travel({ x: BANK.x, z: BANK.z }, `${BANK.name} bank`);
+await armUp().catch((err: unknown) => log(`armoury step failed: ${String(err)}`));
 await travel(IMP_CAMP, 'imp camp');
 
 while (TARGET <= 0 || beadCount() < TARGET) {
