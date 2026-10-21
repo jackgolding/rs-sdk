@@ -483,7 +483,9 @@ async function exitTower(): Promise<void> {
         .filter(l => /door|gate/i.test(l.name ?? '') && (l.distance ?? 99) <= 6)
         .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99));
     for (const door of doors) {
-        if (!door.optionsWithIndex.some(o => /open/i.test(o.text))) continue;
+        // An already-open door offers only Close: nothing to do, the raw step
+        // below is the crossing.
+        if (!door.optionsWithIndex.some(o => /^open$/i.test(o.text))) continue;
         const opened = await bot.interactLoc(door, /open/i);
         await sdk.waitForTicks(2);
         log(`open tower exit door @ (${door.x},${door.z}): ${opened.success}${opened.success ? '' : ` (${opened.message ?? '?'})`} now (${pos().x},${pos().z})`);
@@ -538,8 +540,19 @@ async function leaveTowerIfInside(): Promise<void> {
  */
 async function enterTower(): Promise<void> {
     await travelTo(TOWER_DOOR_STEP, 'tower door');
-    const door = await bot.interactLoc(/door/i, /open/i);
-    log(`open tower door: ${door.success}${door.success ? '' : ` (${door.message ?? '?'})`}`);
+    // The door may ALREADY be open (a prior run in this session left it so), and an
+    // open door offers only "Close" — a bare /open/ matcher then reports
+    // `No matching option on Door` and the crossing never starts (exactly what the
+    // last canary hit). Read the options and only click when Open is offered.
+    const doorLoc = sdk.findNearbyLoc(/door/i, { withOption: /open/i })
+        ?? (sdk.getNearbyLocs() ?? []).find(l => /door/i.test(l.name ?? '') && (l.distance ?? 99) <= 4);
+    const canOpen = (doorLoc?.optionsWithIndex ?? []).some(o => /^open$/i.test(o.text));
+    if (canOpen) {
+        const door = await bot.interactLoc(doorLoc!, /^open$/i);
+        log(`open tower door: ${door.success}${door.success ? '' : ` (${door.message ?? '?'})`}`);
+    } else {
+        log(`tower door already open (or no Open option) — walking through`);
+    }
     // The door tile is masked in the collision graph, so a PLANNED route from the
     // outside to an interior tile cannot cross it — the canary died exactly here
     // with `BLOCKED leg 2 to tower interior: no progress at (3110,3163), 3 tiles
@@ -565,7 +578,28 @@ async function enterTower(): Promise<void> {
         if (moved < 1) break;
     }
     if (Math.hypot(pos().x - TOWER_LADDER.x, pos().z - TOWER_LADDER.z) > 4) {
-        throw new Error(`BLOCKED tower entry: still outside at (${pos().x},${pos().z}) l${pos().level}`);
+        // Last resort before failing the leg: one planned walk from wherever the
+        // raw steps left us, then one door toggle, then another raw step. On the
+        // live link the door state and the client's map disagree for a tick, and
+        // a single shape of click is not enough to get across.
+        log(`entry still outside at (${pos().x},${pos().z}) — planned walk + door toggle retry`);
+        await bot.walkTo(INSIDE.x, INSIDE.z, 2).catch(() => undefined);
+        await sdk.waitForTicks(3);
+        if (Math.hypot(pos().x - TOWER_LADDER.x, pos().z - TOWER_LADDER.z) > 4) {
+            const toggle = (sdk.getNearbyLocs() ?? [])
+                .filter(l => /door/i.test(l.name ?? '') && (l.distance ?? 99) <= 4)
+                .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+            if (toggle) {
+                const t = await bot.interactLoc(toggle, /open|close/i).catch(() => ({ success: false } as any));
+                log(`tower door toggle: ${t?.success ?? false}`);
+                await sdk.waitForTicks(3);
+                await sdk.sendWalk(INSIDE.x, INSIDE.z, true).catch(() => undefined);
+                await sdk.waitForTicks(3);
+            }
+        }
+        if (Math.hypot(pos().x - TOWER_LADDER.x, pos().z - TOWER_LADDER.z) > 4) {
+            throw new Error(`BLOCKED tower entry: still outside at (${pos().x},${pos().z}) l${pos().level}`);
+        }
     }
     log(`Inside the tower at (${pos().x},${pos().z}) l${pos().level}`);
 }
