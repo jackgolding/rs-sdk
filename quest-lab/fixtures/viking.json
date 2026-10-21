@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "questId": "viking",
+  "position": { "x": 2726, "z": 3485, "level": 0 },
+  "skills": "maxed",
+  "tutorial": true,
+  "bank": [
+    { "name": "coins", "count": 20000 },
+    { "name": "rune_axe", "count": 1 },
+    { "name": "knife", "count": 1 },
+    { "name": "tinderbox", "count": 1 },
+    { "name": "raw_shark", "count": 5 },
+    { "name": "cabbage", "count": 1 },
+    { "name": "potato", "count": 1 },
+    { "name": "onion", "count": 1 },
+    { "name": "beer", "count": 4 },
+    { "name": "shark", "count": 20 },
+    { "name": "swordfish", "count": 10 }
+  ],
+  "worn": [],
+  "varps": {},
+  "target": { "varp": "viking", "unstarted": 0 }
+}

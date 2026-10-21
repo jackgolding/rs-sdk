@@ -59,30 +59,72 @@ export async function readJournalCheckpoint(
     const interfaceId = spec.interfaceId ?? QUEST_JOURNAL_INTERFACE;
     const timeoutMs = opts.timeoutMs ?? 8000;
 
-    await sdk.sendSetTab(QUEST_JOURNAL_TAB);
-    // Give the client a tick or two to publish the tab's interface.
-    await sdk.waitForTicks(4);
+    // Opening the journal is retried, because a click that lands while another
+    // modal is still closing produces no publication at all — observed right
+    // after a quest completes: `send_quest_complete` shows its scroll, the
+    // caller dismisses it, and the next tab click is swallowed. That is
+    // indistinguishable from a stale journal, so try again rather than burn the
+    // checkpoint. The evidence rule is unchanged: a retry must still open a NEW
+    // publication (`revision` greater than before the click).
+    const OPEN_ATTEMPTS = 3;
+    let openedRevision: number | null = null;
+    let lastReason = '';
+    for (let attempt = 1; attempt <= OPEN_ATTEMPTS && openedRevision === null; attempt++) {
+        if (attempt > 1) {
+            const stray = sdk.getState();
+            if (stray?.interface?.isOpen && stray.interface.interfaceId !== interfaceId) {
+                await sdk.sendCloseModal().catch(() => undefined);
+                await sdk.waitForStateChange(1000).catch(() => undefined);
+            }
+            await sdk.waitForTicks(4).catch(() => undefined);
+        }
 
-    const side = readSideInterface(sdk);
-    if (!side) return { ok: false, reason: 'no side interface on the quest tab', verdict: null, rawLines: [] };
+        await sdk.sendSetTab(QUEST_JOURNAL_TAB);
+        // The side interface streams in late after login: an instant read sees
+        // no interface and every rule returns UNKNOWN (observed on a freshly
+        // relit lite runner). Poll bounded for it to appear before reading, and
+        // only then treat a miss as a real miss.
+        let side = readSideInterface(sdk);
+        for (let i = 0; i < 8 && !side; i++) {
+            await sdk.waitForTicks(8).catch(() => undefined);
+            await sdk.sendSetTab(QUEST_JOURNAL_TAB).catch(() => undefined);
+            await sdk.waitForTicks(4).catch(() => undefined);
+            side = readSideInterface(sdk);
+        }
+        if (!side) {
+            lastReason = 'no side interface on the quest tab';
+            continue;
+        }
 
-    const componentId = findJournalButton(side.options, spec.label);
-    if (componentId === null) {
-        return { ok: false, reason: `quest button "${spec.label}" not found in ${side.options.length} options`, verdict: null, rawLines: [] };
+        // The quest list streams in progressively (observed: 3 options on a
+        // fresh login, 26 a minute later) — poll bounded for the button
+        // instead of failing on the first partial read.
+        let componentId: number | null = null;
+        for (let i = 0; i < 10 && componentId === null; i++) {
+            componentId = findJournalButton(readSideInterface(sdk)?.options ?? [], spec.label);
+            if (componentId === null) await sdk.waitForTicks(8).catch(() => undefined);
+        }
+        if (componentId === null) {
+            lastReason = `quest button "${spec.label}" not found in ${readSideInterface(sdk)?.options.length ?? 0} options`;
+            continue;
+        }
+
+        // A journal click that does not open a NEW publication is not evidence.
+        const beforeRevision = sdk.getState()?.revision ?? -1;
+        await sdk.sendClickComponent(componentId);
+
+        try {
+            await sdk.waitForCondition(
+                s => s.interface?.isOpen === true && s.interface.interfaceId === interfaceId && (s.revision ?? 0) > beforeRevision,
+                timeoutMs
+            );
+            openedRevision = beforeRevision;
+        } catch {
+            lastReason = `journal ${interfaceId} did not open within ${timeoutMs}ms (attempt ${attempt}/${OPEN_ATTEMPTS})`;
+        }
     }
 
-    // A journal click that does not open a NEW publication is not evidence.
-    const beforeRevision = sdk.getState()?.revision ?? -1;
-    await sdk.sendClickComponent(componentId);
-
-    try {
-        await sdk.waitForCondition(
-            s => s.interface?.isOpen === true && s.interface.interfaceId === interfaceId && (s.revision ?? 0) > beforeRevision,
-            timeoutMs
-        );
-    } catch {
-        return { ok: false, reason: `journal ${interfaceId} did not open within ${timeoutMs}ms`, verdict: null, rawLines: [] };
-    }
+    if (openedRevision === null) return { ok: false, reason: lastReason, verdict: null, rawLines: [] };
 
     const state = sdk.getState()!;
     const components = state.interface.textComponents ?? [];
@@ -95,7 +137,7 @@ export async function readJournalCheckpoint(
         textComponents: components.map(c => ({ componentId: c.componentId, type: c.type, rawText: c.rawText, text: c.text })),
     };
 
-    const verdict = evaluateJournal({ label: spec.label, interfaceId, title: spec.title }, rule, observation, beforeRevision);
+    const verdict = evaluateJournal({ label: spec.label, interfaceId, title: spec.title }, rule, observation, openedRevision);
     return {
         ok: verdict.verdict === 'PASS',
         reason: verdict.reason,

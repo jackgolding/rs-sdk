@@ -1,0 +1,1 @@
+{"bank": [{"count": 1000, "name": "coins"}, {"count": 20, "name": "trout"}, {"count": 10, "name": "salmon"}, {"count": 10, "name": "lobster"}], "position": {"level": 0, "x": 2810, "z": 3445}, "questId": "mcannon", "schemaVersion": 1, "skills": "maxed", "target": {"unstarted": 0, "varp": "mcannon"}, "tutorial": true, "varps": {}, "worn": []}

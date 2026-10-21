@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-10-20T15:14:24Z",
+  "parkScript": "bots/quests/edgeville-bank-all.ts",
+  "parkTile": "3094,3489",
+  "note": "Canary accounts are parked at Edgeville bank and are switched to a quest script one at a time. Never roster them onto a grind; a training leg is a temporary switch that ends back at this bank.",
+  "accounts": [
+    {
+      "name": "jacklove8",
+      "combat": 123,
+      "hp": "96/99",
+      "levels": {
+        "Attack": 96,
+        "Defence": 99,
+        "Strength": 99,
+        "Hitpoints": 96,
+        "Ranged": 97,
+        "Prayer": 75,
+        "Magic": 1,
+        "Cooking": 99,
+        "Woodcutting": 1,
+        "Fletching": 1,
+        "Fishing": 99,
+        "Firemaking": 1,
+        "Crafting": 1,
+        "Smithing": 1,
+        "Mining": 1,
+        "Herblore": 1,
+        "Agility": 1,
+        "Thieving": 99,
+        "Runecraft": 1
+      },
+      "trainedFor": []
+    },
+    {
+      "name": "jacklove9",
+      "combat": 123,
+      "hp": "98/99",
+      "levels": {
+        "Attack": 96,
+        "Defence": 99,
+        "Strength": 99,
+        "Hitpoints": 98,
+        "Ranged": 99,
+        "Prayer": 76,
+        "Magic": 1,
+        "Cooking": 99,
+        "Woodcutting": 1,
+        "Fletching": 1,
+        "Fishing": 99,
+        "Firemaking": 1,
+        "Crafting": 1,
+        "Smithing": 1,
+        "Mining": 1,
+        "Herblore": 1,
+        "Agility": 1,
+        "Thieving": 99,
+        "Runecraft": 1
+      },
+      "trainedFor": []
+    },
+    {
+      "name": "jacklove14",
+      "combat": 112,
+      "hp": "91/91",
+      "levels": {
+        "Attack": 92,
+        "Defence": 91,
+        "Strength": 91,
+        "Hitpoints": 91,
+        "Ranged": 57,
+        "Prayer": 61,
+        "Magic": 1,
+        "Cooking": 99,
+        "Woodcutting": 1,
+        "Fletching": 1,
+        "Fishing": 99,
+        "Firemaking": 1,
+        "Crafting": 1,
+        "Smithing": 1,
+        "Mining": 1,
+        "Herblore": 1,
+        "Agility": 1,
+        "Thieving": 99,
+        "Runecraft": 1
+      },
+      "trainedFor": []
+    }
+  ]
+}

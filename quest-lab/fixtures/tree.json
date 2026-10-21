@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "questId": "tree",
+  "position": { "x": 2613, "z": 3091, "level": 0 },
+  "skills": "maxed",
+  "tutorial": true,
+  "bank": [
+    { "name": "coins", "count": 20000 },
+    { "name": "magic_shortbow", "count": 1 },
+    { "name": "rune_arrow", "count": 500 },
+    { "name": "studded_body", "count": 1 },
+    { "name": "studded_chaps", "count": 1 },
+    { "name": "staff_of_fire", "count": 1 },
+    { "name": "chaosrune", "count": 400 },
+    { "name": "firerune", "count": 1000 },
+    { "name": "airrune", "count": 1000 },
+    { "name": "wizards_robe", "count": 1 },
+    { "name": "bluewizhat", "count": 1 },
+    { "name": "logs", "count": 6 },
+    { "name": "rune_axe", "count": 1 },
+    { "name": "shark", "count": 25 },
+    { "name": "swordfish", "count": 10 }
+  ],
+  "worn": [],
+  "varps": {},
+  "target": { "varp": "treequest", "unstarted": 0 }
+}

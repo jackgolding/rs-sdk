@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "questId": "squire",
+  "position": { "x": 3012, "z": 3355, "level": 0 },
+  "skills": "maxed",
+  "tutorial": true,
+  "bank": [
+    { "name": "coins", "count": 2000 },
+    { "name": "redberry_pie", "count": 1 },
+    { "name": "iron_bar", "count": 2 },
+    { "name": "bronze_pickaxe", "count": 1 },
+    { "name": "shark", "count": 10 }
+  ],
+  "worn": [],
+  "varps": {},
+  "target": { "varp": "squire", "unstarted": 0 }
+}

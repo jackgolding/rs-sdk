@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "questId": "doric",
+  "position": { "x": 3253, "z": 3420, "level": 0 },
+  "skills": "maxed",
+  "tutorial": true,
+  "bank": [
+    { "name": "coins", "count": 1000 },
+    { "name": "bronze_pickaxe", "count": 1 }
+  ],
+  "worn": [],
+  "varps": {},
+  "target": { "varp": "doricquest", "unstarted": 0 }
+}
