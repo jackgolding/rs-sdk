@@ -51,9 +51,10 @@
         {
             "name": "Jackpoo4",
             "view": "fleet",
-            "script": "bots/quests/climb-down.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "Jackpoo4"
+                "Jackpoo4",
+                "--until-wc=99"
             ]
         },
         {
@@ -213,9 +214,10 @@
         {
             "name": "jacklove15",
             "view": "loves",
-            "script": "bots/quests/climb-down.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "jacklove15"
+                "jacklove15",
+                "--knights"
             ]
         },
         {
@@ -338,9 +340,10 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/climb-down.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY10"
+                "ABGARMY10",
+                "--until-wc=99"
             ]
         },
         {
@@ -372,9 +375,10 @@
         {
             "name": "ABGARMY14",
             "view": "army",
-            "script": "bots/quests/climb-down.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY14"
+                "ABGARMY14",
+                "--until-wc=99"
             ]
         },
         {
@@ -388,9 +392,10 @@
         {
             "name": "ABGARMY16",
             "view": "army",
-            "script": "bots/quests/climb-down.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
-                "ABGARMY16"
+                "ABGARMY16",
+                "--until-wc=99"
             ]
         },
         {
