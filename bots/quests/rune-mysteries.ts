@@ -271,7 +271,12 @@ function inKandarin(): boolean {
 
 function onKaramja(): boolean {
     const p = pos();
-    return p.x > 2680 && p.x < 3010 && p.z > 3040 && p.z < 3270;
+    // Carve Asgarnia's south coast out of the box: the old bounds (x 2680-3010,
+    // z 3040-3270) also covered Rimmington, so a bot mining Rimmington copper
+    // took the cross-sea branch and tried a Karamja route it could never walk.
+    // Musa Point (z < 3222) and Brimhaven (x < 2935) stay inside.
+    const asgarniaSouthCoast = p.x > 2935 && p.z > 3222;
+    return p.x > 2680 && p.x < 3010 && p.z > 3040 && p.z < 3270 && !asgarniaSouthCoast;
 }
 
 function inWizardBasement(): boolean {
@@ -758,7 +763,6 @@ async function reachLumbridge(): Promise<boolean> {
         // forever. The mountain route is the same one edgeville-dungeon-melee
         // uses; from Edgeville it is a short hop chain to Lumbridge.
         if (pos().hp >= 40) {
-            await session.setPhase('white-wolf');
             intent('Kandarin → White Wolf → Edgeville → Lumbridge');
             await walkKandarinToEdgeville(bot, sdk, { eat: eatIfNeeded, walkNear });
             for (const leg of [
@@ -769,7 +773,7 @@ async function reachLumbridge(): Promise<boolean> {
                 { x: 3190, z: 3240 },
                 { x: 3205, z: 3212 }
             ]) {
-                if (session.isStopped()) return false;
+                if (!sdk.isConnected()) return false;
                 await walkNear(leg.x, leg.z, 6);
             }
             return false;
