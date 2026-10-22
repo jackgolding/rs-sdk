@@ -4,19 +4,52 @@
  *
  *   bun bots/quests/bowstrings.ts {botname}
  *   bun bots/quests/bowstrings.ts {botname} --until=31
+ *   bun bots/quests/bowstrings.ts {botname} --until=31 --park
+ *
+ * The wheel is upstairs in the Seers wheel house (~2715,3471): the script
+ * walks inside on the ground floor first, climbs only a staircase inside
+ * that house, and verifies the wheel is in the scan on the wheel floor.
+ *
+ * With no --until and Crafting 99 there is nothing left to grind, so the
+ * script parks (sleeps in place, never exits). An --until run still exits 2
+ * when the floor is met, because craft-to-31 reads that as "level done";
+ * --park parks instead of exiting there too.
  */
 import { ActivitySession, BotSDK, atSeersFlax, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
 import { resolveSkillDialogProduct } from '../../sdk/action-quantity';
+import { nextWalkStep } from '../../sdk/activity';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { travelToSeersFlax } from '../Jackpoo1/travel-to-flax';
 import { installGracefulShutdown } from '../../sdk/runner';
 
 const FLAX_FIELD = { x: 2744, z: 3444 };
-const WHEEL_HOUSE = { x: 2715, z: 3471 };
 const SEERS_BANK = { x: 2726, z: 3485 };
+/** Seers spinning wheel — upstairs (plane 1) in the wheel house at ~2715,3471. */
+const WHEEL = { x: 2715, z: 3471 };
+const WHEEL_FLOOR = 1;
+const MAX_CRAFT = 99;
+/**
+ * Wheel-house footprint, walls included. The house next door (doors at
+ * 2706,3472 and 2709,3472 on plane 1) has its own staircase: climbing that
+ * one lands the bot upstairs with no wheel anywhere in the scan, which is how
+ * every bot at 2728,3462 burned the whole recovery ladder and spun 0.
+ */
+const WHEEL_HOUSE_BOX = { x0: 2710, x1: 2719, z0: 3466, z1: 3478 };
+/** Ground-floor tiles inside the wheel house, tried in order. */
+const WHEEL_APPROACH = [
+    { x: 2715, z: 3471 },
+    { x: 2716, z: 3472 },
+    { x: 2713, z: 3471 },
+    { x: 2715, z: 3469 }
+];
+
+const UP = /climb-up|climb\.up|go-up|go\.up/i;
+const DOWN = /climb-down|climb\.down|go-down|go\.down/i;
+const STAIRS = /stair|ladder/i;
+
 
 const FLAX = /^flax$/i;
 const BOWSTRING = /^bow\s*string$/i;
@@ -27,6 +60,16 @@ const botArg = argv.find((a) => !a.startsWith('-'));
 const untilArg = argv.find((a) => a.startsWith('--until='));
 const untilCraft = Number(untilArg?.split('=')[1]);
 const CRAFT_UNTIL = Number.isFinite(untilCraft) && untilCraft > 0 ? untilCraft : 0;
+/** Floor this launch is working toward: --until, else the 99 cap. */
+const GOAL_LEVEL = CRAFT_UNTIL > 0 ? CRAFT_UNTIL : MAX_CRAFT;
+/**
+ * A maxed account with no --until has nothing left to do, and exiting is not
+ * an option: the box supervisor restarts the container even on exit 0, so the
+ * process re-enters the identical state forever (15 bots, ~200 restarts/hour,
+ * box nearly down). Park instead. `--until` runs stay one-shots so craft-to-31
+ * can still read exit code 2 as "level met"; `--park` forces parking there too.
+ */
+const PARK_WHEN_DONE = CRAFT_UNTIL === 0 || argv.includes('--park');
 
 function loadBotEnv(): void {
     const envPath = botArg
@@ -69,7 +112,11 @@ await sdk.connect();
 const bot = new BotActions(sdk);
 const session = new ActivitySession(sdk, bot, {
     name: 'bowstrings',
-    grindLogPath: GRIND_LOG
+    grindLogPath: GRIND_LOG,
+    // Default tactics (close_ui, step_off, rewalk, climb_floor) plus
+    // wheel_approach: the wheel route needs its own slot, and skipped
+    // tactics no longer spend one.
+    maxRecoveryTactics: 6
 });
 
 installGracefulShutdown();
@@ -77,6 +124,8 @@ installGracefulShutdown();
 let lastLoggedCraft = 0;
 /** Once the bank is empty of flax, skip the withdraw check until a restart. */
 let bankFlaxDrained = false;
+/** Set once the goal is met and the process is idling instead of exiting. */
+let parked = false;
 
 function log(msg: string): void {
     session.log('log', msg);
@@ -110,6 +159,41 @@ function craftXp(): number {
     return sdk.getSkill('Crafting')?.experience ?? 0;
 }
 
+/** True when there is no work left: --until reached, or Crafting capped with no goal. */
+function goalReached(): boolean {
+    return craft() >= GOAL_LEVEL;
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Idle in place instead of exiting. Keeps the pid and the client alive so
+ * nothing relaunches the grind into the same no-op, and refreshes the
+ * progress clock so fleet triage does not read a parked bot as stalled.
+ */
+async function park(reason: string): Promise<void> {
+    if (!parked) {
+        parked = true;
+        await session.setPhase('parked');
+        session.setAnchor(pos().x, pos().z, pos().level);
+        log(`PARKED ${reason} — idling in place (no exit: a relaunch re-enters this state)`);
+    }
+    let lastLog = Date.now();
+    let waited = false;
+    while (!session.stopRequested && !session.isStopped()) {
+        await sleep(60_000);
+        waited = true;
+        session.noteProgress('phase', 'parked');
+        if (Date.now() - lastLog >= 30 * 60_000) {
+            lastLog = Date.now();
+            log(`Parked — Crafting ${craft()} (${craftXp()} xp) @ ${pos().x},${pos().z}, nothing to grind`);
+        }
+    }
+    if (waited) log('Parked bot received a stop request — shutting down');
+}
+
 function occupiedSlots(): number {
     return sdk.getInventory().filter((i) => (i.count ?? 0) > 0).length;
 }
@@ -123,7 +207,7 @@ function bankCount(pattern: RegExp): number {
 }
 
 async function openSeersBank(): Promise<boolean> {
-    if (pos().level > 0) await climbTo(0);
+    if (pos().level > 0) await descendTo(0);
     await closeUi();
     await bot.walkTo(SEERS_BANK.x, SEERS_BANK.z, 2);
     await closeUi();
@@ -139,7 +223,7 @@ function inFlaxCircuit(): boolean {
     const p = pos();
     if (atSeersFlax(p.x, p.z)) return true;
     if (sdk.findNearbyLoc(/^flax$/i) || sdk.findNearbyLoc(/spinning wheel/i)) return true;
-    if (distTo(WHEEL_HOUSE.x, WHEEL_HOUSE.z) <= 24) return true;
+    if (distTo(WHEEL.x, WHEEL.z) <= 24) return true;
     if (distTo(SEERS_BANK.x, SEERS_BANK.z) <= 24) return true;
     return p.x >= 2690 && p.x <= 2770 && p.z >= 3430 && p.z <= 3510;
 }
@@ -179,51 +263,198 @@ async function closeUi(): Promise<void> {
     }
 }
 
-async function climbTo(targetLevel: number): Promise<boolean> {
-    for (let i = 0; i < 8 && pos().level !== targetLevel; i++) {
-        const wantUp = pos().level < targetLevel;
-        const opt = wantUp ? /climb-up|climb.up|go-up|go.up/i : /climb-down|climb.down|go-down|go.down/i;
-        if (distTo(WHEEL_HOUSE.x, WHEEL_HOUSE.z) > 6 && pos().level === 0) {
-            await bot.walkTo(WHEEL_HOUSE.x, WHEEL_HOUSE.z, 2);
-        }
-        const stairs = (sdk.getNearbyLocs() ?? [])
-            .filter((l) => /stair|ladder/i.test(l.name) && l.optionsWithIndex.some((o) => opt.test(o.text)))
-            .sort(
-                (a, b) =>
-                    (a.reachable === false ? 1 : 0) - (b.reachable === false ? 1 : 0) ||
-                    (a.distance ?? 99) - (b.distance ?? 99)
-            )[0];
-        if (!stairs || stairs.reachable === false) {
-            const door = (sdk.getNearbyLocs() ?? []).find(
-                (l) => /door/i.test(l.name) && l.reachable !== false && l.optionsWithIndex.some((o) => /^open$/i.test(o.text))
-            );
-            if (door) await bot.openDoor(door);
-            await bot.walkTo(WHEEL_HOUSE.x, WHEEL_HOUSE.z, 1);
+function inWheelHouse(l: { x: number; z: number }): boolean {
+    return l.x >= WHEEL_HOUSE_BOX.x0 && l.x <= WHEEL_HOUSE_BOX.x1 && l.z >= WHEEL_HOUSE_BOX.z0 && l.z <= WHEEL_HOUSE_BOX.z1;
+}
+
+/** Stairs that move through `dir`: in-house first, then nearest reachable. */
+function stairsFor(dir: RegExp) {
+    return (sdk.getNearbyLocs() ?? [])
+        .filter((l) => STAIRS.test(l.name) && l.optionsWithIndex.some((o) => dir.test(o.text)))
+        .sort(
+            (a, b) =>
+                (inWheelHouse(b) ? 1 : 0) - (inWheelHouse(a) ? 1 : 0) ||
+                (a.reachable === false ? 1 : 0) - (b.reachable === false ? 1 : 0) ||
+                (a.distance ?? 99) - (b.distance ?? 99)
+        );
+}
+
+/** Interact with one staircase and wait for the plane to actually change. */
+async function useStairs(stair: ReturnType<typeof stairsFor>[number], dir: RegExp): Promise<boolean> {
+    const before = pos().level;
+    const match = stair.optionsWithIndex.find((o) => dir.test(o.text));
+    intent(`${dir === UP ? 'Climbing up' : 'Climbing down'} ${stair.name} @ ${stair.x},${stair.z}`);
+    if ((stair.distance ?? 99) <= 2 && match) {
+        await sdk.sendInteractLoc(stair.x, stair.z, stair.id, match.opIndex);
+    } else {
+        const r = await bot.interactLoc(stair, dir);
+        if (!r.success) session.noteFailure('climb', r.message);
+    }
+    await sdk.waitForCondition((s) => (s.player?.level ?? before) !== before, 8_000).catch(() => {});
+    await bot.dismissBlockingUI();
+    return pos().level !== before;
+}
+
+/**
+ * Descend toward `target` floor. In-house stairs are preferred, but any
+ * climb-down is correct when the bot is stuck a floor up in the wrong
+ * building — that is the exit, not another wrong turn.
+ */
+async function descendTo(target = 0): Promise<boolean> {
+    for (let i = 0; i < 6 && pos().level > target && !session.isStopped(); i++) {
+        const stair = stairsFor(DOWN)[0];
+        if (!stair) {
+            await bot.walkTo(WHEEL.x, WHEEL.z, 3).catch(() => {});
+            await sdk.scanNearbyLocs(10).catch(() => {});
             continue;
         }
-        const before = pos().level;
-        intent(`Climb ${wantUp ? 'up' : 'down'} ${stairs.name} (floor ${before} → ${targetLevel})`);
-        const match = stairs.optionsWithIndex.find((o) => opt.test(o.text));
-        if ((stairs.distance ?? 99) <= 2 && match) {
-            await sdk.sendInteractLoc(stairs.x, stairs.z, stairs.id, match.opIndex);
-        } else {
-            const r = await bot.interactLoc(stairs, opt);
-            if (!r.success) session.noteFailure('climb', r.message);
+        const moved = await useStairs(stair, DOWN);
+        if (!moved && (stair.distance ?? 99) > 2) {
+            await bot.walkTo(stair.x, stair.z, 2).catch(() => {});
+            continue;
         }
-        await sdk.waitForCondition((s) => (s.player?.level ?? before) !== before, 8_000).catch(() => {});
-        await bot.dismissBlockingUI();
+        if (!moved) break;
     }
-    return pos().level === targetLevel;
+    return pos().level <= target;
+}
+
+/**
+ * The wheel on this floor, from the pushed locs or a fresh scan.
+ * `reachable` is a hint here, not a gate: upstairs collision data is thin
+ * enough that a wheel two tiles away can read reachable:false, and the old
+ * `{ reachable: true }` lookup then reported "no spinning wheel" forever.
+ */
+function wheelHere() {
+    const wheels = (sdk.getNearbyLocs() ?? []).filter((l) => /spinning wheel/i.test(l.name));
+    if (!wheels.length) return null;
+    const spinnable = wheels.filter((l) => l.optionsWithIndex.some((o) => /spin/i.test(o.text)));
+    const pool = spinnable.length ? spinnable : wheels;
+    return (
+        pool.sort(
+            (a, b) =>
+                (a.reachable === false ? 1 : 0) - (b.reachable === false ? 1 : 0) ||
+                (a.distance ?? 99) - (b.distance ?? 99)
+        )[0] ?? null
+    );
+}
+
+async function findWheel() {
+    const cached = wheelHere();
+    if (cached) return cached;
+    await sdk.scanNearbyLocs(10).catch(() => {});
+    return wheelHere();
+}
+
+/** Short chord steps for upstairs, where bot.walkTo can refuse the wheel as unreachable. */
+async function stepTo(x: number, z: number, tol = 1): Promise<boolean> {
+    for (let i = 0; i < 10 && !session.isStopped(); i++) {
+        const p = pos();
+        if (Math.hypot(p.x - x, p.z - z) <= tol) return true;
+        const step = nextWalkStep(p, { x, z }, 3);
+        if (step.x === p.x && step.z === p.z) return true;
+        await sdk.sendWalk(step.x, step.z, true);
+        await sdk
+            .waitForCondition(
+                (s) => (s.player?.worldX ?? p.x) !== p.x || (s.player?.worldZ ?? p.z) !== p.z,
+                2_500
+            )
+            .catch(() => {});
+    }
+    return Math.hypot(pos().x - x, pos().z - z) <= tol;
+}
+
+/** Open the wheel-house door (only one within reach of the house). */
+async function openWheelHouseDoor(): Promise<void> {
+    const door = (sdk.getNearbyLocs() ?? [])
+        .filter((l) => /door/i.test(l.name) && l.optionsWithIndex.some((o) => /^open$/i.test(o.text)))
+        .sort((a, b) => Math.hypot(a.x - WHEEL.x, a.z - WHEEL.z) - Math.hypot(b.x - WHEEL.x, b.z - WHEEL.z))[0];
+    if (!door || Math.hypot(door.x - WHEEL.x, door.z - WHEEL.z) > 6) return;
+    try {
+        await bot.openDoor(door);
+    } catch {
+        /* already open, or the client rejected it — the walk below proves it */
+    }
+    await sdk.waitForTicks(1).catch(() => {});
+}
+
+/**
+ * Ground floor, standing inside the wheel house. The old code stopped at
+ * `walkTo(WHEEL_HOUSE, 2)` on the doorstep, so the nearest climb-up was the
+ * neighbour's staircase — the bot then climbed the wrong building and the
+ * recovery ladder could not get it back down.
+ */
+async function walkIntoWheelHouse(attempt: number): Promise<boolean> {
+    const tile = WHEEL_APPROACH[attempt % WHEEL_APPROACH.length]!;
+    for (let i = 0; i < 3 && !session.isStopped(); i++) {
+        if (Math.hypot(pos().x - tile.x, pos().z - tile.z) <= 1) break;
+        intent(`Walking into the wheel house @ ${tile.x},${tile.z}`);
+        await openWheelHouseDoor();
+        const r = await bot.walkTo(tile.x, tile.z, 1).catch(() => null);
+        if (!r?.success) {
+            await openWheelHouseDoor();
+            await bot.walkTo(tile.x, tile.z, 2).catch(() => {});
+        }
+        if (Math.hypot(pos().x - tile.x, pos().z - tile.z) <= 2) break;
+        await sdk.scanNearbyLocs(10).catch(() => {});
+    }
+    return inWheelHouse(pos());
+}
+
+/**
+ * Deterministic wheel route: ground floor first, walk inside the house,
+ * climb ONLY a staircase inside its footprint, then prove the wheel is in
+ * the scan on the wheel floor. A climb that lands with no wheel is undone
+ * here — not handed to the recovery ladder to burn.
+ */
+async function reachWheel(): Promise<boolean> {
+    for (let attempt = 0; attempt < 3 && !session.isStopped(); attempt++) {
+        await closeUi();
+        if (pos().level === WHEEL_FLOOR) {
+            if (await findWheel()) return true;
+            log(`Upstairs with no wheel @ ${pos().x},${pos().z} — descending to re-approach from the door`);
+            await descendTo(0);
+            continue;
+        }
+        if (pos().level > WHEEL_FLOOR) {
+            await descendTo(0);
+            continue;
+        }
+        if (!(await walkIntoWheelHouse(attempt))) {
+            log(`Could not get inside the wheel house @ ${pos().x},${pos().z} (attempt ${attempt + 1})`);
+            continue;
+        }
+        let stair = stairsFor(UP).filter(inWheelHouse)[0];
+        if (!stair) {
+            // The staircase is in this house but outside the push radius: step in and rescan.
+            await bot.walkTo(WHEEL.x, WHEEL.z, 2).catch(() => {});
+            await sdk.scanNearbyLocs(10).catch(() => {});
+            stair = stairsFor(UP).filter(inWheelHouse)[0];
+        }
+        if (!stair) {
+            log(`No climb-up staircase inside the wheel house @ ${pos().x},${pos().z}`);
+            continue;
+        }
+        if (!(await useStairs(stair, UP))) continue;
+        if (pos().level !== WHEEL_FLOOR) continue;
+        const wheel = await findWheel();
+        if (wheel) {
+            await closeUi();
+            if (!(await stepTo(wheel.x, wheel.z, 1))) await bot.walkTo(wheel.x, wheel.z, 1).catch(() => {});
+            return true;
+        }
+        log(`Climbed ${stair.name} @ ${stair.x},${stair.z} — no wheel on floor ${pos().level}; wrong building, descending`);
+        await descendTo(0);
+    }
+    return false;
 }
 
 session.registerRecovery([
     {
-        name: 'climb_floor',
-        run: async () => {
-            const phase = session.metrics().phase;
-            const want = phase === 'spin' ? 1 : 0;
-            return climbTo(want);
-        }
+        // Re-runs the deterministic wheel route. Silent outside the spin
+        // phase, so it never spends a recovery slot when it cannot act.
+        name: 'wheel_approach',
+        applicable: () => session.metrics().phase === 'spin',
+        run: async () => reachWheel()
     }
 ]);
 
@@ -257,7 +488,7 @@ async function pickFlax(): Promise<boolean> {
 }
 
 async function fillFlax(): Promise<void> {
-    if (pos().level > 0) await climbTo(0);
+    if (pos().level > 0) await descendTo(0);
     if (distTo(FLAX_FIELD.x, FLAX_FIELD.z) > 12) {
         intent(`Walking to flax field @ ${FLAX_FIELD.x},${FLAX_FIELD.z}`);
         await bot.walkTo(FLAX_FIELD.x, FLAX_FIELD.z, 3);
@@ -296,35 +527,39 @@ async function clickFlaxSpin(): Promise<boolean> {
 async function spinAllFlax(): Promise<number> {
     if (count(FLAX) < 1) return 0;
     await closeUi();
-    if (pos().level === 0) {
-        intent('Walking to Seers spinning wheel');
-        await bot.walkTo(WHEEL_HOUSE.x, WHEEL_HOUSE.z, 2);
-        const door = (sdk.getNearbyLocs() ?? []).find(
-            (l) => /door/i.test(l.name) && l.reachable !== false && l.optionsWithIndex.some((o) => /^open$/i.test(o.text))
-        );
-        if (door) await bot.openDoor(door);
-        if (!(await climbTo(1))) session.noteFailure('climb', `Could not reach wheel floor (on ${pos().level})`);
+    if (!(await reachWheel())) {
+        session.noteFailure('wheel', `could not reach the wheel (floor ${pos().level} @ ${pos().x},${pos().z})`);
+        // Backoff so a blocked house does not spin the loop (and the box) hot.
+        await sleep(5_000);
+        return 0;
     }
 
     let spun = 0;
-    let noWheel = 0;
-    while (count(FLAX) > 0 && noWheel < 6 && !session.isStopped()) {
+    let misses = 0;
+    while (count(FLAX) > 0 && misses < 3 && !session.isStopped()) {
         await bot.dismissBlockingUI();
-        const wheel = sdk.findNearbyLoc(/spinning wheel/i, { reachable: true });
+        const wheel = wheelHere();
         if (!wheel) {
-            noWheel++;
-            session.noteFailure('wheel', `no spinning wheel (${noWheel})`);
-            await bot.walkTo(WHEEL_HOUSE.x, WHEEL_HOUSE.z, 1);
-            continue;
+            // Lost the wheel mid-inventory: re-run the deterministic route once,
+            // then hand it to recovery instead of walking into the wall.
+            misses++;
+            if (misses === 1) {
+                log(`Wheel gone from the scan @ ${pos().x},${pos().z} floor ${pos().level} — re-approaching`);
+                if (await reachWheel()) continue;
+            }
+            session.noteFailure('wheel', `no spinning wheel (${misses}) on floor ${pos().level}`);
+            break;
         }
-        noWheel = 0;
+        misses = 0;
         const before = count(FLAX);
         const xpBefore = craftXp();
         intent(`Spinning flax (${before} left)`);
 
         const spunOpt = wheel.optionsWithIndex.find((o) => /spin/i.test(o.text));
         if (spunOpt) {
-            if ((wheel.distance ?? 99) > 2) await bot.walkTo(wheel.x, wheel.z, 1);
+            if ((wheel.distance ?? 99) > 2 && !(await stepTo(wheel.x, wheel.z, 1))) {
+                await bot.walkTo(wheel.x, wheel.z, 1).catch(() => {});
+            }
             await sdk.sendInteractLoc(wheel.x, wheel.z, wheel.id, spunOpt.opIndex);
             await sdk.waitForCondition((s) => s.dialog?.isOpen, 5_000).catch(() => {});
             if (sdk.getDialog()?.isOpen) {
@@ -402,13 +637,17 @@ try {
     await closeUi();
     log(`Bowstrings start Crafting ${lastLoggedCraft} (${craftXp()} xp) until=${CRAFT_UNTIL || 'none'} @ ${pos().x},${pos().z}`);
 
-    if (CRAFT_UNTIL > 0 && craft() >= CRAFT_UNTIL) {
-        session.stop('done', `Crafting ${craft()} — until ${CRAFT_UNTIL}`);
-    } else if (CRAFT_UNTIL > 0 && craft() < 10) {
+    if (craft() < 10) {
         session.stop('setup', `Crafting ${craft()} — flax needs 10. Run sheep-shearer.ts ${username} --until=10 first`);
+    } else if (goalReached()) {
+        if (PARK_WHEN_DONE) {
+            await park(`Crafting ${craft()} — goal ${GOAL_LEVEL} already met`);
+        } else {
+            session.stop('done', `Crafting ${craft()} — until ${CRAFT_UNTIL}`);
+        }
     }
 
-    if (!session.isStopped() && !inFlaxCircuit()) {
+    if (!parked && !session.isStopped() && !inFlaxCircuit()) {
         await session.setPhase('travel');
         const travel = await travelToSeersFlax({ sdk, bot, log, session });
         if (travel !== 'arrived' && !inFlaxCircuit()) {
@@ -417,7 +656,11 @@ try {
     }
 
     while (!session.isStopped()) {
-        if (CRAFT_UNTIL > 0 && craft() >= CRAFT_UNTIL) {
+        if (goalReached()) {
+            if (PARK_WHEN_DONE) {
+                await park(`Crafting ${craft()} — goal ${GOAL_LEVEL} met`);
+                break;
+            }
             session.stop('done', `Crafting ${craft()} — until ${CRAFT_UNTIL}`);
             break;
         }
@@ -437,19 +680,19 @@ try {
 
         if (count(FLAX) > 0) {
             if (session.metrics().phase !== 'spin') await session.setPhase('spin');
-            session.setAnchor(WHEEL_HOUSE.x, WHEEL_HOUSE.z);
+            session.setAnchor(WHEEL.x, WHEEL.z, WHEEL_FLOOR);
             await spinAllFlax();
             continue;
         }
         if (count(BOWSTRING) > 0 || (occupiedSlots() >= 28 && count(FLAX) === 0)) {
             if (session.metrics().phase !== 'bank') await session.setPhase('bank');
-            session.setAnchor(SEERS_BANK.x, SEERS_BANK.z);
+            session.setAnchor(SEERS_BANK.x, SEERS_BANK.z, 0);
             await bankStrings();
             continue;
         }
         if (!bankFlaxDrained) {
             if (session.metrics().phase !== 'bank') await session.setPhase('bank');
-            session.setAnchor(SEERS_BANK.x, SEERS_BANK.z);
+            session.setAnchor(SEERS_BANK.x, SEERS_BANK.z, 0);
             const got = await withdrawBankFlaxLoad();
             if (got < 0) {
                 await sdk.waitForTicks(2);
@@ -461,7 +704,7 @@ try {
         }
         if (occupiedSlots() < 28 && count(BOWSTRING) === 0) {
             if (session.metrics().phase !== 'pick') await session.setPhase('pick');
-            session.setAnchor(FLAX_FIELD.x, FLAX_FIELD.z);
+            session.setAnchor(FLAX_FIELD.x, FLAX_FIELD.z, 0);
             await fillFlax();
         }
     }
