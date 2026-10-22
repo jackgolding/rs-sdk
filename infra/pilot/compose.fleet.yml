@@ -437,7 +437,7 @@ services:
   quest-abgarmy13:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/thieving-route.ts", "ABGARMY13", "--knights"]
+    command: ["bun", "bots/quests/agility-exit.ts", "ABGARMY13", "--to=ardougne"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -743,7 +743,7 @@ services:
   quest-jacklove1:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/thieving-route.ts", "jacklove1", "--knights"]
+    command: ["bun", "bots/quests/agility-exit.ts", "jacklove1", "--to=ardougne"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1117,7 +1117,7 @@ services:
   quest-jacklove2:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/thieving-route.ts", "jacklove2", "--knights"]
+    command: ["bun", "bots/quests/agility-exit.ts", "jacklove2", "--to=ardougne"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

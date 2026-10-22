@@ -78,19 +78,19 @@
         {
             "name": "jacklove1",
             "view": "fleet",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/agility-exit.ts",
             "args": [
                 "jacklove1",
-                "--knights"
+                "--to=ardougne"
             ]
         },
         {
             "name": "jacklove2",
             "view": "fleet",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/agility-exit.ts",
             "args": [
                 "jacklove2",
-                "--knights"
+                "--to=ardougne"
             ]
         },
         {
@@ -367,10 +367,10 @@
         {
             "name": "ABGARMY13",
             "view": "army",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/agility-exit.ts",
             "args": [
                 "ABGARMY13",
-                "--knights"
+                "--to=ardougne"
             ]
         },
         {
