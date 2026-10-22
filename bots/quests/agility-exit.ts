@@ -163,15 +163,57 @@ if (insideGnomeStronghold()) {
     log(`gate crossed: ${insideGnomeStronghold() ? 'NO — still inside' : 'yes'} @ ${pos().x},${pos().z}`);
 }
 
-// 3. Walk to the destination with the chained traveller.
+// 3. Walk to the destination with the chained traveller, side-stepping a
+// refused step. The server sometimes refuses a step the collision snapshot
+// calls walkable (a fence/gate edge, or a desynced tile) and travelTo then
+// re-plans the same bearing forever — two bots wedged at (2549,3337) that way.
+async function sidestepOnce(): Promise<boolean> {
+    const p = pos();
+    const bx = p.x;
+    const bz = p.z;
+    const dirs: Array<[number, number]> = [[0, -1], [1, 0], [0, 1], [-1, 0], [1, -1], [1, 1], [-1, 1], [-1, -1]];
+    for (const [dx, dz] of dirs) {
+        await sdk.sendWalk(bx + dx, bz + dz, false).catch(() => undefined);
+        const moved = await sdk
+            .waitForCondition((s) => {
+                const q = s.player;
+                return !!q && (q.worldX !== bx || q.worldZ !== bz);
+            }, 2_500)
+            .then(() => true)
+            .catch(() => false);
+        if (moved) {
+            log(`sidestep ${dx},${dz}: moved — the server was refusing the planned step`);
+            return true;
+        }
+    }
+    log('sidestep: all eight neighbours refused — not geometry, needs a relog');
+    return false;
+}
+
+async function walkOut(dest: { x: number; z: number }): Promise<{ ok: boolean; reason?: string }> {
+    for (let round = 0; round < 6; round++) {
+        const p = pos();
+        const r = await travelTo(sdk, bot, dest, { log }).catch(() => null);
+        if (r?.ok) return { ok: true };
+        const q = pos();
+        if (q.x === p.x && q.z === p.z) {
+            log(`walk_out stalled at ${q.x},${q.z} l${q.level} (${r?.reason ?? 'no route'}) — probing neighbours`);
+            if (!(await sidestepOnce())) return { ok: false, reason: r?.reason ?? 'no route' };
+        } else {
+            log(`walk_out made ${Math.abs(q.x - p.x) + Math.abs(q.z - p.z)} tiles before re-planning`);
+        }
+    }
+    return { ok: true };
+}
+
 session.setPhase('walk_out').catch(() => undefined);
-const result = await travelTo(sdk, bot, DEST, { log });
+const result = await walkOut(DEST);
 if (!result.ok) {
     log(`could not reach ${toSpec}: ${result.reason}`);
     session.stop('stopped', `agility exit failed: ${result.reason}`, { restartable: false });
     while (true) await sdk.waitForTicks(100).catch(() => undefined);
 }
-log(`arrived at ${toSpec} (${result.at.x},${result.at.z}) l${result.at.level} in ${result.plans} plan(s)`);
+log(`arrived at ${toSpec} @ ${pos().x},${pos().z} l${pos().level}`);
 session.noteProgress('location', `exited gnome to ${toSpec}`);
 session.stop('done', `agility exit -> ${toSpec}`, { restartable: false });
 // Idle: a quest container that exits 0 restarts and walks straight back in.
