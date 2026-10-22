@@ -22,10 +22,9 @@ import { join } from 'path';
 
 import { ActivitySession, BotSDK, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
-import { findLongPath, initPathfinding, isTileWalkable } from '../../sdk/pathfinding';
+import { findLongPath, getDoorAt, initPathfinding, isTileWalkable } from '../../sdk/pathfinding';
 import { installGracefulShutdown } from '../../sdk/runner';
 import { playerPos } from './movement';
-import { travelTo } from './travel';
 import { FLEET_BANKS, type Tile } from './tiles';
 
 const argv = process.argv.slice(2);
@@ -160,6 +159,40 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  *  are verified against the collision data before they are sent. Zero movement
  *  is a wall, not a slow walk — one sidestep, then a full re-plan from the live
  *  tile, then park (the process never exits on its own).
+ *
+ *  SECOND PASS (jacklove4, after the corner walker went live) — the corner
+ *  walker is correct and stays, but it was never the whole story. The live log
+ *  after the rewrite reads:
+ *
+ *    route 18 turn point(s) from (2648,3265) l0 to (2634,3220)
+ *    plan 1/6 stuck at (2648,3265): zero movement at (2648,3265) toward
+ *      (2641,3265) — same tile twice
+ *
+ *  The first sub-hop is SEVEN TILES WEST ON THE SAME ROW — no corner, no chord,
+ *  `findLongPath(2648,3265 -> 2641,3265)` returns that single waypoint — and the
+ *  server refuses it. Two corrections to the note above, from the flag enum:
+ *  2097152 is `FLOOR` (a walkable floor tile), not "blocked floor"; in this
+ *  engine `WALK_BLOCKED = FLOOR|FLOOR_DECORATION|LOC = 2359552`. Re-read with
+ *  the right mask, collision-data.json calls (2641..2649,3265) open ground and
+ *  an 8-way BFS from the stall tile reaches the BANK (4231 tiles) — so the
+ *  snapshot does not merely say "walkable", it says "connected to the world".
+ *  The server disagrees with every step from that tile, which is what a closed
+ *  interior door, a scripted crossing or an export gap looks like from here.
+ *  (2648,3265) is also NOT under a roof (no ROOF bit; the RPDT depot's roofed
+ *  floor starts at z=3268), so the bot is on the depot's north side, in a 3-row
+ *  pocket, with the nearest door tile 8 tiles away inside the building.
+ *
+ *  Nothing in the snapshot can settle that, so the walker must stop treating
+ *  the snapshot as the authority on what the server will accept: when a plan
+ *  dies twice on one tile it now (1) blind-probes all eight neighbours, one
+ *  verified 1-tile walk each, ignoring the snapshot, and (2) force-scans for
+ *  door/gate locs and tries to open one and cross the door line — judging both
+ *  by actual displacement / plane change, never by an interact receipt (an open
+ *  door returns no player-state evidence). Only if that fails does it park and
+ *  re-scan later. It no longer falls back to `travelTo`: that helper samples
+ *  the planner path (`path[i+7]`) and sends a straight chord, so against a
+ *  closed door it re-issues the same refused bearing on a cadence forever —
+ *  exactly the runbook's "repeating failure at one tile".
  * ════════════════════════════════════════════════════════════════════════════ */
 const MAX_HOP = 9;
 const HOP_WAIT_BASE_MS = 1_200;
@@ -168,6 +201,12 @@ const MAX_PLANS = 6;
 const PARK_RETRY_MS = 120_000;
 /** Non-camp destinations accept this many tiles short (banks are a radius too). */
 const ARRIVE = 5;
+/** Door locs are stale outside a scan; force a re-scan this wide before judging. */
+const DOOR_SCAN_RADIUS = 10;
+/** Doors tried per unstick — nearest first. More than a few is just packet churn. */
+const DOOR_TRIES = 3;
+/** A loc only appears in nearbyLocs this close (a door is interactable at 1-2). */
+const DOOR_REACH = 2;
 
 /**
  * Exact line-of-walk test: the planner returns the destination as its only
@@ -250,6 +289,201 @@ async function stepAside(here: { x: number; z: number; level: number }, point: T
 
 type PlanOutcome = { kind: 'arrived' } | { kind: 'replan'; why: string } | { kind: 'stuck'; why: string };
 
+/* ── Unstick: ask the SERVER what it allows, then try a door ───────────────── */
+
+type DoorLoc = { name: string; id: number; x: number; z: number; distance: number; opIndex: number };
+type Spot = { x: number; z: number; level: number };
+
+/** Order matters: cards first, diagonals last — a diagonal is the easier refusal. */
+const NEIGHBOURS: ReadonlyArray<readonly [number, number]> = [
+    [-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1],
+];
+
+const moved = (a: Spot, b: Spot) => a.x !== b.x || a.z !== b.z || a.level !== b.level;
+
+/**
+ * One verified 1-tile walk onto each neighbour, ignoring the collision snapshot
+ * entirely. The snapshot is exactly what was wrong at the stall tile (it called
+ * eight refused neighbours walkable and reached the bank), so "isTileWalkable
+ * said no" is not a reason to skip a direction — the server is the authority and
+ * a refused step costs one packet. Returns the tile the server accepted.
+ */
+async function probeNeighbours(here: Spot): Promise<Spot | null> {
+    let calledWalkable = 0;
+    for (const [dx, dz] of NEIGHBOURS) {
+        const tx = here.x + dx;
+        const tz = here.z + dz;
+        if (isTileWalkable(here.level, tx, tz)) calledWalkable++;
+        await sdk.sendWalk(tx, tz, false).catch(() => undefined);
+        await sdk.waitForTicks(2).catch(() => undefined);
+        const now: Spot = playerPos(sdk);
+        if (moved(here, now)) {
+            log(`   server accepted a 1-tile (${dx},${dz}) step from (${here.x},${here.z}) -> (${now.x},${now.z}) l${now.level} — the collision snapshot was wrong about that tile`);
+            session.noteProgress('location', `probe ${now.x},${now.z}`);
+            return now;
+        }
+    }
+    log(`   all 8 neighbours of (${here.x},${here.z}) l${here.level} refused (snapshot called ${calledWalkable} of them walkable) — not a per-tile collision problem`);
+    return null;
+}
+
+type ScannedLoc = {
+    name: string;
+    id: number;
+    x: number;
+    z: number;
+    distance?: number;
+    optionsWithIndex?: Array<{ text: string; opIndex?: number }>;
+};
+
+/**
+ * Door/gate locs in the given scan that advertise an Open option, nearest first.
+ * Takes the list EXPLICITLY: `scanNearbyLocs` returns its result without updating
+ * `state.nearbyLocs`, so re-reading `getNearbyLocs()` after a scan hands back the
+ * stale list — and a door is only in the list when it was in range of the scan.
+ */
+function openableDoors(locs: ScannedLoc[]): DoorLoc[] {
+    return locs
+        .map((l) => {
+            const open = (l.optionsWithIndex ?? []).find((o) => /^open$/i.test(o.text));
+            if (!open || !/door|gate/i.test(l.name)) return null;
+            return { name: l.name, id: l.id, x: l.x, z: l.z, distance: l.distance ?? 99, opIndex: open.opIndex ?? 1 };
+        })
+        .filter((d): d is DoorLoc => d !== null)
+        .sort((a, b) => a.distance - b.distance);
+}
+
+/**
+ * Get within interaction range of a door. Axis-aligned sub-hops first (verified
+ * against collision data, which is cheap), then `bot.walkTo` — the local
+ * primitive for "stand next to this thing", which also opens doors on its way
+ * and handles the diagonal approach a straight sub-hop cannot express.
+ */
+async function approachDoor(door: DoorLoc): Promise<boolean> {
+    const inRange = (s: Spot) => Math.max(Math.abs(s.x - door.x), Math.abs(s.z - door.z)) <= DOOR_REACH;
+    let here: Spot = playerPos(sdk);
+    if (inRange(here)) return true;
+
+    for (let i = 0; i < 2; i++) {
+        const stop = straightStop(here.level, here, { x: door.x, z: door.z }, 3);
+        if (!stop) break;
+        await sdk.sendWalk(stop.x, stop.z, false).catch(() => undefined);
+        await sdk.waitForTicks(3).catch(() => undefined);
+        const after: Spot = playerPos(sdk);
+        if (inRange(after)) return true;
+        if (!moved(here, after)) break;
+        here = after;
+    }
+
+    log(`   not axis-aligned to (${door.x},${door.z}) from (${here.x},${here.z}) — approaching with walkTo`);
+    await bot.walkTo(door.x, door.z, 1).catch(() => undefined);
+    await sdk.waitForTicks(2).catch(() => undefined);
+    return inRange(playerPos(sdk));
+}
+
+/**
+ * Landings to try after bumping a door, best first: through the doorway on the
+ * far side, then either shoulder, then the tile next to it. A door's wall edge
+ * is known from the SDK's door index (angle 0/2 = a vertical wall, cross along
+ * X; 1/3 = a horizontal wall, cross along Z), so the crossing axis is not a
+ * guess — a straight tile walk along a wall is the first thing refused.
+ */
+function crossLandings(level: number, from: Spot, door: DoorLoc): Tile[] {
+    const away = ([dx, dz]: [number, number]) =>
+        Math.sign(door.x - from.x) * dx + Math.sign(door.z - from.z) * dz;
+    const perpendicular: Array<[number, number]> =
+        (getDoorAt(level, door.x, door.z)?.angle ?? 0) % 2 === 0
+            ? [[1, 0], [-1, 0]] // vertical wall: cross east/west
+            : [[0, 1], [0, -1]]; // horizontal wall: cross north/south
+    const along: Array<[number, number]> = perpendicular[0]![0] !== 0 ? [[0, 1], [0, -1]] : [[1, 0], [-1, 0]];
+    const dirs = [...perpendicular.sort((a, b) => away(b) - away(a)), ...along.sort((a, b) => away(b) - away(a))];
+
+    const out: Tile[] = [];
+    for (const [dx, dz] of dirs) {
+        out.push({ x: door.x + dx * 2, z: door.z + dz * 2 }, { x: door.x + dx, z: door.z + dz });
+    }
+    const seen = new Set<string>();
+    return out.filter((t) => {
+        const k = `${t.x},${t.z}`;
+        if ((t.x === from.x && t.z === from.z) || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+    });
+}
+
+/**
+ * Open one door and cross it. Success is DISPLACEMENT (or a plane change) —
+ * never `sendInteractLoc`'s return value: opening a door emits no player-state
+ * evidence, so the client answers "nothing happened" for a door that opened.
+ */
+async function openDoorAndCross(door: DoorLoc): Promise<Spot | null> {
+    const at = playerPos(sdk);
+    log(`   door ${door.name} @ (${door.x},${door.z}) op=${door.opIndex} d=${Math.round(door.distance)} from (${at.x},${at.z})`);
+    if (!(await approachDoor(door))) {
+        const now = playerPos(sdk);
+        if (moved(at, now)) {
+            session.noteProgress('location', `door approach ${now.x},${now.z}`);
+            return now;
+        }
+        log(`   could not approach (${door.x},${door.z}) — every step toward it was refused`);
+        return null;
+    }
+
+    const pass = await sdk.sendInteractLoc(door.x, door.z, door.id, door.opIndex).catch(() => null);
+    log(`   click ${pass?.success ? 'accepted' : (pass?.message ?? 'threw')} — receipt is not evidence, stepping across`);
+    await sdk.waitForTicks(2).catch(() => undefined);
+
+    // A dialog raised by a scripted door swallows the next walk silently.
+    await bot.closeInterface().catch(() => undefined);
+
+    const before: Spot = playerPos(sdk);
+    for (const landing of crossLandings(before.level, before, door)) {
+        await sdk.sendWalk(landing.x, landing.z, false).catch(() => undefined);
+        await sdk.waitForTicks(3).catch(() => undefined);
+        const now: Spot = playerPos(sdk);
+        if (moved(before, now)) {
+            session.noteProgress('location', `crossed ${now.x},${now.z}`);
+            return now;
+        }
+    }
+    log(`   bumped (${door.x},${door.z}) but no step across it was accepted — still at (${before.x},${before.z}) l${before.level}`);
+    return null;
+}
+
+/**
+ * The bot is refusing every walk from a tile its own snapshot calls open. Find
+ * out what the SERVER will accept: a bare 1-tile step in any of 8 directions
+ * first, then a door we can open and cross. Loud on every door tile it tried so
+ * the ops log names the door next time it happens.
+ */
+async function unstickBox(why: string): Promise<boolean> {
+    const here: Spot = playerPos(sdk);
+    log(`stuck at (${here.x},${here.z}) l${here.level} — ${why}; testing the server before parking`);
+    if (await probeNeighbours(here)) return true;
+
+    // scanNearbyLocs does NOT refresh state.nearbyLocs — use its return value or
+    // the door list is whatever the last push happened to contain.
+    const scanned = (await sdk.scanNearbyLocs(DOOR_SCAN_RADIUS).catch(() => [] as ScannedLoc[])) as ScannedLoc[];
+    const doors = openableDoors(scanned);
+    if (!doors.length) {
+        log(`   no door/gate with an Open option within ${DOOR_SCAN_RADIUS} tiles of (${here.x},${here.z}) (${scanned.length} locs scanned, attempted door tiles: none) — a door we cannot see cannot be opened; parking and re-scanning on the next attempt`);
+        return false;
+    }
+
+    const tries = doors.slice(0, DOOR_TRIES);
+    log(`   ${doors.length} openable door/gate(s) in scan; trying ${tries.map((d) => `${d.name}@${d.x},${d.z}`).join(', ')}`);
+    for (const door of tries) {
+        if (session.isStoppedOrRequested()) return false;
+        const landed = await openDoorAndCross(door);
+        if (landed) {
+            log(`   out: ${door.name} @ (${door.x},${door.z}) -> (${landed.x},${landed.z}) l${landed.level}`);
+            return true;
+        }
+    }
+    log(`   door escape exhausted (attempted ${tries.map((d) => `${d.x},${d.z}`).join(', ')}) — parking at (${playerPos(sdk).x},${playerPos(sdk).z})`);
+    return false;
+}
+
 /** Walk one planner route to `dest`. Never retries a bearing that moved nothing. */
 async function walkPlan(dest: Tile): Promise<PlanOutcome> {
     const start = playerPos(sdk);
@@ -262,7 +496,10 @@ async function walkPlan(dest: Tile): Promise<PlanOutcome> {
     if (!path.length) return { kind: 'replan', why: `planner found no route from (${start.x},${start.z}) l${start.level}` };
     log(`   route ${path.length} turn point(s) from (${start.x},${start.z}) l${start.level} to (${dest.x},${dest.z})`);
 
-    let lastTile = `${start.x},${start.z}`;
+    // The tile of the previous zero-move walk, NOT the start tile: seeding it with
+    // the start tile made the very first refused hop at the spawn tile report
+    // "same tile twice" and skip the sidestep entirely (live log, jacklove4).
+    let lastTile = '';
 
     for (let idx = 0; idx < path.length; idx++) {
         const point = path[idx]!;
@@ -300,7 +537,7 @@ async function walkPlan(dest: Tile): Promise<PlanOutcome> {
                 // walks from the same tile means the route is wrong here; retrying
                 // the identical bearing is what deadlocked Ardougne for 600+ min.
                 const key = `${after.x},${after.z}`;
-                const why = `zero movement at (${key}) toward (${point.x},${point.z})`;
+                const why = `zero movement at (${key}) toward (${point.x},${point.z})${isTileWalkable(after.level, after.x, after.z) ? ' [snapshot calls this tile walkable — the server is refusing it]' : ''}`;
                 if (key === lastTile) return { kind: 'stuck', why: `${why} — same tile twice` };
                 lastTile = key;
                 const off = await stepAside(after, point, why);
@@ -318,56 +555,69 @@ async function walkPlan(dest: Tile): Promise<PlanOutcome> {
 }
 
 /**
- * Reach `dest`: local path-following walker, then the shared traveller as a
- * second strategy (it normalises the plane and records travel gaps).
- * Returns false only when there is no route left to try — never throws.
+ * Reach `dest`: the corner-aware turn-point walker, then — only when every plan
+ * dies on one tile — the server probe + door escape (`unstickBox`), then park.
+ * Returns false only when there is nothing left to try — never throws.
  */
 async function travel(dest: Tile, what: string, accept?: (distance: number) => boolean): Promise<boolean> {
-    const stuckTiles = new Set<string>();
-    for (let plan = 1; plan <= MAX_PLANS; plan++) {
-        const at = playerPos(sdk);
-        const d = Math.hypot(at.x - dest.x, at.z - dest.z);
-        if (d <= ARRIVE || accept?.(d)) {
-            log(`at ${what} (${at.x},${at.z}) l${at.level}${d > ARRIVE ? ' (accepted nearby)' : ''}`);
-            return true;
-        }
-        const out = await walkPlan(dest);
-        const now = playerPos(sdk);
-        if (out.kind === 'arrived' || Math.hypot(now.x - dest.x, now.z - dest.z) <= ARRIVE) {
-            log(`at ${what} (${now.x},${now.z}) l${now.level} after ${plan} plan(s)`);
-            return true;
-        }
-        if (out.kind === 'replan') {
-            log(`   plan ${plan}/${MAX_PLANS}: ${out.why}`);
-        } else {
-            // A second plan that dies on the same tile is not a new attempt: the
-            // route out of here does not exist. Stop spending walk packets on it.
-            const key = `${now.x},${now.z}`;
-            log(`   plan ${plan}/${MAX_PLANS} stuck at (${key}): ${out.why}`);
-            if (stuckTiles.has(key)) {
-                log(`   already stuck at (${key}) on an earlier plan — abandoning this leg`);
-                break;
+    // Two rounds at most: round 2 only runs if the unstick actually moved us out
+    // of the box. The corner walker re-plans from the live tile on the way out.
+    for (let round = 1; round <= 2; round++) {
+        const stuckTiles = new Set<string>();
+        for (let plan = 1; plan <= MAX_PLANS; plan++) {
+            const at = playerPos(sdk);
+            const d = Math.hypot(at.x - dest.x, at.z - dest.z);
+            if (d <= ARRIVE || accept?.(d)) {
+                log(`at ${what} (${at.x},${at.z}) l${at.level}${d > ARRIVE ? ' (accepted nearby)' : ''}`);
+                return true;
             }
-            stuckTiles.add(key);
+            const out = await walkPlan(dest);
+            const now = playerPos(sdk);
+            if (out.kind === 'arrived' || Math.hypot(now.x - dest.x, now.z - dest.z) <= ARRIVE) {
+                log(`at ${what} (${now.x},${now.z}) l${now.level} after ${plan} plan(s)`);
+                return true;
+            }
+            if (out.kind === 'replan') {
+                log(`   plan ${plan}/${MAX_PLANS}: ${out.why}`);
+            } else {
+                // A second plan that dies on the same tile is not a new attempt: the
+                // route out of here does not exist. Stop spending walk packets on it.
+                const key = `${now.x},${now.z}`;
+                log(`   plan ${plan}/${MAX_PLANS} stuck at (${key}): ${out.why}`);
+                if (stuckTiles.has(key)) {
+                    log(`   already stuck at (${key}) on an earlier plan — abandoning this leg`);
+                    break;
+                }
+                stuckTiles.add(key);
+            }
+            if (accept?.(Math.hypot(now.x - dest.x, now.z - dest.z))) {
+                log(`at ${what} (${now.x},${now.z}) l${now.level} (accepted short)`);
+                return true;
+            }
         }
-        if (accept?.(Math.hypot(now.x - dest.x, now.z - dest.z))) {
-            log(`at ${what} (${now.x},${now.z}) l${now.level} (accepted short)`);
+
+        const at = playerPos(sdk);
+        const short = Math.hypot(at.x - dest.x, at.z - dest.z);
+        if (short <= ARRIVE || accept?.(short)) {
+            log(`at ${what} (${at.x},${at.z}) l${at.level}`);
             return true;
         }
+        if (round === 2) break;
+        // Every plan died on one tile. Before parking, ask the server what it will
+        // accept and try a door: a leg that starts inside an enclosure (or on a
+        // tile the snapshot is wrong about) has no walkable route, only an exit.
+        if (!(await unstickBox(`${what} unreachable from (${at.x},${at.z}) l${at.level}, ${Math.round(short)} tiles short`))) {
+            break;
+        }
+        log(`   moved by the unstick to (${playerPos(sdk).x},${playerPos(sdk).z}) — re-planning ${what} from there`);
     }
 
-    log(`   local walker gave up on ${what} — falling back to travelTo`);
-    const res = await travelTo(sdk, bot, dest, {
-        log: (l: string) => log(`   ${l}`),
-        acceptShortOf: accept ? (d: number) => accept(d) : undefined,
-    }).catch((error: unknown) => ({ ok: false, at: playerPos(sdk), reason: (error as Error).message, plans: 0 }));
+    // No travelTo fallback: its sampled chord (path[i+7] + a straight hop) is the
+    // exact deadlock the corner walker exists to avoid, so against a refused tile
+    // it re-sends the same bearing forever. Park instead — reach() re-scans on a
+    // slow cadence, so a door that opens later is still found.
     const at = playerPos(sdk);
-    const short = Math.hypot(at.x - dest.x, at.z - dest.z);
-    if (res.ok || short <= ARRIVE || accept?.(short)) {
-        log(`at ${what} (${at.x},${at.z}) l${at.level}`);
-        return true;
-    }
-    log(`could not reach ${what}: ${res.reason ?? 'no route'} (at ${at.x},${at.z} l${at.level}, ${Math.round(short)} tiles short)`);
+    log(`could not reach ${what}: no walk moves and no door opened from (${at.x},${at.z}) l${at.level} — parking (no travelTo fallback by design)`);
     return false;
 }
 
