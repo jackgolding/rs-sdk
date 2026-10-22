@@ -314,11 +314,10 @@
         },
         {
             "name": "ABGARMY07",
-            "view": "army",
-            "script": "bots/quests/thieving-route.ts",
+            "view": "army",            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
                 "ABGARMY07",
-                "--knights"
+                "--until-wc=45"
             ]
         },
         {
