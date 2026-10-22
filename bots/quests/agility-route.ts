@@ -17,7 +17,7 @@ import {
     walkNear as walkNearShared,
     walkWaypoints as walkWaypointsShared
 } from './movement';
-import { ARDOUGNE_BANK, ARDOUGNE_MARKET, BRIMHAVEN_CUSTOMS, EDGEVILLE, type Tile } from './tiles';
+import { ARDOUGNE_BANK, ARDOUGNE_MARKET, BRIMHAVEN_CUSTOMS, type Tile } from './tiles';
 import { foodHeal } from './food-heal';
 import { GnomeCourse, GNOME_START } from './gnome-course';
 import { WildyCourse } from './wildy-course';
@@ -201,9 +201,12 @@ const session = new ActivitySession(sdk, bot, {
     name: 'agility',
     grindLogPath: GRIND_LOG,
     stallMs: 35_000,
-    // 3 built-in (close_ui/step_off/rewalk) + all 11 registered below.
-    // A short cap strands bots before mage_bank/leave_wildy ever run.
-    maxRecoveryTactics: 14
+    // 3 built-in (close_ui/step_off/rewalk) + the registered tactics below.
+    // Capped at 8: the wildy tactics are now proximity-gated (inWildyReach), so
+    // a bot in the stronghold only ever has ~4 actionable tactics. The old cap
+    // of 14 meant ten wilderness treks per recovery cycle for a bot standing
+    // 700 tiles from the ditch.
+    maxRecoveryTactics: 8
 });
 
 installGracefulShutdown();
@@ -212,14 +215,18 @@ let laps = 0;
 // Post-exhaust fallback: wildy unreachable — train the safe gnome course
 // until this timestamp instead of spinning on an unwinnable trek.
 let fallbackGnomeUntil = 0;
-// Final-lap mode: 99 hit mid-lap — finish the lap before Edgeville.
-let finishingLap = false;
-let lapsAt99 = 0;
+/** Set once the endgame park loop starts (it never returns before a stop). */
+let parked = false;
 let obstacleStreak = 0;
 let lastXp = 0;
 
 function log(msg: string): void {
     session.log('log', msg);
+}
+
+/** Zero-CPU wait. Parking must not keep sending packets or spinning ticks. */
+function sleep(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 function intent(msg: string): void {
@@ -1283,6 +1290,13 @@ async function openBankAt(x: number, z: number): Promise<boolean> {
     if (!sdk.getState()?.bank?.isOpen) {
         const opened = await bot.openBank();
         if (!opened.success) {
+            if (opened.reason === 'no_bank_found') {
+                // Not a failure: we are not standing at a bank. noteFailure
+                // here is what produced "bank: No banker NPC or bank booth
+                // found nearby" five times and tripped the recovery ladder.
+                log(`No banker NPC or booth at ${pos().x},${pos().z} (bank tile ${x},${z}) — skipping bank`);
+                return false;
+            }
             session.noteFailure('bank', opened.message || 'could not open bank');
             return false;
         }
@@ -1300,6 +1314,14 @@ async function dropJunk(): Promise<void> {
     }
 }
 
+/** A banker, booth or open bank clickable from where we stand — no walking. */
+async function bankInReach(range = 10): Promise<boolean> {
+    if (sdk.getState()?.bank?.isOpen) return true;
+    await sdk.scanNearbyLocs(range).catch(() => {});
+    if (sdk.findNearbyNpc(/gundai|banker/i, { reachable: true })) return true;
+    return (sdk.getNearbyLocs() ?? []).some((l) => /bank|booth|clerk/i.test(l.name) && distTo(l.x, l.z) <= range);
+}
+
 async function depositAll(forceTile?: Tile, keepBlade = true): Promise<boolean> {
     const bankTile =
         forceTile ??
@@ -1309,6 +1331,33 @@ async function depositAll(forceTile?: Tile, keepBlade = true): Promise<boolean> 
               ? ARDOUGNE_BANK
               : nearestSafeBank());
     await closeUi();
+    // Resolve the booth from the LIVE position before any noteFailure: a bot at
+    // 2471,3422 is 600+ tiles from Edgeville, so that deposit can only fail,
+    // and each failure armed the recovery ladder. Far away (or no booth even
+    // after walking to the bank tile) means "nothing to deposit from here",
+    // which is not a failure. Callers that want the walk did it themselves
+    // (prepareForWildy walks GNOME_TO_ARDY first).
+    const hasCarry =
+        sdk.getInventory().some((i) => (i.count ?? 0) > 0) || (sdk.getState()?.equipment?.length ?? 0) > 0;
+    if (!hasCarry) {
+        log(`Nothing to deposit @ ${pos().x},${pos().z}`);
+        return true;
+    }
+    const away = distTo(bankTile.x, bankTile.z);
+    if (away > 200) {
+        // Nothing we can do from here, and nothing broke: not a failure.
+        log(`No bank in reach @ ${pos().x},${pos().z} (${bankTile.x},${bankTile.z} is ${away} away) — no deposit needed`);
+        return true;
+    }
+    if (!(await bankInReach()) && away > 6) {
+        // Close enough that walking to the booth is the caller's intent
+        // (startup gear banking, wildy prep) — approach, then resolve again.
+        await walkNear(bankTile.x, bankTile.z, 6);
+    }
+    if (!(await bankInReach())) {
+        log(`No banker or booth at ${bankTile.x},${bankTile.z} (from ${pos().x},${pos().z}) — no deposit needed`);
+        return true;
+    }
     if (onGnomeCourse() && !pastGnomeGate()) {
         await ensureGnomeEntrance();
     }
@@ -1466,50 +1515,63 @@ async function openGnomeGate(expectInside = true): Promise<boolean> {
     if (expectInside && inside) return true;
     if (!expectInside && !inside) return true;
 
+    const crossedOk = () => (expectInside ? pos().z > GNOME_GATE.z : pos().z < GNOME_GATE.z);
     const stand = expectInside ? GNOME_GATE_STAND : GNOME_GATE_INNER;
-    await walkNear(stand.x, stand.z, 2);
-    // The approach can overshoot to the far side of the gate line (tolerance
-    // 2); clicking from there would run the opposite branch and throw us back.
-    if ((expectInside && pos().z > GNOME_GATE.z) || (!expectInside && pos().z < GNOME_GATE.z)) {
-        log(`Gate already crossed while approaching @ ${pos().x},${pos().z}`);
-        return true;
+    // Landing tile on the far side, used when the gate reads as already open.
+    const farSide = expectInside ? { x: 2461, z: 3386 } : { x: 2460, z: 3380 };
+    const side = expectInside ? 'in' : 'out';
+
+    // The handler only acts on a click issued AT the gate: from 39 tiles away
+    // (the stronghold garden at 2471,3422) the interact is dropped, the scan
+    // finds nothing, and the old loop logged "none in scan" four times and
+    // called it blocked. Get to the stand first — by the client pathfinder,
+    // then by the static BFS walk when there is no client route (east pocket).
+    for (let i = 0; i < 3 && !crossedOk() && distTo(stand.x, stand.z) > 2 && !session.isStopped(); i++) {
+        await walkNear(stand.x, stand.z, 1);
+        if (crossedOk()) {
+            log(`Gate ${side} crossed while approaching @ ${pos().x},${pos().z}`);
+            return true;
+        }
+        if (distTo(stand.x, stand.z) > 2) await walkRawTo(stand.x, stand.z, 90);
+    }
+    if (crossedOk()) return true;
+    if (distTo(stand.x, stand.z) > 3) {
+        // Never click from here: an interior click force-moves 3 tiles OUT,
+        // and a distant click does nothing at all.
+        log(`Gate ${side} not clicked @ ${pos().x},${pos().z} — ${distTo(stand.x, stand.z)} from stand ${stand.x},${stand.z}`);
+        return false;
     }
 
-    const crossedOk = () => (expectInside ? pos().z > GNOME_GATE.z : pos().z < GNOME_GATE.z);
-    const findGate = () =>
-        (sdk.getNearbyLocs() ?? []).find((l) => l.id === GNOME_GATE_ID) ??
-        sdk.findNearbyLoc(/^gate$/i);
-
-    // The open state swaps in gnome_areagate_open_left/right for 5 ticks: no
-    // name, no options, and an inviswall on the path — so a scan can see no
-    // gate at all, and walking through is impossible. Contention with ~40 bots
-    // means a click often loses that race; wait the window out and retry.
-    for (let attempt = 0; attempt < 4 && !crossedOk() && !session.isStopped(); attempt++) {
-        await sdk.scanNearbyLocs(10).catch(() => {});
-        const gate = findGate();
-        const openOpt = gate?.optionsWithIndex.find((o) => /^open$/i.test(o.text));
-        intent('Opening gnome stronghold gate');
-        log(
-            `Gate ${expectInside ? 'in' : 'out'} @ ${pos().x},${pos().z} → ${gate ? `${gate.x},${gate.z}` : 'none in scan'} (try ${attempt + 1})`
-        );
+    // At most two actions: one click (gate loc in view) or one walk-through
+    // (no gate loc = the open_left/open_right swap, i.e. already open). No
+    // repeat clicks: each one can lose the open-window race, and a second
+    // click issued after the handler moved us is what ejects an interior bot.
+    for (let attempt = 0; attempt < 2 && !crossedOk() && !session.isStopped(); attempt++) {
+        await sdk.scanNearbyLocs(6).catch(() => {});
+        const gate = attempt === 0
+            ? (sdk.getNearbyLocs() ?? []).find((l) => l.id === GNOME_GATE_ID || /^gate$/i.test(l.name))
+            : undefined;
         if (!gate) {
-            await sdk.waitForTicks(3).catch(() => {});
-            await sdk.sendInteractLoc(GNOME_GATE.x, GNOME_GATE.z, GNOME_GATE_ID, 1);
+            intent('Walking through the open gnome gate');
+            log(
+                `Gate ${side} @ ${pos().x},${pos().z} — no gate loc in scan (treating as open); walking through to ${farSide.x},${farSide.z}`
+            );
+            await sdk.sendWalk(farSide.x, farSide.z, true);
         } else {
+            const openOpt = gate.optionsWithIndex.find((o) => /^open$/i.test(o.text));
+            intent('Opening gnome stronghold gate');
+            log(`Gate ${side} @ ${pos().x},${pos().z} → clicking ${gate.x},${gate.z} once`);
             await sdk.sendInteractLoc(gate.x, gate.z, gate.id, openOpt?.opIndex ?? 1);
         }
-        try {
-            await sdk.waitForCondition(
+        await sdk
+            .waitForCondition(
                 (s) => (expectInside ? (s.player?.worldZ ?? 0) > GNOME_GATE.z : (s.player?.worldZ ?? 0) < GNOME_GATE.z),
                 6_000
-            );
-        } catch {
-            /* judged below */
-        }
-        if (crossedOk()) break;
-        await sdk.waitForTicks(3).catch(() => {});
+            )
+            .catch(() => {});
+        if (!crossedOk() && attempt === 0) await sdk.waitForTicks(2).catch(() => {});
     }
-    log(`Gate ${expectInside ? 'entry' : 'exit'} ${crossedOk() ? 'ok' : 'blocked'} @ ${pos().x},${pos().z}`);
+    log(`Gate ${side} ${crossedOk() ? 'ok' : 'blocked'} @ ${pos().x},${pos().z}`);
     return crossedOk();
 }
 
@@ -1525,11 +1587,15 @@ async function walkRawTo(x: number, z: number, maxTiles = 60): Promise<boolean> 
     if (distTo(x, z) <= 1) return true;
     const level = pos().level;
     const start = pos();
+    // The search box has to cover the whole trip. It used to be a flat ±40,
+    // which silently rejected the 51-tile-tall gate-landing → course-start
+    // route ("no walkable path") and left bots in the pocket.
+    const box = Math.max(48, Math.abs(x - start.x) + 12, Math.abs(z - start.z) + 12);
     const key = (a: number, b: number) => `${a},${b}`;
     const prev = new Map<string, string | null>([[key(start.x, start.z), null]]);
     let frontier: number[][] = [[start.x, start.z]];
     let target: string | null = null;
-    while (frontier.length && prev.size < 12_000 && !target) {
+    while (frontier.length && prev.size < 40_000 && !target) {
         const next: number[][] = [];
         for (const [cx, cz] of frontier) {
             if (cx === x && cz === z) {
@@ -1544,7 +1610,7 @@ async function walkRawTo(x: number, z: number, maxTiles = 60): Promise<boolean> 
             ]) {
                 const nx = (cx ?? 0) + (dx ?? 0);
                 const nz = (cz ?? 0) + (dz ?? 0);
-                if (Math.abs(nx - start.x) > 40 || Math.abs(nz - start.z) > 40) continue;
+                if (Math.abs(nx - start.x) > box || Math.abs(nz - start.z) > box) continue;
                 const k = key(nx, nz);
                 if (prev.has(k)) continue;
                 if (!isTileWalkable(level, nx, nz)) continue;
@@ -1571,12 +1637,18 @@ async function walkRawTo(x: number, z: number, maxTiles = 60): Promise<boolean> 
         log(`raw route ${start.x},${start.z} → ${x},${z}: ${path.length} tiles > ${maxTiles}`);
         return false;
     }
+    log(`raw route ${start.x},${start.z} → ${x},${z}: ${path.length} tiles`);
     for (const [px, pz] of path) {
         if (session.isStopped()) return false;
         await sdk.sendWalk(px!, pz!, true);
         await sdk
             .waitForCondition((s) => (s.player?.worldX ?? 0) === px && (s.player?.worldZ ?? 0) === pz, 1_200)
             .catch(() => {});
+        // A raw walk is a long tick: without this the stall clock expires
+        // mid-route and recovery fires the moment the walk finishes. 'phase'
+        // (not 'location') on purpose: it only refreshes the stall clock —
+        // a progress kind would reset the recovery tactic index mid-recovery.
+        session.noteProgress('phase', `raw ${px},${pz}`);
     }
     return distTo(x, z) <= 2;
 }
@@ -1600,14 +1672,19 @@ async function ensureGnomeEntrance(): Promise<void> {
     }
 
     if (pos().x > 2488) {
-        // East of the course fence, where walkTo has no route to the course
-        // (see walkRawTo). Walking the corridor from here is what used to put
-        // bots back at (2494,3436) every attempt; raw-hop west first.
-        log(`East of course fence @ ${pos().x},${pos().z} — raw-hoping west at z=3437`);
+        // East of the course fence, where the client pathfinder has NO route to
+        // the course: from (2495,3406) it returns a path that ENDS at
+        // (2494,3436), so walkWaypoints walks bots straight back into the
+        // pocket. BFS the static snapshot and raw-step it instead — the pocket
+        // is 22 walkable tiles from the start, the gate landing is 66.
+        log(`East of course fence @ ${pos().x},${pos().z} — raw-walking west to the course`);
         await session.setPhase('gnome_entrance_east');
-        await walkRawTo(2474, 3437);
     }
-    await walkWaypoints(GNOME_ENTRANCE);
+    if (!(await walkRawTo(GNOME_START.x, GNOME_START.z, 100))) {
+        // Static snapshot disagrees with the server (or the bot is somewhere
+        // the BFS cannot reach): fall back to the waypoint chain.
+        await walkWaypoints(GNOME_ENTRANCE);
+    }
     if (pastGnomeGate()) {
         log(`Inside stronghold @ ${pos().x},${pos().z}`);
         return;
@@ -2174,57 +2251,42 @@ async function fallbackGnomeTick(): Promise<void> {
     laps = gnomeCourse.laps;
 }
 
-/** 99 reached: leave the course, bank everything at Edgeville, stop clean.
- * Never stops dirty — unverified rounds retry next tick. */
-async function finishAtEdgeville(): Promise<void> {
-    await session.setPhase('done_walk');
-    intent('Agility 99 — banking at Edgeville');
-    log(`Agility 99 after ${laps} laps — walking to Edgeville`);
-    for (let round = 0; round < 3; round++) {
-        if (pos().isDead) {
-            await waitForRespawn();
-            continue;
+/**
+ * 99 reached: park in place. Idle, forever, until the process is asked to stop.
+ *
+ * The old endgame walked to Edgeville, the deposit fired from wherever it
+ * happened to be (600 tiles away, no booth → noteFailure), and five failures
+ * in 120s armed the full 14-tactic recovery ladder — ten of them wilderness
+ * treks. Recovery exhausted, the loop retried done_walk, and the cycle re-ran
+ * forever. A clean exit is no better: the supervisor restarts an exited
+ * container and it re-enters the same loop, which is what took the box to
+ * load 19 and 10GB swap. At the target there is nothing to deposit and nothing
+ * to gain from a lap, so the deterministic end state is: one log line, then
+ * sleep with no packets and no recovery.
+ */
+async function parkAtTarget(): Promise<void> {
+    if (parked) return;
+    parked = true;
+    await session.setPhase('parked');
+    intent('Agility 99 — parked');
+    log(`Agility 99 target reached @ ${pos().x},${pos().z} (lvl=${agilityLevel()} laps=${laps}) — parking idle`);
+    let ticks = 0;
+    while (!session.isStopped() && !session.stopRequested) {
+        await sleep(30_000);
+        // One line per 10 min keeps grind.log legible (parked, not wedged)
+        // without a recovery cycle or a packet being sent.
+        if (++ticks % 20 === 0) {
+            log(`parked @ ${pos().x},${pos().z} — Agility ${agilityLevel()}, idle ${Math.round(ticks / 2)} min`);
         }
-        await eatIfNeeded();
-        if (inWildyCoursePit()) {
-            await climbOutOfWildyPit();
-        }
-        if (onWildyCourse() || insideWildyCourseYard()) {
-            await leaveWildyAgilityCourse();
-        }
-        if (inWilderness(pos().x, pos().z)) {
-            await leaveWilderness();
-        }
-        if (!inWilderness(pos().x, pos().z)) break;
     }
-    if (inWilderness(pos().x, pos().z)) {
-        session.noteFailure('done_walk', `still in wildy @ ${pos().x},${pos().z} — retrying next tick`);
-        return;
-    }
-    await walkNear(EDGEVILLE.x, EDGEVILLE.z, 6);
-    if (!(await depositAll(EDGEVILLE, false))) {
-        session.noteFailure('done_walk', 'Edgeville deposit failed — retrying next tick');
-        return;
-    }
-    if (sdk.getInventory().some((i) => (i.count ?? 0) > 0)) {
-        session.noteFailure('done_walk', 'inventory not empty after deposit — retrying');
-        return;
-    }
-    session.stop('done', `Agility 99 @ ${pos().x},${pos().z} laps=${laps}`);
 }
 
 async function wildyTick(): Promise<void> {
     if (agilityLevel() >= TARGET_LEVEL) {
-        if (onWildyCourse() && wildyCourse.stepIndex !== 0 && !finishingLap) {
-            finishingLap = true;
-            lapsAt99 = laps;
-            log(`Agility 99 mid-lap — finishing the lap first`);
-        } else if (!onWildyCourse() || wildyCourse.stepIndex === 0 || finishingLap) {
-            if (!finishingLap || laps > lapsAt99 || wildyCourse.stepIndex === 0) {
-                await finishAtEdgeville();
-                return;
-            }
-        }
+        // At the target there is no XP left to earn, so a lap is worth nothing:
+        // park immediately instead of finishing it and walking out.
+        await parkAtTarget();
+        return;
     }
     if (pos().isDead) {
         await waitForRespawn();
@@ -2258,12 +2320,13 @@ async function wildyTick(): Promise<void> {
 }
 
 async function tick(): Promise<void> {
-    await closeUi();
     if (agilityLevel() >= TARGET_LEVEL) {
-        // 99 lands mid-lap — wildyTick finishes the lap, then Edgeville.
-        await wildyTick();
+        // Checked before any packet-sending work so a maxed account never walks
+        // an endgame route it has no use for.
+        await parkAtTarget();
         return;
     }
+    await closeUi();
 
     // Recovery exhausted on the wildy path: the session blocks further
     // game packets until the flag is consumed, so without this branch the
@@ -2285,6 +2348,21 @@ async function tick(): Promise<void> {
 
     if (!(await prepareForWildy())) return;
     await wildyTick();
+}
+
+/**
+ * Wildy tactics are only meaningful near the wilderness/Mage Arena. Registered
+ * unconditionally, ten of the fourteen tactics were wildy travel: a bot stalled
+ * in the gnome stronghold (x≈2470) had each of them start a 200-700 tile trek,
+ * so one recovery cycle did the work of a whole job switch.
+ */
+function inWildyReach(): boolean {
+    const p = pos();
+    if (inWilderness(p.x, p.z) || onWildyCourse() || inWildyCoursePit()) return true;
+    if (insideWildyCourseYard() || southOfWildyCourseFence() || inMageArenaBank()) return true;
+    if (distTo(MAGE_BANK.x, MAGE_BANK.z) < 40 || distTo(MAGE_LADDER.x, MAGE_LADDER.z) < 40) return true;
+    if (distTo(WILDY_COURSE.x, WILDY_COURSE.z) < 120 || distTo(DITCH_SOUTH.x, DITCH_SOUTH.z) < 60) return true;
+    return false;
 }
 
 session.registerRecovery([
@@ -2346,6 +2424,10 @@ session.registerRecovery([
         name: 'wildy_food',
         run: async () => {
             if (agilityLevel() < GNOME_UNTIL) return false;
+            if (!inWildyReach()) {
+                log('recovery: wildy_food skipped — nowhere near the wilderness');
+                return false;
+            }
             if (invFoodCount() >= FOOD_MIN) return true;
             if (invFoodCount() === 0 && (onWildyCourse() || inWildyCoursePit() || insideWildyCourseYard())) {
                 return leaveCourseAndBank();
@@ -2356,6 +2438,7 @@ session.registerRecovery([
     {
         name: 'wildy_agility_gate',
         run: async () => {
+            if (!inWildyReach()) return false;
             if (onWildyCourse()) return true;
             if (!southOfWildyCourseFence() && !insideWildyCourseYard()) return false;
             if (invFoodCount() < 5) return leaveCourseAndBank();
@@ -2367,6 +2450,10 @@ session.registerRecovery([
         name: 'wildy_course',
         run: async () => {
             if (agilityLevel() < GNOME_UNTIL) return false;
+            if (!inWildyReach()) {
+                log('recovery: wildy_course skipped — nowhere near the wilderness');
+                return false;
+            }
             if (invFoodCount() < 5) return ensureWildyFood();
             await goWildyCourse();
             return onWildyCourse();
@@ -2376,6 +2463,10 @@ session.registerRecovery([
         name: 'mage_bank',
         run: async () => {
             if (agilityLevel() < GNOME_UNTIL) return false;
+            if (!inWildyReach()) {
+                log('recovery: mage_bank skipped — nowhere near the Mage Arena');
+                return false;
+            }
             if (onWildyCourse() || inWildyCoursePit() || insideWildyCourseYard()) {
                 if (!(await leaveWildyAgilityCourse())) return false;
             }
@@ -2384,7 +2475,10 @@ session.registerRecovery([
     },
     {
         name: 'leave_wildy',
-        run: async () => leaveWilderness()
+        run: async () => {
+            if (!inWilderness(pos().x, pos().z)) return false;
+            return leaveWilderness();
+        }
     }
 ]);
 
@@ -2423,6 +2517,13 @@ try {
     }
 
     while (!session.isStopped()) {
+        // Park before recovery: a maxed account at 99 must never run the
+        // recovery ladder (it is what burned the box — 14 tactics, ten of them
+        // wilderness treks, re-armed every cycle by the failed done_walk).
+        if (agilityLevel() >= TARGET_LEVEL) {
+            await parkAtTarget();
+            break;
+        }
         if (session.needsRecovery()) {
             if ((await session.recover()) === 'exhausted') break;
             // Exhaustion blocks game packets until consumed — without this
