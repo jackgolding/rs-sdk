@@ -75,7 +75,7 @@
         {
             "name": "jacklove1",
             "view": "fleet",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
                 "jacklove1"
             ]
@@ -83,7 +83,7 @@
         {
             "name": "jacklove2",
             "view": "fleet",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
                 "jacklove2"
             ]
@@ -357,7 +357,7 @@
         {
             "name": "ABGARMY13",
             "view": "army",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/seers-wc-fm.ts",
             "args": [
                 "ABGARMY13"
             ]
