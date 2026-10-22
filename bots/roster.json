@@ -51,10 +51,9 @@
         {
             "name": "Jackpoo4",
             "view": "fleet",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/climb-down.ts",
             "args": [
-                "Jackpoo4",
-                "--until-wc=99"
+                "Jackpoo4"
             ]
         },
         {
@@ -214,7 +213,7 @@
         {
             "name": "jacklove15",
             "view": "loves",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/climb-down.ts",
             "args": [
                 "jacklove15"
             ]
@@ -339,10 +338,9 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/climb-down.ts",
             "args": [
-                "ABGARMY10",
-                "--until-wc=99"
+                "ABGARMY10"
             ]
         },
         {
@@ -390,10 +388,9 @@
         {
             "name": "ABGARMY16",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/climb-down.ts",
             "args": [
-                "ABGARMY16",
-                "--until-wc=99"
+                "ABGARMY16"
             ]
         },
         {
