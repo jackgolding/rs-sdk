@@ -122,12 +122,17 @@ log(`start @ ${pos().x},${pos().z} l${pos().level} — agility ${agilityLevel()}
 // 1. Finish the lap if we are mid-course.
 if (onGnomeCourse()) {
     const stepAtStart = course.stepIndex;
-    for (let i = 0; i < 40 && course.stepIndex !== 0; i++) {
+    // `stepIndex` is in-memory and a fresh GnomeCourse starts at 0, so the old
+    // `stepIndex !== 0` guard was FALSE for a bot that is genuinely mid-course
+    // (e.g. parked on the course plane by park-at-target) and the lap was never
+    // finished — leaving it stranded on plane 1 with no route off. Drive the
+    // obstacles until the bot is back on the ground.
+    for (let i = 0; i < 40 && (course.stepIndex !== 0 || pos().level > 0); i++) {
         await course.tick();
         intent(`finishing lap: step ${course.stepIndex + 1}`);
-        log(`lap step ${course.stepIndex + 1}/7 (laps ${course.laps})`);
+        log(`lap step ${course.stepIndex + 1}/7 (laps ${course.laps}) plane ${pos().level}`);
     }
-    log(`lap boundary reached (started at step ${stepAtStart + 1}, laps ${course.laps})`);
+    log(`lap boundary reached (started at step ${stepAtStart + 1}, laps ${course.laps}, plane ${pos().level})`);
 } else {
     log('not on the course — going straight to the exit');
 }
