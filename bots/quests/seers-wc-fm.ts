@@ -10,12 +10,22 @@
  *   bun bots/quests/seers-wc-fm.ts jackthief
  *   bun bots/quests/seers-wc-fm.ts Jackpoo1 --yews   # chop + bank churchyard yews (no FM)
  *   bun bots/quests/seers-wc-fm.ts ABGARMY02 --until-wc=36
- *     # chop only (normal → oak → willow), drop logs, stop at 36.
+ *     # chop only (normal → oak → willow), drop logs, then PARK at 36.
  *     # Buys an iron/bronze/steel axe from Bob when the bank has none.
+ *     # (Reaching the target parks: it never exits 0, see "Contention" below.)
+ *
+ * Contention: the Seers patches are shared with the rest of the fleet, so
+ * "no live <tree>" and "felled by someone else" are NORMAL. They are counted
+ * by the chop loop's contention ladder (see CONTENTION_* below), which walks
+ * to the next live tree, then to the next patch spot, then down a tree tier —
+ * recovery tactics are reserved for genuine stuck/lost states.
+ *
+ * A met target or a grind that cannot chop at all PARKS (sleep loop); it never
+ * exits 0, because the box supervisor relaunches exit-0 containers in seconds.
  */
 import { ActivitySession, BotSDK, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
-import { initPathfinding } from '../../sdk/pathfinding';
+import { initPathfinding, isTileWalkable } from '../../sdk/pathfinding';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import {
@@ -58,6 +68,11 @@ const ANY_LOGS = /logs$/i;
 const BOW = /^(oak |willow |maple |yew |magic )?(shortbow|longbow)$/i;
 const SHAFTS = /^arrow shaft/i;
 const KEEP = /^(coins|knife|tinderbox|hammer|(bronze|iron|steel|black|mithril|adamant|rune) axe)$/i;
+/**
+ * chopTree results that mean "the tree went away / never yielded": a crowded
+ * patch, not a broken loop. Any other failure stays a real `chop` failure.
+ */
+const CONTENDED = /felled by someone else|timed out waiting for logs|no tree found/i;
 
 const AXE_TIERS = [
     { name: 'rune axe', level: 41 },
@@ -153,6 +168,70 @@ const PHASES: Record<PhaseId, Phase> = {
     }
 };
 
+/**
+ * ── Contention ladder ──────────────────────────────────────────────────────
+ * The Seers patches are shared: several bots chop the same yews. "No live
+ * <tree>" or "<tree> was felled by someone else" therefore means the SPOT is
+ * crowded, not that the loop is broken, and the answer is to move rather than
+ * to re-click the same four tiles (or to burn recovery tactics).
+ *
+ * After CONTENTION_MOVE_AFTER consecutive empty/felled outcomes at one place
+ * the ladder walks to, in order:
+ *   1. the nearest live tree of the same tier that is CONTENTION_MIN_MOVE
+ *      tiles away from the contested one (a different tree, found by a
+ *      CONTENTION_SCAN_RADIUS scan) — this is the "next available yew";
+ *   2. the next spot in YEW_SPOTS (the same patch, a different scan window);
+ *   3. the next tree tier down (TIER_DOWN) for TIER_FALLBACK_MS, so a fully
+ *      contested yew patch still produces XP/logs instead of pacing;
+ *   4. a bounded park (PARK_RETRY_MS) when nothing at all is chopable.
+ * `--yews` skips rung 3: that run exists to bank YEW logs, so a maple stand-in
+ * would silently bank the wrong item.
+ */
+const CONTENTION_MOVE_AFTER = 3;
+/** A replacement tree must be at least this far (Chebyshev) from the contested one. */
+const CONTENTION_MIN_MOVE = 6;
+/** Radius of the wider scan used to find a live tree elsewhere in the patch. */
+const CONTENTION_SCAN_RADIUS = 16;
+/** Ticks to wait at a spot between contention retries (a yew respawn is not instant). */
+const CONTENTION_RETRY_TICKS = 6;
+/** After a ladder move, keep recovery out of the way this long so the new spot gets tried. */
+const CONTENTION_HOLD_RECOVERY_MS = 120_000;
+/** Ladder passes that found nothing chopable anywhere before parking. */
+const CONTENTION_PARK_PASSES = 2;
+/** How long a tier downgrade stays in force before the preferred tier is retried. */
+const TIER_FALLBACK_MS = 240_000;
+
+/**
+ * Scan points for the churchyard yew patch, most familiar first. Chains off
+ * SEERS_YEWS so the first entry stays the historic stand. Every tile is
+ * walkable at level 0 in sdk/collision-data.json with at least three open
+ * cardinal neighbours (verified offline); these are places to STAND and scan
+ * — the chop target always comes from the live loc scan, never from a tree
+ * tile written down here.
+ */
+const YEW_SPOTS: ReadonlyArray<{ x: number; z: number }> = [
+    SEERS_YEWS, // 2708,3461 — historic stand
+    { x: 2719, z: 3466 }, // eastern side of the patch, 11 tiles off the stand
+    { x: 2701, z: 3468 } // south-west cluster, 7 tiles off the stand
+];
+
+/** One tier down from each phase; `normal` is the floor. */
+const TIER_DOWN: Record<PhaseId, PhaseId | null> = {
+    yew: 'maple',
+    maple: 'willow',
+    willow: 'oak',
+    oak: 'normal',
+    normal: null
+};
+
+/** Park/hold timings. A parked grind sleeps instead of exiting 0. */
+const PARK_SLEEP_MS = 15_000;
+const PARK_HEARTBEAT_MS = 300_000;
+/** Bounded park when the area has no live trees at all, then try again. */
+const PARK_RETRY_MS = 120_000;
+/** Bank retry interval while parked for a missing axe/tool. */
+const PARK_TOOL_RETRY_MS = 300_000;
+
 const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-'));
 /** Chop Seers yews and bank the logs — no firemaking or fletching. */
@@ -231,8 +310,30 @@ let lastIntent = '';
 let fireCol = SEERS_FIRE_START.x;
 let fireZ = SEERS_FIRE_START.z;
 
+/** Contention ladder bookkeeping (see CONTENTION_* above). */
+const contention = {
+    /** consecutive empty/felled outcomes since a chop last actually gained logs */
+    streak: 0,
+    /** index into phaseSpots() — the next scan point to try */
+    spot: 0,
+    /** when the ladder last moved the bot */
+    lastMoveAt: 0,
+    /** ladder passes that found nothing chopable anywhere */
+    emptyPasses: 0,
+    /** tile of the tree that was last contested, so the ladder picks a DIFFERENT one */
+    from: null as { x: number; z: number } | null,
+    /** recovery runs held out of the way (diagnostic only) */
+    held: 0
+};
+/** Active tier downgrade, cleared by effectivePhase() once it expires. */
+const tierFallback: { id: PhaseId | null; until: number } = { id: null, until: 0 };
+
 function log(msg: string): void {
     session.log('log', msg);
+}
+
+function warn(msg: string): void {
+    session.log('warn', msg);
 }
 
 function intent(msg: string): void {
@@ -364,6 +465,24 @@ function phase(): Phase {
     if (wood >= 30 && fire >= PHASES.willow.burnLevel) return PHASES.willow;
     if (wood >= 15 && fire >= PHASES.oak.burnLevel) return PHASES.oak;
     return PHASES.normal;
+}
+
+/**
+ * The phase the chop loop actually works, which is the preferred phase unless
+ * a contention tier downgrade is in force (rung 3 of the ladder). Only ever
+ * one tier DOWN, so the level gates of the preferred tier still hold.
+ */
+function effectivePhase(): Phase {
+    if (tierFallback.id && Date.now() >= tierFallback.until) {
+        log(`tier fallback over — retrying ${phase().id}`);
+        tierFallback.id = null;
+    }
+    return tierFallback.id ? PHASES[tierFallback.id] : phase();
+}
+
+/** Places to stand and scan for this phase; only the yew patch has alternatives. */
+function phaseSpots(p: Phase): ReadonlyArray<{ x: number; z: number }> {
+    return p.id === 'yew' ? YEW_SPOTS : [p.stand];
 }
 
 function fletchProduct(p: Phase): string {
@@ -764,9 +883,10 @@ async function dropLogs(pattern: RegExp): Promise<void> {
     }
 }
 
-async function dropStrayLogs(p: Phase): Promise<void> {
+async function dropStrayLogs(p: Phase, alsoKeep?: RegExp): Promise<void> {
     for (const item of [...sdk.getInventory()]) {
         if (!ANY_LOGS.test(item.name) || p.logs.test(item.name)) continue;
+        if (alsoKeep?.test(item.name)) continue;
         intent(`Dropping stray ${item.name}`);
         await bot.dropItem(item, 1);
         await sdk.waitForTicks(1);
@@ -875,29 +995,206 @@ async function bankLogs(): Promise<void> {
 }
 
 async function goToTrees(p: Phase): Promise<void> {
-    const stand = chopStand(p);
+    const stand = currentSpot(p);
     session.setAnchor(stand.x, stand.z);
     if (distTo(stand.x, stand.z) <= p.maxDrift) return;
     intent(`Walking to Seers ${p.id} trees`);
     await walkNear(stand.x, stand.z, 4);
 }
 
+/**
+ * Where the current phase wants the bot to stand right now: the ladder's
+ * current spot for the yew patch, otherwise the (fleet-spread) phase stand.
+ */
+function currentSpot(p: Phase): { x: number; z: number } {
+    if (p.id !== 'yew') return chopStand(p);
+    return YEW_SPOTS[Math.min(contention.spot, YEW_SPOTS.length - 1)] ?? chopStand(p);
+}
+
+// ── Parking ─────────────────────────────────────────────────────────────────
+// The box supervisor relaunches an exit-0 container within seconds, so a grind
+// that has nothing to do must SLEEP, not return: 200+ restarts/hour per bot is
+// what an "exit 0 when finished" loop costs the fleet.
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Sleep `ms` in PARK_SLEEP_MS slices. False means a stop was requested. */
+async function sleepChunked(ms: number): Promise<boolean> {
+    const until = Date.now() + ms;
+    for (;;) {
+        if (session.isStoppedOrRequested()) return false;
+        const left = until - Date.now();
+        if (left <= 0) return true;
+        await sleep(Math.min(PARK_SLEEP_MS, left));
+    }
+}
+
+/**
+ * Idle in place until a stop is requested (or, with `resumeAfterMs`, for that
+ * long and then return so the caller can retry). Never exits by itself.
+ */
+async function park(reason: string, resumeAfterMs = 0): Promise<void> {
+    const until = resumeAfterMs > 0 ? Date.now() + resumeAfterMs : Number.POSITIVE_INFINITY;
+    warn(`parking: ${reason} @ ${pos().x},${pos().z} — idling instead of exiting (exit 0 is relaunched in seconds)`);
+    while (Date.now() < until) {
+        if (!(await sleepChunked(Math.min(PARK_HEARTBEAT_MS, until - Date.now())))) return;
+        if (Date.now() < until) {
+            log(`parked: ${reason} @ ${pos().x},${pos().z} WC ${wc()} FM ${fm()} FL ${fl()}`);
+        }
+    }
+    log(`park over (${reason}) — resuming @ ${pos().x},${pos().z}`);
+}
+
+/**
+ * No axe/tool. `--fletch` and `--yews` deliberately have no Bob's-Axes
+ * fallback, so this only retries the Seers bank: a park, never a silent trek
+ * for an axe the account cannot buy.
+ */
+async function parkForTools(): Promise<void> {
+    while (!session.isStoppedOrRequested()) {
+        warn(
+            `no usable axe/tools @ ${pos().x},${pos().z} — parking, Seers bank retry in ${Math.round(PARK_TOOL_RETRY_MS / 1000)}s`
+        );
+        if (!(await sleepChunked(PARK_TOOL_RETRY_MS))) return;
+        if (await ensureTools()) {
+            log(`tools recovered after park axe=${currentAxeName() ?? 'none'} @ ${pos().x},${pos().z}`);
+            return;
+        }
+    }
+}
+
+// ── Contention ladder ───────────────────────────────────────────────────────
+
+function resetContention(keepSpot = false): void {
+    contention.streak = 0;
+    contention.emptyPasses = 0;
+    contention.lastMoveAt = 0;
+    contention.held = 0;
+    if (!keepSpot) contention.spot = 0;
+}
+
+/** True while contention is the chop loop's business, so recovery stays out. */
+function contentionActive(): boolean {
+    if (contention.streak > 0) return true;
+    return contention.lastMoveAt > 0 && Date.now() - contention.lastMoveAt < CONTENTION_HOLD_RECOVERY_MS;
+}
+
+/** Nearest live tree of this phase's tier that is a real move away from `from`. */
+function findTreeAway(p: Phase, from: { x: number; z: number } | null, minMove: number, radius: number) {
+    return (sdk.getNearbyLocs() ?? [])
+        .filter((l) => p.tree.test(l.name) && l.optionsWithIndex.some((o) => /chop/i.test(o.text)))
+        .filter((l) => l.reachable !== false)
+        .filter((l) => treeOk(l, p))
+        .filter((l) => (l.distance ?? 99) <= radius)
+        .filter((l) => !from || Math.max(Math.abs(l.x - from.x), Math.abs(l.z - from.z)) >= minMove)
+        .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+}
+
+/** Nearest walkable tile adjacent to a loc — locs (trees) stand on blocked tiles. */
+function standNextTo(x: number, z: number): { x: number; z: number } {
+    for (const [dx, dz] of [[0, -1], [0, 1], [-1, 0], [1, 0], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+        if (isTileWalkable(0, x + dx!, z + dz!)) return { x: x + dx!, z: z + dz! };
+    }
+    return { x, z };
+}
+
+/**
+ * One rung of the ladder. Returns which rung fired. A location note is only
+ * credited when the tile actually advanced (noteProgress enforces it), so a
+ * refused walk cannot fake progress.
+ */
+async function contentionMove(p: Phase): Promise<'tree' | 'spot' | 'tier' | 'none'> {
+    await sdk.scanNearbyLocs(CONTENTION_SCAN_RADIUS).catch(() => {});
+    contention.lastMoveAt = Date.now();
+
+    const other = findTreeAway(p, contention.from, CONTENTION_MIN_MOVE, CONTENTION_SCAN_RADIUS);
+    if (other) {
+        intent(`Crowded ${p.id} patch — moving to ${other.name} at ${other.x},${other.z}`);
+        warn(`contention: moving to ${other.name} at ${other.x},${other.z} (different tree)`);
+        const beside = standNextTo(other.x, other.z);
+        await walkNear(beside.x, beside.z, 2);
+        session.noteProgress('location', `contention tree ${other.x},${other.z}`);
+        contention.from = { x: other.x, z: other.z };
+        return 'tree';
+    }
+
+    const spots = phaseSpots(p);
+    if (contention.spot + 1 < spots.length) {
+        contention.spot++;
+        const spot = spots[contention.spot]!;
+        intent(`No live ${p.id} here — walking to spot ${spot.x},${spot.z}`);
+        warn(`contention: no live ${p.id} in ${CONTENTION_SCAN_RADIUS} tiles — walking to spot ${spot.x},${spot.z}`);
+        await walkNear(spot.x, spot.z, 2);
+        session.noteProgress('location', `contention spot ${spot.x},${spot.z}`);
+        contention.from = null;
+        return 'spot';
+    }
+
+    const down = BANK_YEWS ? null : TIER_DOWN[p.id];
+    if (down) {
+        tierFallback.id = down;
+        tierFallback.until = Date.now() + TIER_FALLBACK_MS;
+        contention.spot = 0;
+        contention.from = null;
+        warn(
+            `contention: no live ${p.id} left in the patch — ${down} for ${Math.round(TIER_FALLBACK_MS / 1000)}s`
+        );
+        await goToTrees(PHASES[down]);
+        return 'tier';
+    }
+
+    return 'none';
+}
+
+/**
+ * Called from the chop loop for every "no live tree" / "felled by someone
+ * else". These are CONTENTION, not failure events: they are logged as warns
+ * and handled here, so recovery tactics are never spent on a crowded spot.
+ */
+async function onContention(p: Phase, why: string, at?: { x: number; z: number }): Promise<void> {
+    if (at) contention.from = at;
+    contention.streak++;
+    warn(`contention ${p.id}: ${why} (${contention.streak}/${CONTENTION_MOVE_AFTER})`);
+    if (contention.streak < CONTENTION_MOVE_AFTER) {
+        await sdk.waitForTicks(CONTENTION_RETRY_TICKS).catch(() => {});
+        return;
+    }
+    contention.streak = 0;
+    const moved = await contentionMove(p);
+    if (moved !== 'none') {
+        contention.emptyPasses = 0;
+        return;
+    }
+    // Nothing chopable anywhere: THAT is a genuine lost state — let recovery
+    // run, and park if it keeps happening.
+    session.noteFailure('no_tree', `no live ${p.id} within ${CONTENTION_SCAN_RADIUS} of ${pos().x},${pos().z}`);
+    contention.emptyPasses++;
+    if (contention.emptyPasses >= CONTENTION_PARK_PASSES) {
+        resetContention();
+        await park(`no live ${p.id} trees in the area`, PARK_RETRY_MS);
+    }
+}
+
 async function tick(): Promise<void> {
     await closeUi();
     await climbDown();
-    const p = phase();
+    const p = effectivePhase();
 
     if (!hasAxe() || (!chopOnly() && !fletchingNow() && !sdk.findInventoryItem(TINDERBOX))) {
         if (WC_UNTIL > 0 && !hasAxe()) await ensureChopAxe();
-        else await ensureTools();
+        else if (!(await ensureTools())) await parkForTools();
         return;
     }
     if (fletchingNow() && !sdk.findInventoryItem(KNIFE) && sdk.findInventoryItem(p.logs)) {
-        await ensureTools();
+        if (!(await ensureTools())) await parkForTools();
         return;
     }
 
-    await dropStrayLogs(p);
+    // A tier downgrade must not make the bot drop the finer logs it already
+    // chopped: keep both tiers' logs, drop only unrelated ones.
+    await dropStrayLogs(p, phase().logs);
 
     if (fletchingNow() && (sdk.findInventoryItem(BOW) || sdk.findInventoryItem(SHAFTS))) {
         if (invFull() || count(BOW) >= 10 || !sdk.findInventoryItem(p.logs)) {
@@ -932,14 +1229,18 @@ async function tick(): Promise<void> {
     await sdk.scanNearbyLocs(12).catch(() => {});
     let tree = findTree(p);
     if (!tree) {
-        const stand = chopStand(p);
-        intent(`Waiting for ${p.id} to respawn`);
+        // One respawn wait at the spot the ladder currently wants before the
+        // spot is called crowded (walking back to the home stand here is what
+        // pinned the bot to the same four tiles).
+        const stand = currentSpot(p);
+        intent(`Waiting for ${p.id} to respawn at ${stand.x},${stand.z}`);
         await walkNear(stand.x, stand.z, 3);
-        await sdk.waitForTicks(4);
+        await sdk.waitForTicks(CONTENTION_RETRY_TICKS);
+        await sdk.scanNearbyLocs(12).catch(() => {});
         tree = findTree(p);
     }
     if (!tree) {
-        session.noteFailure('no_tree', `no ${p.id} at ${pos().x},${pos().z}`);
+        await onContention(p, `no live ${p.id} at ${pos().x},${pos().z}`);
         return;
     }
 
@@ -947,10 +1248,18 @@ async function tick(): Promise<void> {
     const before = count(p.logs);
     const r = await bot.chopTree(tree);
     if (count(p.logs) > before) {
+        // Real work: the ladder and any tier downgrade go back to normal.
+        resetContention(true);
         session.noteProgress('inventory', p.id);
-    } else if (!r.success) {
-        session.noteFailure('chop', r.message);
+        return;
     }
+    if (CONTENDED.test(r.message)) {
+        // Someone else felled it (or it never yielded): crowded spot, not a
+        // stuck loop — the ladder moves instead of recovery running.
+        await onContention(p, `${tree.name} at ${tree.x},${tree.z}: ${r.message}`, { x: tree.x, z: tree.z });
+        return;
+    }
+    if (!r.success) session.noteFailure('chop', r.message);
 }
 
 session.registerRecovery([
@@ -1001,6 +1310,19 @@ function logLevels(): void {
     }
 }
 
+/**
+ * A met target or a finished grind is a PARK, never an exit 0: the box
+ * supervisor relaunches exit-0 containers within seconds, which is how the
+ * fleet burned 200+ restarts/hour per bot overnight.
+ */
+function targetReached(): string | null {
+    if (WC_UNTIL > 0 && wc() >= WC_UNTIL) return `WC ${wc()} — --until-wc=${WC_UNTIL} met`;
+    if (!BANK_YEWS && !(WC_UNTIL > 0) && wc() >= TARGET && fm() >= TARGET && fl() >= TARGET) {
+        return `WC ${wc()} FM ${fm()} FL ${fl()} — all 99`;
+    }
+    return null;
+}
+
 try {
     lastLoggedWc = wc();
     lastLoggedFm = fm();
@@ -1011,15 +1333,19 @@ try {
         `${WC_UNTIL > 0 ? `Seers WC until ${WC_UNTIL}` : BANK_YEWS ? 'Seers yew-bank' : 'Seers WC/FM'} start WC ${lastLoggedWc} FM ${lastLoggedFm} FL ${lastLoggedFl} Smith ${smithing()} @ ${pos().x},${pos().z}`
     );
 
-    if (WC_UNTIL > 0 && wc() >= WC_UNTIL) {
-        session.stop('done', `WC ${wc()} — until ${WC_UNTIL}`);
+    let parkedOut = false;
+    const alreadyMet = targetReached();
+    if (alreadyMet) {
+        parkedOut = true;
+        await park(alreadyMet);
+        session.stop('done', alreadyMet);
     } else if (WC_UNTIL > 0) {
         await session.setPhase('axe');
         const gotAxe = await ensureChopAxe();
         log(`Axe: ${gotAxe ? (currentAxeName() ?? 'yes') : `none (${coins()}gp, will retry Bob)`}`);
     }
 
-    if (!session.isStopped()) {
+    if (!session.isStopped() && !parkedOut) {
     await session.setPhase('travel');
     await walkToSeers();
 
@@ -1035,7 +1361,9 @@ try {
         if (WC_UNTIL > 0) {
             log(`Tools still missing @ ${pos().x},${pos().z} — chop loop retries the axe`);
         } else {
-            session.stop('setup', BANK_YEWS ? 'Could not get an axe' : 'Could not get axe + tinderbox');
+            // No axe and no (documented) Bob's-Axes fallback in this mode:
+            // park and retry the bank instead of exiting 0 into a restart loop.
+            await parkForTools();
         }
     } else {
         log(
@@ -1043,8 +1371,22 @@ try {
         );
     }
 
-    while (!session.isStopped()) {
+    while (!session.isStoppedOrRequested()) {
         if (session.needsRecovery()) {
+            // Contention is the chop loop's business: the ladder is moving the
+            // bot between trees/spots, so step_off/rewalk/climb_floor/close_ui
+            // would only burn the budget on a crowded patch.
+            if (contentionActive()) {
+                contention.held++;
+                if (contention.held === 1 || contention.held % 4 === 0) {
+                    warn(
+                        `contention: holding recovery (streak ${contention.streak}, spot ${contention.spot}, held ${contention.held}) — ladder is moving`
+                    );
+                }
+                await sleepChunked(PARK_SLEEP_MS);
+                continue;
+            }
+            resetContention();
             if ((await session.recover()) === 'exhausted') break;
             continue;
         }
@@ -1054,18 +1396,16 @@ try {
             continue;
         }
         logLevels();
-        if (WC_UNTIL > 0 && wc() >= WC_UNTIL) {
-            session.stop('done', `WC ${wc()} — until ${WC_UNTIL}`);
+        const met = targetReached();
+        if (met) {
+            await park(met);
+            session.stop('done', met);
             break;
         }
-        if (!BANK_YEWS && !(WC_UNTIL > 0) && wc() >= TARGET && fm() >= TARGET && fl() >= TARGET) {
-            session.stop('done', `WC ${wc()} FM ${fm()} FL ${fl()} — all 99`);
-            break;
-        }
-        const p = phase();
+        const p = effectivePhase();
         const wantPhase = chopOnly() ? `chop_${p.id}` : fletchingNow() ? `fletch_${p.id}` : `burn_${p.id}`;
         if (session.metrics().phase !== wantPhase) await session.setPhase(wantPhase);
-        const stand = chopStand(p);
+        const stand = currentSpot(p);
         session.setAnchor(stand.x, stand.z);
         await tick();
     }
