@@ -96,9 +96,10 @@
         {
             "name": "jacklove3",
             "view": "fleet",
-            "script": "bots/quests/druidic-ritual.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "jacklove3"
+                "jacklove3",
+                "--knights"
             ]
         },
         {
@@ -157,19 +158,19 @@
         {
             "name": "jacklove8",
             "view": "loves",
-            "script": "bots/quests/mining-lowlevel.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
                 "jacklove8",
-                "--until=15"
+                "--knights"
             ]
         },
         {
             "name": "jacklove9",
             "view": "loves",
-            "script": "bots/quests/mining-lowlevel.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
                 "jacklove9",
-                "--until=15"
+                "--knights"
             ]
         },
         {
@@ -183,9 +184,10 @@
         {
             "name": "jacklove11",
             "view": "loves",
-            "script": "bots/quests/hobgoblins.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "jacklove11"
+                "jacklove11",
+                "--knights"
             ]
         },
         {
@@ -207,10 +209,10 @@
         {
             "name": "jacklove14",
             "view": "loves",
-            "script": "bots/quests/mining-lowlevel.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
                 "jacklove14",
-                "--until=15"
+                "--knights"
             ]
         },
         {
@@ -308,10 +310,10 @@
         {
             "name": "ABGARMY06",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
                 "ABGARMY06",
-                "--fletch"
+                "--knights"
             ]
         },
         {
@@ -379,10 +381,10 @@
         {
             "name": "ABGARMY14",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
                 "ABGARMY14",
-                "--until-wc=99"
+                "--knights"
             ]
         },
         {
@@ -432,8 +434,7 @@
             "view": "army",
             "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY20",
-                "--knights"
+                "ABGARMY20"
             ]
         }
     ]
