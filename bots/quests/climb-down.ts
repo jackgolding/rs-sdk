@@ -37,7 +37,7 @@ const SWEEP = [
     { x: 2479, z: 3408 }
 ];
 
-const botArg = process.argv.find((a) => !a.startsWith('-'));
+const botArg = process.argv.slice(2).find((a) => !a.startsWith('-'));
 
 function loadBotEnv(): void {
     const envPath = botArg
