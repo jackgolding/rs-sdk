@@ -52,17 +52,19 @@
         {
             "name": "Jackpoo4",
             "view": "fleet",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "Jackpoo4"
+                "Jackpoo4",
+                "--knights"
             ]
         },
         {
             "name": "Jackpoo5",
             "view": "fleet",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "Jackpoo5"
+                "Jackpoo5",
+                "--knights"
             ]
         },
         {
@@ -76,17 +78,19 @@
         {
             "name": "jacklove1",
             "view": "fleet",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "jacklove1"
+                "jacklove1",
+                "--knights"
             ]
         },
         {
             "name": "jacklove2",
             "view": "fleet",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "jacklove2"
+                "jacklove2",
+                "--knights"
             ]
         },
         {
@@ -211,9 +215,10 @@
         {
             "name": "jacklove15",
             "view": "loves",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "jacklove15"
+                "jacklove15",
+                "--knights"
             ]
         },
         {
@@ -362,9 +367,10 @@
         {
             "name": "ABGARMY13",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY13"
+                "ABGARMY13",
+                "--knights"
             ]
         },
         {
