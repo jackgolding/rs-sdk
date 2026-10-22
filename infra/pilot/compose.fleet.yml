@@ -743,7 +743,7 @@ services:
   quest-jacklove1:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/agility-exit.ts", "jacklove1", "--to=ardougne"]
+    command: ["bun", "bots/quests/thieving-route.ts", "jacklove1", "--knights"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

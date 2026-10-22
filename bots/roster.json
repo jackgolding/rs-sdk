@@ -78,10 +78,10 @@
         {
             "name": "jacklove1",
             "view": "fleet",
-            "script": "bots/quests/agility-exit.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
                 "jacklove1",
-                "--to=ardougne"
+                "--knights"
             ]
         },
         {
