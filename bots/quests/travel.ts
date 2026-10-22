@@ -117,6 +117,32 @@ function recordGap(from: { x: number; z: number; level: number }, to: { x: numbe
     }
 }
 
+/**
+ * The server sometimes refuses a step the collision snapshot calls walkable —
+ * a wall EDGE (`isTileWalkable` ignores those), a shut gate, or a desynced
+ * tile. Walk one tile onto each of the eight neighbours and report whether any
+ * of them was accepted: that separates geometry (route around it) from desync
+ * (nothing will work until the client relogs).
+ */
+async function sidestepOnce(sdk: BotSDK): Promise<boolean> {
+    const p = playerPos(sdk);
+    const bx = p.x;
+    const bz = p.z;
+    const dirs: Array<[number, number]> = [[0, -1], [1, 0], [0, 1], [-1, 0], [1, -1], [1, 1], [-1, 1], [-1, -1]];
+    for (const [dx, dz] of dirs) {
+        await sdk.sendWalk(bx + dx, bz + dz, false).catch(() => undefined);
+        const moved = await sdk
+            .waitForCondition((s) => {
+                const q = s.player;
+                return !!q && (q.worldX !== bx || q.worldZ !== bz);
+            }, 2_000)
+            .then(() => true)
+            .catch(() => false);
+        if (moved) return true;
+    }
+    return false;
+}
+
 export async function travelTo(sdk: BotSDK, bot: BotActions, dest: Tile, options: TravelOptions = {}): Promise<TravelResult> {
     const log = options.log ?? (() => {});
     const tolerance = options.tolerance ?? DEFAULT_TOLERANCE;
@@ -153,6 +179,23 @@ export async function travelTo(sdk: BotSDK, bot: BotActions, dest: Tile, options
             recordGap(playerPos(sdk), { x: dest.x, z: dest.z, level: now.level }, res.blocked);
         }
         if (Math.hypot(after.x - dest.x, after.z - dest.z) <= tolerance) return { ok: true, at: after, plans };
+
+        // Zero progress over a whole plan means the server refused the steps the
+        // snapshot claims are walkable (a wall edge `isTileWalkable` ignores, a
+        // shut gate, or a desynced tile). Probe the eight neighbours once: if
+        // one moves, this is geometry and re-planning from there works; if none
+        // moves, no route will ever help and the caller should hear it plainly.
+        if (after.x === now.x && after.z === now.z && plans < maxPlans - 1) {
+            const key0 = `${after.x},${after.z}`;
+            if (await sidestepOnce(sdk)) {
+                const moved = playerPos(sdk);
+                log(`   refused at (${key0}) — side-stepped to (${moved.x},${moved.z}), re-planning`);
+                frontier = null;
+                continue;
+            }
+            log(`   refused at (${key0}) — all eight neighbours refused: needs a relog, not a route`);
+            blocked = `step refused at (${key0})`;
+        }
 
         const key = `${after.x},${after.z}`;
         if (key === frontier) {
