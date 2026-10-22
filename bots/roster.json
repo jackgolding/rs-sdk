@@ -26,9 +26,10 @@
         {
             "name": "Jackpoo1",
             "view": "fleet",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "Jackpoo1"
+                "Jackpoo1",
+                "--knights"
             ]
         },
         {
@@ -69,7 +70,7 @@
         {
             "name": "fatpig",
             "view": "fleet",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/climb-down.ts",
             "args": [
                 "fatpig"
             ]
@@ -130,9 +131,10 @@
         {
             "name": "pigfat",
             "view": "fleet",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "pigfat"
+                "pigfat",
+                "--knights"
             ]
         },
         {
@@ -197,7 +199,7 @@
         {
             "name": "jacklove13",
             "view": "loves",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/climb-down.ts",
             "args": [
                 "jacklove13"
             ]
@@ -232,9 +234,10 @@
         {
             "name": "jacklove17",
             "view": "loves",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "jacklove17"
+                "jacklove17",
+                "--knights"
             ]
         },
         {
@@ -349,9 +352,10 @@
         {
             "name": "ABGARMY11",
             "view": "army",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY11"
+                "ABGARMY11",
+                "--knights"
             ]
         },
         {
@@ -384,7 +388,7 @@
         {
             "name": "ABGARMY15",
             "view": "army",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/climb-down.ts",
             "args": [
                 "ABGARMY15"
             ]
