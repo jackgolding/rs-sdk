@@ -6,6 +6,7 @@ import { BotSDK } from './index';
 import { GEActions } from './ge-actions';
 import type { GEOfferRequest, GEActionResult } from './ge-types';
 import { ActionHelpers, ALREADY_FIGHTING_REFUSALS, NO_RUNES_REFUSALS, isVerticalExitName } from './actions-helpers';
+import { appendBankOpen } from './bank-open-log';
 
 import { findDoorsAlongPath, isTileWalkable } from './pathfinding';
 import type {
@@ -1924,16 +1925,55 @@ export class BotActions {
         return booths.find(l => l.optionsWithIndex.some(o => /bank|use/i.test(o.text))) ?? booths[0] ?? null;
     }
 
-    /** Open a bank booth or talk to a banker. */
+    /** Open a bank booth or talk to a banker. Logs the full bank to bank-opens.log on success. */
     async openBank(timeout: number = 10000): Promise<OpenBankResult> {
         const bankBooth = this.findUsableBankBooth();
 
-        return this.helpers.withDoorRetry(
+        const result = await this.helpers.withDoorRetry(
             () => this._openBankOnce(timeout),
             (r) => r.reason === 'cant_reach',
             2,
             bankBooth ? { x: bankBooth.x, z: bankBooth.z } : undefined
         );
+        if (result.success) this.logBankOpen();
+        return result;
+    }
+
+    /**
+     * Fire-and-forget snapshot of the whole bank after a successful open.
+     * Never throws and never changes the open result: empty or missing
+     * state just skips the line. Items stream in a tick or two after
+     * isOpen flips, so settle briefly before reading.
+     */
+    private logBankOpen(): void {
+        try {
+            const name = process.env.BOT_USERNAME;
+            if (!name) return;
+            const state = this.sdk.getState();
+            if (!state?.bank?.isOpen) return;
+            void (async () => {
+                try {
+                    try {
+                        await this.sdk.waitForTicks(2);
+                    } catch {
+                        /* disconnected mid-settle: read whatever is there */
+                    }
+                    const fresh = this.sdk.getState()?.bank;
+                    if (!fresh?.isOpen) return;
+                    const items = this.sdk.getBankItems?.() ?? fresh.items ?? [];
+                    if (!items.length) return;
+                    appendBankOpen(
+                        name,
+                        items.map((item) => ({ id: item.id, name: item.name, count: item.count })),
+                        Date.now()
+                    );
+                } catch {
+                    /* logging must never break the bot */
+                }
+            })();
+        } catch {
+            /* logging must never break the bot */
+        }
     }
 
     private async _openBankOnce(timeout: number): Promise<OpenBankResult> {
