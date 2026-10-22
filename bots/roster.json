@@ -374,10 +374,9 @@
         {
             "name": "ABGARMY14",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/climb-down.ts",
             "args": [
-                "ABGARMY14",
-                "--until-wc=99"
+                "ABGARMY14"
             ]
         },
         {
