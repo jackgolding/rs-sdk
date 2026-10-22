@@ -357,4 +357,41 @@ describe('ActivitySession', () => {
         await session.recover();
         expect(interacts).toEqual([]);
     });
+
+    test('a tactic that cannot act does not spend a recovery slot', async () => {
+        // Anchor floor already matches the player's floor: climb_floor can only
+        // no-op, and it is the tactic right before the one that can act. When it
+        // spent a slot anyway the budget (4) ran out first and the grind never
+        // reached `extra` — the bowstrings spin phase never recovered.
+        const { sdk, bot, interacts } = climbMocks();
+        const flatSdk = {
+            ...sdk,
+            getState: () => ({ player: { worldX: 2715, worldZ: 3472, level: 0 } }),
+        } as unknown as BotSDK;
+        const lines: string[] = [];
+        const session = new ActivitySession(flatSdk, bot, {
+            name: 'bowstrings',
+            stallMs: 10,
+            maxRecoveryTactics: 4,
+            recoveryBudgetMs: 60_000,
+            now: () => 20,
+            writeLog: (line) => lines.push(line),
+        });
+        session.setAnchor(2715, 3471, 0);
+        let ran = false;
+        session.registerRecovery([
+            {
+                name: 'wheel_approach',
+                run: async () => {
+                    ran = true;
+                    return true;
+                },
+            },
+        ]);
+        expect(await session.recover()).toBe('resumed');
+        expect(ran).toBe(true);
+        expect(interacts).toEqual([]);
+        expect(lines.some((line) => line.includes('recovery tactic climb_floor'))).toBe(false);
+        expect(lines.some((line) => line.includes('recovery tactic wheel_approach'))).toBe(true);
+    });
 });

@@ -43,6 +43,14 @@ export interface RecoveryTactic {
     run: () => Promise<boolean>;
     /** Max consecutive invocations before advancing to the next tactic (default 2). */
     maxConsecutive?: number;
+    /**
+     * Cheap, synchronous precondition. When false the tactic is skipped
+     * without consuming a recovery slot and without a `recovery tactic` log
+     * line — a no-op tactic used to burn the last slot and force an exhausted
+     * recovery right when the grind needed its real tactic. Throwing reads as
+     * applicable.
+     */
+    applicable?: () => boolean;
 }
 
 export interface StopReason {
@@ -420,6 +428,22 @@ export class ActivitySession {
                 return this.continueAfterRecovery(this.lastFailure?.message ?? 'recovery budget exhausted');
             }
             const tactic = this.tactics[this.nextTacticIndex]!;
+            // A tactic that cannot act must not spend a slot: climb_floor on the
+            // floor it wants was a guaranteed no-op that still counted.
+            if (tactic.applicable) {
+                let applicable = true;
+                try {
+                    applicable = tactic.applicable();
+                } catch {
+                    applicable = true;
+                }
+                if (!applicable) {
+                    this.nextTacticIndex++;
+                    this.lastTacticName = null;
+                    this.consecutiveTacticCount = 0;
+                    continue;
+                }
+            }
             const maxConsecutive = tactic.maxConsecutive ?? 2;
             if (this.lastTacticName === tactic.name && this.consecutiveTacticCount >= maxConsecutive) {
                 this.nextTacticIndex++;
@@ -1050,6 +1074,12 @@ export class ActivitySession {
             },
             {
                 name: 'climb_floor',
+                // No anchor floor, or already on it: this tactic can only no-op.
+                applicable: () => {
+                    const want = this.anchor?.level;
+                    if (want === undefined) return false;
+                    return (this.sdk.getState()?.player?.level ?? 0) !== want;
+                },
                 run: async () => {
                     if (this.stopReasonValue) return false;
                     const want = this.anchor?.level;
