@@ -367,10 +367,10 @@
         {
             "name": "ABGARMY13",
             "view": "army",
-            "script": "bots/quests/agility-exit.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
                 "ABGARMY13",
-                "--to=ardougne"
+                "--knights"
             ]
         },
         {
