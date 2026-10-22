@@ -43,9 +43,10 @@
         {
             "name": "Jackpoo3",
             "view": "fleet",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "Jackpoo3"
+                "Jackpoo3",
+                "--knights"
             ]
         },
         {
@@ -259,9 +260,10 @@
         {
             "name": "ABGARMY01",
             "view": "army",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY01"
+                "ABGARMY01",
+                "--knights"
             ]
         },
         {
@@ -308,9 +310,10 @@
         {
             "name": "ABGARMY07",
             "view": "army",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY07"
+                "ABGARMY07",
+                "--knights"
             ]
         },
         {
@@ -333,9 +336,10 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY10"
+                "ABGARMY10",
+                "--knights"
             ]
         },
         {
@@ -349,9 +353,10 @@
         {
             "name": "ABGARMY12",
             "view": "army",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY12"
+                "ABGARMY12",
+                "--knights"
             ]
         },
         {
@@ -365,9 +370,10 @@
         {
             "name": "ABGARMY14",
             "view": "army",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY14"
+                "ABGARMY14",
+                "--knights"
             ]
         },
         {
@@ -381,9 +387,10 @@
         {
             "name": "ABGARMY16",
             "view": "army",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY16"
+                "ABGARMY16",
+                "--knights"
             ]
         },
         {
@@ -405,9 +412,10 @@
         {
             "name": "ABGARMY19",
             "view": "army",
-            "script": "bots/quests/bowstrings.ts",
+            "script": "bots/quests/thieving-route.ts",
             "args": [
-                "ABGARMY19"
+                "ABGARMY19",
+                "--knights"
             ]
         },
         {
