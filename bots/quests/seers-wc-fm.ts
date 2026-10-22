@@ -555,12 +555,27 @@ async function walkNear(x: number, z: number, tolerance = 4): Promise<boolean> {
 async function climbDown(): Promise<void> {
     if (pos().level <= 0) return;
     intent('Climbing down to the ground');
-    for (let i = 0; i < 8 && pos().level > 0; i++) {
+    // The gnome stronghold has its own staircases ~10 tiles from the course
+    // landing; falling straight to the Seers wheel house walks a bot in the
+    // stronghold hundreds of tiles into a wall, so pick the nearest spot.
+    const stairSpots = [
+        { x: 2461, z: 3417 }, // gnome stronghold, west staircase by the statue
+        { x: 2479, z: 3408 }, // gnome stronghold, east staircase
+        { x: 2715, z: 3471 } // Seers wheel house
+    ];
+    for (let i = 0; i < 12 && pos().level > 0; i++) {
         const stairs = (sdk.getNearbyLocs() ?? [])
             .filter((l) => /stair|ladder/i.test(l.name) && l.optionsWithIndex.some((o) => /climb-down|climb.down/i.test(o.text)))
             .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
         if (!stairs) {
-            await walkNear(2715, 3471, 2);
+            const p = pos();
+            const spot = stairSpots
+                .slice()
+                .sort(
+                    (a, b) =>
+                        Math.abs(a.x - p.x) + Math.abs(a.z - p.z) - (Math.abs(b.x - p.x) + Math.abs(b.z - p.z))
+                )[0]!;
+            await walkNear(spot.x, spot.z, 2);
             continue;
         }
         await bot.interactLoc(stairs, /climb-down|climb.down/i);
@@ -591,6 +606,9 @@ async function walkToSeers(): Promise<void> {
         if (inSeers()) return;
     }
     intent('Travelling to Seers');
+    // The flax leg scans plane-0 locs; a bot parked upstairs (gnome course,
+    // wheel house) reports 'At flax | flax=0' forever without this.
+    await climbDown();
     const travel = await travelToSeersFlax({ sdk, bot, log, session });
     if (travel !== 'arrived' && !inSeers()) {
         session.noteFailure('travel', `travel ended ${travel}`);
