@@ -578,6 +578,18 @@ await runScript(async ({ bot, sdk }) => {
     if (stage === 'complete') {
         log('Druidic Ritual is already complete — nothing to do');
         await session.setPhase('done');
+        // Park, do not exit. `return` here exits 0 and the supervisor relaunches
+        // the container straight back into this branch — this exact loop ran 215
+        // times an hour for a maxed account.
+        let lastParkLog = Date.now();
+        while (!session.isStoppedOrRequested() && sdk.isConnected()) {
+            await sdk.waitForTicks(5).catch(() => new Promise((r) => setTimeout(r, 3_000)));
+            session.noteProgress('phase', 'done');
+            if (Date.now() - lastParkLog >= 30 * 60_000) {
+                lastParkLog = Date.now();
+                log(`Parked — Druidic Ritual complete, Herblore ${herbXp()} xp @ ${pos().x},${pos().z}`);
+            }
+        }
         return;
     }
     if (stage === 'unknown') {

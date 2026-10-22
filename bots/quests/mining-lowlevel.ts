@@ -472,8 +472,22 @@ await runScript(async ({ bot, sdk }) => {
                 `pick=${sdk.findEquipmentItem(PICKAXE)?.name ?? sdk.findInventoryItem(PICKAXE)?.name ?? 'none'}`
         );
         if (mining() >= IRON_GATE) {
-            log(`mining-lowlevel already ${mining()}`);
-            exitCode = 0;
+            // Not a failure and not a finish: this script only owns the sub-10
+            // pickaxe leg. Exiting 0 here makes the supervisor relaunch the
+            // container straight back into this branch — that loop ran 430-486
+            // times an hour per bot and was most of the box's load and swap.
+            // Hold the session and idle instead.
+            log(`mining-lowlevel already ${mining()} — above the low-level gate, parking`);
+            await session.setPhase('parked');
+            let lastParkLog = Date.now();
+            while (!session.isStoppedOrRequested() && sdk.isConnected()) {
+                await sdk.waitForTicks(5).catch(() => new Promise((r) => setTimeout(r, 3_000)));
+                session.noteProgress('phase', 'parked');
+                if (Date.now() - lastParkLog >= 30 * 60_000) {
+                    lastParkLog = Date.now();
+                    log(`Parked — Mining ${mining()} (${miningXp()} xp) @ ${pos().x},${pos().z}, nothing for this script to do`);
+                }
+            }
             return;
         }
 
