@@ -1947,7 +1947,7 @@ export class BotActions {
      */
     private logBankOpen(): void {
         try {
-            const name = process.env.BOT_USERNAME;
+            const name = this.sdk.config.botUsername;
             if (!name) return;
             const state = this.sdk.getState();
             if (!state?.bank?.isOpen) return;
