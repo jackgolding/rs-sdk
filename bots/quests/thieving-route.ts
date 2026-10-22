@@ -2717,6 +2717,36 @@ async function leaveEdgevilleDungeon(): Promise<boolean> {
     return out;
 }
 
+/** Get off plane 1 before any walk: walkTo never changes plane, so a bot that
+ *  starts upstairs (gnome agility course, Seers wheel house) walks in place. */
+async function climbDown(): Promise<void> {
+    if (pos().level <= 0) return;
+    intent('Climbing down to the ground');
+    const stairSpots = [
+        { x: 2461, z: 3417 }, // gnome stronghold, west staircase by the statue
+        { x: 2479, z: 3408 }, // gnome stronghold, east staircase
+        { x: 2715, z: 3471 } // Seers wheel house
+    ];
+    for (let i = 0; i < 12 && pos().level > 0; i++) {
+        const stairs = (sdk.getNearbyLocs() ?? [])
+            .filter((l) => /stair|ladder/i.test(l.name) && l.optionsWithIndex.some((o) => /climb-down|climb.down/i.test(o.text)))
+            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+        if (!stairs) {
+            const p = pos();
+            const spot = stairSpots
+                .slice()
+                .sort(
+                    (a, b) =>
+                        Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z)
+                )[0]!;
+            await walkNear(spot.x, spot.z, 2);
+            continue;
+        }
+        await bot.interactLoc(stairs, /climb-down|climb.down/i);
+        await sdk.waitForCondition((s) => (s.player?.level ?? 1) === 0, 8_000).catch(() => {});
+    }
+}
+
 async function returnToArdougne(): Promise<void> {
     session.noteProgress('location', `${pos().x},${pos().z}`);
     await leaveAdjacentClosedDoor(sdk);
@@ -2733,6 +2763,18 @@ async function returnToArdougne(): Promise<void> {
         return;
     }
     const p = pos();
+    if (p.x >= 2400 && p.x <= 2560 && p.z >= 3380 && p.z <= 3480 && p.z < 6400) {
+        // Gnome stronghold / west Kandarin had no branch of its own, so it fell
+        // through to the wilderness-pack leg below: bankForWildy() refuses in
+        // Kandarin and returns immediately, and the main loop re-entered this
+        // function — a 28-million-line spin at one tile. Descend, bank at
+        // Seers/Catherby, then take the normal Catherby → Ardougne route.
+        intent('Walking out of the gnome stronghold toward Seers, then Ardougne');
+        await climbDown();
+        await walkNear(CATHERBY_BANK.x, CATHERBY_BANK.z, 6);
+        if (nearSeersCatherby() || inArdougne()) await walkWaypoints(CATHERBY_TO_ARDY);
+        return;
+    }
     if (p.x > 2500 && p.x < 2720 && p.z >= 3355 && p.z < 3480 && p.z < 6400) {
         intent('Walking south from ranging guild to Ardougne');
         await walkNear(ARDOUGNE_MARKET.x, ARDOUGNE_MARKET.z, 6);
@@ -2799,6 +2841,14 @@ async function returnToArdougne(): Promise<void> {
     }
 
     if (!packedForWildy()) {
+        // A knight bot never needs the wilderness pack. On the west side, bank
+        // for food at the nearest Kandarin bank instead of refusing forever —
+        // this refusal was the second half of the stronghold spin.
+        if (distTo(CATHERBY_BANK.x, CATHERBY_BANK.z) < distTo(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z)) {
+            intent('Banking food at Catherby');
+            await walkNear(CATHERBY_BANK.x, CATHERBY_BANK.z, 6);
+            return;
+        }
         await bankForWildy();
         return;
     }
