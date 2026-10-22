@@ -6,7 +6,7 @@
  */
 import { ActivitySession, BotSDK, deriveGatewayUrl, inWilderness } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
-import { initPathfinding, isTileWalkable } from '../../sdk/pathfinding';
+import { findLongPath, initPathfinding } from '../../sdk/pathfinding';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import {
@@ -43,10 +43,51 @@ const GNOME_GATE = { x: 2459, z: 3383 };
 const GNOME_GATE_ID = 190;
 const GNOME_GATE_STAND = { x: 2460, z: 3382 };
 const GNOME_GATE_INNER = { x: 2461, z: 3385 };
-/** Gate landing → course start. Every hop is 5-12 tiles and every tile is
- *  walkable in sdk/collision-data.json (BFS-verified). The old list ended at
- *  (2474,3430), a BLOCKED tile: walkTo failed, the sendWalk fallback dropped,
- *  and bots ended up in the east pocket at (2494,3436) on every attempt. */
+/** East of this x the bot is in the east pocket — inside the z=3383 line but on
+ *  the wrong side of the course fence (see GNOME_POCKET_EXIT). */
+const GNOME_EAST_POCKET_X = 2488;
+/**
+ * East-pocket escape: gate stand approach from the course fence at (2494,3436).
+ *
+ * The pocket is NOT on the course side of the fence and NOT straight west. From
+ * sdk/collision-data.json (level 0): (2494,3436) carries WALL_WEST and
+ * (2493,3436) carries WALL_EAST — the course fence runs north-south between
+ * them, so the first westward step is the one the client rejects, which is why
+ * a "raw walk 2494,3436 → 2474,3436" never moved a single tile. findLongPath(0,
+ * 2494,3436 → 2474,3436) returns an EMPTY path, and findPath (1:1, what the
+ * client and the server's MoveClickHandler use) returns empty too.
+ *
+ * The only exit is north out of the fence corner, east around it to x≈2506,
+ * south to the open ground at z≈3389, then west along it to the gate stand.
+ * Every consecutive pair below was accepted by
+ * findPath(level 0, a → b, 1x1, NORMAL) and both endpoints are walkable; the
+ * whole run matches findLongPath(2494,3436 → 2460,3382), which returns exactly
+ * 20 waypoints ending at the stand.
+ */
+const GNOME_POCKET_EXIT: Tile[] = [
+    { x: 2494, z: 3434 },
+    { x: 2495, z: 3432 },
+    { x: 2498, z: 3430 },
+    { x: 2498, z: 3420 },
+    { x: 2498, z: 3410 },
+    { x: 2502, z: 3406 },
+    { x: 2502, z: 3400 },
+    { x: 2506, z: 3396 },
+    { x: 2506, z: 3390 },
+    { x: 2503, z: 3390 },
+    { x: 2502, z: 3389 },
+    { x: 2489, z: 3389 },
+    { x: 2475, z: 3388 },
+    { x: 2470, z: 3387 },
+    { x: 2466, z: 3382 },
+    GNOME_GATE_STAND
+];
+/** Gate landing → course start. Every hop is 5-12 tiles and every hop is
+ *  accepted by findPath(level 0, a → b, 1x1, NORMAL) — the same pathfinder the
+ *  server's MoveClickHandler uses — so these are walkable legs, not just
+ *  walkable tiles. The old list ended at (2474,3430), a BLOCKED tile: walkTo
+ *  failed, the sendWalk fallback dropped, and bots ended up in the east pocket
+ *  at (2494,3436) on every attempt. */
 const GNOME_ENTRANCE: Tile[] = [
     { x: 2460, z: 3396 },
     { x: 2460, z: 3408 },
@@ -156,6 +197,16 @@ let foodRunIndex = 0;
 let mageWalkIndex = 0;
 let gateToMageIndex = 0;
 let lumbyDitchIndex = 0;
+/** Entrance retry budget (see ensureGnomeEntrance): keyed on the tile the last
+ *  attempt started from, so only a *stationary* bot runs out of attempts. The
+ *  cooldown lets a transient client rejection retry later instead of wedging
+ *  the bot silent for the rest of the run. */
+let gnomeEntranceTile: string | null = null;
+let gnomeEntranceTries = 0;
+let gnomeEntranceReported = false;
+let gnomeEntranceAtMs = 0;
+const GNOME_ENTRANCE_TRIES = 1;
+const GNOME_ENTRANCE_COOLDOWN_MS = 90_000;
 
 const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-'));
@@ -1532,7 +1583,7 @@ async function openGnomeGate(expectInside = true): Promise<boolean> {
             log(`Gate ${side} crossed while approaching @ ${pos().x},${pos().z}`);
             return true;
         }
-        if (distTo(stand.x, stand.z) > 2) await walkRawTo(stand.x, stand.z, 90);
+        if (distTo(stand.x, stand.z) > 2) await walkRouteTo(stand.x, stand.z);
     }
     if (crossedOk()) return true;
     if (distTo(stand.x, stand.z) > 3) {
@@ -1576,120 +1627,200 @@ async function openGnomeGate(expectInside = true): Promise<boolean> {
 }
 
 /**
- * BFS a route over the static collision snapshot and raw-step it, one tile at a
- * time. Needed east of the course fence: the client pathfinder has NO route to
- * the course from there (`findLongPath(2494,3436 -> 2474,3436)` returns an
- * empty path, and from (2495,3406) it returns a path that ENDS at (2494,3436),
- * i.e. it walks bots back into the pocket). Per-tile walks are line-of-sight,
- * so the server walks them.
+ * Pathfinder route to a tile on the static collision snapshot.
+ *
+ * findLongPath is the ONLY trustworthy offline oracle here: it applies the
+ * wall/edge flags (WALL_WEST on (2494,3436) et al) that isTileWalkable ignores
+ * — isTileWalkable only checks LOC/FLOOR flags, so a tile on the far side of a
+ * fence reads "walkable" and a BFS over it happily plans a route straight
+ * through the fence. That is what "raw route 2494,3436 → 2474,3436: 22 tiles"
+ * was: a plan the client rejected on its very first step.
+ *
+ * findLongPath returns a TRUNCATED path (often a single waypoint) when the
+ * destination is unreachable instead of an empty one, so the endpoint is
+ * checked explicitly — otherwise a 1-waypoint "route" looks like success.
  */
-async function walkRawTo(x: number, z: number, maxTiles = 60): Promise<boolean> {
-    if (distTo(x, z) <= 1) return true;
-    const level = pos().level;
-    const start = pos();
-    // The search box has to cover the whole trip. It used to be a flat ±40,
-    // which silently rejected the 51-tile-tall gate-landing → course-start
-    // route ("no walkable path") and left bots in the pocket.
-    const box = Math.max(48, Math.abs(x - start.x) + 12, Math.abs(z - start.z) + 12);
-    const key = (a: number, b: number) => `${a},${b}`;
-    const prev = new Map<string, string | null>([[key(start.x, start.z), null]]);
-    let frontier: number[][] = [[start.x, start.z]];
-    let target: string | null = null;
-    while (frontier.length && prev.size < 40_000 && !target) {
-        const next: number[][] = [];
-        for (const [cx, cz] of frontier) {
-            if (cx === x && cz === z) {
-                target = key(cx, cz);
-                break;
-            }
-            for (const [dx, dz] of [
-                [1, 0],
-                [-1, 0],
-                [0, 1],
-                [0, -1]
-            ]) {
-                const nx = (cx ?? 0) + (dx ?? 0);
-                const nz = (cz ?? 0) + (dz ?? 0);
-                if (Math.abs(nx - start.x) > box || Math.abs(nz - start.z) > box) continue;
-                const k = key(nx, nz);
-                if (prev.has(k)) continue;
-                if (!isTileWalkable(level, nx, nz)) continue;
-                prev.set(k, key(cx ?? 0, cz ?? 0));
-                next.push([nx, nz]);
-            }
-        }
-        frontier = next;
-    }
-    if (!target) {
-        log(`raw route ${start.x},${start.z} → ${x},${z}: no walkable path`);
-        return false;
-    }
-    const path: number[][] = [];
-    let k: string | null = target;
-    while (k) {
-        const [px, pz] = k.split(',').map(Number);
-        path.push([px ?? 0, pz ?? 0]);
-        k = prev.get(k) ?? null;
-    }
-    path.reverse();
-    path.shift();
-    if (path.length > maxTiles) {
-        log(`raw route ${start.x},${start.z} → ${x},${z}: ${path.length} tiles > ${maxTiles}`);
-        return false;
-    }
-    log(`raw route ${start.x},${start.z} → ${x},${z}: ${path.length} tiles`);
-    for (const [px, pz] of path) {
-        if (session.isStopped()) return false;
-        await sdk.sendWalk(px!, pz!, true);
-        await sdk
-            .waitForCondition((s) => (s.player?.worldX ?? 0) === px && (s.player?.worldZ ?? 0) === pz, 1_200)
-            .catch(() => {});
-        // A raw walk is a long tick: without this the stall clock expires
-        // mid-route and recovery fires the moment the walk finishes. 'phase'
-        // (not 'location') on purpose: it only refreshes the stall clock —
-        // a progress kind would reset the recovery tactic index mid-recovery.
-        session.noteProgress('phase', `raw ${px},${pz}`);
-    }
-    return distTo(x, z) <= 2;
+function pathRoute(x: number, z: number): Tile[] | null {
+    const p = findLongPath(pos().level, pos().x, pos().z, x, z);
+    const last = p[p.length - 1];
+    if (!last || last.x !== x || last.z !== z) return null;
+    return p;
 }
 
-async function ensureGnomeEntrance(): Promise<void> {
-    if (pastGnomeGate()) return;
-    await session.setPhase('gnome_entrance');
-    intent('Entering gnome stronghold');
-    log(`Entering gnome stronghold from ${pos().x},${pos().z}`);
-
-    // Clicking from inside ejects you, so only ever open the gate when the bot
-    // is actually on the outside of the z=3383 line.
-    for (let attempt = 0; attempt < 3 && pos().z <= GNOME_GATE.z && !session.isStopped(); attempt++) {
-        if (await openGnomeGate()) break;
-        await walkNear(GNOME_GATE_STAND.x, GNOME_GATE_STAND.z, 2);
-        await sdk.waitForTicks(2).catch(() => {});
+/**
+ * Walk a pathfinder route one waypoint at a time.
+ *
+ * sendWalk goes through the client's own pathfinder, so a leg it cannot route
+ * is rejected silently (the ActionResult is discarded by callers) — the only
+ * evidence of failure is that the player did not move. A leg that produces no
+ * movement abandons the whole route instead of spending a wait timeout on each
+ * remaining waypoint, so a wrong plan costs one timeout, not seventeen.
+ */
+async function walkPathLegs(wps: Tile[]): Promise<boolean> {
+    for (const wp of wps) {
+        if (session.isStopped()) return false;
+        if (distTo(wp.x, wp.z) <= 2) continue;
+        const before = pos();
+        const budget = Math.min(15_000, 1_500 + 500 * distTo(wp.x, wp.z));
+        await sdk.sendWalk(wp.x, wp.z, true);
+        await sdk.waitForCondition(() => distTo(wp.x, wp.z) <= 2, budget).catch(() => {});
+        const now = pos();
+        if (now.x === before.x && now.z === before.z) {
+            log(`leg ${wp.x},${wp.z} rejected from ${before.x},${before.z} — abandoning route`);
+            return false;
+        }
+        // 'phase' (not 'location') on purpose: refreshes the stall clock without
+        // resetting the recovery tactic index mid-recovery.
+        session.noteProgress('phase', `gnome leg ${now.x},${now.z}`);
     }
-    if (pos().z <= GNOME_GATE.z) {
-        log(`Still outside the gate @ ${pos().x},${pos().z} — retrying next tick`);
+    return true;
+}
+
+/** findLongPath legs to (x,z), then walk them. False = no route or a rejected leg. */
+async function walkRouteTo(x: number, z: number): Promise<boolean> {
+    const route = pathRoute(x, z);
+    if (!route) {
+        log(`no pathfinder route ${pos().x},${pos().z} → ${x},${z} (findLongPath empty or truncated)`);
+        return false;
+    }
+    log(`route ${pos().x},${pos().z} → ${x},${z}: ${route.length} waypoints`);
+    return walkPathLegs(route);
+}
+
+/** Slice a linear hop list at the hop nearest (x,z): a half-walked route must
+ *  never be restarted from its first hop, or the bot walks back where it came. */
+function fromNearest(wps: Tile[], x: number, z: number): Tile[] {
+    let best = 0;
+    let bestDist = Infinity;
+    wps.forEach((w, i) => {
+        const d = Math.hypot(w.x - x, w.z - z);
+        if (d < bestDist) {
+            bestDist = d;
+            best = i;
+        }
+    });
+    return wps.slice(best);
+}
+
+/**
+ * Get a bot onto the gnome course, including the ones that are inside the
+ * stronghold but on the wrong side of the course fence.
+ *
+ * `force` skips the z-line test: "past the gate" is only a z >= 3388 check, and
+ * a bot can sit north of that line with no pathfinder route to the course (the
+ * fenced forecourt at 2475,3388 walks back into the east pocket).
+ */
+async function ensureGnomeEntrance(force = false): Promise<void> {
+    if (!force && pastGnomeGate()) {
+        gnomeEntranceTile = null;
+        gnomeEntranceTries = 0;
+        gnomeEntranceReported = false;
         return;
     }
 
-    if (pos().x > 2488) {
-        // East of the course fence, where the client pathfinder has NO route to
-        // the course: from (2495,3406) it returns a path that ENDS at
-        // (2494,3436), so walkWaypoints walks bots straight back into the
-        // pocket. BFS the static snapshot and raw-step it instead — the pocket
-        // is 22 walkable tiles from the start, the gate landing is 66.
-        log(`East of course fence @ ${pos().x},${pos().z} — raw-walking west to the course`);
-        await session.setPhase('gnome_entrance_east');
+    // Position-keyed retry budget. The entrance used to re-plan from the same
+    // tile every 1-2 seconds forever: same phase line, same "Entering gnome
+    // stronghold from 2494,3436", same plan, zero movement (x10 ... x670).
+    // A plan that leaves the bot on its start tile is not retried: the second
+    // attempt changes approach (and once that also fails the loop goes quiet and
+    // reports one failure) so the stall clock can hand over to the recovery
+    // ladder. Any move — ours or recovery's — resets the counter; the cooldown
+    // resets it too, so a stale rejection is not permanent.
+    const start = pos();
+    const tile = `${start.x},${start.z}`;
+    const nowMs = Date.now();
+    if (gnomeEntranceTile === tile && nowMs - gnomeEntranceAtMs < GNOME_ENTRANCE_COOLDOWN_MS) {
+        gnomeEntranceTries++;
+    } else {
+        gnomeEntranceTile = tile;
+        gnomeEntranceTries = 0;
+        gnomeEntranceReported = false;
     }
-    if (!(await walkRawTo(GNOME_START.x, GNOME_START.z, 100))) {
-        // Static snapshot disagrees with the server (or the bot is somewhere
-        // the BFS cannot reach): fall back to the waypoint chain.
+    gnomeEntranceAtMs = nowMs;
+    if (gnomeEntranceTries > GNOME_ENTRANCE_TRIES) {
+        if (!gnomeEntranceReported) {
+            gnomeEntranceReported = true;
+            session.noteFailure(
+                'gnome_entrance',
+                `${GNOME_ENTRANCE_TRIES + 1} entrance approaches from ${tile} without moving — quiet for ${Math.round(GNOME_ENTRANCE_COOLDOWN_MS / 1000)}s`
+            );
+        }
+        return;
+    }
+    const attempt = gnomeEntranceTries;
+
+    await session.setPhase('gnome_entrance');
+    intent(`Entering gnome stronghold (attempt ${attempt + 1})`);
+    log(
+        `Entering gnome stronghold from ${tile} (attempt ${attempt + 1}, ${start.z > GNOME_GATE.z ? 'north of' : 'at'} the gate line)`
+    );
+
+    // Is the course reachable from here at all? From the course side of the
+    // fence the pathfinder has a route; from the east pocket and the forecourt
+    // behind the fence it does not (findLongPath to (2474,3436) truncates, and
+    // its truncated path ends in the pocket). Decide here, once, instead of
+    // walking a plan the client will reject tile by tile.
+    const direct = start.z > GNOME_GATE.z ? pathRoute(GNOME_START.x, GNOME_START.z) : null;
+    if (direct) {
+        log(`course route from ${tile}: ${direct.length} waypoints`);
+        if (await walkPathLegs(direct)) {
+            log(`On the course @ ${pos().x},${pos().z}`);
+            return;
+        }
+        // The server rejected a leg the snapshot allowed: the waypoint chain is
+        // the alternate shape. Never fall through to the gate from here — an
+        // interior click is force-moved 3 tiles OUT by gnome_gate.rs2.
+        log(`course route abandoned @ ${pos().x},${pos().z} — waypoint chain (attempt ${attempt + 1})`);
+        await walkWaypoints(GNOME_ENTRANCE);
+        log(`Not on the course yet @ ${pos().x},${pos().z} (attempt ${attempt + 1})`);
+        return;
+    }
+
+    if (start.z > GNOME_GATE.z) {
+        // No route to the course: get out through the gate, which is the only
+        // way in — its script force-moves you 3 tiles through, and that landing
+        // is the only interior tile set with a route to the start.
+        const inPocket = start.x > GNOME_EAST_POCKET_X;
+        await session.setPhase('gnome_entrance_east');
+        if (inPocket && attempt === 0) {
+            log(`East pocket @ ${tile} — pathfinder route around the course fence to the gate stand`);
+            if (!(await walkRouteTo(GNOME_GATE_STAND.x, GNOME_GATE_STAND.z))) {
+                log(`no pathfinder exit from ${pos().x},${pos().z} — verified hop list from the nearest hop`);
+                await walkPathLegs(fromNearest(GNOME_POCKET_EXIT, pos().x, pos().z));
+            }
+        } else if (inPocket) {
+            // Different leg shape on the retry: the verified hop list, sliced at
+            // the hop nearest the bot so a half-walked route never walks back
+            // into the pocket.
+            log(`East pocket retry @ ${pos().x},${pos().z} — verified hop list to the gate stand`);
+            await walkPathLegs(fromNearest(GNOME_POCKET_EXIT, pos().x, pos().z));
+        } else {
+            log(`Fenced forecourt @ ${pos().x},${pos().z} — pathfinder route to the gate stand`);
+            await walkRouteTo(GNOME_GATE_STAND.x, GNOME_GATE_STAND.z);
+        }
+        if (pos().z > GNOME_GATE.z) {
+            // Still on the wrong side — never click from inside (gnome_gate.rs2
+            // force-moves an interior click 3 tiles OUT).
+            log(`Still north of the gate line @ ${pos().x},${pos().z} (attempt ${attempt + 1})`);
+            return;
+        }
+    }
+
+    // Outside the z=3383 line — one click from the documented stand, judged by
+    // crossing the line (see openGnomeGate).
+    if (!(await openGnomeGate())) {
+        log(`Gate not crossed @ ${pos().x},${pos().z} (attempt ${attempt + 1})`);
+        return;
+    }
+    log(`Through the gate @ ${pos().x},${pos().z} — walking to the course start`);
+    if (!(await walkRouteTo(GNOME_START.x, GNOME_START.z))) {
         await walkWaypoints(GNOME_ENTRANCE);
     }
     if (pastGnomeGate()) {
-        log(`Inside stronghold @ ${pos().x},${pos().z}`);
+        log(`On the course @ ${pos().x},${pos().z}`);
         return;
     }
-    log(`Not on the course yet @ ${pos().x},${pos().z} — retrying next tick`);
+    log(`Not on the course yet @ ${pos().x},${pos().z} (attempt ${attempt + 1})`);
 }
 
 /** March south out of the wilderness in ~40-tile hops, then cross the ditch.
@@ -1731,7 +1862,15 @@ async function travelToGnome(): Promise<void> {
         await ensureGnomeEntrance();
         return;
     }
-    await walkNear(GNOME_START.x, GNOME_START.z, 6);
+    if (distTo(GNOME_START.x, GNOME_START.z) <= 6) return;
+    // "Past the gate" is a z-line test, not a reachability test: the fenced
+    // forecourt at 2475,3388 is north of z=3388 and has no pathfinder route to
+    // the start, so a bare walkNear here stalls every tick with no log line.
+    // Let the pathfinder decide, and fall back to the entrance flow (which is
+    // what routes a wrong-side bot out through the gate).
+    if (!(await walkRouteTo(GNOME_START.x, GNOME_START.z))) {
+        await ensureGnomeEntrance(true);
+    }
 }
 
 async function goGnomeCourse(): Promise<void> {
