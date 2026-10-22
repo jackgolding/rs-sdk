@@ -75,7 +75,7 @@
         {
             "name": "jacklove1",
             "view": "fleet",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "jacklove1"
             ]
@@ -83,7 +83,7 @@
         {
             "name": "jacklove2",
             "view": "fleet",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "jacklove2"
             ]
@@ -275,7 +275,7 @@
         {
             "name": "ABGARMY03",
             "view": "army",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "ABGARMY03"
             ]
@@ -283,7 +283,7 @@
         {
             "name": "ABGARMY04",
             "view": "army",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "ABGARMY04"
             ]
@@ -291,7 +291,7 @@
         {
             "name": "ABGARMY05",
             "view": "army",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "ABGARMY05"
             ]
@@ -357,7 +357,7 @@
         {
             "name": "ABGARMY13",
             "view": "army",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "ABGARMY13"
             ]
@@ -389,7 +389,7 @@
         {
             "name": "ABGARMY17",
             "view": "army",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "ABGARMY17"
             ]
@@ -397,7 +397,7 @@
         {
             "name": "ABGARMY18",
             "view": "army",
-            "script": "bots/quests/agility-route.ts",
+            "script": "bots/quests/bowstrings.ts",
             "args": [
                 "ABGARMY18"
             ]
