@@ -140,7 +140,14 @@ if (onGnomeCourse()) {
 // 2. Clear the gate: click it from the walkable stand, verify by position.
 if (insideGnomeStronghold()) {
     session.setPhase('exit_gate').catch(() => undefined);
-    const gateRes = await travelTo(sdk, bot, GNOME_GATE_STAND, { log, tolerance: 2 }).catch(() => null);
+    // (2460,3382) is often not walkable from the north, which leaves the bot
+    // 3 tiles short at (2461,3385) with no gate in view; (2459,3383) is the
+    // documented walkable stand. Try both, nearest-progress first.
+    let gateRes: { ok?: boolean; reason?: string } | null = null;
+    for (const stand of [GNOME_GATE, GNOME_GATE_STAND]) {
+        gateRes = await travelTo(sdk, bot, stand, { log, tolerance: 2 }).catch(() => null);
+        if (gateRes?.ok) break;
+    }
     log(`walked to the gate stand: ${gateRes?.ok ? 'ok' : gateRes?.reason}`);
     await closeUi();
     const gate = (sdk.getNearbyLocs() ?? []).find((l) => /^gate$/i.test(l.name) && Math.hypot(l.x - GNOME_GATE.x, l.z - GNOME_GATE.z) <= 3);
