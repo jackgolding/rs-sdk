@@ -539,21 +539,30 @@ await runScript(async ({ bot, sdk }) => {
         await ensureSurface();
         if (inPalace()) await leavePalace();
         await sdk.waitForTicks(2);
-        // Cross Varrock's east wall at its only opening, before planning.
+        // The Varrock <-> temple corridor is walked by ANCHOR, not by plan.
+        // `findLongPath` cuts the wall at tiles the client refuses, and each
+        // refused leg burns ~25 hops before it gives up, so the planner is only
+        // used for the remainder. Anchors are live-verified.
         const here = pos();
-        if (Math.abs(here.z - 3467) < 70) {
-            if (here.x <= 3317 && x >= 3320) {
+        if (Math.abs(here.z - 3467) < 80) {
+            const eastbound = here.x <= 3325 && x >= 3360;
+            const westbound = here.x >= 3360 && x <= 3300;
+            if (eastbound) {
                 await walkNear(VARROCK_GATE_EAST.x, VARROCK_GATE_EAST.z, 2);
-                log(`  via east gate -> ${pos().x},${pos().z}`);
-            } else if (here.x >= 3320 && x <= 3317) {
+                await walkNear(3320, 3480, 3);
+                await walkNear(3370, 3498, 4);
+                log(`  corridor east -> ${pos().x},${pos().z}`);
+            } else if (westbound) {
+                await walkNear(3370, 3498, 4);
+                await walkNear(3320, 3480, 3);
                 await walkNear(VARROCK_GATE_WEST.x, VARROCK_GATE_WEST.z, 2);
-                log(`  via west gate -> ${pos().x},${pos().z}`);
+                log(`  corridor west -> ${pos().x},${pos().z}`);
             }
         }
         let r = await travelTo(sdk, bot, { x, z }, {
             log: (m) => log(`  travel(${label}): ${m}`),
             tolerance: 6,
-            maxPlans: 20
+            maxPlans: 8
         });
         if (!r.ok) {
             // ORDER (rule 24): open the gate in the way, then re-plan from
