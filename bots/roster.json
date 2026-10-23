@@ -160,10 +160,9 @@
         {
             "name": "jacklove8",
             "view": "loves",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
-                "jacklove8",
-                "--bignet"
+                "jacklove8"
             ]
         },
         {
