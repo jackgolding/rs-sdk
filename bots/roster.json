@@ -116,9 +116,10 @@
         {
             "name": "jacklove5",
             "view": "fleet",
-            "script": "bots/quests/essence.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "jacklove5"
+                "jacklove5",
+                "--bignet"
             ]
         },
         {
@@ -158,10 +159,10 @@
         {
             "name": "jacklove8",
             "view": "loves",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "jacklove8",
-                "--knights"
+                "--bignet"
             ]
         },
         {
@@ -176,9 +177,10 @@
         {
             "name": "jacklove10",
             "view": "loves",
-            "script": "bots/quests/hobgoblins.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "jacklove10"
+                "jacklove10",
+                "--bignet"
             ]
         },
         {
@@ -245,9 +247,10 @@
         {
             "name": "jacklove18",
             "view": "loves",
-            "script": "bots/quests/hobgoblins.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "jacklove18"
+                "jacklove18",
+                "--bignet"
             ]
         },
         {
@@ -261,9 +264,10 @@
         {
             "name": "jacklove20",
             "view": "loves",
-            "script": "bots/quests/hobgoblins.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "jacklove20"
+                "jacklove20",
+                "--bignet"
             ]
         },
         {
@@ -363,10 +367,10 @@
         {
             "name": "ABGARMY12",
             "view": "army",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "ABGARMY12",
-                "--knights"
+                "--bignet"
             ]
         },
         {
@@ -390,9 +394,10 @@
         {
             "name": "ABGARMY15",
             "view": "army",
-            "script": "bots/quests/climb-down.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "ABGARMY15"
+                "ABGARMY15",
+                "--bignet"
             ]
         },
         {
