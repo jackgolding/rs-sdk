@@ -44,18 +44,19 @@
         {
             "name": "Jackpoo3",
             "view": "fleet",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "Jackpoo3"
+                "Jackpoo3",
+                "--bignet"
             ]
         },
         {
             "name": "Jackpoo4",
             "view": "fleet",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "Jackpoo4",
-                "--until-wc=99"
+                "--bignet"
             ]
         },
         {
@@ -326,10 +327,10 @@
         {
             "name": "ABGARMY07",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "ABGARMY07",
-                "--until-wc=99"
+                "--bignet"
             ]
         },
         {
@@ -352,10 +353,10 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "ABGARMY10",
-                "--until-wc=99"
+                "--bignet"
             ]
         },
         {
@@ -406,10 +407,10 @@
         {
             "name": "ABGARMY16",
             "view": "army",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
                 "ABGARMY16",
-                "--until-wc=99"
+                "--bignet"
             ]
         },
         {
