@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "name": "priestperil",
+  "runs": 3,
+  "timeoutMs": 2400000,
+  "gate": { "minPassRate": 0.8, "minRuns": 3 },
+  "quests": [
+    {
+      "questId": "priestperil",
+      "script": "bots/quests/priest-in-peril.ts",
+      "fixture": "quest-lab/fixtures/priestperil.json",
+      "accountCode": "prst"
+    }
+  ]
+}
