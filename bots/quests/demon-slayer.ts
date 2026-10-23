@@ -2016,80 +2016,81 @@ let banished = false;
 for (let round = 0; round < 10 && !banished; round++) {
     const fight = await bot.attack(/^delrith$/i);
     log(`attack Delrith round ${round + 1}: ${fight.success}${fight.success ? '' : ` (${fight.message ?? '?'})`}`);
-    // Pump the weakened-Delrith conversation: narration pages (his taunts and
-    // "Now what was that incantation again?") need a click before the
-    // p_choice4 opens, and the old loop only clicked pages that already had a
-    // choice, so it spent a whole attack round per narration page.
+    // Drive the weakened-Delrith conversation ONE page per settle. Two
+    // measured traps live here:
+    //   - a click issued on the same tick as the page read is refused by the
+    //     client (`resumedPauseButton` latched, `success=false`), and a
+    //     click-per-tick pump then delivers stale clicks onto the NEXT page —
+    //     which is how a run picked a wrong incantation option, restored
+    //     Delrith and left the journal at 29/silverlight for ten rounds;
+    //   - a message box (`message1..5`) publishes text only, so its advance
+    //     packet is the bare continue (RESUME_PAUSEBUTTON, option index 0).
+    // So: read, click once, then give the client 3 ticks to publish the next
+    // page before reading again.
     let quietPolls = 0;
-    for (let i = 0; i < 45; i++) {
-        await sdk.waitForTicks(1);
+    let clickedIncantation = false;
+    let incantationClickOk = false;
+    const talkDeadline = Date.now() + 60_000;
+    while (Date.now() < talkDeadline) {
         const dialog = sdk.getDialog();
         if (!dialog?.isOpen) {
-            // Nothing to pump: give the aggro a few ticks to weaken him, then
-            // hand back to the attack loop instead of idling out the budget.
-            if (++quietPolls >= 8) break;
+            if (++quietPolls >= (clickedIncantation ? 3 : 8)) break;
+            await sdk.waitForTicks(2);
             continue;
         }
         quietPolls = 0;
         const opts = dialog.options ?? [];
-        const choices = opts.filter(o => !/^click here to continue$/i.test(o.text));
-        if (choices.length === 0) {
-            if (opts.length === 1 && ((opts[0] as any).buttonType === 6 || !opts[0].text)) {
-                await sdk.sendClickDialog((opts[0] as any).index);
-            }
-            continue;
-        }
-        // Resolve against the LIVE page with no settle tick: the p_choice4 sits
-        // directly behind a chatplayer page, and any extra tick lets that page
-        // advance under us (measured: `clickDialogByText` returned no_match on a
-        // page we had just read, so no click was ever sent), while a click
-        // issued a tick early is refused and the run walks on to a completion
-        // checkpoint that can never pass (varp measured at 29/silverlight).
-        // So: re-match on this read, click by the matched index, and leave the
-        // retry to the loop — a choice page that survives is simply clicked
-        // again on the next pass, up to the iteration budget.
-        const liveChoices = (dialog.options ?? []).filter(o => !/^click here to continue$/i.test(o.text));
-        const livePick = liveChoices.find(o => DELRITH_INCANTATION.test(o.text));
-        if (!livePick) {
-            log(`WARN: Delrith choice without the incantation: ${liveChoices.map(o => o.text).join(' / ')}`);
-            await sdk.waitForTicks(1);
-            continue;
-        }
-        // Alternate the click form across rounds: the index path resolves the
-        // component from the client's own option list, the component path sends
-        // the id verbatim. Whichever mapping the server agrees with, one of the
-        // two lands — and a wrong pick only restores Delrith, so a round is
-        // cheap to repeat.
-        if (round % 2 === 0) {
-            log(`incantation -> ${livePick.text} via sendClickDialog(${livePick.index})`);
-            await sdk.sendClickDialog(livePick.index);
+        const pick = opts.find(o => DELRITH_INCANTATION.test(o.text));
+        if (pick) {
+            const res = await sdk.sendClickDialog(pick.index);
+            incantationClickOk = res.success;
+            log(`incantation -> ${pick.text} via sendClickDialog(${pick.index}): ${res.success}${res.success ? '' : ` (${res.message ?? 'rejected'})`}`);
+            clickedIncantation = true;
+        } else if (opts.length <= 1) {
+            const texts = ((dialog as any).allComponents ?? []).filter((c: any) => c.text).map((c: any) => c.text);
+            const res = await sdk.sendClickDialog(0);
+            log(`dialog page ${JSON.stringify(texts.slice(-2))} -> continue: ${res.success}`);
         } else {
-            log(`incantation -> ${livePick.text} via sendClickComponent(${(livePick as any).componentId})`);
-            await sdk.sendClickComponent((livePick as any).componentId);
+            log(`WARN: Delrith choice without the incantation: ${opts.map(o => o.text).join(' / ')}`);
         }
-        // Pump the banishing pages (the mesbox pauses for a click) and then
-        // PROVE the branch with the journal. A wrong incantation collapses the
-        // vortex and leaves the quest active — believing the click receipt is
-        // how a run reached the completion checkpoint with varp still at 29.
-        for (let pump = 0; pump < 25; pump++) {
-            const page = sdk.getDialog();
-            if (page?.isOpen) {
-                const opts = page.options ?? [];
-                if (opts.length === 1) await sdk.sendClickDialog((opts[0] as any).index);
-                await sdk.waitForTicks(2);
-                continue;
-            }
-            await sdk.waitForTicks(2);
-        }
-        const afterStage = await readStage({ fresh: true });
-        log(`after incantation: journal stage ${afterStage}`);
-        if (afterStage === 'complete') {
-            banished = true;
-            break;
-        }
-        log('incantation did not complete the quest — re-engaging Delrith');
+        await sdk.waitForTicks(3);
+    }
+    if (!clickedIncantation) {
+        const stageNow = await readStage();
+        log(`no incantation dialog after round ${round + 1} — journal stage ${stageNow}`);
+        if (stageNow === 'complete') break;
         continue;
     }
+    // The banishing is a SERVER-side script (delrith.rs2) whose last line is
+    // `queue(demon_slayer_complete, 1, 0)`; it is enqueued only after the
+    // mesbox page is dismissed and fires ~4-5s later (npc_delay 2 ticks + the
+    // queue delay). Opening the journal inside that chain is a MAIN modal, and
+    // a main modal opened while the banishing script is PAUSED destroys it
+    // (Player.ts:825, 2067) — so the first read must come after the queue has
+    // landed.
+    log(`incantation click accepted=${incantationClickOk} — idling 9s for the queued completion`);
+    await new Promise(resolve => setTimeout(resolve, 9_000));
+    let afterStage: Stage = 'unknown';
+    let polls = 0;
+    const verifyUntil = Date.now() + 15_000;
+    while (Date.now() < verifyUntil) {
+        polls++;
+        const read = await readJournalCheckpoint(sdk, JOURNAL, RULES.complete!);
+        const verdict = read.verdict?.verdict ?? 'UNKNOWN';
+        log(`banish poll ${polls}: journal complete=${verdict} (${read.reason})`);
+        if (verdict === 'PASS') {
+            afterStage = 'complete';
+            break;
+        }
+        await closeJournalIfOpen();
+        await sdk.waitForTicks(2);
+    }
+    log(`after incantation: journal stage ${afterStage} (${polls} polls)`);
+    if (afterStage === 'complete') {
+        banished = true;
+        break;
+    }
+    log('incantation did not complete the quest — re-engaging Delrith');
     if (!banished) {
         // Do NOT re-record `silverlight` here: it is a REQUIRED checkpoint and
         // the grader scores the LATEST verdict per id, so one UNKNOWN mid-fight
