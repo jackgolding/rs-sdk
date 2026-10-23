@@ -71,7 +71,7 @@
         {
             "name": "fatpig",
             "view": "fleet",
-            "script": "bots/quests/climb-down.ts",
+            "script": "bots/quests/rune-mysteries.ts",
             "args": [
                 "fatpig"
             ]
@@ -203,7 +203,7 @@
         {
             "name": "jacklove13",
             "view": "loves",
-            "script": "bots/quests/climb-down.ts",
+            "script": "bots/quests/druidic-ritual.ts",
             "args": [
                 "jacklove13"
             ]
