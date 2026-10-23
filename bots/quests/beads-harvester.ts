@@ -9,8 +9,8 @@
  * withdraws one of each (`imp-catcher.ts` takes banked beads before hunting).
  *
  * The quest script keeps its own hunt path: if the bank is empty it still works,
- * just slowly. This script never touches the quest — it kills imps, keeps beads,
- * banks the rest.
+ * just slowly. This script never touches the quest — it kills imps, banks the
+ * beads and the rest of the loot, and keeps only food in hand.
  *
  * Movement plans with the offline planner (`findLongPath`) and walks the
  * planner's TURN POINTS in order — see "route walking" below. It never uses
@@ -122,6 +122,18 @@ const vitals = () => {
 };
 const beadCount = () => sdk.getInventory().filter((i) => BEAD.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0);
 const foodCount = () => sdk.getInventory().filter((i) => FOOD.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0);
+/**
+ * Beads banked so far this run.
+ *
+ * Beads do NOT stack: 26 of them occupy all 26 inventory slots. A harvester that
+ * keeps them in the bag therefore sets `bagFull` permanently, and every loop
+ * iteration banks (depositing nothing) and walks back to the camp without ever
+ * reaching the attack step — 0 attacks, 0 kills, forever, until the trip cap
+ * ends the run. They go in the bank like the rest of the loot (imp-catcher.ts
+ * withdraws them from there), and run progress is bag + bank.
+ */
+let beadsBanked = 0;
+const beadsGathered = () => beadCount() + beadsBanked;
 const dist = (x: number, z: number) => Math.hypot(pos().x - x, pos().z - z);
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -671,13 +683,18 @@ async function bankTrip(): Promise<void> {
         }
     }
     await sdk.waitForTicks(2);
-    // Keep beads and food; everything else (loot) goes in.
-    for (const item of sdk.getInventory().filter((i) => (i.count ?? 0) > 0 && !BEAD.test(i.name) && !FOOD.test(i.name))) {
+    // Beads go IN with the loot (imp-catcher.ts withdraws them from the bank):
+    // they do not stack, so keeping them fills the bag and deadlocks the hunt.
+    // Food stays — it is the only thing the camp needs in hand.
+    const heldBefore = beadCount();
+    for (const item of sdk.getInventory().filter((i) => (i.count ?? 0) > 0 && !FOOD.test(i.name))) {
         await bot.depositItem(item, -1);
     }
+    await sdk.waitForTicks(2);
+    beadsBanked += Math.max(0, heldBefore - beadCount());
     await bot.closeInterface();
-    session.noteProgress('bank', `banked loot; beads held ${beadCount()}`);
-    log(`bank trip done — beads held ${beadCount()}${TARGET > 0 ? `/${TARGET}` : ''}`);
+    session.noteProgress('bank', `banked loot; ${beadsBanked} bead(s) in the bank`);
+    log(`bank trip done — ${beadsBanked} bead(s) banked${TARGET > 0 ? `, ${beadsGathered()}/${TARGET} gathered` : ''}`);
     reportRate();
 }
 
@@ -697,9 +714,11 @@ function stillAlive(x: number, z: number): boolean {
 /** One line of measured rate, not a guess: beads per kill and per hour. */
 function reportRate(): void {
     const hours = (Date.now() - startedAt) / 3_600_000;
-    const perKill = kills > 0 ? (beadCount() / kills).toFixed(3) : '—';
-    const perHour = hours > 0.02 ? (beadCount() / hours).toFixed(1) : '—';
-    log(`rate: ${kills} kills, ${attacks} attacks, ${beadCount()} beads held (${perKill}/kill, ${perHour}/hour, ${trips} trip(s))`);
+    const perKill = kills > 0 ? (beadsGathered() / kills).toFixed(3) : '—';
+    const perHour = hours > 0.02 ? (beadsGathered() / hours).toFixed(1) : '—';
+    log(
+        `rate: ${kills} kills, ${attacks} attacks, ${beadsGathered()} bead(s) gathered (${beadCount()} in bag, ${beadsBanked} banked) (${perKill}/kill, ${perHour}/hour, ${trips} trip(s))`,
+    );
 }
 const deadline = MINUTES > 0 ? Date.now() + MINUTES * 60_000 : Number.POSITIVE_INFINITY;
 
@@ -726,13 +745,13 @@ if (!(await reach(IMP_CAMP, 'imp camp', campAccept))) {
     await parkForever('could not route to the imp camp');
 }
 
-while (TARGET <= 0 || beadCount() < TARGET) {
+while (TARGET <= 0 || beadsGathered() < TARGET) {
     if (session.isStoppedOrRequested()) {
         log('stop requested — banking and finishing');
         break;
     }
     if (Date.now() > deadline) {
-        log(`time budget spent with ${beadCount()}/${TARGET} beads`);
+        log(`time budget spent with ${beadsGathered()}/${TARGET} beads`);
         break;
     }
     if (!sdk.isConnected() || !sdk.getState()) {
@@ -759,7 +778,10 @@ while (TARGET <= 0 || beadCount() < TARGET) {
             continue;
         }
         if (bagFull || sinceTrip > TRIP_KILLS) {
-            if (trips >= MAX_TRIPS) {
+            // The trip cap bounds a run that was given a target or a time budget.
+            // A standing harvester (`--target=0 --minutes=0`) is "run until
+            // stopped", so banking never ends it.
+            if (trips >= MAX_TRIPS && (TARGET > 0 || MINUTES > 0)) {
                 log('trip budget spent');
                 break;
             }
@@ -799,7 +821,7 @@ while (TARGET <= 0 || beadCount() < TARGET) {
             const before = beadCount();
             await bot.pickupItem(drop);
             await sdk.waitForTicks(1);
-            if (beadCount() > before) session.noteProgress('inventory', `bead ${beadCount()}/${TARGET}`);
+            if (beadCount() > before) session.noteProgress('inventory', `bead ${beadsGathered()}/${TARGET}`);
         }
         sinceTrip++;
     } catch (error) {
@@ -809,9 +831,9 @@ while (TARGET <= 0 || beadCount() < TARGET) {
     }
 }
 
-log(`finished with ${beadCount()} bead(s) after ${trips} trip(s)`);
+log(`finished with ${beadsGathered()} bead(s) after ${trips} trip(s)`);
 reportRate();
 await bankTrip().catch((error: unknown) => log(`final bank trip failed: ${(error as Error).message}`));
-const reached = TARGET > 0 && beadCount() >= TARGET;
-session.stop(reached ? 'done' : 'stopped', `harvester: ${beadCount()} bead(s), ${kills} kills`, { restartable: false });
-await parkForever(`harvester loop finished (${beadCount()} bead(s), ${trips} trip(s))`);
+const reached = TARGET > 0 && beadsGathered() >= TARGET;
+session.stop(reached ? 'done' : 'stopped', `harvester: ${beadsGathered()} bead(s), ${kills} kills`, { restartable: false });
+await parkForever(`harvester loop finished (${beadsGathered()} bead(s), ${trips} trip(s))`);
