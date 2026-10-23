@@ -291,25 +291,28 @@
         {
             "name": "ABGARMY03",
             "view": "army",
-            "script": "bots/quests/climb-down.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "ABGARMY03"
+                "ABGARMY03",
+                "--bignet"
             ]
         },
         {
             "name": "ABGARMY04",
             "view": "army",
-            "script": "bots/quests/climb-down.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "ABGARMY04"
+                "ABGARMY04",
+                "--bignet"
             ]
         },
         {
             "name": "ABGARMY05",
             "view": "army",
-            "script": "bots/quests/climb-down.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "ABGARMY05"
+                "ABGARMY05",
+                "--bignet"
             ]
         },
         {
@@ -413,17 +416,19 @@
         {
             "name": "ABGARMY17",
             "view": "army",
-            "script": "bots/quests/climb-down.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "ABGARMY17"
+                "ABGARMY17",
+                "--bignet"
             ]
         },
         {
             "name": "ABGARMY18",
             "view": "army",
-            "script": "bots/quests/climb-down.ts",
+            "script": "bots/quests/fishing-route.ts",
             "args": [
-                "ABGARMY18"
+                "ABGARMY18",
+                "--bignet"
             ]
         },
         {
