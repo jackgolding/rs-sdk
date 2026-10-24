@@ -270,26 +270,28 @@ for (;;) {
   await drain();
   if (stopping) process.exit(143);
   if (thenCmd.length) {
-    log(`handing over to ${thenCmd.join(' ')}`);
-    const run = runChild(thenCmd);
-    let exited: { code: number } | null = null;
-    let paused = false;
-    run.then(r => { exited = r; });
-    while (!exited && !stopping) {
-      await Promise.race([run, Bun.sleep(RECHECK_MS)]);
-      if (exited || stopping) break;
-      if (listGrew()) {
-        log(`new quests on the list (${pending().map(i => i.questId).join(', ')}) — pausing ${thenCmd[0]}`);
-        paused = true;
-        try { child?.kill('SIGTERM'); } catch { /* gone */ }
-        await run;
-        break;
-      }
-    }
-    if (stopping) process.exit(143);
-    if (paused) continue;
-    // The grind ended on its own: surface its exit code to the supervisor.
-    process.exit((exited as { code: number } | null)?.code ?? 1);
+    // The grind runs IN THIS PROCESS (dynamic import with its own argv), not as
+    // a child: a parent bun idling next to every grind cost ~26 MB per bot on a
+    // box that already swaps. Picking up newly appended quests is then a
+    // graceful self-stop — SIGTERM to ourselves lets the grind's own drain
+    // handler run, the container restarts, and the fresh runner drains the
+    // list before importing the grind again. One restart per rollout, never a
+    // loop: the list only grows when a quest is promoted.
+    log(`handing over to ${thenCmd.join(' ')} (in-process)`);
+    for (const sig of ['SIGTERM', 'SIGINT'] as const) process.removeAllListeners(sig);
+    const watch = setInterval(() => {
+      if (!listGrew()) return;
+      clearInterval(watch);
+      log(`new quests on the list (${pending().map(i => i.questId).join(', ')}) — stopping ${thenCmd[0]} so the runner restarts into them`);
+      if (process.listenerCount('SIGTERM') > 0) process.kill(process.pid, 'SIGTERM');
+      setTimeout(() => process.exit(0), process.listenerCount('SIGTERM') > 0 ? 60_000 : 0);
+    }, RECHECK_MS);
+    process.argv = [process.argv[0]!, join(process.cwd(), thenCmd[0]!), ...thenCmd.slice(1)];
+    await import(join(process.cwd(), thenCmd[0]!));
+    // A grind module that returns (top-level code finished) without exiting
+    // still has its timers/sockets alive; leave the process to them and the
+    // watcher. Nothing more to do here.
+    await new Promise<never>(() => {});
   }
   log('nothing to hand over to — parked (add --then <script> [args] to the roster args)');
   for (;;) {
