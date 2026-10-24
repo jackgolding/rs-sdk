@@ -445,14 +445,61 @@ async function checkpoint(name: keyof typeof RULES, label: string): Promise<bool
 }
 
 /**
+ * Re-read one checkpoint a bounded number of times, settling between attempts.
+ *
+ * A varp written at the end of a dialog is only visible on the NEXT journal
+ * open, and on a prod link the journal click can land before the client has
+ * finished consuming the last dialog packets — so ONE immediate read is not
+ * evidence that a stage was never armed (rule 71: two live stages were
+ * declared failed seconds after they had actually succeeded). Every read is
+ * recorded, and the grader scores the LATEST verdict per checkpoint id, so an
+ * early FAIL followed by PASS still grades PASS.
+ */
+async function pollCheckpoint(name: keyof typeof RULES, label: string, attempts = 4, settleTicks = 5): Promise<boolean> {
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+        if (attempt > 1) {
+            log(`checkpoint ${name} not proven yet (read ${attempt}/${attempts}) — settling ${settleTicks} ticks`);
+            if (sdk.getDialog()?.isOpen) {
+                // A page left half-answered blocks the journal modal; clear it
+                // before re-reading (the caller re-talks anyway).
+                log('a dialog is still open mid-check — dismissing it before the re-read');
+                await bot.dismissBlockingUI().catch(() => undefined);
+            }
+            await sdk.waitForTicks(settleTicks);
+        }
+        if (await checkpoint(name, label)) return true;
+    }
+    return false;
+}
+
+/**
  * Drive a multi-page NPC dialog. Each round, the first option matching the
  * earliest unmatched pick wins; unmatched option lists fall through to the
  * first option so quest dialogs never stall on flavour branches. Returns when
  * the dialog stays closed.
+ *
+ * ONE CLICK PER CHOICE MENU. A menu re-read while the server has not yet
+ * answered the previous click must NOT be clicked again: the click carries an
+ * option INDEX, so a repeat lands on whatever page the server advanced to and
+ * answers THAT page's option at the same index while reporting success (rule
+ * 54). Sir Prysin's opening page is the dangerous case — its options 1 and 2
+ * are flavour branches that end the conversation with no varp change, so one
+ * double-click leaves the journal at talked_aris and the stage dies with
+ * "required journal statement absent" even though every click succeeded.
+ * Continue pages are exempt (they are byte-identical by design, rule 39) and
+ * are always clickable, bounded by the round cap.
  */
-async function driveDialog(picks: RegExp[], maxRounds = 40): Promise<void> {
+async function driveDialog(picks: RegExp[], maxRounds = 60): Promise<void> {
     let quiet = 0;
-    for (let i = 0; i < maxRounds; i++) {
+    let lastChoiceSig = '';
+    let replays = 0;
+    let clicks = 0;
+    let rejected = 0;
+    for (let i = 0; i < maxRounds * 3; i++) {
+        if (clicks >= maxRounds) {
+            log(`dialog: reached the ${maxRounds}-click budget — leaving the pump`);
+            break;
+        }
         const dialog = sdk.getDialog();
         if (!dialog?.isOpen) {
             await sdk.waitForTicks(1);
@@ -463,16 +510,47 @@ async function driveDialog(picks: RegExp[], maxRounds = 40): Promise<void> {
         const options = dialog.options ?? [];
         // Dialog pages with no options just need a tick to advance.
         if (options.length === 0) {
+            lastChoiceSig = '';
             await sdk.waitForTicks(2);
             continue;
         }
-        const pick = picks.map(re => options.find(o => re.test(o.text))).find(Boolean) ?? options[0];
-        if (pick) {
-            log(`dialog -> ${pick.text}`);
-            await sdk.sendClickDialog(pick.index);
+        const isContinue = options.length <= 1
+            && options.every(o => /^click here to continue$/i.test(o.text));
+        const sig = options.map(o => `${o.componentId ?? '?'}:${o.text}`).join('|');
+        if (!isContinue) {
+            if (sig === lastChoiceSig) {
+                // Same menu we just answered and the server has not moved on yet.
+                // Wait for the publication instead of clicking it a second time.
+                replays++;
+                if (replays > 6) {
+                    log(`dialog: choice menu never advanced after ${replays} reads (${options.map(o => o.text).join(' / ')}) — abandoning the pump`);
+                    break;
+                }
+                await sdk.waitForTicks(2);
+                continue;
+            }
+            lastChoiceSig = sig;
+            replays = 0;
+        } else {
+            lastChoiceSig = '';
         }
+        const pick = picks.map(re => options.find(o => re.test(o.text))).find(Boolean) ?? options[0];
+        // Never read a page and click it on the SAME tick: the client latches
+        // the pause button on the publication tick and refuses IF_BUTTON with
+        // `client_rejected`, and the retry then answers a stale page (rule 54).
+        await sdk.waitForTicks(1);
+        const res = await sdk.sendClickDialog(pick.index);
+        clicks++;
+        if (!res?.success) {
+            rejected++;
+            log(`dialog -> ${pick.text} REJECTED (${res?.message ?? res?.reason ?? 'client_rejected'})`);
+            await sdk.waitForTicks(3);
+            continue;
+        }
+        log(`dialog -> ${pick.text}`);
         await sdk.waitForTicks(2);
     }
+    log(`dialog pump closed: ${clicks} click(s), ${rejected} rejected`);
     await bot.dismissBlockingUI();
 }
 
@@ -1341,15 +1419,35 @@ if (STAGE === 'unstarted') {
     }
     await session.setPhase('start-quest');
     await travelTo(approachTile(GYPSY_TENT), 'the Gypsy tent');
-    const gypsy = await bot.talkTo(/^gypsy$/i);
-    if (!gypsy.success) throw new Error(`could not talk to the Gypsy: ${gypsy.message ?? '?'}`);
-    // Fortune path: accept immediately ("Ok, here you go." pays the coin),
-    // take the future, agree to help. Flavour branches fall through to the
-    // first option via driveDialog.
-    await driveDialog([/ok, here you go|yes, please|go on then/i, /i'?ll (help|do it|try)|accept/i, /delrith/i]);
-
-    if (!(await checkpoint('talked_aris', 'Aris told the future, Prysin named'))) {
-        throw new Error('talked_aris checkpoint failed after the fortune');
+    // Journal-gated re-talk (rules 54/71). The start chain is 34 pages, and a
+    // single pumped pass that loses or repeats ONE page leaves the quest
+    // unstarted while every click reported success. Re-talking is safe at any
+    // stage: Aris only ever offers advice and never rewinds %demonstart, and
+    // `press on with it` is the clean exit from her mid-quest advice branch.
+    let told = false;
+    for (let attempt = 1; attempt <= 3 && !told; attempt++) {
+        if (attempt > 1) {
+            log(`Gypsy talk ${attempt}: the journal still does not read talked_aris — talking again`);
+            await sdk.waitForTicks(4);
+        }
+        const gypsy = await bot.talkTo(/^gypsy$/i);
+        if (!gypsy.success) {
+            log(`talk to the Gypsy attempt ${attempt} failed: ${gypsy.message ?? '?'}`);
+            continue;
+        }
+        // Fortune path: accept immediately ("Ok, here you go." pays the coin),
+        // take the future, agree to help. Flavour branches fall through to the
+        // first option via driveDialog.
+        await driveDialog([
+            /ok, here you go|yes, please|go on then/i,
+            /i'?ll (help|do it|try)|accept/i,
+            /delrith/i,
+            /press on with it/i,
+        ]);
+        told = await pollCheckpoint('talked_aris', `Aris told the future (talk ${attempt})`, 4, 5);
+    }
+    if (!told) {
+        throw new Error(`talked_aris checkpoint failed after 3 Gypsy talks at (${pos().x},${pos().z}) l${pos().level}`);
     }
 } else {
     log('Resuming mid-quest: the fortune is already journal-confirmed');
@@ -1366,22 +1464,55 @@ if (STAGE === 'unstarted' || STAGE === 'talked_aris') {
     // Prysin stands in the palace west room (L0), out of talk range from the
     // courtyard — walk inside first (walkTo opens the palace doors).
     await travelTo(approachTile(PRYSIN_ROOM), "Sir Prysin's room");
-    const prysin = await talkToWithDoors(/^sir prysin$/i, 'Sir Prysin (briefing)');
-    if (!prysin.success) throw new Error(`could not talk to Sir Prysin: ${prysin.message ?? '?'}`);
-    // "Gypsy Aris said I should come and talk to you." -> "I need to find
-    // Silverlight." -> hear out the three-key split (drain / Rovin / Traiborn).
-    // The closing line is picked FIRST: every intermediate page also offers
-    // "Can you give me your key?", so a flat pick list ping-pongs between the
-    // three inquiry pages until the loop cap (observed: ~40 rounds, ~35s).
-    await driveDialog([
-        /better go key hunting/i,
-        /gypsy aris said/i, /i need to find silverlight/i, /he'?s back|crystal ball/i,
-        /can you give me your key|so give me the keys|why is this a problem/i,
-        /what does the drain lead to|where can i find captain rovin|where does the wizard live/i,
-    ]);
-
-    if (!(await checkpoint('key_hunt', 'Prysin set the three-key hunt'))) {
-        throw new Error('key_hunt checkpoint failed after the Prysin briefing');
+    // The varp is armed at the END of a 20-page chain: sir_prysin.rs2 writes
+    // `%demonstart = ^demon_key_hunt` inside [label,demon_slayer_sir_prysin_keys],
+    // which is only reachable through the "So give me the keys!" / "And why is
+    // this a problem?" menu. One pumped pass is NOT evidence on a prod link —
+    // a single stale or repeated click ends the conversation on a flavour
+    // branch and the journal stays at talked_aris while every click reported
+    // success (the live canary died exactly there: key_hunt FAIL with the
+    // talked_aris journal verbatim, and every later stage missing). So gate the
+    // leg on the JOURNAL and re-talk (rule 54). Re-talking cannot rewind
+    // progress: once the varp IS armed Prysin switches to the
+    // key_search_progress branch, whose menu only offers reminders.
+    let armed = false;
+    for (let attempt = 1; attempt <= 3 && !armed; attempt++) {
+        if (attempt > 1) {
+            log(`Prysin briefing ${attempt}: the journal still does not read key_hunt — talking again`);
+            await sdk.waitForTicks(4);
+        }
+        const prysin = await talkToWithDoors(/^sir prysin$/i, `Sir Prysin (briefing ${attempt})`);
+        if (!prysin.success) {
+            log(`talk to Sir Prysin attempt ${attempt} failed: ${prysin.message ?? '?'}`);
+            continue;
+        }
+        // "Gypsy Aris said I should come and talk to you." -> "I need to find
+        // Silverlight." -> hear out the three-key split (drain / Rovin / Traiborn).
+        // The closing line is picked FIRST: every intermediate page also offers
+        // "Can you give me your key?", so a flat pick list ping-pongs between the
+        // three inquiry pages until the loop cap (observed: ~40 rounds, ~35s).
+        // The last two entries only ever match the already-armed re-talk branch
+        // and leave the conversation without touching a key.
+        await driveDialog([
+            /better go key hunting/i,
+            /gypsy aris said/i, /i need to find silverlight/i, /he'?s back|crystal ball/i,
+            /can you give me your key|so give me the keys|why is this a problem/i,
+            /what does the drain lead to|where can i find captain rovin|where does the wizard live/i,
+            /i'?m still looking/i, /remind me where/i,
+        ]);
+        armed = await pollCheckpoint('key_hunt', `Prysin set the three-key hunt (briefing ${attempt})`, 4, 5);
+    }
+    if (!armed) {
+        // Name what was in the way. A door that answers "The door is locked
+        // tight, I can't open it." is a CONTENT gate on quest state, not a
+        // routing bug — the record has to say which door and where the bot
+        // stood, or the next reader repeats this diagnosis from scratch.
+        const doors = (sdk.getNearbyLocs() ?? [])
+            .filter(l => /door|gate/i.test(l.name ?? ''))
+            .map(l => `${l.name}@(${l.x},${l.z})[${(l.optionsWithIndex ?? []).map(o => o.text).join('/')}]`)
+            .slice(0, 6).join(' ');
+        const prysinSeen = (sdk.getNearbyNpcs() ?? []).find(n => /prysin/i.test(n.name ?? ''));
+        throw new Error(`key_hunt checkpoint failed after 3 Prysin briefings at (${pos().x},${pos().z}) l${pos().level} — prysin=${prysinSeen ? `(${(prysinSeen as any).x},${(prysinSeen as any).z}) r=${(prysinSeen as any).reachable}` : 'NOT IN SCAN'} doors=${doors || 'none'}`);
     }
     // The briefing names the shopping list (bucket + fight food for the drain
     // leg). Bones come later on their own trip (bag budget: 25 bones + 5 food
@@ -1540,7 +1671,9 @@ async function drainKey(): Promise<void> {
     log(`picked up the drain key: ${take.success}${take.success ? '' : ` (${take.message ?? '?'})`}`);
     await sdk.waitForTicks(2);
     if (keyTotal() <= keysBefore) throw new Error('drain-key pickup changed nothing in the bag — the key is not where expected');
-    if (!(await checkpoint('key1_have', 'drain key recovered'))) {
+    // The BAG is the proof (a carried key renders "I have the 1st Key with
+    // me"); the journal read is only the record, so retry it before failing.
+    if (!(await pollCheckpoint('key1_have', 'drain key recovered', 4, 4))) {
         throw new Error('key1_have checkpoint failed after the sewer pickup');
     }
 }
@@ -1554,6 +1687,10 @@ async function rovinKey(): Promise<void> {
     if (!(await checkpoint('key2_missing', 'Rovin key still outstanding'))) {
         log('key2 probe UNKNOWN — attempting the Rovin leg anyway (inventory decides)');
     }
+    // Baseline for the grant, captured BEFORE the talk: the key can land while
+    // the last dialog page is still being consumed, and a baseline read after
+    // the dialog then already contains it (see the grant check below).
+    const keysBeforeRovin = keyTotal();
     await session.setPhase('keys-rovin');
     // HUMAN-VERIFIED ROUTE (qldemon2 walkthrough): the staircase at
     // ROVIN_STAIR_BASE (3203,3496) L0 climbs straight into Rovin's room at
@@ -1634,7 +1771,40 @@ async function rovinKey(): Promise<void> {
     // "Yes you are right. Here you go." + key. The gate above only offers the
     // third option while %demonstart is in the key hunt.
     await driveDialog([/but this is important/i, /demon who wants to invade this city/i]);
-    if (!(await checkpoint('key2_have', 'Rovin key received'))) {
+    // Gate the leg on the ITEM. The grant sits behind
+    // `if_close(); p_delay(2); mes(); inv_add(key)` — a few ticks AFTER the last
+    // page — so poll the bag instead of sampling once (rule 58). `keysBeforeRovin`
+    // was captured BEFORE the talk: reading the baseline after the dialog can
+    // already include the key, the comparison then never fires, and a re-talk
+    // double-grants (observed: 1 -> 3 keys, which silently skips the Traiborn
+    // leg and strands the run at the Silverlight handover).
+    for (let i = 0; i < 40 && keyTotal() === keysBeforeRovin; i++) await sdk.waitForTicks(1);
+    let gotRovin = keyTotal() > keysBeforeRovin;
+    if (!gotRovin) {
+        // Confirm against the journal before talking again: content re-grants
+        // the key on every visit to the demon branch while the hunt is open, so
+        // a retry issued into an in-flight grant duplicates it.
+        if (await checkpoint('key2_have', 'Rovin key received (pre-retry probe)')) {
+            log('Rovin key confirmed by the journal — no re-talk needed');
+            gotRovin = true;
+        }
+    }
+    if (!gotRovin) {
+        // Rovin's menu is a twin of Prysin's: options 1 and 2 end the
+        // conversation with no key, and the second page's option 3 ("The castle
+        // has just received its ale delivery") is another dead end — so one
+        // mis-answered page loses the leg. ONE bounded re-talk.
+        log(`Rovin handed over nothing (keys=${keyTotal()}, was ${keysBeforeRovin}) — one re-talk`);
+        await sdk.waitForTicks(4);
+        const again = await talkToWithDoors(/^captain rovin$/i, 'Captain Rovin (retry)', 30000);
+        if (!again.success) log(`Rovin retry could not talk: ${again.message ?? '?'}`);
+        else await driveDialog([/but this is important/i, /demon who wants to invade this city/i]);
+        for (let i = 0; i < 40 && keyTotal() === keysBeforeRovin; i++) await sdk.waitForTicks(1);
+        gotRovin = keyTotal() > keysBeforeRovin;
+    }
+    if (!gotRovin) throw new Error(`Captain Rovin never handed over a key (keys=${keyTotal()}, was ${keysBeforeRovin})`);
+    log(`Rovin key in the bag (keys=${keyTotal()})`);
+    if (!(await pollCheckpoint('key2_have', 'Rovin key received', 4, 4))) {
         throw new Error('key2_have checkpoint failed after Captain Rovin');
     }
     // Down the SAME SE shaft — never the west shaft, never a generic climb
@@ -1946,8 +2116,8 @@ async function traibornKey(): Promise<void> {
     // lands. Failing the leg on that would kill every otherwise-perfect run,
     // so accept the all-3 entry (or the 3-keys-in-bag count) as proof of the
     // final grant and record it as the all_3 checkpoint.
-    if (!(await checkpoint('key3_have', 'Traiborn key received'))) {
-        const allThree = await checkpoint('all_3', 'third key granted (all-3 journal entry)');
+    if (!(await pollCheckpoint('key3_have', 'Traiborn key received', 3, 4))) {
+        const allThree = await pollCheckpoint('all_3', 'third key granted (all-3 journal entry)', 3, 4);
         if (!allThree && keyTotal() < 3) {
             throw new Error(`key3_have checkpoint failed after the bones ritual (keys=${keyTotal()})`);
         }
@@ -1960,7 +2130,7 @@ await rovinKey();
 await traibornKey();
 
 // ── 6. all three keys -> Silverlight ────────────────────────────────────────
-if (!(await checkpoint('all_3', 'all three keys held, Prysin owes Silverlight'))) {
+if (!(await pollCheckpoint('all_3', 'all three keys held, Prysin owes Silverlight', 3, 4))) {
     // Inventory is the tiebreaker: the journal all-3 line only renders while
     // the keys are carried, so a banked key reads as key_hunt, not all_3.
     if (keyTotal() < 3) throw new Error(`all_3 checkpoint failed with ${keyTotal()} keys in the bag`);
