@@ -53,7 +53,9 @@ function resolveBank(): { slug: string; x: number; z: number } {
 
 const BANK = resolveBank();
 
-const DOWN = /climb-down|climb\.down|go-down|go\.down|^down$/i;
+// The Draynor Manor staircase option reads `Walk-down`, not `Climb-down` — an
+// exact-word regex left a plane-1 bot looping `no climb-down in scan` forever.
+const DOWN = /(climb|walk|go|step)[-. ]?down|^down$/i;
 const OPEN = /^open$/i;
 const STAIR = /stair|ladder/i;
 
@@ -232,7 +234,9 @@ await runScript(async ({ bot, sdk }) => {
         const walk = (await bound(bot.walkTo(BANK.x, BANK.z, 3) as never, 20000)) ?? { success: false, message: 'walkTo timed out' };
         const p = pos();
         log(`walk attempt ${round + 1}: ok=${(walk as { success?: boolean }).success} @ ${p.x},${p.z} L${p.level}`);
-        const bank = ((await bound(bot.openBank() as never, 10000)) as { success?: boolean; message?: string }) ?? {
+        // 20s: openBank walks to the nearest booth first, and a 10s bound cut it
+        // short on a bot standing two tiles from the Varrock West booth.
+        const bank = ((await bound(bot.openBank() as never, 20000)) as { success?: boolean; message?: string }) ?? {
             success: false,
             message: 'openBank timed out'
         };
