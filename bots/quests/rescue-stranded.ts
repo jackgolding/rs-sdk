@@ -72,6 +72,25 @@ await runScript(async ({ bot, sdk }) => {
         return { x: p?.worldX ?? 0, z: p?.worldZ ?? 0, level: p?.level ?? 0 };
     };
     const sleep = (n: number) => sdk.waitForTicks(n).catch(() => undefined);
+    /**
+     * Every SDK call here is bounded: a refused or unanswered action must not
+     * hang the rescue (an unbounded sendWalk/interact left a real run silent for
+     * minutes with the loop never reaching its next log line).
+     */
+    const bound = async <T>(p: Promise<T> | undefined, ms = 8000): Promise<T | undefined> => {
+        if (!p) return undefined;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            return await Promise.race([
+                p.catch(() => undefined),
+                new Promise<undefined>((r) => {
+                    timer = setTimeout(() => r(undefined), ms);
+                })
+            ]);
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+    };
     const locs = () => (sdk.getNearbyLocs() ?? []) as Array<{
         name?: string;
         x: number;
@@ -98,7 +117,7 @@ await runScript(async ({ bot, sdk }) => {
             if (Math.hypot(p.x - x, p.z - z) <= 1) return true;
             const step = nextWalkStep(p, { x, z }, 3);
             const before = `${p.x},${p.z}`;
-            await sdk.sendWalk(step.x, step.z, true).catch(() => false);
+            await bound(sdk.sendWalk(step.x, step.z, true) as never, 5000);
             await sleep(2);
             if (`${pos().x},${pos().z}` === before) return false;
         }
@@ -106,10 +125,10 @@ await runScript(async ({ bot, sdk }) => {
     };
 
     const openDoors = async () => {
-        await sdk.scanNearbyLocs(12).catch(() => []);
+        await bound(sdk.scanNearbyLocs(12) as never, 6000);
         let n = 0;
         for (const door of locs().filter((l) => hasOption(l, OPEN))) {
-            await bot.interactLoc(door as never, OPEN).catch(() => undefined);
+            await bound(bot.interactLoc(door as never, OPEN) as never, 6000);
             n++;
             await sleep(2);
         }
@@ -122,7 +141,7 @@ await runScript(async ({ bot, sdk }) => {
     //    to the nearest climb-down and a verified plane change per round.
     let sweeps = 0;
     for (let round = 0; round < 16 && pos().level > 0; round++) {
-        await sdk.scanNearbyLocs(20).catch(() => []);
+        await bound(sdk.scanNearbyLocs(20) as never, 6000);
         const downs = locs()
             .filter((l) => hasOption(l, DOWN))
             .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99));
@@ -161,22 +180,62 @@ await runScript(async ({ bot, sdk }) => {
         const before = pos().level;
         log(`climbing down ${stairs.name}@${stairs.x},${stairs.z} from L${before}`);
         if (Math.hypot(pos().x - stairs.x, pos().z - stairs.z) > 2) await chordTo(stairs.x, stairs.z);
-        await bot.interactLoc(stairs as never, DOWN).catch(() => undefined);
+        await bound(bot.interactLoc(stairs as never, DOWN) as never, 8000);
         for (let i = 0; i < 12 && pos().level === before; i++) await sleep(2);
         log(`  plane now L${pos().level} @ ${pos().x},${pos().z}`);
     }
     const grounded = pos().level === 0;
 
+    /**
+     * Last-resort escape from a pocket the pathfinder cannot leave: raw
+     * sendWalk hops toward the bank (walkTo reports `no waypoints` from inside
+     * a sealed room), opening doors and probing the 8 neighbours whenever a hop
+     * is refused. Returns true once a hop actually moved the bot.
+     */
+    const hopOut = async (round: number) => {
+        let moved = 0;
+        for (let h = 0; h < 12; h++) {
+            const p = pos();
+            if (Math.hypot(p.x - BANK.x, p.z - BANK.z) <= 3) break;
+            const step = nextWalkStep(p, BANK, 3);
+            const before = `${p.x},${p.z}`;
+            await bound(sdk.sendWalk(step.x, step.z, true) as never, 5000);
+            await sleep(2);
+            if (`${pos().x},${pos().z}` !== before) {
+                moved++;
+                continue;
+            }
+            const opened = await openDoors();
+            let escaped = false;
+            for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+                const q = pos();
+                await bound(sdk.sendWalk(q.x + dx, q.z + dz, true) as never, 5000);
+                await sleep(1);
+                if (`${pos().x},${pos().z}` !== `${q.x},${q.z}`) {
+                    escaped = true;
+                    moved++;
+                    break;
+                }
+            }
+            if (!escaped) log(`hop ${h + 1} refused at ${pos().x},${pos().z} (doors opened ${opened}) — no exit step`);
+        }
+        log(`hop-out round ${round + 1}: moved ${moved} hops -> @ ${pos().x},${pos().z} L${pos().level}`);
+        return moved > 0;
+    };
+
     // 2. Walk out and reach the bank. A sealed pocket refuses a long plan, so
-    //    every round opens the doors in reach and retries; success is proven by
-    //    the BANK OPENING, not by distance (the target bank is often only a few
-    //    tiles from the pocket).
+    //    every round opens the doors in reach, retries walkTo, then falls back to
+    //    raw hops. Success is proven by the BANK OPENING, not by distance (the
+    //    target bank is often only a few tiles from the pocket).
     let banked = false;
     for (let round = 0; round < 14 && grounded && !banked; round++) {
-        const walk = await bot.walkTo(BANK.x, BANK.z, 3).catch((e) => ({ success: false, message: String(e) }));
+        const walk = (await bound(bot.walkTo(BANK.x, BANK.z, 3) as never, 20000)) ?? { success: false, message: 'walkTo timed out' };
         const p = pos();
         log(`walk attempt ${round + 1}: ok=${(walk as { success?: boolean }).success} @ ${p.x},${p.z} L${p.level}`);
-        const bank = await bot.openBank().catch((e) => ({ success: false, message: String(e) }));
+        const bank = ((await bound(bot.openBank() as never, 10000)) as { success?: boolean; message?: string }) ?? {
+            success: false,
+            message: 'openBank timed out'
+        };
         if (bank.success) {
             banked = true;
             break;
@@ -184,6 +243,7 @@ await runScript(async ({ bot, sdk }) => {
         const opened = await openDoors();
         await sleep(2);
         log(`bank closed (${(bank as { message?: string }).message ?? 'unknown'}); doors opened ${opened}`);
+        if (!(walk as { success?: boolean }).success) await hopOut(round);
     }
 
     if (banked) {
@@ -191,9 +251,9 @@ await runScript(async ({ bot, sdk }) => {
         for (let pass = 0; pass < 24; pass++) {
             const item = sdk.getInventory().find((i) => (i.count ?? 0) > 0);
             if (!item) break;
-            await bot.depositItem(item, -1).catch(() => undefined);
+            await bound(bot.depositItem(item, -1) as never, 8000);
         }
-        await bot.closeBank().catch(() => undefined);
+        await bound(bot.closeBank() as never, 8000);
     }
 
     const p = pos();
