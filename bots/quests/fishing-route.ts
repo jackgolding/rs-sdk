@@ -1550,7 +1550,14 @@ async function musaToBrimhaven(): Promise<void> {
     log('Walking Musa Point → Brimhaven');
     for (const wp of MUSA_TO_BRIMHAVEN) {
         if (!onMusa()) break;
+        const before = pos();
         await walkNear(wp.x, wp.z, 8);
+        // Fail fast: if a hop makes no progress the rest won't either.
+        // Return and let the caller reroute instead of grinding every hop.
+        if (onMusa() && distTo(wp.x, wp.z) > 8 && Math.abs(pos().x - before.x) + Math.abs(pos().z - before.z) < 3) {
+            log(`Musa hop ${wp.x},${wp.z} stuck @ ${pos().x},${pos().z} — giving up this pass`);
+            return;
+        }
     }
     await walkNear(BRIMHAVEN_CUSTOMS.x, BRIMHAVEN_CUSTOMS.z, 5);
 }

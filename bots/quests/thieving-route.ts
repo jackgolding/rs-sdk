@@ -340,7 +340,24 @@ function inLegendsGuild(): boolean {
 
 function onKaramja(): boolean {
     const p = pos();
-    return p.x > 2680 && p.x < 3010 && p.z > 3040 && p.z < 3270;
+    // Riders on the Port Sarim <-> Musa Point ship deck count as Karamja:
+    // the musaToBrimhaven() branch retries leaveDockedShip() every pass,
+    // which is what gets them ashore at Musa. Without this, riders take
+    // the portSarimToMusa() branch, whose walkTo fails mid-voyage and
+    // spins "No sailor at Port Sarim" for the whole crossing.
+    // Level-independent: this ship's deck reports level 0, so a level
+    // gate misses it (no mainland tile exists inside this rect to collide
+    // with — Rimmington sits 50+ tiles north).
+    if (p.x >= 2948 && p.x <= 2962 && p.z >= 3138 && p.z <= 3148) return true;
+    // East edge is 2920, not 3010: the Musa road, Karamja men (2889,3173)
+    // and Brimhaven all sit west of it, while mainland Port Sarim /
+    // Rimmington (2920+) sits east. The old bound classified the mainland
+    // coast as Karamja, so returnToArdougne() walked the Musa->Brimhaven
+    // island leg across open sea forever instead of walking the Port
+    // Sarim road back west (jacklove14, Oct 2026). Ported from
+    // fishing-route, where the same misclassification already stranded
+    // bots the same way.
+    return p.x > 2680 && p.x < 2920 && p.z > 3040 && p.z < 3270;
 }
 
 function onMusa(): boolean {
@@ -2284,7 +2301,15 @@ async function musaToBrimhaven(): Promise<void> {
     log('Walking Musa Point → Brimhaven (skip Musa customs, skip Grubor house)');
     for (const wp of MUSA_TO_BRIMHAVEN) {
         if (!onMusa()) break;
+        const before = pos();
         await walkNear(wp.x, wp.z, 8);
+        // Fail fast: if a hop makes no progress the rest won't either
+        // (jungle-cut road). Return and let the caller or stall recovery
+        // reroute instead of grinding every hop each pass.
+        if (onMusa() && distTo(wp.x, wp.z) > 8 && Math.abs(pos().x - before.x) + Math.abs(pos().z - before.z) < 3) {
+            log(`Musa hop ${wp.x},${wp.z} stuck @ ${pos().x},${pos().z} — giving up this pass`);
+            return;
+        }
     }
     await leaveGruborHouse();
     await walkNear(BRIMHAVEN_CUSTOMS.x, BRIMHAVEN_CUSTOMS.z, 5);
@@ -2800,6 +2825,14 @@ async function returnToArdougne(): Promise<void> {
     }
     if (onKaramja()) {
         await brimhavenToArdougne();
+        return;
+    }
+    // Mainland east of Ardougne (Port Sarim road) sits in neither the
+    // Kandarin nor the Karamja box — walk it straight back instead of
+    // detouring via the White Wolf or wildy-bank branches below.
+    if (pos().x >= 2878 && pos().x < 3100 && pos().z >= 3200 && pos().z < 3320) {
+        intent('Walking Port Sarim road → Ardougne');
+        await walkNear(ARDOUGNE_MARKET.x, ARDOUGNE_MARKET.z, 8);
         return;
     }
 
