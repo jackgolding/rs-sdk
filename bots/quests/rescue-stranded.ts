@@ -53,6 +53,23 @@ function resolveBank(): { slug: string; x: number; z: number } {
 
 const BANK = resolveBank();
 
+/**
+ * Optional operator route (`--route=x,z;x,z;…`), computed offline from this
+ * account's tile with `findLongPath` in the fleet checkout. Needed where walkTo
+ * gives up: inside a building group it marks an unopenable door as impassable and
+ * then reports no route at all, while the atlas still holds a clean path.
+ */
+const ROUTE: Array<{ x: number; z: number }> = (() => {
+    const raw: string | undefined = (args as string[]).find((a: string) => a.startsWith('--route='));
+    if (!raw) return [];
+    const pairs = raw
+        .slice('--route='.length)
+        .split(';')
+        .map((pair: string) => pair.split(',').map((n: string) => Number(n.trim())))
+        .filter((p: number[]) => p.length === 2 && p.every((n: number) => Number.isFinite(n) && n > 0));
+    return pairs.map(([x, z]: number[]) => ({ x, z }));
+})();
+
 // The Draynor Manor staircase option reads `Walk-down`, not `Climb-down` — an
 // exact-word regex left a plane-1 bot looping `no climb-down in scan` forever.
 const DOWN = /(climb|walk|go|step)[-. ]?down|^down$/i;
@@ -126,15 +143,58 @@ await runScript(async ({ bot, sdk }) => {
         return Math.hypot(pos().x - x, pos().z - z) <= 2;
     };
 
-    const openDoors = async () => {
+    const openDoors = async (max = 3) => {
         await bound(sdk.scanNearbyLocs(12) as never, 6000);
+        // Nearest few only: each interactLoc walks to the door first (~10s with its
+        // own retries), so a room with 27 doors costs minutes per pass.
+        const doors = locs()
+            .filter((l) => hasOption(l, OPEN))
+            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))
+            .slice(0, max);
         let n = 0;
-        for (const door of locs().filter((l) => hasOption(l, OPEN))) {
+        for (const door of doors) {
             await bound(bot.interactLoc(door as never, OPEN) as never, 6000);
             n++;
             await sleep(2);
         }
         return n;
+    };
+
+    /**
+     * Walk an operator-supplied route (`--route=x,z;x,z;…`) with raw hops.
+     *
+     * Why not walkTo: inside a building group walkTo marks a door it cannot open
+     * as impassable for the rest of the session and then reports no route at all,
+     * even though the collision atlas holds a clean path (Draynor Manor grounds ->
+     * Draynor bank is 66 waypoints). The route is computed offline from the
+     * account's tile; waypoints already behind the bot are skipped, and a
+     * waypoint that refuses three hops is abandoned so one bad tile cannot wedge
+     * the leg.
+     */
+    const walkRoute = async (route: Array<{ x: number; z: number }>) => {
+        let done = 0;
+        for (let i = 0; i < route.length; i++) {
+            const wp = route[i];
+            if (Math.hypot(pos().x - wp.x, pos().z - wp.z) <= 2) continue;
+            let refused = 0;
+            for (let hop = 0; hop < 6 && refused < 3; hop++) {
+                const p = pos();
+                if (Math.hypot(p.x - wp.x, p.z - wp.z) <= 2) break;
+                if (Math.hypot(p.x - wp.x, p.z - wp.z) > 12) break; // drifted away from this leg
+                const step = nextWalkStep(p, wp, 3);
+                const before = `${p.x},${p.z}`;
+                await bound(sdk.sendWalk(step.x, step.z, true) as never, 5000);
+                await sleep(2);
+                if (`${pos().x},${pos().z}` === before) {
+                    refused++;
+                    await openDoors(2);
+                }
+            }
+            if (refused < 3) done++;
+            if (i % 10 === 0) log(`route ${i + 1}/${route.length} @ ${pos().x},${pos().z} (${done} cleared)`);
+        }
+        log(`route walked: ${done}/${route.length} waypoints cleared -> @ ${pos().x},${pos().z} L${pos().level}`);
+        return Math.hypot(pos().x - BANK.x, pos().z - BANK.z) <= 6;
     };
 
     log(`RESCUE start @ ${pos().x},${pos().z} L${pos().level} bank=${BANK.slug}(${BANK.x},${BANK.z})`);
@@ -231,9 +291,19 @@ await runScript(async ({ bot, sdk }) => {
     //    target bank is often only a few tiles from the pocket).
     let banked = false;
     for (let round = 0; round < 14 && grounded && !banked; round++) {
-        const walk = (await bound(bot.walkTo(BANK.x, BANK.z, 3) as never, 20000)) ?? { success: false, message: 'walkTo timed out' };
-        const p = pos();
-        log(`walk attempt ${round + 1}: ok=${(walk as { success?: boolean }).success} @ ${p.x},${p.z} L${p.level}`);
+        if (ROUTE.length) {
+            // A supplied route is authoritative: walk it raw, then bank.
+            await walkRoute(ROUTE);
+        } else {
+            const walk = (await bound(bot.walkTo(BANK.x, BANK.z, 3) as never, 20000)) ?? { success: false, message: 'walkTo timed out' };
+            const p = pos();
+            log(`walk attempt ${round + 1}: ok=${(walk as { success?: boolean }).success} @ ${p.x},${p.z} L${p.level}`);
+            if (!(walk as { success?: boolean }).success) {
+                const opened = await openDoors();
+                log(`doors opened ${opened}`);
+                if (round < 6) await hopOut(round);
+            }
+        }
         // 20s: openBank walks to the nearest booth first, and a 10s bound cut it
         // short on a bot standing two tiles from the Varrock West booth.
         const bank = ((await bound(bot.openBank() as never, 20000)) as { success?: boolean; message?: string }) ?? {
@@ -244,10 +314,8 @@ await runScript(async ({ bot, sdk }) => {
             banked = true;
             break;
         }
-        const opened = await openDoors();
+        log(`bank closed at ${pos().x},${pos().z} (${(bank as { message?: string }).message ?? 'unknown'})`);
         await sleep(2);
-        log(`bank closed (${(bank as { message?: string }).message ?? 'unknown'}); doors opened ${opened}`);
-        if (!(walk as { success?: boolean }).success) await hopOut(round);
     }
 
     if (banked) {
