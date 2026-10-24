@@ -35,8 +35,11 @@
         {
             "name": "Jackpoo2",
             "view": "fleet",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "Jackpoo2",
+                "--then",
+                "bots/quests/fishing-route.ts",
                 "Jackpoo2",
                 "--bignet"
             ]
@@ -71,9 +74,13 @@
         {
             "name": "fatpig",
             "view": "fleet",
-            "script": "bots/quests/dorics-quest.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
-                "fatpig"
+                "fatpig",
+                "--then",
+                "bots/quests/fishing-route.ts",
+                "fatpig",
+                "--bignet"
             ]
         },
         {
@@ -126,8 +133,11 @@
         {
             "name": "jackthief",
             "view": "fleet",
-            "script": "bots/quests/rune-mysteries.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "jackthief",
+                "--then",
+                "bots/quests/rune-mysteries.ts",
                 "jackthief"
             ]
         },
@@ -203,9 +213,13 @@
         {
             "name": "jacklove13",
             "view": "loves",
-            "script": "bots/quests/witchs-potion.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
-                "jacklove13"
+                "jacklove13",
+                "--then",
+                "bots/quests/fishing-route.ts",
+                "jacklove13",
+                "--bignet"
             ]
         },
         {
@@ -264,8 +278,11 @@
         {
             "name": "jacklove20",
             "view": "loves",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "jacklove20",
+                "--then",
+                "bots/quests/fishing-route.ts",
                 "jacklove20",
                 "--bignet"
             ]
@@ -343,8 +360,11 @@
         {
             "name": "ABGARMY09",
             "view": "army",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "ABGARMY09",
+                "--then",
+                "bots/quests/thieving-route.ts",
                 "ABGARMY09",
                 "--knights"
             ]
@@ -370,8 +390,11 @@
         {
             "name": "ABGARMY12",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "ABGARMY12",
+                "--then",
+                "bots/quests/fishing-route.ts",
                 "ABGARMY12",
                 "--bignet"
             ]
@@ -442,8 +465,11 @@
         {
             "name": "ABGARMY20",
             "view": "army",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "ABGARMY20",
+                "--then",
+                "bots/quests/thieving-route.ts",
                 "ABGARMY20"
             ]
         }

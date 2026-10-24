@@ -13,10 +13,11 @@
 import { BotSDK, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
-import { appendGrindLog } from '../../sdk/grind-log';
-import { existsSync, readFileSync } from 'fs';
-import { walkKandarinToEdgeville } from './movement';
+import { existsSync, readFileSync, appendFileSync } from 'fs';
 import { dirname, join } from 'path';
+import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
+import { createRun, appendCheckpoint, summarizeRun, safeRunId } from '../../quest-lab/records';
+import type { JournalRule } from '../../quest-lab/evidence';
 
 const UNSHEERED_ID = 43;
 const FRED = { x: 3190, z: 3274 };
@@ -43,7 +44,21 @@ const SHEARS = /^shears$/i;
 const WOOL = /^wool$/i;
 const BALL = /^ball of wool$/i;
 const KEEP = /^(shears|coins|wool|ball of wool)$/i;
-const FOOD = /^(shark|swordfish|lobster|tuna|salmon|trout|bread|cake|meat)$/i;
+
+const JOURNAL = { label: 'Sheep Shearer', title: 'Sheep Shearer' };
+
+// Journal rules, read from the quest's own journal script
+// (server/content/scripts/quests/quest_sheep/scripts/sheep_journal.rs2):
+//   not started -> "I can start this quest by speaking to Farmer Fred ..."
+//   active      -> "I need to collect N more balls of wool." (or the all-20 line)
+//   complete    -> "I brought Farmer Fred 20 balls of wool ..." + QUEST COMPLETE.
+// The complete text also contains "balls of wool", so the active rule must
+// exclude QUEST COMPLETE or it passes on a finished quest.
+const RULES: Record<string, JournalRule> = {
+    unstarted: { id: 'sheep:unstarted', kind: 'unstarted', all: ['I can start this quest by speaking to'] },
+    active: { id: 'sheep:active', kind: 'active', all: ['balls of wool'], none: ['QUEST COMPLETE'] },
+    complete: { id: 'sheep:complete', kind: 'complete', all: ['QUEST COMPLETE'] },
+};
 
 const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-'));
@@ -73,9 +88,13 @@ const password = process.env.PASSWORD!;
 const server = process.env.SERVER;
 const GRIND_LOG = join(process.cwd(), 'bots', username, 'grind.log');
 
-function log(msg: string, level: 'LOG' | 'WARN' | 'ERROR' = 'LOG'): void {
+function log(msg: string): void {
     console.log(msg);
-    appendGrindLog(GRIND_LOG, `${new Date().toISOString()} ${level} ${msg}`);
+    try {
+        appendFileSync(GRIND_LOG, `${new Date().toISOString()} ${msg}\n`);
+    } catch {
+        /* ignore */
+    }
 }
 
 console.log('Warming pathfinder...');
@@ -85,7 +104,7 @@ const sdk = new BotSDK({
     botUsername: username,
     password,
     gatewayUrl: deriveGatewayUrl(server),
-    autoLaunchBrowser: false,
+    autoLaunchBrowser: true,
     browserLaunchTimeout: 90_000,
     readyTimeout: 45_000,
     connectTimeout: 60_000,
@@ -96,8 +115,66 @@ console.log('Opening/attaching the game client...');
 await sdk.connect();
 const bot = new BotActions(sdk);
 
+// ── durable run record + journal stage ──────────────────────────────────────
+// The journal is read BEFORE acting: a finished quest has nothing left to do,
+// and completion is proven by the journal, never by XP (a maxed account may
+// gain nothing from the 150 Crafting reward) or a chat line.
+// (The run record is created after the stage probe below, so the promotion
+// gate only requires what this run could demonstrate.)
+const MODE = process.env.QUEST_LAB_MODE === 'staging' ? 'staging' : 'development';
+
+/** Checkpoint gate. UNKNOWN is a failure like any other here: proceed on nothing. */
+async function checkpoint(name: keyof typeof RULES, label: string): Promise<boolean> {
+    const read = await readJournalCheckpoint(sdk, JOURNAL, RULES[name]!);
+    const verdict = read.verdict?.verdict ?? 'UNKNOWN';
+    appendCheckpoint(run.directory, {
+        checkpointId: name,
+        verdict,
+        reason: read.reason,
+        kind: RULES[name]!.kind,
+        rawLines: read.rawLines,
+    });
+    if (verdict !== 'PASS') {
+        log(`CHECKPOINT ${name} ${verdict}: ${read.reason}`);
+        return false;
+    }
+    log(`CHECKPOINT ${name} PASS (${label}) — ${read.reason}`);
+    return true;
+}
+
+/** The first stage rule that PASSes is the account's real stage. */
+async function readStage(): Promise<'unstarted' | 'active' | 'complete' | 'unknown'> {
+    for (const name of ['complete', 'active', 'unstarted'] as const) {
+        const read = await readJournalCheckpoint(sdk, JOURNAL, RULES[name]!);
+        log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
+        if (read.verdict?.verdict === 'PASS') return name;
+    }
+    return 'unknown';
+}
+
+const STAGE = await readStage();
+log(`Quest stage at start: ${STAGE}`);
+if (STAGE === 'unknown') throw new Error('could not determine the quest stage from the journal');
+
+// The promotion gate only checks what THIS run could demonstrate: a resumed
+// run can never produce an `unstarted` PASS, so requiring it would fail every
+// resume. Fresh runs must show all three.
+const REQUIRED = STAGE === 'complete' ? ['complete'] : STAGE === 'active' ? ['active', 'complete'] : ['unstarted', 'active', 'complete'];
+const run = createRun(join(process.cwd(), 'quest-lab', 'runs'), safeRunId('sheep', username, new Date().toISOString()), {
+    questId: 'sheep',
+    account: username,
+    mode: MODE,
+    scriptHash: Bun.hash(await Bun.file(import.meta.path).text()).toString(16),
+    fixtureHash: process.env.QUEST_LAB_FIXTURE_HASH ?? 'unrecorded',
+    contentHash: process.env.QUEST_LAB_CONTENT_HASH ?? 'unrecorded',
+    requiredCheckpoints: REQUIRED,
+});
+log(`Run record: ${run.directory} (mode=${MODE}, checkpoints=${REQUIRED.join(',')})`);
+
+if (STAGE === 'unstarted') await checkpoint('unstarted', 'quest not yet started');
+
 let lastIntent = '';
-let questComplete = false;
+let questComplete = STAGE === 'complete';
 let lastLoggedCraft = 0;
 
 function intent(msg: string): void {
@@ -186,40 +263,30 @@ async function chat(choices: RegExp[] = [], max = 28): Promise<string[]> {
 
 async function talkFred(): Promise<boolean> {
     await closeUi();
-    for (let attempt = 0; attempt < 3; attempt++) {
-        let fred = sdk.findNearbyNpc(/fred/i);
-        if (!fred) {
-            await goToFarm();
-            fred = sdk.findNearbyNpc(/fred/i);
-        }
-        if (!fred) {
-            log(
-                `Fred not nearby @ ${pos().x},${pos().z} npcs=${(sdk.getNearbyNpcs() ?? []).map((n) => n.name).slice(0, 8).join(',')}`,
-                'WARN'
-            );
-            await sdk.waitForTicks(3);
-            continue;
-        }
-        // Standing in the farmhouse doorway with the door shut leaves Fred
-        // unreachable from one tile away; talkTo will not open it for us.
-        if (fred.reachable === false) {
-            if (!(await openToward(fred.x, fred.z))) await openNearbyGate();
-            await sdk.waitForTicks(2);
-            fred = sdk.findNearbyNpc(/fred/i) ?? fred;
-        }
-        const talk = await bot.talkTo(fred);
-        if (talk.success) {
-            await sdk.waitForTicks(1);
-            return true;
-        }
-        log(`talk Fred: ${talk.message} @ ${pos().x},${pos().z}`, 'WARN');
-        await bot.walkTo(FRED.x, FRED.z, 2);
-        await sdk.waitForTicks(3);
+    let fred = sdk.findNearbyNpc(/fred/i);
+    if (!fred) {
+        await goToFarm();
+        fred = sdk.findNearbyNpc(/fred/i);
     }
-    return false;
+    if (!fred) {
+        log(`Fred not nearby @ ${pos().x},${pos().z} npcs=${(sdk.getNearbyNpcs() ?? []).map((n) => n.name).slice(0, 8).join(',')}`);
+        return false;
+    }
+    const talk = await bot.talkTo(fred);
+    if (!talk.success) {
+        log(`talk Fred: ${talk.message}`);
+        return false;
+    }
+    await sdk.waitForTicks(1);
+    return true;
 }
 
 async function startOrCheckQuest(): Promise<void> {
+    // The journal is authoritative: only an unstarted quest needs Fred's intro.
+    if (STAGE !== 'unstarted') {
+        log(`Skipping Fred's intro: journal stage is ${STAGE}`);
+        return;
+    }
     // Talking to Fred with balls in inv starts the give-loop; leave that to turnInWool
     // so we don't walk away mid-hand-in.
     if (count(BALL) > 0) return;
@@ -324,6 +391,11 @@ async function turnInWool(): Promise<void> {
 
     if (!questComplete) {
         log(`Gave wool to Fred | balls left ${count(BALL)} | +${craftXp() - xpBefore} xp`);
+    }
+    if (count(BALL) === 0 && !questComplete) {
+        // Every ball handed over: the journal is the verdict, not XP — a maxed
+        // account may gain nothing from the 150 Crafting reward.
+        if (await checkpoint('complete', 'Fred took all 20 balls')) questComplete = true;
     }
     await bot.dismissBlockingUI();
 }
@@ -461,28 +533,14 @@ async function goToCastleWheel(): Promise<boolean> {
     return found;
 }
 
-function junkSlots(): number {
-    return sdk.getInventory().filter((i) => (i.count ?? 0) > 0 && !KEEP.test(i.name)).length;
-}
-
 async function bankJunk(): Promise<void> {
-    if (junkSlots() === 0 && hasShears() && coinCount() >= 1) return;
-    const nearEdgeville = distTo(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z) <= 20 && pos().z > 3450;
-    if (!nearEdgeville && distTo(DRAYNOR_BANK.x, DRAYNOR_BANK.z) > 15) {
-        if (pos().level > 0 && !(await climbTo(0))) return;
-        intent(`Walking to Draynor bank to clear ${junkSlots()} junk slot(s)`);
-        if (pos().z > 3360) await walkWaypoints(TO_FARM);
-        await bot.walkTo(DRAYNOR_BANK.x, DRAYNOR_BANK.z, 3);
-        if (distTo(DRAYNOR_BANK.x, DRAYNOR_BANK.z) > 15) {
-            log(`Could not reach Draynor bank (now ${pos().x},${pos().z})`, 'WARN');
-            return;
-        }
-    }
+    if (occupiedSlots() < 8 && hasShears() && coinCount() >= 1) return;
+    const nearBank =
+        (distTo(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z) <= 20 && pos().z > 3450) ||
+        distTo(DRAYNOR_BANK.x, DRAYNOR_BANK.z) <= 15;
+    if (!nearBank) return;
     intent('Banking at nearby bank');
-    if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
-        log(`openBank failed @ ${pos().x},${pos().z}`, 'WARN');
-        return;
-    }
+    if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) return;
     for (const item of [...sdk.getInventory()]) {
         if (KEEP.test(item.name)) continue;
         await bot.depositItem(item, -1);
@@ -494,7 +552,6 @@ async function bankJunk(): Promise<void> {
     const bankShears = sdk.findBankItem(SHEARS);
     if (!hasShears() && bankShears) await bot.withdrawItem(bankShears, 1);
     await bot.closeBank();
-    log(`Banked junk | ${junkSlots()} junk slot(s) left | ${28 - occupiedSlots()} free`);
 }
 
 async function buyShears(): Promise<boolean> {
@@ -535,9 +592,53 @@ async function buyShears(): Promise<boolean> {
     return hasShears();
 }
 
+/**
+ * Bank trip SPECIFICALLY for shears: withdraw a pair if banked, otherwise
+ * withdraw coins so the shop step can buy one.
+ *
+ * Live gap found by the first sheep canary (jacklove8): a fresh account arrives
+ * with no shears, no coins in the bag, and nowhere near a bank — `bankJunk()`
+ * returns early when not near one, so `buyShears()` walked to Lumbridge, found
+ * 0 coins, said "No coins for shears" twice and the quest died with
+ * `Could not get shears`. Dev never saw it because the fixture hands over shears.
+ * The ladder is: worn/bagged -> banked -> buy (with banked coins).
+ */
+async function stockUpForShears(): Promise<void> {
+    const draynor = distTo(DRAYNOR_BANK.x, DRAYNOR_BANK.z) <= distTo(EDGEVILLE_BANK.x, EDGEVILLE_BANK.z);
+    const bank = draynor ? DRAYNOR_BANK : EDGEVILLE_BANK;
+    const bankName = draynor ? 'Draynor' : 'Edgeville';
+    intent(`Banking for shears at ${bankName}`);
+    await bot.walkTo(bank.x, bank.z, 2).catch(() => undefined);
+    await sdk.waitForTicks(2);
+    if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
+        log(`shears: ${bankName} bank would not open — falling through to the shop`);
+        return;
+    }
+    const items = sdk.getState()?.bank?.items ?? [];
+    const shears = items.find(i => /^shears$/i.test(i.name));
+    if (shears) {
+        const got = await bot.withdrawItem(shears, 1).catch(() => ({ success: false } as any));
+        await sdk.waitForTicks(2);
+        log(`shears: withdrew from bank: ${got?.success ?? false}`);
+    }
+    if (coinCount() < 30) {
+        const coins = items.find(i => /^coins?$/i.test(i.name));
+        if (coins) {
+            const got = await bot.withdrawItem(coins, 100).catch(() => ({ success: false } as any));
+            await sdk.waitForTicks(2);
+            log(`shears: withdrew coins: ${got?.success ?? false} (now ${coinCount()})`);
+        } else {
+            log('shears: the bank has no coins either — the shop step will fail');
+        }
+    }
+    await bot.closeInterface().catch(() => undefined);
+}
+
 async function ensureShears(): Promise<boolean> {
     if (hasShears()) return true;
     await bankJunk();
+    if (hasShears()) return true;
+    if (coinCount() < 30) await stockUpForShears();
     if (hasShears()) return true;
     return buyShears();
 }
@@ -629,23 +730,6 @@ try {
             `until=${questOnly ? 'quest only' : CRAFT_UNTIL}`
     );
 
-    if (!questOnly && CRAFT_UNTIL > 0 && craft() >= CRAFT_UNTIL) {
-        log(`Crafting ${craft()} already at until=${CRAFT_UNTIL} — leaving sheep`);
-    } else {
-    if (pos().x < 2940 && pos().z < 6400 && distTo(SHEEP_PEN.x, SHEEP_PEN.z) > 50) {
-        log('Leaving Kandarin for the Lumbridge sheep pen');
-        await walkKandarinToEdgeville(bot, sdk, {
-            eat: async () => {
-                const food = sdk.findInventoryItem(FOOD);
-                if (food && pos().hp < pos().maxHp - 20) await bot.eatFood(food);
-            },
-            walkNear: async (x, z, tol) => {
-                const r = await bot.walkTo(x, z, tol);
-                return r.success || distTo(x, z) <= tol + 2;
-            }
-        });
-    }
-
     await ensureShears();
     if (!hasShears()) {
         log('Shears retry after walking to Lumbridge');
@@ -656,24 +740,27 @@ try {
 
     await startOrCheckQuest();
 
-    const progress = () =>
-        `${count(WOOL)}|${count(BALL)}|${craftXp()}|${questComplete}|${occupiedSlots()}|${pos().x},${pos().z},${pos().level}`;
-    let lastProgress = '';
-    let stalls = 0;
-    let junkTrips = 0;
+    if (STAGE === 'complete') {
+        log('Sheep Shearer already complete (journal-verified)');
+        await checkpoint('complete', 'already complete at start');
+        if (questOnly) {
+            const summary = summarizeRun(run.directory);
+            if (!summary.ok) throw new Error(`promotion gate failed: missing/unpassed ${JSON.stringify(summary.missing)}`);
+            log(`Run record verified: ${summary.ok} (${summary.missing.length} outstanding)`);
+            log('DONE Sheep Shearer verified via journal (already complete)');
+            await sdk.disconnect();
+            process.exit(0);
+        }
+    } else if (STAGE === 'unstarted') {
+        // Gate BEFORE shearing: the intro dialog must really have started it.
+        if (!(await checkpoint('active', 'Fred gave the shearing task'))) {
+            throw new Error('active checkpoint failed after Fred’s intro');
+        }
+    } else {
+        log('Resuming mid-quest: the shearing task is already journal-confirmed');
+    }
 
     while (true) {
-        const now = progress();
-        if (now === lastProgress) {
-            stalls++;
-            if (stalls % 10 === 0) log(`No progress for ${stalls} loops @ ${pos().x},${pos().z} (${now})`, 'WARN');
-            if (stalls >= 40) throw new Error(`Stalled ${stalls} loops @ ${pos().x},${pos().z} (${now})`);
-            await sdk.waitForTicks(Math.min(stalls, 10));
-        } else {
-            stalls = 0;
-        }
-        lastProgress = now;
-
         await closeUi();
         if (pos().isDead) {
             await sdk.waitForCondition((s) => !s.player.isDead, 45_000).catch(() => {});
@@ -686,17 +773,29 @@ try {
 
         if (questComplete && (questOnly || craft() >= CRAFT_UNTIL)) {
             log(`Done. Crafting ${craft()} (${craftXp()} xp) questComplete=${questComplete}`);
+            // ALWAYS record the completion checkpoint before leaving, not just in
+            // --quest-only mode: the default invocation (what the eval suite and
+            // the canary actually run) used to infer completion from the Crafting
+            // XP/coins delta and exit 0 without ever reading the journal, so a
+            // finished quest graded as `missing: complete`. Observed live: a run
+            // printed "QUEST COMPLETE Sheep Shearer | +3750 crafting xp +60 gp"
+            // and the harness correctly refused to believe it.
+            if (!(await checkpoint('complete', 'final verification'))) {
+                if (questOnly) throw new Error('completion checkpoint failed: journal does not report the quest complete');
+                log('WARN: journal does not report the quest complete — not claiming it');
+            } else if (questOnly) {
+                const summary = summarizeRun(run.directory);
+                if (!summary.ok) {
+                    throw new Error(`promotion gate failed: missing/unpassed ${JSON.stringify(summary.missing)}`);
+                }
+                log(`Run record verified: ${summary.ok} (${summary.missing.length} outstanding)`);
+            }
             break;
         }
 
         if (!hasShears() && !(await ensureShears())) {
             await sdk.waitForTicks(5);
             continue;
-        }
-
-        if (junkSlots() > 0 && junkTrips < 3) {
-            junkTrips++;
-            await bankJunk();
         }
 
         const needForQuest = questComplete ? 0 : Math.max(0, 20 - count(BALL));
@@ -719,9 +818,8 @@ try {
             await climbTo(0);
         }
     }
-    }
 } catch (err) {
-    log(`Script error: ${err instanceof Error ? err.message : String(err)}`, 'ERROR');
+    console.error('Script error:', err);
     throw err;
 } finally {
     console.log('Disconnecting SDK; browser client can stay open.');
