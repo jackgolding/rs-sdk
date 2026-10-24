@@ -124,8 +124,11 @@
         {
             "name": "jacklove5",
             "view": "fleet",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "jacklove5",
+                "--then",
+                "bots/quests/fishing-route.ts",
                 "jacklove5",
                 "--bignet"
             ]
@@ -187,8 +190,11 @@
         {
             "name": "jacklove10",
             "view": "loves",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "jacklove10",
+                "--then",
+                "bots/quests/fishing-route.ts",
                 "jacklove10",
                 "--bignet"
             ]
@@ -307,8 +313,11 @@
         {
             "name": "ABGARMY03",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "ABGARMY03",
+                "--then",
+                "bots/quests/fishing-route.ts",
                 "ABGARMY03",
                 "--bignet"
             ]
@@ -316,8 +325,11 @@
         {
             "name": "ABGARMY04",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "ABGARMY04",
+                "--then",
+                "bots/quests/fishing-route.ts",
                 "ABGARMY04",
                 "--bignet"
             ]
@@ -343,8 +355,11 @@
         {
             "name": "ABGARMY07",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "ABGARMY07",
+                "--then",
+                "bots/quests/fishing-route.ts",
                 "ABGARMY07",
                 "--bignet"
             ]
@@ -429,8 +444,11 @@
         {
             "name": "ABGARMY16",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "ABGARMY16",
+                "--then",
+                "bots/quests/fishing-route.ts",
                 "ABGARMY16",
                 "--bignet"
             ]
@@ -438,8 +456,11 @@
         {
             "name": "ABGARMY17",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "ABGARMY17",
+                "--then",
+                "bots/quests/fishing-route.ts",
                 "ABGARMY17",
                 "--bignet"
             ]
@@ -447,8 +468,11 @@
         {
             "name": "ABGARMY18",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "ABGARMY18",
+                "--then",
+                "bots/quests/fishing-route.ts",
                 "ABGARMY18",
                 "--bignet"
             ]
