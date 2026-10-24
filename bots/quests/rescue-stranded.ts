@@ -24,6 +24,7 @@ import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
 import { nextWalkStep } from '../../sdk/activity';
+import { findLongPath, getDoorAt } from '../../sdk/pathfinding';
 
 const args = process.argv.slice(2);
 const botName = args.find((a) => !a.startsWith('-')) ?? '';
@@ -32,6 +33,8 @@ const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
 /** Banks by slug — the rescue meets the account at the nearest workable one. */
 const BANKS: Record<string, { x: number; z: number }> = {
     draynor: { x: 3092, z: 3245 },
+    // Customer tile WEST of the booths (booths x=3186, teller pen x3187-3190,
+    // east wall solid). Tiles east of x=3190 are outside the building.
     'varrock-west': { x: 3185, z: 3436 },
     'varrock-east': { x: 3253, z: 3420 },
     edgeville: { x: 3094, z: 3492 },
@@ -46,6 +49,14 @@ function resolveBank(): { slug: string; x: number; z: number } {
     if (named) return { slug: raw.toLowerCase(), ...named };
     const pair = raw.split(',').map((n) => Number(n.trim()));
     if (pair.length === 2 && pair.every((n) => Number.isFinite(n) && n > 0)) {
+        // A raw tile next to a named bank snaps to that bank's customer tile: a
+        // hand-picked tile can sit outside a sealed wall (3192,3439 is east of
+        // Varrock West's solid east wall), where no booth is ever reachable.
+        for (const [slug, b] of Object.entries(BANKS)) {
+            if (Math.max(Math.abs(b.x - pair[0]), Math.abs(b.z - pair[1])) <= 10) {
+                return { slug: `${slug} (snapped from ${pair[0]},${pair[1]})`, ...b };
+            }
+        }
         return { slug: `x${pair[0]},z${pair[1]}`, x: pair[0], z: pair[1] };
     }
     throw new Error(`unknown --bank=${raw}; use one of ${Object.keys(BANKS).join(', ')} or --bank=x,z`);
@@ -197,6 +208,173 @@ await runScript(async ({ bot, sdk }) => {
         return Math.hypot(pos().x - BANK.x, pos().z - BANK.z) <= 6;
     };
 
+
+    // ── Door-aware planned walker ────────────────────────────────────────────
+    // walkTo and raw chords both die at doors: the client pathfinder masks door
+    // tiles as open, so a chord through a closed door is accepted and silently
+    // dropped, and walkTo blacklists the door then reports no route. Plan the
+    // route from the LIVE tile with findLongPath, walk it in ≤8-tile legs that
+    // stop on the tile BEFORE each door crossing, open that door from there
+    // (adjacent, so no cant_reach), and verify the bot landed on the far tile.
+    // A door that refuses three crossings is treated as a wall and re-planned.
+    type T = { x: number; z: number };
+    const cheb = (a: T, b: T) => Math.max(Math.abs(a.x - b.x), Math.abs(a.z - b.z));
+    type Door = NonNullable<ReturnType<typeof getDoorAt>>;
+    // Key-only doors the atlas masks as open (Draynor Manor closet: oploc1 says
+    // "The door is locked" without the key).
+    const blocked: Door[] = [getDoorAt(0, 3107, 3367)].filter(Boolean) as Door[];
+    const EDGE: Record<number, T> = { 0: { x: -1, z: 0 }, 1: { x: 0, z: 1 }, 2: { x: 1, z: 0 }, 3: { x: 0, z: -1 } };
+    const crossing = (a: T, b: T, level: number): Door | undefined => {
+        const da = getDoorAt(level, a.x, a.z);
+        if (da && !blocked.includes(da)) {
+            const e = EDGE[da.angle];
+            if (da.shape !== 0 || !e || (e.x && b.x - a.x === e.x) || (e.z && b.z - a.z === e.z)) return da;
+        }
+        const db = getDoorAt(level, b.x, b.z);
+        if (db && !blocked.includes(db)) {
+            const e = EDGE[db.angle];
+            if (db.shape !== 0 || !e || (e.x && a.x - b.x === e.x) || (e.z && a.z - b.z === e.z)) return db;
+        }
+        return undefined;
+    };
+    const expand = (from: T, wps: T[]): T[] => {
+        const out: T[] = [{ x: from.x, z: from.z }];
+        let c = { x: from.x, z: from.z };
+        for (const w of wps) {
+            while (c.x !== w.x || c.z !== w.z) {
+                c = { x: c.x + Math.sign(w.x - c.x), z: c.z + Math.sign(w.z - c.z) };
+                out.push(c);
+            }
+        }
+        return out;
+    };
+    const plan = (dest: T) => {
+        const p = pos();
+        const wps = findLongPath(p.level, p.x, p.z, dest.x, dest.z, 500, blocked);
+        const last = wps[wps.length - 1];
+        return { tiles: expand(p, wps), complete: !!last && cheb(last, dest) <= 1 };
+    };
+    /** One verified walk to a tile ≤ ~8 away: wait for arrival, not a fixed sleep. */
+    const stepTo = async (t: T) => {
+        for (let attempt = 0; attempt < 3; attempt++) {
+            if (cheb(pos(), t) === 0) return true;
+            const start = pos();
+            await bound(sdk.sendWalk(t.x, t.z, true) as never, 5000);
+            let still = 0;
+            let last = `${start.x},${start.z}`;
+            for (let tick = 0; tick < cheb(start, t) + 6 && cheb(pos(), t) > 0; tick++) {
+                await sleep(1);
+                const now = `${pos().x},${pos().z}`;
+                still = now === last ? still + 1 : 0;
+                last = now;
+                if (still >= 3) break;
+            }
+            if (cheb(pos(), t) === 0) return true;
+        }
+        // Exact only: "within 1" let a bot standing ON a door tile count as
+        // through it, so the door was never clicked.
+        return false;
+    };
+    const crossDoor = async (door: Door, a: T, b: T) => {
+        for (let attempt = 0; attempt < 3; attempt++) {
+            if (cheb(pos(), b) === 0) return true;
+            if (cheb(pos(), a) !== 0 && !(await stepTo(a))) continue;
+            // Already open? One raw step tells us (no retries — a closed door
+            // just drops it).
+            await bound(sdk.sendWalk(b.x, b.z, true) as never, 5000);
+            await sleep(2);
+            if (cheb(pos(), b) === 0) return true;
+            await bound(sdk.scanNearbyLocs(6) as never, 6000);
+            // An opened door is re-added as a different loc, often one tile over —
+            // take any Open-able loc touching the door tile.
+            const cand = locs()
+                .filter((l) => hasOption(l, OPEN) && cheb(l, door) <= 1)
+                .sort((l1, l2) => cheb(l1, door) - cheb(l2, door))[0] as
+                | (ReturnType<typeof locs>[number] & { id?: number })
+                | undefined;
+            if (cand && cand.id !== undefined) {
+                const op = (cand.optionsWithIndex ?? []).find((o) => OPEN.test(o.text ?? '')) as
+                    | { text?: string; opIndex?: number }
+                    | undefined;
+                await bound(sdk.sendInteractLoc(cand.x, cand.z, cand.id, op?.opIndex ?? 1) as never, 6000);
+            } else if (cand) {
+                await bound(bot.interactLoc(cand as never, OPEN) as never, 8000);
+            }
+            await sleep(2);
+            if (await stepTo(b)) return true;
+            log(`  door ${door.x},${door.z}: crossing ${a.x},${a.z}->${b.x},${b.z} refused (attempt ${attempt + 1}, ${cand ? `clicked ${cand.name}@${cand.x},${cand.z}` : 'no Open loc in reach'})`);
+        }
+        return cheb(pos(), b) === 0;
+    };
+    /** Walk to `dest` (exact tile when tol=0) through any doors; true on arrival. */
+    const walkPlanned = async (dest: T, tol = 0) => {
+        let stall = 0;
+        const doorFails = new Map<Door, number>();
+        for (let it = 0; it < 80 && stall < 4; it++) {
+            if (cheb(pos(), dest) <= tol) return true;
+            const { tiles, complete } = plan(dest);
+            if (tiles.length < 2) {
+                log(`planned walk: no plan from ${pos().x},${pos().z} to ${dest.x},${dest.z}`);
+                return false;
+            }
+            if (it === 0) log(`planned walk -> ${dest.x},${dest.z}: ${tiles.length} tiles, ${complete ? 'complete' : 'PARTIAL'}`);
+            const before = pos();
+            const lvl = before.level;
+            let j = 0;
+            let door: Door | undefined;
+            for (; j < tiles.length - 1 && j < 8; j++) {
+                door = crossing(tiles[j], tiles[j + 1], lvl);
+                if (door) break;
+            }
+            let ok = true;
+            if (j > 0) ok = await stepTo(tiles[j]);
+            if (ok && door) {
+                log(`  door ${door.x},${door.z} from ${tiles[j].x},${tiles[j].z} -> ${tiles[j + 1].x},${tiles[j + 1].z}`);
+                ok = await crossDoor(door, tiles[j], tiles[j + 1]);
+                if (!ok) {
+                    const n = (doorFails.get(door) ?? 0) + 1;
+                    doorFails.set(door, n);
+                    if (n >= 2) {
+                        blocked.push(door);
+                        log(`  door ${door.x},${door.z} will not open — treating as a wall, re-planning`);
+                    }
+                }
+            }
+            const moved = cheb(pos(), before) > 0;
+            stall = moved ? 0 : stall + 1;
+            if (it % 6 === 5) log(`  planned walk @ ${pos().x},${pos().z} (${cheb(pos(), dest)} from ${dest.x},${dest.z})`);
+        }
+        const arrived = cheb(pos(), dest) <= tol;
+        log(`planned walk ${arrived ? 'arrived' : 'gave up'} @ ${pos().x},${pos().z} L${pos().level} (dest ${dest.x},${dest.z})`);
+        return arrived;
+    };
+    /** Bank from the exact tile; fall back to clicking the nearest booth. */
+    const openBankHere = async () => {
+        const r = ((await bound(bot.openBank() as never, 25000)) as { success?: boolean; message?: string }) ?? {
+            success: false,
+            message: 'openBank timed out'
+        };
+        if (r.success) return r;
+        await bound(sdk.scanNearbyLocs(4) as never, 6000);
+        const booth = locs()
+            .filter((l) => /bank booth|bank chest/i.test(l.name ?? '') && cheb(l, pos()) <= 2)
+            .sort((a, b) => cheb(a, pos()) - cheb(b, pos()))[0] as (ReturnType<typeof locs>[number] & { id?: number }) | undefined;
+        if (!booth || booth.id === undefined) return { success: false, message: `${r.message}; no booth within 2 of ${pos().x},${pos().z}` };
+        const opts = (booth.optionsWithIndex ?? []) as Array<{ text?: string; opIndex?: number }>;
+        const op = opts.find((o) => /use.quickly|^bank$/i.test(o.text ?? '')) ?? opts.find((o) => /use/i.test(o.text ?? ''));
+        await bound(sdk.sendInteractLoc(booth.x, booth.z, booth.id, op?.opIndex ?? 2) as never, 6000);
+        for (let t = 0; t < 12; t++) {
+            await sleep(1);
+            const st = sdk.getState() as { bank?: { isOpen?: boolean }; dialog?: { isOpen?: boolean; options?: Array<{ text: string; index: number }> } } | undefined;
+            if (st?.bank?.isOpen) return { success: true, message: `booth ${booth.x},${booth.z} direct` };
+            if (st?.dialog?.isOpen) {
+                const o = (st.dialog.options ?? []).find((x) => /bank|account|yes/i.test(x.text)) ?? st.dialog.options?.[0];
+                await bound(sdk.sendClickDialog(o?.index ?? 0) as never, 4000);
+            }
+        }
+        return { success: false, message: `${r.message}; direct booth ${booth.x},${booth.z} did not open` };
+    };
+
     log(`RESCUE start @ ${pos().x},${pos().z} L${pos().level} bank=${BANK.slug}(${BANK.x},${BANK.z})`);
 
     // 1. Descend to plane 0. walkTo never changes planes, so this is chord steps
@@ -291,30 +469,26 @@ await runScript(async ({ bot, sdk }) => {
     //    target bank is often only a few tiles from the pocket).
     let banked = false;
     for (let round = 0; round < 14 && grounded && !banked; round++) {
-        if (ROUTE.length) {
-            // A supplied route is authoritative: walk it raw, then bank.
+        // Door-aware planned walk to the EXACT bank tile first; the old
+        // walkTo(…, 3) accepted 2-3 tiles short (Varrock West: 3183,3436, behind
+        // a partition), and openBank's own re-walk from there timed out.
+        let there = await walkPlanned(BANK, 0);
+        if (!there && ROUTE.length) {
             await walkRoute(ROUTE);
-        } else {
-            const walk = (await bound(bot.walkTo(BANK.x, BANK.z, 3) as never, 20000)) ?? { success: false, message: 'walkTo timed out' };
-            const p = pos();
-            log(`walk attempt ${round + 1}: ok=${(walk as { success?: boolean }).success} @ ${p.x},${p.z} L${p.level}`);
-            if (!(walk as { success?: boolean }).success) {
-                const opened = await openDoors();
-                log(`doors opened ${opened}`);
-                if (round < 6) await hopOut(round);
-            }
+            there = await walkPlanned(BANK, 0);
         }
-        // 20s: openBank walks to the nearest booth first, and a 10s bound cut it
-        // short on a bot standing two tiles from the Varrock West booth.
-        const bank = ((await bound(bot.openBank() as never, 20000)) as { success?: boolean; message?: string }) ?? {
-            success: false,
-            message: 'openBank timed out'
-        };
+        if (!there && !ROUTE.length) {
+            const walk = (await bound(bot.walkTo(BANK.x, BANK.z, 1) as never, 20000)) ?? { success: false, message: 'walkTo timed out' };
+            log(`walk attempt ${round + 1}: ok=${(walk as { success?: boolean }).success} @ ${pos().x},${pos().z} L${pos().level}`);
+            if (!(walk as { success?: boolean }).success && round < 6) await hopOut(round);
+        }
+        const bank = await openBankHere();
         if (bank.success) {
+            log(`bank open at ${pos().x},${pos().z} (${bank.message ?? 'ok'})`);
             banked = true;
             break;
         }
-        log(`bank closed at ${pos().x},${pos().z} (${(bank as { message?: string }).message ?? 'unknown'})`);
+        log(`bank closed at ${pos().x},${pos().z} (${bank.message ?? 'unknown'})`);
         await sleep(2);
     }
 
