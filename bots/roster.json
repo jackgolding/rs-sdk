@@ -26,8 +26,11 @@
         {
             "name": "Jackpoo1",
             "view": "fleet",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "Jackpoo1",
+                "--then",
+                "bots/quests/thieving-route.ts",
                 "Jackpoo1",
                 "--knights"
             ]
@@ -86,8 +89,11 @@
         {
             "name": "jacklove1",
             "view": "fleet",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "jacklove1",
+                "--then",
+                "bots/quests/thieving-route.ts",
                 "jacklove1",
                 "--knights"
             ]
@@ -202,8 +208,11 @@
         {
             "name": "jacklove11",
             "view": "loves",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "jacklove11",
+                "--then",
+                "bots/quests/thieving-route.ts",
                 "jacklove11",
                 "--knights"
             ]
@@ -258,8 +267,11 @@
         {
             "name": "jacklove17",
             "view": "loves",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "jacklove17",
+                "--then",
+                "bots/quests/thieving-route.ts",
                 "jacklove17",
                 "--knights"
             ]
@@ -346,8 +358,11 @@
         {
             "name": "ABGARMY06",
             "view": "army",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "ABGARMY06",
+                "--then",
+                "bots/quests/thieving-route.ts",
                 "ABGARMY06",
                 "--knights"
             ]
@@ -396,8 +411,11 @@
         {
             "name": "ABGARMY11",
             "view": "army",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "ABGARMY11",
+                "--then",
+                "bots/quests/thieving-route.ts",
                 "ABGARMY11",
                 "--knights"
             ]
@@ -417,8 +435,11 @@
         {
             "name": "ABGARMY13",
             "view": "army",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "ABGARMY13",
+                "--then",
+                "bots/quests/thieving-route.ts",
                 "ABGARMY13",
                 "--knights"
             ]
@@ -480,8 +501,11 @@
         {
             "name": "ABGARMY19",
             "view": "army",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "ABGARMY19",
+                "--then",
+                "bots/quests/thieving-route.ts",
                 "ABGARMY19",
                 "--knights"
             ]
