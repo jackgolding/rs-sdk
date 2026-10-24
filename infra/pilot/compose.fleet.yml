@@ -1355,7 +1355,7 @@ services:
   quest-jacklove8:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/rune-mysteries.ts", "jacklove8"]
+    command: ["bun", "bots/quests/rescue-stranded.ts", "jacklove8", "--bank=draynor"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1389,7 +1389,7 @@ services:
   quest-jacklove9:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/thieving-route.ts", "jacklove9", "--knights"]
+    command: ["bun", "bots/quests/rescue-stranded.ts", "jacklove9", "--bank=varrock-west"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
