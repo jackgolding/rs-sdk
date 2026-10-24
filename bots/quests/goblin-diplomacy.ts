@@ -722,7 +722,9 @@ await runScript(async ({ bot, sdk }) => {
     log(`Run record: ${run.directory} (mode=${MODE} required=${requiredCheckpoints.join(',')})`);
     if (startStage === 'complete') {
         await checkpointOnce('complete');
-        await bankOutAndIdle('already complete');
+        // Nothing was done, so there is nothing to bank: walking to a bank and
+        // stripping worn kit here only breaks the job the account goes back to.
+        log('Goblin Diplomacy already complete — nothing to do');
         return;
     }
     if (startStage === 'not_started') {

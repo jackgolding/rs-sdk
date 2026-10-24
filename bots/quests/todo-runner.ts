@@ -23,6 +23,9 @@
  * nothing is left the runner hands over to `--then` (the bot's normal grind,
  * run as a child so the container never exits), or parks in a sleep loop. It
  * never exits 0 on its own — the box relaunches any exit-0 script every ~16s.
+ * The list stays live: quests appended to todo.json later are picked up within
+ * TODO_RECHECK_MIN (default 20) by pausing the grind, so a fleet-wide rollout of
+ * a newly proven quest is a todo.json append — no deploy, no restart.
  *
  * Exit codes: 2 bad usage · 143 stopped by signal · otherwise the --then script's code.
  */
@@ -226,7 +229,8 @@ async function runItem(item: TodoItem): Promise<void> {
   log(`${item.questId} PASS — ${grade.reason}`);
 }
 
-const queue = loadQueue();
+const RECHECK_MS = Number(process.env.TODO_RECHECK_MIN ?? 20) * 60_000;
+let queue = loadQueue();
 const pending = () => queue.filter(i => !isDone(i) && !exhausted(i));
 log(`${account} — ${pending().length} pending of ${queue.length}${thenCmd.length ? ` · then ${thenCmd.join(' ')}` : ''}`);
 for (const item of pending()) {
@@ -235,30 +239,62 @@ for (const item of pending()) {
 }
 if (dry) process.exit(0);
 
-// Two passes so a quest that failed once (contention, a dropped link) gets a
-// second go after the others; then the list is finished either way.
-for (let pass = 1; pass <= MAX_FAILURES && !stopping; pass++) {
-  const todo = pending();
-  if (todo.length === 0) break;
-  if (pass > 1) log(`retry pass ${pass}: ${todo.map(i => i.questId).join(', ')}`);
-  for (const item of todo) {
-    if (stopping) break;
-    await runItem(item);
+async function drain(): Promise<void> {
+  // Two passes so a quest that failed once (contention, a dropped link) gets a
+  // second go after the others; then the list is finished either way.
+  for (let pass = 1; pass <= MAX_FAILURES && !stopping; pass++) {
+    const todo = pending();
+    if (todo.length === 0) break;
+    if (pass > 1) log(`retry pass ${pass}: ${todo.map(i => i.questId).join(', ')}`);
+    for (const item of todo) {
+      if (stopping) break;
+      await runItem(item);
+    }
   }
+  const doneN = queue.filter(isDone).length;
+  const gaveUp = queue.filter(i => !isDone(i)).map(i => `${i.questId}(${state[i.questId]?.lastError ?? 'skipped'})`);
+  log(`list finished: ${doneN}/${queue.length} done${gaveUp.length ? ` · gave up: ${gaveUp.join('; ')}` : ''}`);
 }
 
-const doneN = queue.filter(isDone).length;
-const gaveUp = queue.filter(i => !isDone(i)).map(i => `${i.questId}(${state[i.questId]?.lastError ?? 'skipped'})`);
-log(`list finished: ${doneN}/${queue.length} done${gaveUp.length ? ` · gave up: ${gaveUp.join('; ')}` : ''}`);
-
-if (stopping) process.exit(143);
-if (thenCmd.length) {
-  log(`handing over to ${thenCmd.join(' ')}`);
-  const { code } = await runChild(thenCmd);
-  process.exit(code);
+/** True when the shared list gained work for this account since the last drain. */
+function listGrew(): boolean {
+  queue = loadQueue();
+  return pending().length > 0;
 }
-log('nothing to hand over to — parked (add --then <script> [args] to the roster args)');
+
+// The list is LIVE: promoting a new quest only appends to todo.json, and every
+// runner already handed over to its grind notices within RECHECK_MS, pauses the
+// grind (SIGTERM — grind jobs drain on it), runs the new quest, and resumes.
+// Rolling a quest out to the whole fleet therefore needs no deploy and no restart.
 for (;;) {
-  await Bun.sleep(30 * 60_000);
-  log('parked');
+  await drain();
+  if (stopping) process.exit(143);
+  if (thenCmd.length) {
+    log(`handing over to ${thenCmd.join(' ')}`);
+    const run = runChild(thenCmd);
+    let exited: { code: number } | null = null;
+    let paused = false;
+    run.then(r => { exited = r; });
+    while (!exited && !stopping) {
+      await Promise.race([run, Bun.sleep(RECHECK_MS)]);
+      if (exited || stopping) break;
+      if (listGrew()) {
+        log(`new quests on the list (${pending().map(i => i.questId).join(', ')}) — pausing ${thenCmd[0]}`);
+        paused = true;
+        try { child?.kill('SIGTERM'); } catch { /* gone */ }
+        await run;
+        break;
+      }
+    }
+    if (stopping) process.exit(143);
+    if (paused) continue;
+    // The grind ended on its own: surface its exit code to the supervisor.
+    process.exit((exited as { code: number } | null)?.code ?? 1);
+  }
+  log('nothing to hand over to — parked (add --then <script> [args] to the roster args)');
+  for (;;) {
+    await Bun.sleep(RECHECK_MS);
+    if (listGrew()) break;
+    log('parked');
+  }
 }

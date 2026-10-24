@@ -722,8 +722,8 @@ await runScript(async ({ bot, sdk }) => {
     await requireStage(stage, `account is at stage ${stage}`);
 
     if (stage === 'complete') {
+        // No bank-out: nothing was gathered, and stripping kit breaks the next job.
         log(`Witch's Potion already complete (journal) @ ${pos().x},${pos().z}`);
-        await bankOut();
         session.stop('done', "Witch's Potion already complete", { restartable: false });
         return;
     }

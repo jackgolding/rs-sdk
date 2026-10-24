@@ -730,6 +730,17 @@ try {
             `until=${questOnly ? 'quest only' : CRAFT_UNTIL}`
     );
 
+    // Already finished and nothing left to train: leave BEFORE the shears trek
+    // (an Ardougne start walked to Lumbridge to buy shears it would never use).
+    if (STAGE === 'complete' && (questOnly || craft() >= CRAFT_UNTIL)) {
+        log(`Sheep Shearer already complete — nothing to do (Crafting ${craft()} >= ${CRAFT_UNTIL})`);
+        if (!(await checkpoint('complete', 'already complete at start'))) {
+            throw new Error('completion checkpoint failed: journal does not report the quest complete');
+        }
+        await sdk.disconnect();
+        process.exit(0);
+    }
+
     await ensureShears();
     if (!hasShears()) {
         log('Shears retry after walking to Lumbridge');

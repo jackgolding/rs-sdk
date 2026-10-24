@@ -713,7 +713,7 @@ async function main(): Promise<void> {
         }
         const summary = summarizeRun(run!.directory);
         if (!summary.ok) throw new Error(`promotion gate failed: missing/unpassed ${JSON.stringify(summary.missing)}`);
-        await bankOut();
+        // No bank-out: nothing was gathered, and stripping kit breaks the next job.
         log("DONE Doric's Quest (already complete)");
         return;
     }
