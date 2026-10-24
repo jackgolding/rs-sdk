@@ -4,7 +4,10 @@
  *   bun bots/quests/cooks-assistant.ts qlcook2
  *
  * Banks at Draynor (Lumbridge has no bank in this revision), withdraws the
- * three ingredients, walks to the Cook in Lumbridge Castle, runs the dialog and
+ * three ingredients — or gathers them in the world when the bank is short
+ * (egg from the chicken farm, milk from the cow pen, flour milled from the
+ * wheat field; empty vessels from the bank, else the Lumbridge general
+ * store). Then walks to the Cook in Lumbridge Castle, runs the dialog and
  * hands them over.
  *
  * Every step that matters is gated on QUEST JOURNAL evidence, never on XP, chat
@@ -20,16 +23,18 @@
  *   - `bot.walkTo`/`talkTo` open blocking doors, which is why the two castle
  *     kitchen doors (3213,3220) and (3207,3217) need no explicit handling
  */
-import { existsSync, readFileSync, appendFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'fs';
 import { dirname, join } from 'path';
 
-import { BotSDK, deriveGatewayUrl } from '../../sdk/index';
+import { BotSDK, Machine, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
 import { initPathfinding, findLongPath, isTileWalkable } from '../../sdk/pathfinding';
 import { ActivitySession } from '../../sdk/activity';
 import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
 import { createRun, appendCheckpoint, summarizeRun, safeRunId } from '../../quest-lab/records';
 import type { JournalRule } from '../../quest-lab/evidence';
+import { graph, type CookCtx, type CookStage } from './cooks-assistant.graph';
+import { inventorySignature, untilBankReady, untilInventoryChange } from './settle';
 
 // ── args / env ──────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -94,8 +99,23 @@ const NEEDED = [
     { name: 'pot_flour', pattern: /^pot of flour$/i, id: 1933 },
 ];
 
-const JOURNAL = { label: "Cook's Assistant", title: "The Cook's Quest" };
+// Gather constants live up here, next to NEEDED: bankForSupplies() runs before
+// anything below it is initialized, and const declarations do not hoist.
+const BUCKET_EMPTY = /^bucket$/i;
+const POT_EMPTY = /^pot$/i;
+const EGG = /^egg$/i;
+const GRAIN = /^grain$/i;
+const COINS = /^coins$/i;
 
+const CHICKEN_COOP = { x: 3228, z: 3300 };
+const COW_GATE = { x: 3253, z: 3266 };
+const COW_PEN = { x: 3254, z: 3283 };
+const WHEAT_FIELD = { x: 3160, z: 3300 };
+const MILL_DOOR = { x: 3166, z: 3301 };
+const MILL_CORE = { x: 3166, z: 3306 };
+const LUMBRIDGE_SHOP = { x: 3211, z: 3246 };
+
+const JOURNAL = { label: "Cook's Assistant", title: "The Cook's Quest" };
 // Journal rules, read from the quest's own journal script
 // (server/content/scripts/quests/quest_cook/scripts/cook_journal.rs2):
 //   state 0 -> "I can start this quest by speaking to the Cook ..."
@@ -140,6 +160,9 @@ const pos = () => {
     return { x: p?.worldX ?? 0, z: p?.worldZ ?? 0, level: p?.level ?? 0 };
 };
 const distTo = (t: { x: number; z: number }) => Math.hypot(pos().x - t.x, pos().z - t.z);
+/** Chebyshev tiles — the metric walkTo measures arrival in (robustness rule 17). */
+const cheb = (a: { x: number; z: number }, b: { x: number; z: number }) =>
+    Math.max(Math.abs(a.x - b.x), Math.abs(a.z - b.z));
 const invCount = (pattern: RegExp) =>
     sdk.getInventory().filter(i => pattern.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0);
 
@@ -187,34 +210,78 @@ async function checkpoint(name: keyof typeof RULES, label: string): Promise<bool
 // a bot resumed mid-quest should bank only for what it still lacks. Banking
 // first made a completed quest report "insufficient stock" instead of "already
 // complete" — and walked to Draynor to do it.
-await session.setPhase('inspect');
+//
+// The decision that follows lives in `cooks-assistant.graph.ts` (`inspect`), not
+// here: this file supplies the probe, the graph routes on the answer.
 
-/** The first stage rule that PASSes is the account's real stage. */
-async function readStage(): Promise<'unstarted' | 'active' | 'complete' | 'unknown'> {
-    for (const name of ['complete', 'active', 'unstarted'] as const) {
-        const read = await readJournalCheckpoint(sdk, JOURNAL, RULES[name]!);
-        log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
-        if (read.verdict?.verdict === 'PASS') return name;
+/**
+ * The first stage rule that PASSes is the account's real stage.
+ *
+ * UNKNOWN is NOT "not started" — right after login the quest-tab side interface
+ * has not streamed in yet, and every rule then reads UNKNOWN ('quest journal not
+ * open' / 'stale journal publication'). Concluding 'unknown' on the first pass
+ * failed an otherwise healthy account before any checkpoint was written, which
+ * reads in the record as a script that died with no evidence at all. So: poll
+ * bounded, treat UNKNOWN as not-ready, and only then report the stage unknown
+ * with the reasons attached.
+ */
+const STAGE_PROBE_ATTEMPTS = 6;
+async function readStage(): Promise<CookStage> {
+    let lastReason = '(no attempt)';
+    for (let attempt = 1; attempt <= STAGE_PROBE_ATTEMPTS; attempt++) {
+        for (const name of ['complete', 'active', 'unstarted'] as const) {
+            const read = await readJournalCheckpoint(sdk, JOURNAL, RULES[name]!);
+            const verdict = read.verdict?.verdict ?? 'UNKNOWN';
+            lastReason = `${name}: ${verdict} (${read.reason})`;
+            log(`  stage probe ${attempt}/${STAGE_PROBE_ATTEMPTS} ${name}: ${verdict} (${read.reason})`);
+            if (verdict === 'PASS') return name;
+        }
+        if (attempt < STAGE_PROBE_ATTEMPTS) {
+            await bot.dismissBlockingUI().catch(() => undefined);
+            await sdk.waitForTicks(10);
+        }
     }
+    log(`stage probe exhausted ${STAGE_PROBE_ATTEMPTS} attempts — last read ${lastReason}`);
     return 'unknown';
 }
 
-const STAGE = await readStage();
-log(`Quest stage at start: ${STAGE}`);
-if (STAGE === 'complete') {
-    log("Cook's Assistant is already complete — nothing to do");
-    session.log('log', 'quest already complete; nothing to do');
-    sdk.disconnect();
-    process.exit(0);
+/**
+ * Rewrite this run's required checkpoints for the stage the probe actually
+ * found, and record the stage checkpoint, BOTH before any side effect.
+ *
+ * A resume at `active` can never produce an `unstarted` PASS, and a run killed
+ * in the bank or travel leg used to leave an empty checkpoints file — which the
+ * grader can only read as "died before checkpoint 1". Recording the probed stage
+ * first makes a mid-quest death legible.
+ */
+function setRequiredCheckpoints(required: string[]): void {
+    const path = join(run.directory, 'run.json');
+    try {
+        const identity = JSON.parse(readFileSync(path, 'utf-8')) as { requiredCheckpoints?: string[] };
+        identity.requiredCheckpoints = required;
+        writeFileSync(path, `${JSON.stringify(identity, null, 2)}\n`);
+        log(`requiredCheckpoints for this run: ${required.join(', ')}`);
+    } catch (error) {
+        log(`could not rewrite run.json requiredCheckpoints: ${String(error)}`);
+    }
 }
-if (STAGE === 'unknown') throw new Error('could not determine the quest stage from the journal');
 
-// ── 2. bank, but only for supplies we still lack ────────────────────────────
-await session.setPhase('bank');
-const needsBanking = NEEDED.some(n => invCount(n.pattern) === 0);
-await bot.dismissBlockingUI();
-if (needsBanking) await bankForSupplies();
-else log('Supplies already carried; skipping the bank leg');
+async function recordStage(stage: CookStage): Promise<void> {
+    if (stage === 'complete') {
+        setRequiredCheckpoints(['complete']);
+        await checkpoint('complete', 'journal reports QUEST COMPLETE');
+        return;
+    }
+    if (stage === 'active') {
+        setRequiredCheckpoints(['active', 'complete']);
+        await checkpoint('active', 'resumed mid-quest: ingredients requested');
+        return;
+    }
+    if (stage === 'unstarted') {
+        setRequiredCheckpoints(['unstarted', 'active', 'complete']);
+        await checkpoint('unstarted', 'quest not yet started');
+    }
+}
 
 /** Deposit carry-over, then withdraw whatever ingredients are missing. */
 async function bankForSupplies(): Promise<void> {
@@ -240,20 +307,24 @@ if (!(await bot.openBank()).success) {
     await bot.walkTo(DRAYNOR_BANK.x - 1, DRAYNOR_BANK.z, 1);
     if (!(await bot.openBank()).success) throw new Error('could not open Draynor bank for withdrawal');
 }
-await sdk.waitForTicks(2);
+// Contents lag `isOpen` by a tick or two, and how long that is depends on the
+// clock and the link. Wait for the items, not for a fixed number of ticks.
+await untilBankReady(sdk, { log });
 
 const bankItems = sdk.getState()?.bank?.items ?? [];
 const have = (re: RegExp) => bankItems.filter(i => re.test(i.name)).reduce((n, i) => n + (i.count ?? 0), 0);
 const shortfall = NEEDED.filter(n => invCount(n.pattern) + have(n.pattern) < 1);
 if (shortfall.length) {
     const detail = shortfall.map(n => `${n.name}(inv=${invCount(n.pattern)} bank=${have(n.pattern)} need=1)`).join(' ');
-    log(`INSUFFICIENT STOCK: ${detail} — idling instead of crash-looping`);
-    session.log('warn', `insufficient stock: ${detail}`);
-    await process.exit(0);
+    log(`BANK SHORTFALL: ${detail} — sourcing in the world instead of idling`);
+    session.log('warn', `bank shortfall: ${detail}; gathering`);
+    await gatherIngredients(shortfall);
 }
 
 for (const need of NEEDED) {
     if (invCount(need.pattern) > 0) continue;
+    // Gathering legs end far from any booth; come back before withdrawing.
+    if (distTo(DRAYNOR_BANK) > 8) await travelTo(DRAYNOR_BANK, 'Draynor bank');
     // The interface can drop between the open check and the withdraw.
     if (!sdk.getState()?.bank?.isOpen && !(await bot.openBank()).success) {
         throw new Error(`bank closed before withdrawing ${need.name}`);
@@ -264,9 +335,286 @@ for (const need of NEEDED) {
 }
 await bot.closeInterface();
 log(`Bag: ${NEEDED.map(n => `${n.name}x${invCount(n.pattern)}`).join(' ')}`);
+// The bag changed: that is a real effect, not just a progress note (fleet
+// verdict bounces bots that never credit one).
+session.noteProgress('inventory', `prepared supplies ${NEEDED.map(n => `${n.name}=${invCount(n.pattern)}`).join(' ')}`);
+}
+
+// ── self-sourcing: a bank shortfall is a detour, not a failure ───────────────
+// Mechanics, all read from server/content (never assumed):
+//   egg: chickens lay eggs on an AI timer (general/.../flavour_text/chickens.rs2)
+//     — camp the farm and pick the ground spawn up.
+//   milk: use an empty bucket on a Cow (npc/scripts/cow_milking.rs2, [opnpcu,cow]).
+//   flour: pick Wheat (op2 Pick -> grain), use grain on the Hopper upstairs,
+//     Operate the Hopper controls, use an empty pot on the Flour bin downstairs
+//     (general_use/scripts/windmills.rs2).
+// Tiles below are probe-verified on the local world (probe-cookgather):
+//   mill doors (3166-3167,3302), flour bin (3166,3307) L0,
+//   hopper (3166,3307) L2, controls (3166,3305) L2,
+//   wheat field x3154-3164 z3294-3306, cow pen x3244-3264 z3268-3298,
+//   Lumbridge general store (3211,3246) stocks Pot 1gp / Bucket 2gp.
+async function openBankHere(): Promise<boolean> {
+    if (sdk.getState()?.bank?.isOpen) return true;
+    await bot.closeInterface();
+    return (await bot.openBank()).success;
+}
+
+async function ensureCoins(min: number): Promise<boolean> {
+    if (invCount(COINS) >= min) return true;
+    if (!(await openBankHere())) return false;
+    const coins = sdk.findBankItem(COINS);
+    if (coins) await bot.withdrawItem(coins, Math.min(min + 50, coins.count ?? min + 50));
+    await bot.closeInterface();
+    return invCount(COINS) >= min;
+}
+
+/** Empty vessel from the bank, else bought at the Lumbridge general store. */
+async function stockEmptyVessel(pattern: RegExp, label: string): Promise<boolean> {
+    if (invCount(pattern) > 0) return true;
+    if (await openBankHere()) {
+        const item = sdk.findBankItem(pattern);
+        if (item) {
+            const res = await bot.withdrawItem(item, 1);
+            log(`withdrew ${label} from bank: ${res.success}`);
+        }
+    }
+    if (invCount(pattern) > 0) {
+        await bot.closeInterface();
+        return true;
+    }
+    await bot.closeInterface();
+    if (!(await ensureCoins(10))) {
+        log(`no coins for a shop ${label}`);
+        return false;
+    }
+    await travelTo(LUMBRIDGE_SHOP, 'the Lumbridge general store');
+    await bot.dismissBlockingUI();
+    if (!(await bot.openShop(/shop\s*(keeper|assistant)/i)).success) {
+        log(`could not open the Lumbridge general store for ${label}`);
+        return false;
+    }
+    const buy = await bot.buyFromShop(pattern, 1);
+    log(`bought ${label}: ${buy.success}${buy.success ? '' : ` (${buy.message ?? '?'})`}`);
+    await bot.closeShop();
+    return invCount(pattern) > 0;
+}
+
+async function gatherEgg(): Promise<void> {
+    if (invCount(EGG) > 0) return;
+    await bot.closeInterface();
+    // Static egg spawns, probe-verified: two Egg piles in the east Lumbridge
+    // chicken coop ((3229,3299) and (3226,3301), plus a Bucket at (3225,3294)).
+    // Hens themselves never lay in this revision (the chicken type configures
+    // no `timer`, so [ai_timer,_chicken] never fires), so this takes the
+    // static spawns and only waits briefly for a respawn — it never camps.
+    await travelTo(CHICKEN_COOP, 'the Lumbridge chicken coop');
+    for (let i = 0; i < 20 && invCount(EGG) === 0; i++) {
+        const pile = sdk.findGroundItem(EGG) ?? await sdk.scanFindGroundItem(EGG, 20).catch(() => null);
+        if (pile) {
+            const res = await bot.pickupItem(pile);
+            log(`picked up egg: ${res.success}${res.success ? '' : ` (${res.message ?? '?'})`}`);
+        } else if (i % 5 === 0) {
+            log(`waiting for an egg respawn @ (${pos().x},${pos().z}) (${i}/20)`);
+        }
+        if (invCount(EGG) === 0) await sdk.waitForTicks(8);
+    }
+    if (invCount(EGG) === 0) {
+        throw new Error('gathering failed: no egg in the coop (static spawns empty and hens do not lay in this revision; bank an egg first)');
+    }
+    log('Bag: eggx1 (gathered)');
+}
+
+async function gatherMilk(): Promise<void> {
+    const MILK = NEEDED[1]!.pattern;
+    if (invCount(MILK) > 0) return;
+    if (!(await stockEmptyVessel(BUCKET_EMPTY, 'bucket'))) {
+        throw new Error('gathering failed: no empty bucket (bank or Lumbridge general store)');
+    }
+    await bot.closeInterface();
+    await travelTo(COW_GATE, 'the cow-pen gate');
+    await travelTo(COW_PEN, 'the dairy cows');
+    for (let i = 0; i < 6 && invCount(MILK) === 0; i++) {
+        // Fresh scan every attempt: cows wander, a carried target is stale.
+        await sdk.scanNearbyLocs(8).catch(() => {});
+        const cow = sdk.findNearbyNpc(/^cow$/i);
+        if (!cow) {
+            log(`no cow in range @ (${pos().x},${pos().z}) l${pos().level} (${i}/6)`);
+            await sdk.waitForTicks(6);
+            continue;
+        }
+        const res = await bot.useItemOnNpc(BUCKET_EMPTY, cow);
+        log(`milked cow @ (${cow.x},${cow.z}): ${res.success}${res.success ? '' : ` (${res.message ?? '?'})`}`);
+        await sdk.waitForTicks(3);
+    }
+    if (invCount(MILK) === 0) throw new Error('gathering failed: milking produced no bucket of milk');
+    log('Bag: bucket of milk x1 (gathered)');
+}
+
+/** Climb inside the mill. Stairs are re-scanned every attempt: a plane change
+ *  rebuilds the scene, so a carried loc list is stale (settle-and-RETRY). */
+async function climbMillTo(targetLevel: number): Promise<void> {
+    for (let i = 0; i < 8 && pos().level !== targetLevel; i++) {
+        const wantUp = pos().level < targetLevel;
+        const opt = wantUp ? /climb-up|climb.up|go-up|go.up/i : /climb-down|climb.down|go-down|go.down/i;
+        await sdk.scanNearbyLocs(10).catch(() => {});
+        await sdk.waitForTicks(2);
+        await sdk.scanNearbyLocs(10).catch(() => {});
+        const stairs = (sdk.getNearbyLocs() ?? [])
+            .filter((l) => /stair|ladder/i.test(l.name) && l.optionsWithIndex.some((o) => opt.test(o.text)))
+            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+        if (!stairs) {
+            log(`no stairs in range @ (${pos().x},${pos().z}) l${pos().level}; stepping to the mill core`);
+            await travelTo(MILL_CORE, 'the mill interior');
+            continue;
+        }
+        const before = pos().level;
+        log(`Climb ${wantUp ? 'up' : 'down'} ${stairs.name} @ (${stairs.x},${stairs.z})`);
+        await bot.interactLoc(stairs, opt);
+        await sdk.waitForCondition((s) => (s.player?.level ?? before) !== before, 8_000).catch(() => {});
+        await bot.closeInterface();
+    }
+    if (pos().level !== targetLevel) {
+        throw new Error(`gathering failed: stuck at mill level ${pos().level}, wanted ${targetLevel}`);
+    }
+}
+
+async function gatherFlour(): Promise<void> {
+    const FLOUR = NEEDED[2]!.pattern;
+    if (invCount(FLOUR) > 0) return;
+    if (!(await stockEmptyVessel(POT_EMPTY, 'pot'))) {
+        throw new Error('gathering failed: no empty pot (bank or Lumbridge general store)');
+    }
+    await bot.closeInterface();
+    if (invCount(GRAIN) === 0) {
+        await travelTo(WHEAT_FIELD, 'the wheat field');
+        for (let i = 0; i < 8 && invCount(GRAIN) === 0; i++) {
+            await sdk.scanNearbyLocs(10).catch(() => {});
+            const wheat = sdk.findNearbyLoc(/^wheat$/i);
+            if (!wheat) {
+                log(`no wheat in range @ (${pos().x},${pos().z}) (${i}/8)`);
+                await sdk.waitForTicks(4);
+                continue;
+            }
+            const bagBefore = inventorySignature(sdk);
+            const res = await bot.interactLoc(wheat, /pick/i);
+            log(`picked wheat: ${res.success}${res.success ? '' : ` (${res.message ?? '?'})`}`);
+            await untilInventoryChange(sdk, bagBefore, { log });
+        }
+        if (invCount(GRAIN) === 0) throw new Error('gathering failed: no grain from the wheat field');
+    }
+    await travelTo(MILL_DOOR, 'the mill door');
+    await climbMillTo(2);
+    await sdk.scanNearbyLocs(10).catch(() => {});
+    await sdk.waitForTicks(2);
+    await sdk.scanNearbyLocs(10).catch(() => {});
+    const hopper = sdk.findNearbyLoc(/^hopper$/i);
+    if (!hopper) throw new Error(`gathering failed: no hopper in range @ (${pos().x},${pos().z}) l${pos().level}`);
+    const beforeHopper = inventorySignature(sdk);
+    const fill = await bot.useItemOnLoc(GRAIN, hopper);
+    log(`grain into the hopper: ${fill.success}${fill.success ? '' : ` (${fill.message ?? '?'})`}`);
+    if (!fill.success) throw new Error(`gathering failed: the hopper rejected the grain (${fill.message ?? '?'})`);
+    await untilInventoryChange(sdk, beforeHopper, { log });
+    await sdk.scanNearbyLocs(10).catch(() => {});
+    const controls = sdk.findNearbyLoc(/^hopper controls$/i);
+    if (!controls) throw new Error('gathering failed: no hopper controls in range');
+    const lever = await bot.interactLoc(controls, /operate/i);
+    log(`operated the hopper: ${lever.success}${lever.success ? '' : ` (${lever.message ?? '?'})`}`);
+    await sdk.waitForTicks(2);
+    await climbMillTo(0);
+    await bot.closeInterface();
+    await sdk.scanNearbyLocs(10).catch(() => {});
+    await sdk.waitForTicks(2);
+    await sdk.scanNearbyLocs(10).catch(() => {});
+    const bin = sdk.findNearbyLoc(/^flour bin$/i);
+    if (!bin) throw new Error(`gathering failed: no flour bin in range @ (${pos().x},${pos().z}) l${pos().level}`);
+    const beforeBin = inventorySignature(sdk);
+    const fillPot = await bot.useItemOnLoc(POT_EMPTY, bin);
+    log(`pot from the flour bin: ${fillPot.success}${fillPot.success ? '' : ` (${fillPot.message ?? '?'})`}`);
+    await untilInventoryChange(sdk, beforeBin, { log });
+    if (invCount(FLOUR) === 0) throw new Error('gathering failed: the flour bin gave no flour');
+    log('Bag: pot of flour x1 (gathered)');
+}
+
+async function gatherIngredients(shortfall: typeof NEEDED): Promise<void> {
+    // We are AT the bank right now, and the gather legs go far from any
+    // booth: take every empty vessel plus shop coins up front. A later
+    // stockEmptyVessel can only shop (its bank open fails away from a booth).
+    await prestockVessels(shortfall);
+    for (const need of shortfall) {
+        if (need.name === 'egg') await gatherEgg();
+        else if (need.name === 'bucket_milk') await gatherMilk();
+        else if (need.name === 'pot_flour') await gatherFlour();
+        if (invCount(need.pattern) < 1) throw new Error(`gathering failed: still no ${need.name}`);
+    }
+    await bot.closeInterface();
+    log(`Bag: ${NEEDED.map(n => `${n.name}x${invCount(n.pattern)}`).join(' ')}`);
+}
+
+/** One bank visit for all vessels + shop coins, before any travel. */
+async function prestockVessels(shortfall: typeof NEEDED): Promise<void> {
+    const wants: RegExp[] = [];
+    if (shortfall.some(n => n.name === 'bucket_milk')) wants.push(BUCKET_EMPTY);
+    if (shortfall.some(n => n.name === 'pot_flour')) wants.push(POT_EMPTY);
+    if (!(await openBankHere())) {
+        throw new Error('gathering failed: the bank would not open for vessels');
+    }
+    for (const w of wants) {
+        if (invCount(w) > 0) continue;
+        const item = sdk.findBankItem(w);
+        if (item) {
+            const res = await bot.withdrawItem(item, 1);
+            log(`prestocked vessel: ${res.success}`);
+        }
+    }
+    if (invCount(COINS) < 10) {
+        const coins = sdk.findBankItem(COINS);
+        if (coins) await bot.withdrawItem(coins, Math.min(60, coins.count ?? 60));
+    }
+    await bot.closeInterface();
+    log(`Vessels: bucketx${invCount(BUCKET_EMPTY)} potx${invCount(POT_EMPTY)} coinsx${invCount(COINS)}`);
 }
 
 // ── travel ──────────────────────────────────────────────────────────────────
+/**
+ * Open a closed gate/door blocking the way. Called every leg: a gate the
+ * planner cannot path through reads as zero-progress otherwise, and retrying
+ * the same bearing cannot help.
+ */
+async function openBlocking(): Promise<void> {
+    await sdk.scanNearbyLocs(8).catch(() => {});
+    const gate = (sdk.getNearbyLocs() ?? [])
+        .filter((l) => /gate|door/i.test(l.name) && (l.distance ?? 99) <= 8
+            && l.optionsWithIndex.some((o) => /^open$/i.test(o.text)))
+        .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+    if (!gate) return;
+    log(`Opening ${gate.name} @ (${gate.x},${gate.z})`);
+    await bot.openDoor(gate);
+    await sdk.waitForTicks(2);
+}
+
+/**
+ * Step off an open gate/door tile we are standing on. An open gate reads
+ * Close instead of Open, so the opener above ignores it — but the pathfinder
+ * refuses to route FROM the gate tile, stalling every leg at zero progress.
+ */
+async function stepOffOpenGate(): Promise<void> {
+    await sdk.scanNearbyLocs(4).catch(() => {});
+    const under = (sdk.getNearbyLocs() ?? []).find((l) => /gate|door/i.test(l.name)
+        && (l.distance ?? 99) < 1 && l.optionsWithIndex.some((o) => /^close$/i.test(o.text)));
+    if (!under) return;
+    const p = pos();
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+        const nx = p.x + dx!, nz = p.z + dz!;
+        if (nx === under.x && nz === under.z) continue;
+        if (!isTileWalkable(0, nx, nz)) continue;
+        log(`Stepping off open ${under.name} @ (${under.x},${under.z}) to (${nx},${nz})`);
+        await bot.walkTo(nx, nz, 0);
+        await sdk.waitForTicks(2);
+        return;
+    }
+    log(`Stuck on open ${under.name} @ (${under.x},${under.z}): no walkable neighbor`);
+}
+
 /**
  * Walk to a destination via planned waypoints. Each leg is verified: a leg that
  * moves nothing is an obstacle, and retrying the same bearing cannot help.
@@ -277,103 +625,133 @@ async function travelTo(dest: { x: number; z: number }, what: string): Promise<v
     for (let i = 0; i < waypoints.length; i++) {
         const wp = waypoints[i]!;
         const before = pos();
-        if (Math.hypot(before.x - wp.x, before.z - wp.z) <= 3) continue;
+        // ONE radius everywhere on the leg: advance, success and no-op. walkTo
+        // measures in Chebyshev tiles and refuses to move inside its tolerance,
+        // so a Euclidean gate here reads a 3.0-cheb arrival as 3.6 short and
+        // throws BLOCKED on a leg the walker already considers finished.
+        if (cheb(before, wp) <= 3) continue;
 
+        await openBlocking();
+        await stepOffOpenGate();
         let moved = false;
         for (let attempt = 0; attempt < 3 && !moved; attempt++) {
             const res = await bot.walkTo(wp.x, wp.z, 3);
             await sdk.waitForTicks(2);
             const after = pos();
             const step = Math.hypot(after.x - before.x, after.z - before.z);
-            moved = step >= 1 || Math.hypot(after.x - wp.x, after.z - wp.z) <= 3;
+            moved = step >= 1 || cheb(after, wp) <= 3;
             log(`leg ${i + 1}/${waypoints.length} -> (${wp.x},${wp.z}) moved=${step.toFixed(1)} at (${after.x},${after.z}) l${after.level} ok=${res.success}`);
         }
         if (!moved) {
             const now = pos();
-            throw new Error(`BLOCKED leg ${i + 1} to ${what}: no progress at (${now.x},${now.z}) l${now.level}, ${Math.round(distTo(wp))} tiles short of (${wp.x},${wp.z})`);
+            throw new Error(`BLOCKED leg ${i + 1} to ${what}: no progress at (${now.x},${now.z}) l${now.level}, ${cheb(now, wp)} tiles short of (${wp.x},${wp.z})`);
         }
+        // A long approach is a blind leg: refresh the stall clock per hop so a
+        // slow walk is not parked as `stuck` with the work already done.
+        session.noteProgress('location', `leg ${i + 1}/${waypoints.length} -> (${pos().x},${pos().z})`);
     }
     const at = pos();
-    if (distTo(dest) > 6) throw new Error(`did not reach ${what}: at (${at.x},${at.z}) l${at.level}, ${Math.round(distTo(dest))} tiles short`);
+    if (cheb(at, dest) > 6) throw new Error(`did not reach ${what}: at (${at.x},${at.z}) l${at.level}, ${cheb(at, dest)} tiles short`);
     log(`Arrived ${what} at (${at.x},${at.z}) l${at.level}`);
 }
 
-// ── 3. travel to the Cook (route planned from wherever we are) ──────────────
-await session.setPhase('travel');
-await travelTo(cookApproach(), 'the Cook');
+// ── 3. run the declared flow ────────────────────────────────────────────────
+// Everything below is the runner: the flow itself (stage routing, bank/travel/
+// start/hand-in/verify, and every recovery edge) is declared in
+// `cooks-assistant.graph.ts` and can be drawn or validated without a client:
+//   bun sdk/fsm-cli.ts bots/quests/cooks-assistant.graph.ts
 
-// ── 4. start the quest, only from the unstarted stage ───────────────────────
-if (STAGE === 'unstarted') {
-// Gate BEFORE acting: the quest must really be unstarted, or the dialog below
-// acts on an assumption.
-if (!(await checkpoint('unstarted', 'quest not yet started'))) {
-    throw new Error('unstarted checkpoint failed before starting the quest');
-}
-await session.setPhase('start-quest');
-const talked = await bot.talkTo(/^cook$/i);
-if (!talked.success) throw new Error(`could not talk to the Cook: ${talked.message ?? '?'}`);
-
-for (let i = 0; i < 30; i++) {
-    const dialog = sdk.getDialog();
-    if (!dialog?.isOpen) {
-        await sdk.waitForTicks(1);
-        if (!sdk.getDialog()?.isOpen && i > 2) break;
-        continue;
+/** Click through a conversation, preferring the stated choices, then clear the UI. */
+async function drainDialog(preferred: RegExp[]): Promise<void> {
+    for (let i = 0; i < 30; i++) {
+        const dialog = sdk.getDialog();
+        if (!dialog?.isOpen) {
+            await sdk.waitForTicks(1);
+            if (!sdk.getDialog()?.isOpen && i > 2) break;
+            continue;
+        }
+        const options = dialog.options ?? [];
+        const pick = preferred.map((re) => options.find((o) => re.test(o.text))).find(Boolean) ?? options[0];
+        if (pick) {
+            log(`dialog -> ${pick.text}`);
+            await sdk.sendClickDialog(pick.index);
+        }
+        await sdk.waitForTicks(2);
     }
-    const options = dialog.options ?? [];
-    const pick = options.find(o => /yes, i'?ll help you/i.test(o.text))
-        ?? options.find(o => /what'?s wrong/i.test(o.text))
-        ?? options[0];
-    if (pick) {
-        log(`dialog -> ${pick.text}`);
-        await sdk.sendClickDialog(pick.index);
+    await bot.dismissBlockingUI();
+}
+
+/** Start the quest. Returns started=false with a reason instead of throwing, so the graph decides. */
+async function acceptQuest(): Promise<{ started: boolean; reason?: string }> {
+    const talked = await bot.talkTo(/^cook$/i);
+    if (!talked.success) return { started: false, reason: `could not talk to the Cook: ${talked.message ?? '?'}` };
+    await drainDialog([/yes, i'?ll help you/i, /what'?s wrong/i]);
+    if (!(await checkpoint('active', 'accepted the quest, ingredients requested'))) {
+        return { started: false, reason: 'active checkpoint failed after accepting the quest' };
     }
-    await sdk.waitForTicks(2);
-}
-await bot.dismissBlockingUI();
-
-if (!(await checkpoint('active', 'accepted the quest, ingredients requested'))) {
-    throw new Error('active checkpoint failed after accepting the quest');
-}
-} else {
-    log('Resuming mid-quest: the ingredients request is already journal-confirmed');
+    return { started: true };
 }
 
-// ── 5. hand in ──────────────────────────────────────────────────────────────
-await session.setPhase('hand-in');
-const again = await bot.talkTo(/^cook$/i);
-if (!again.success) throw new Error(`could not talk to the Cook to hand in: ${again.message ?? '?'}`);
-for (let i = 0; i < 30; i++) {
-    const dialog = sdk.getDialog();
-    if (!dialog?.isOpen) {
-        await sdk.waitForTicks(1);
-        if (!sdk.getDialog()?.isOpen && i > 2) break;
-        continue;
-    }
-    const options = dialog.options ?? [];
-    const pick = options.find(o => /i now have everything|milk, flour, and an egg/i.test(o.text)) ?? options[0];
-    if (pick) log(`dialog -> ${pick.text}`);
-    if (pick) await sdk.sendClickDialog(pick.index);
-    await sdk.waitForTicks(2);
+async function handIn(): Promise<void> {
+    const again = await bot.talkTo(/^cook$/i);
+    if (!again.success) throw new Error(`could not talk to the Cook to hand in: ${again.message ?? '?'}`);
+    await drainDialog([/i now have everything|milk, flour, and an egg/i]);
 }
-await bot.dismissBlockingUI();
 
-// ── 6. completion is proven by the journal, never by XP or a chat line ──────
-await session.setPhase('verify');
-if (!(await checkpoint('complete', 'journal reports QUEST COMPLETE'))) {
-    throw new Error('completion checkpoint failed: journal does not report the quest complete');
+const ctx: CookCtx = {
+    stage: null,
+    readStage,
+    recordStage,
+    checkpoint: (name, label) => checkpoint(name, label),
+    suppliesCarried: () => !NEEDED.some((n) => invCount(n.pattern) === 0),
+    bankForSupplies,
+    travelToCook: () => travelTo(cookApproach(), 'the Cook'),
+    acceptQuest,
+    handIn,
+    promotionGate: () => summarizeRun(run.directory),
+    log,
+};
+
+const machine = new Machine(graph, {
+    // Phase tracking is derived from the graph now: entering a state IS the phase
+    // change, so the two can never disagree.
+    onEnter: (state) => {
+        if (!state.startsWith('$')) void session.setPhase(state).catch(() => undefined);
+    },
+    onTransition: (e) =>
+        session.event(
+            'transition',
+            {
+                machine: e.machine,
+                from: e.from,
+                to: e.to,
+                via: e.via,
+                reason: e.reason,
+                visit: e.visit,
+                durationMs: e.durationMs,
+                elapsedMs: e.elapsedMs,
+                edgeRepeats: e.edgeRepeats,
+            },
+            `${e.from} -> ${e.to} (${e.via})${e.reason ? `: ${e.reason}` : ''}`,
+        ),
+    stopping: () => session.isStoppedOrRequested(),
+});
+
+const result = await machine.run(ctx);
+log(`route: ${result.path.join(' -> ')}`);
+
+if (result.outcome === 'failed') {
+    log(`FAILED — ${result.reason}`);
+    session.stop('failed', `cook's assistant failed: ${result.reason}`, { restartable: false });
+    sdk.disconnect();
+    process.exit(1);
 }
 
 session.log('log', "Cook's Assistant verified complete");
 session.noteProgress('inventory', 'quest complete (journal-verified)');
-const summary = summarizeRun(run.directory);
-if (!summary.ok) {
-    // Every declared checkpoint must carry a PASS before this counts as done.
-    throw new Error(`promotion gate failed: missing/unpassed ${JSON.stringify(summary.missing)}`);
-}
-log(`Run record verified: ${summary.ok} (${summary.missing.length} outstanding)`);
-log(`DONE Cook's Assistant verified via journal at (${pos().x},${pos().z})`);
+log(`DONE Cook's Assistant verified via journal at (${pos().x},${pos().z}) in ${Math.round(result.elapsedMs / 1000)}s (${result.transitions.length} transitions)`);
 log(`Metrics: ${JSON.stringify(session.metrics())}`);
 
+session.stop('done', "Cook's Assistant complete", { restartable: false });
 sdk.disconnect();
 process.exit(0);
