@@ -63,6 +63,19 @@ const TEMPLE_DOOR = { x: 3408, z: 3493 };
 const TEMPLE_INTERIOR = { x: 3412, z: 3486 };
 const CELL_DOOR = { x: 3415, z: 3489 }; // L2
 const CELL_APPROACH = { x: 3414, z: 3489 };
+/** `pip_prisondoor` in content; needed for a by-coordinate click (the map pack disagrees on the tile). */
+const CELL_DOOR_LOC = 3463;
+/**
+ * The temple's upper floors (L1 landing + L2 cell level) are a ROUTING TRAP:
+ * the static graph masks door tiles, so any plan FROM here truncates a few
+ * tiles away — a bank leg ends "path ends 314 tiles away" — and a failed run
+ * left the account sealed beside the ladder where the park script cannot walk
+ * it out either (rescue-temple.ts exists because of it). The box is generous
+ * because the landing and the cell level are both inside it.
+ */
+const TEMPLE_FLOOR_BOX = { x1: 3403, x2: 3426, z1: 3477, z2: 3499 };
+/** Outside the temple's large doors, on the walkable side (live-verified). */
+const TEMPLE_OUTSIDE = { x: 3408, z: 3494 };
 const COFFIN = { x: 3413, z: 3486 }; // L2, 2 tiles long
 const MAUSOLEUM_TRAP = { x: 3405, z: 3507 };
 const MAUSOLEUM_LANDING = { x: 3405, z: 9906 };
@@ -275,6 +288,14 @@ await runScript(async ({ bot, sdk }) => {
         return !underground() && p.x >= 3395 && p.x <= 3435 && p.z >= 3478 && p.z <= 3515;
     }
 
+    /** On the temple's upper floors (the routing trap), not the ground floor. */
+    function onTempleFloor(): boolean {
+        const p = pos();
+        if (underground() || p.level === 0) return false;
+        return p.x >= TEMPLE_FLOOR_BOX.x1 && p.x <= TEMPLE_FLOOR_BOX.x2
+            && p.z >= TEMPLE_FLOOR_BOX.z1 && p.z <= TEMPLE_FLOOR_BOX.z2;
+    }
+
     function bagSpace(): number {
         return 28 - (sdk.getInventory()?.length ?? 28);
     }
@@ -300,6 +321,31 @@ await runScript(async ({ bot, sdk }) => {
     /** Credit effects, not just intent: the fleet verdict bounces effect-dead bots. */
     function progress(kind: 'location' | 'dialog' | 'inventory' | 'bank' | 'xp', detail: string): void {
         session.noteProgress(kind, detail);
+    }
+
+    /**
+     * Bound a step that talks to the server. A degraded gateway answers nothing
+     * and an SDK call then blocks far past its own budget (observed live: a
+     * canary sat in a bank leg for eight minutes with the bag already
+     * deposited). Without this, prep can eat the whole run before the first
+     * quest action — the failed canary spent 58 minutes before its first
+     * checkpoint. A bare Promise.race is not enough: the timer still fires
+     * after the work completed, so the log fills with phantom warnings and a
+     * real stall can no longer be told apart from noise — clear it on settle.
+     */
+    async function withDeadline<T>(work: Promise<T>, ms: number, label: string): Promise<T | null> {
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const guard = new Promise<null>((resolve) => {
+            timer = setTimeout(() => {
+                log(`WARN ${label} exceeded ${Math.round(ms / 1000)}s — continuing`);
+                resolve(null);
+            }, ms);
+        });
+        try {
+            return await Promise.race([work, guard]);
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
     }
 
     const MODE = process.env.QUEST_LAB_MODE === 'staging' ? 'staging' : 'development';
@@ -406,6 +452,25 @@ await runScript(async ({ bot, sdk }) => {
         return false;
     }
 
+    /**
+     * Poll the journal until the stage moves past `from` (rule 58).
+     *
+     * The varp write and the journal publication both lag the last dialog page
+     * on a slow link, so ONE read straight after the drain reports the old
+     * stage on a working hand-over. Bounded, and cheap: `readStage` falls back
+     * to the last observed stage when a read comes back UNKNOWN, so a failed
+     * poll cannot be mistaken for progress.
+     */
+    async function stageAdvanced(from: Stage | null, polls = 5): Promise<boolean> {
+        const fromIndex = from ? STAGE_ORDER.indexOf(from) : -1;
+        for (let i = 0; i < polls; i++) {
+            const stage = await readStage();
+            if (stage && STAGE_ORDER.indexOf(stage) > fromIndex) return true;
+            await sdk.waitForTicks(3);
+        }
+        return false;
+    }
+
     // ── ui + dialog ────────────────────────────────────────────────────────
     async function closeUi(): Promise<void> {
         for (let i = 0; i < 10; i++) {
@@ -434,22 +499,36 @@ await runScript(async ({ bot, sdk }) => {
      * and component ids, so a text-key guard stalls the drain on page two
      * (observed: Drezel's lore chain re-started forever). Choice menus DO get a
      * repeat guard, because re-clicking a menu that is still rendering lands on
-     * the option index of the page that already advanced. A briefly closed
-     * dialog is given ~8 ticks to publish its next page before the drain ends.
+     * the option index of the page that already advanced.
+     *
+     * The whole drain is sized for a SLOW link: Drezel's `return_to_drezel`
+     * conversation is ~48 pages with two choice menus, and the varp write sits
+     * on the last branch (`trapped_drezel.rs2`), so a page that arrives late
+     * must not be read as "the conversation ended". A closed dialog is given
+     * ~20 ticks to publish its next page (8 read a working chain as finished
+     * mid-way on the live box), an identical menu is re-read up to six times
+     * before the drain gives up, and the whole drain is bounded so one wedged
+     * page cannot eat the leg.
      */
-    async function chat(choices: RegExp[] = [], max = 120): Promise<string[]> {
+    async function chat(choices: RegExp[] = [], max = 160): Promise<string[]> {
         const seen: string[] = [];
         let lastChoiceKey = '';
         let sameChoice = 0;
+        const deadline = Date.now() + 240_000;
         for (let i = 0; i < max; i++) {
+            if (Date.now() > deadline) {
+                log(`dialog: drain exceeded its 240s budget after ${i} pages`);
+                break;
+            }
             if (!sdk.getDialog()?.isOpen) {
                 let reopened = false;
-                for (let t = 0; t < 8; t++) {
+                for (let t = 0; t < 20; t++) {
                     await sdk.waitForTicks(1);
                     if (sdk.getDialog()?.isOpen) {
                         reopened = true;
                         break;
                     }
+                    if (t === 7) progress('dialog', 'waiting for the next dialog page');
                 }
                 if (!reopened) break;
             }
@@ -463,7 +542,11 @@ await runScript(async ({ bot, sdk }) => {
             }
             const key = opts.map((o) => `${o.componentId}:${o.text}`).join('|');
             if (key === lastChoiceKey) {
-                if (++sameChoice > 2) {
+                // A menu that is still rendering looks identical for a few
+                // ticks; only a page that survives six re-reads (~18 ticks) is
+                // genuinely stuck, and the caller now re-talks rather than
+                // trusting one pumped pass (rule 54).
+                if (++sameChoice > 5) {
                     log(`dialog: choice menu did not advance [${opts.map((o) => o.text.trim()).join(' | ')}]`);
                     break;
                 }
@@ -537,6 +620,11 @@ await runScript(async ({ bot, sdk }) => {
     async function travel(x: number, z: number, label: string, via: { x: number; z: number }[] = []): Promise<boolean> {
         intent(`Travelling to ${label}`);
         await ensureSurface();
+        // The temple's upper floors are a TRAP for the planner, not a route:
+        // every plan from L2 truncates (a bank leg ends "314 tiles away"), so a
+        // leg that starts here would burn its hop budget without moving. Leave
+        // by ladder + door first, and only then plan (rule 57b).
+        if (onTempleFloor()) await leaveTempleFloor(label);
         if (inPalace()) await leavePalace();
         await sdk.waitForTicks(2);
         // The Varrock <-> temple corridor is walked by ANCHOR, not by plan.
@@ -667,6 +755,72 @@ await runScript(async ({ bot, sdk }) => {
             progress('location', `climb to L${pos().level}`);
         }
         return pos().level === targetLevel;
+    }
+
+    /**
+     * Leave the temple's upper floors BEFORE planning anything (rule 57b).
+     *
+     * The cell level is a sealed pocket to the static graph: door tiles are
+     * masked, so a plan FROM L2 truncates a few tiles away — a bank leg reports
+     * "path ends 314 tiles away" — and a run that ends here strands the account
+     * beside the ladder, where the park script cannot walk it out either
+     * (`bots/quests/rescue-temple.ts` exists because of that). The exit is
+     * mechanical, never a waypoint: click the cell door at its OWN tile, climb
+     * down one flight at a time judged by the PLANE, then walk out through the
+     * large doors and verify the position before any leg is planned.
+     */
+    async function leaveTempleFloor(label: string): Promise<boolean> {
+        if (!onTempleFloor()) return true;
+        intent(`Leaving the temple upper floor (${label})`);
+        // 1. The cell door, by coordinate + loc id (`pip_prisondoor`): a scan
+        //    match is not guaranteed at the landing, and `interactLoc` walks you
+        //    adjacent FIRST, which is the wrong side of a shut door. Best
+        //    effort — it stays locked until the iron key is used, and a refusal
+        //    here is not a failure.
+        await sdk.scanNearbyLocs(8).catch(() => {});
+        const cellDoor = (sdk.getNearbyLocs() ?? []).find(
+            (l) => /cell door/i.test(l.name) && cheb({ x: l.x, z: l.z }, CELL_DOOR) <= 6
+        );
+        if (cellDoor?.optionsWithIndex.some((o) => /^open$/i.test(o.text))) {
+            await sdk.sendInteractLoc(CELL_DOOR.x, CELL_DOOR.z, CELL_DOOR_LOC, 1).catch(() => {});
+            await sdk.waitForTicks(2);
+        }
+        // 2. Climb down until the ground plane. Walk to the live-verified
+        //    flight for this plane first (L2 -> Ladder 3410,3485; L1 ->
+        //    Staircase 3417,3484) so the scan that follows always has it in
+        //    range; `climbTo` then re-scans per hop and skips a flight that did
+        //    not change the plane.
+        for (let round = 0; round < 3 && onTempleFloor(); round++) {
+            const anchor = pos().level >= 2 ? { x: 3410, z: 3485 } : { x: 3417, z: 3484 };
+            await walkNear(anchor.x, anchor.z, 2);
+            await climbTo(pos().level - 1);
+            await sdk.waitForTicks(2);
+            log(`temple escape ${round + 1}: ${pos().x},${pos().z} L${pos().level}`);
+            if (pos().level === 0) break;
+            await stepOffDoor();
+        }
+        // 3. Step out through the large doors, judged by DISPLACEMENT: a door
+        //    click can land on either side and its receipt proves nothing.
+        for (let attempt = 0; attempt < 3 && pos().level === 0 && inTemple() && cheb(pos(), TEMPLE_OUTSIDE) > 3; attempt++) {
+            await sdk.scanNearbyLocs(10).catch(() => {});
+            const door = (sdk.getNearbyLocs() ?? []).find((l) => /large door/i.test(l.name));
+            if (door?.optionsWithIndex.some((o) => /^open$/i.test(o.text))) {
+                await walkNear(door.x, door.z + 1, 2);
+                await bot.interactLoc(door, /^open$/i);
+                await sdk.waitForTicks(3);
+            }
+            for (const step of [TEMPLE_OUTSIDE, { x: 3407, z: 3495 }, { x: 3409, z: 3495 }]) {
+                const before = pos();
+                await sdk.sendWalk(step.x, step.z).catch(() => {});
+                await sdk.waitForTicks(2);
+                if (cheb(pos(), before) > 0 && cheb(pos(), TEMPLE_OUTSIDE) <= 3) break;
+            }
+            await stepOffDoor();
+        }
+        const out = pos().level === 0 && cheb(pos(), TEMPLE_OUTSIDE) <= 3;
+        log(`temple escape: ${out ? 'out' : 'STILL SEALED'} @ ${pos().x},${pos().z} L${pos().level}`);
+        progress('location', `temple escape ${out ? 'out' : 'failed'}`);
+        return out;
     }
 
     // ── mausoleum ──────────────────────────────────────────────────────────
@@ -941,8 +1095,24 @@ await runScript(async ({ bot, sdk }) => {
         await eatIfNeeded();
         intent('Killing a Monk of Zamorak for the golden key');
         let misses = 0;
+        let pickupMisses = 0;
         for (let turn = 0; turn < 120 && !pos().isDead; turn++) {
             if (count(GOLD_KEY) > 0 || count(IRON_KEY) > 0) return;
+            // A kill can drop the key at our feet mid-loop: take it the moment it
+            // is on the ground instead of grinding the remaining turns — the
+            // drop despawns, and a canary on a slow link spends minutes here.
+            // Three failed takes means someone else owns it; go back to fighting.
+            const dropped = pickupMisses < 3 ? sdk.findGroundItem(GOLD_KEY) : null;
+            if (dropped) {
+                await bot.pickupItem(dropped).catch(() => {});
+                if (count(GOLD_KEY) > 0) {
+                    log('golden key picked up from the ground');
+                    progress('inventory', 'golden key');
+                    return;
+                }
+                pickupMisses++;
+                continue;
+            }
             await eatIfNeeded();
             const monks = (sdk.getNearbyNpcs() ?? []).filter((n) => /monk of zamorak/i.test(n.name));
             if (!monks.length) {
@@ -956,7 +1126,15 @@ await runScript(async ({ bot, sdk }) => {
                 continue;
             }
             misses = 0;
-            const target = monks.sort((a, b) => (b.combatLevel ?? 0) - (a.combatLevel ?? 0) || a.distance - b.distance)[0]!;
+            // Fresh spawns first (rule 16): under single combat a monk another
+            // bot already engaged cannot be damaged, and on the shared live box
+            // that is most of them. Skip targets the routefinder refuses too —
+            // those fail silently with `cant_reach`.
+            const reachable = monks.filter((n) => n.reachable !== false);
+            const pool = reachable.length ? reachable : monks;
+            const target = pool.sort((a, b) => Number(a.inCombat) - Number(b.inCombat)
+                || (b.combatLevel ?? 0) - (a.combatLevel ?? 0)
+                || a.distance - b.distance)[0]!;
             const r = await bot.attack(target, 12_000);
             if (!r.success) log(`attack monk(l${target.combatLevel}): ${r.message ?? r.reason ?? 'failed'}`);
             else progress('xp', 'monk fight');
@@ -1061,36 +1239,49 @@ await runScript(async ({ bot, sdk }) => {
         return reachable();
     }
 
-    /** Drezel in the cell: talk-through before the unlock, in person after. */
+    /**
+     * Drezel in the cell: talk-through before the unlock, in person after.
+     *
+     * Bounded RE-TALK loop, judged on the journal. The `return_to_drezel`
+     * conversation is ~48 pages with two choice menus and `trapped_drezel.rs2`
+     * writes the varp on the LAST branch — so on a slow link one pumped pass
+     * can end before the write lands, and the stage then never moves no matter
+     * how many times the loop repeats the same single pass. Each attempt costs
+     * ~90s; three of them converge, and the journal is the only evidence
+     * (a click receipt proves nothing).
+     */
     async function talkDrezelCell(choices: RegExp[]): Promise<void> {
         intent('Talking to Drezel');
         await ensureSurface();
         if (!inTemple()) await openTempleDoor();
         if (pos().level < 2) await climbTo(2);
-        await stepOffDoor();
-        await walkNear(CELL_APPROACH.x, CELL_APPROACH.z, 2);
-        await sdk.scanNearbyLocs(8).catch(() => {});
-        const door = (sdk.getNearbyLocs() ?? []).find(
-            (l) => /cell door/i.test(l.name) && cheb({ x: l.x, z: l.z }, CELL_DOOR) <= 2
-        );
-        const unlocked = lastStage !== null && STAGE_ORDER.indexOf(lastStage) >= STAGE_ORDER.indexOf('unlocked_drezel');
-        if (unlocked) {
-            if (!(await openCellDoor())) log('cell door still shut — Drezel is unreachable');
-            const talk = await bot.talkTo(/^drezel$/i);
-            log(`talk Drezel (in person): ${talk.success ? 'opened' : talk.message}`);
+        const from = lastStage;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            await stepOffDoor();
+            await walkNear(CELL_APPROACH.x, CELL_APPROACH.z, 2);
+            await sdk.scanNearbyLocs(8).catch(() => {});
+            const door = (sdk.getNearbyLocs() ?? []).find(
+                (l) => /cell door/i.test(l.name) && cheb({ x: l.x, z: l.z }, CELL_DOOR) <= 2
+            );
+            const unlocked = lastStage !== null && STAGE_ORDER.indexOf(lastStage) >= STAGE_ORDER.indexOf('unlocked_drezel');
+            if (unlocked) {
+                if (!(await openCellDoor())) log('cell door still shut — Drezel is unreachable');
+                const talk = await bot.talkTo(/^drezel$/i);
+                log(`talk Drezel (in person, attempt ${attempt}): ${talk.success ? 'opened' : talk.message}`);
+            } else if (door && door.optionsWithIndex.some((o) => /talk-through/i.test(o.text))) {
+                const r = await bot.interactLoc(door, /talk-through/i);
+                await sdk.waitForTicks(3);
+                log(`talk-through cell door (attempt ${attempt}) ok=${r.success} ${r.reason ?? r.message ?? ''}`);
+            } else {
+                log(`talk Drezel: no cell door in range @ ${pos().x},${pos().z} L${pos().level}`);
+            }
             await chat(choices);
             await chat([]);
-            return;
+            if (await stageAdvanced(from)) return;
+            log(`talk Drezel: stage still ${lastStage ?? 'UNKNOWN'} after attempt ${attempt}/3`);
+            await sdk.waitForTicks(4);
         }
-        if (door && door.optionsWithIndex.some((o) => /talk-through/i.test(o.text))) {
-            const r = await bot.interactLoc(door, /talk-through/i);
-            await sdk.waitForTicks(3);
-            log(`talk-through cell door ok=${r.success}`);
-        } else {
-            log(`talk Drezel: no cell door in range @ ${pos().x},${pos().z} L${pos().level}`);
-        }
-        await chat(choices);
-        await chat([]);
+        session.log('warn', 'talk Drezel: no stage advance after 3 attempts');
     }
 
     /** Use the iron key on the cell door -> varp 6 (unlocked_drezel). */
@@ -1411,15 +1602,39 @@ await runScript(async ({ bot, sdk }) => {
         return;
     }
 
-    await startBank();
-    await ensureSupplies();
+    // Prep is bounded: a stuck bank/shop leg must not consume the run before
+    // the quest work starts (the failed canary spent 58 minutes here). A
+    // timed-out bank leg is abandoned, not cancelled, so never start the supply
+    // pass on top of it — give it a settle window first.
+    const banked = await withDeadline(startBank(), 8 * 60_000, 'start bank');
+    if (banked === null) await sdk.waitForTicks(10);
+    await withDeadline(ensureSupplies(), 8 * 60_000, 'supply prep');
 
     const startedAt = Date.now();
-    const until = startedAt + 32 * 60_000;
+    // Sized to the LIVE clock, not the local one. The canary spends minutes on
+    // supply legs, temple round trips and NPC contention that the local fixture
+    // does in seconds; a 32-minute budget expired on the `return_to_drezel` leg
+    // and failed the run at the one place that also strands the account.
+    const until = startedAt + 50 * 60_000;
     let lastLoggedStage: Stage | null = null;
     let stalledPasses = 0;
 
     while (Date.now() < until) {
+        // Transport gate (rule 13): a dead control channel throws `Not
+        // connected` out of the first walk it touches, which ends the whole run
+        // where it stands — the canary's account was found on the cell level
+        // with its bag untouched, exactly what a mid-leg throw leaves behind.
+        // Wait for the session's own reconnect instead of dying.
+        if (!sdk.isConnected()) {
+            log(`controller disconnected @ ${pos().x},${pos().z} L${pos().level} — waiting for reconnect`);
+            for (let t = 0; t < 60 && !sdk.isConnected(); t++) await sdk.waitForTicks(10);
+            if (!sdk.isConnected()) {
+                log('controller did not reconnect — leaving the loop');
+                break;
+            }
+            log('controller reconnected');
+            continue;
+        }
         if (pos().isDead) {
             log('died — waiting for respawn');
             await sdk.waitForCondition((s) => !s.player.isDead, 45_000).catch(() => {});
@@ -1441,57 +1656,80 @@ await runScript(async ({ bot, sdk }) => {
             stalledPasses = 0;
         }
 
-        switch (stage) {
-            case 'started':
-                await knockTempleDoor();
-                break;
-            case 'agree_to_kill_dog':
-                await fightDog();
-                break;
-            case 'killed_dog':
-                await talkKingRoald([
-                    /looking for a quest/i,
-                    /^sure\.?$/i,
-                    /spoke to the guys at the temple/i,
-                    /okay.*going/i
-                ]);
-                break;
-            case 'return_to_drezel':
-                await talkDrezelCell([/tell me anyway/i, /^yes\.?$/i, /yes, of course/i]);
-                break;
-            case 'find_drezel_key':
-                await getKeyAndUnlock();
-                break;
-            case 'unlocked_drezel':
-                await waterPhase();
-                break;
-            case 'poured_blessed_water':
-                await talkDrezelCell([/poured the blessed water/i, /^yes\.?$/i]);
-                break;
-            case 'meet_in_mausoleum':
-                await talkMausoleumDrezel();
-                break;
-            case 'bringing_essence':
-                await essenceTrips();
-                break;
-            case 'unstarted':
-            case null:
-            default:
-                await talkKingRoald([/looking for a quest/i, /^sure\.?$/i, /^yes\.?$/i]);
-                break;
+        // One pass must never be able to end the run. A throw here (a refused
+        // walk, a stale state feed, `Not connected` mid-leg) used to propagate
+        // out of the loop and kill the process where it stood — on the cell
+        // level that means a sealed account and no bank-out. Log it, credit
+        // nothing, and let the next pass (or the escape on the way out) handle
+        // it; the budget still bounds the loop.
+        try {
+            switch (stage) {
+                case 'started':
+                    await knockTempleDoor();
+                    break;
+                case 'agree_to_kill_dog':
+                    await fightDog();
+                    break;
+                case 'killed_dog':
+                    await talkKingRoald([
+                        /looking for a quest/i,
+                        /^sure\.?$/i,
+                        /spoke to the guys at the temple/i,
+                        /okay.*going/i
+                    ]);
+                    break;
+                case 'return_to_drezel':
+                    await talkDrezelCell([/tell me anyway/i, /^yes\.?$/i, /yes, of course/i]);
+                    break;
+                case 'find_drezel_key':
+                    await getKeyAndUnlock();
+                    break;
+                case 'unlocked_drezel':
+                    await waterPhase();
+                    break;
+                case 'poured_blessed_water':
+                    await talkDrezelCell([/poured the blessed water/i, /^yes\.?$/i]);
+                    break;
+                case 'meet_in_mausoleum':
+                    await talkMausoleumDrezel();
+                    break;
+                case 'bringing_essence':
+                    await essenceTrips();
+                    break;
+                case 'unstarted':
+                case null:
+                default:
+                    await talkKingRoald([/looking for a quest/i, /^sure\.?$/i, /^yes\.?$/i]);
+                    break;
+            }
+        } catch (error) {
+            log(`WARN pass ${stage} failed: ${error}`);
+            session.log('warn', `pass ${stage} failed: ${error}`);
+            await sdk.waitForTicks(5);
         }
         log(`inv gold=${count(GOLD_KEY)} iron=${count(IRON_KEY)} ess=${count(ESSENCE)} ` +
             `murky=${countId(BUCKET_MURKY_ID)} blessed=${countId(BUCKET_BLESSED_ID)} @ ${pos().x},${pos().z} L${pos().level}`);
         await sdk.waitForTicks(2);
     }
 
-    if (!(await checkpoint('complete', 'journal reports QUEST COMPLETE'))) {
+    let completed = await checkpoint('complete', 'journal reports QUEST COMPLETE');
+    if (!completed) {
         await sdk.waitForTicks(6);
-        if (!(await checkpoint('complete', 'journal reports QUEST COMPLETE'))) {
-            throw new Error(`Priest in Peril unfinished @ ${pos().x},${pos().z} stage=${lastStage}`);
-        }
+        completed = await checkpoint('complete', 'journal reports QUEST COMPLETE');
+    }
+    if (!completed) {
+        // A failed run must not hand back a SEALED account. The cell level is a
+        // routing trap, so the park script cannot walk out of it ("path ends
+        // 314 tiles away") and every later canary on the account then fails
+        // before its first side effect. Escape to the surface, bank out, and
+        // only then fail loudly — the evidence is already on disk.
+        const where = `${pos().x},${pos().z} L${pos().level} stage=${lastStage}`;
+        log(`run unfinished @ ${where} — escaping the temple and banking out first`);
+        await leaveTempleFloor('unfinished run').catch((error) => log(`WARN escape failed: ${error}`));
+        await bankOut(Date.now() + 8 * 60_000);
+        throw new Error(`Priest in Peril unfinished @ ${where}`);
     }
     log(`QUEST COMPLETE Priest in Peril (journal verified, stage=${lastStage})`);
     await session.stop('done', 'Priest in Peril complete');
-    await bankOut(startedAt + 35 * 60_000);
+    await bankOut(startedAt + 55 * 60_000);
 });
