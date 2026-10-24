@@ -124,6 +124,29 @@ const BUCKET_MURKY_ID = 2953;
 const BUCKET_BLESSED_ID = 2954;
 /** Essence per bank trip: the hand-over eats the WHOLE bag, so trips are sized by the pack. */
 const ESSENCE_PER_TRIP = 27;
+/** `priestperil.constant` end_bring_essence: the quest itself asks for fifty. */
+const ESSENCE_NEEDED = 50;
+/**
+ * The essence supply. Fleet accounts arrive with an EMPTY essence bank and no
+ * shop in this revision sells rune essence, so the shortfall is mined: Aubury's
+ * teleport into the pocket (x 2860-3040, z 4760-4940), the portal out, and
+ * Varrock east bank between trips. Tiles mirror bots/quests/essence.ts, which is
+ * the fleet's proven miner.
+ */
+const AUBURY = { x: 3253, z: 3401 };
+const ESSENCE_MINE = { x1: 2860, x2: 3040, z1: 4760, z2: 4940 };
+const PICKAXE = /^(bronze|iron|steel|mithril|adamant|rune) pickaxe$/i;
+/** The pocket has no walkable exit: without a rock in view, wander and rescan. */
+const MINE_WANDER: Array<[number, number]> = [
+    [18, 0],
+    [0, 18],
+    [-18, 0],
+    [0, -18],
+    [14, 14],
+    [-14, 14],
+    [14, -14],
+    [-14, -14]
+];
 
 const botName = process.argv.slice(2).find((a) => !a.startsWith('-')) ?? '';
 const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
@@ -1442,8 +1465,219 @@ await runScript(async ({ bot, sdk }) => {
         return got;
     }
 
+    // ── essence supply ─────────────────────────────────────────────────────
+    // FOUR canaries in a row died with `essence: not in bank (bag=0)`: every
+    // fleet account starts with no rune essence, `drezel_give_blankrunes` wants
+    // fifty varp points, and no shop in this revision sells the item. So the
+    // shortfall is MINED before the hand-over trips — same script, same
+    // controller (never a second driver on the account), the fleet's own miner
+    // logic reduced to the one leg this quest needs.
+    function inEssenceMine(): boolean {
+        const p = pos();
+        return p.x >= ESSENCE_MINE.x1 && p.x <= ESSENCE_MINE.x2
+            && p.z >= ESSENCE_MINE.z1 && p.z <= ESSENCE_MINE.z2;
+    }
+
+    /** Banked essence, summed: essence does not stack, so it is one slot each. */
+    async function bankedEssence(): Promise<number> {
+        if (!sdk.getState()?.bank?.isOpen) {
+            if (!(await bot.openBank()).success) return -1;
+            await sdk.waitForTicks(2);
+        }
+        return (sdk.getBankItems() ?? []).reduce((n, i) => n + (ESSENCE.test(i.name) ? (i.count ?? 1) : 0), 0);
+    }
+
+    function hasPickaxe(): boolean {
+        return !!(sdk.findInventoryItem(PICKAXE) || sdk.findEquipmentItem(PICKAXE));
+    }
+
+    /** A pickaxe out of the bank. Without one, mining is not an option at all. */
+    async function ensurePickaxe(): Promise<boolean> {
+        if (hasPickaxe()) return true;
+        if (!sdk.getState()?.bank?.isOpen) {
+            await walkNear(SHOPS.VARROCK_EAST_BANK.x, SHOPS.VARROCK_EAST_BANK.z, 3);
+            if (!(await bot.openBank()).success) return false;
+            await sdk.waitForTicks(2);
+        }
+        const pick = (sdk.getBankItems() ?? []).find((i) => PICKAXE.test(i.name));
+        if (!pick) {
+            await bot.closeBank().catch(() => {});
+            return false;
+        }
+        const r = await bot.withdrawItem(pick, 1);
+        await sdk.waitForTicks(2);
+        await bot.closeBank().catch(() => {});
+        log(`essence: withdrew ${pick.name} for the mine (${r.success ? 'ok' : r.message ?? 'failed'})`);
+        return hasPickaxe();
+    }
+
+    function essenceRock() {
+        const match = (l: { name: string; optionsWithIndex: { text: string }[] }) =>
+            /essence/i.test(l.name) && l.optionsWithIndex.some((o) => /^mine$/i.test(o.text));
+        return (
+            (sdk.getNearbyLocs() ?? [])
+                .filter(match)
+                .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0] ??
+            sdk.findNearbyLoc(/rune essence/i, { withOption: /mine/i }) ??
+            null
+        );
+    }
+
+    async function enterEssenceMine(): Promise<boolean> {
+        if (inEssenceMine()) return true;
+        await ensureSurface();
+        if (distTo(AUBURY.x, AUBURY.z) > 12) {
+            if (!(await travel(AUBURY.x, AUBURY.z, 'Aubury in Varrock'))) {
+                log(`essence: could not reach Aubury @ ${pos().x},${pos().z}`);
+                return false;
+            }
+        }
+        await walkNear(AUBURY.x, AUBURY.z, 2);
+        let aubury = sdk.findNearbyNpc(/aubury/i);
+        for (let t = 0; !aubury && t < 10; t++) {
+            await sdk.waitForTicks(2);
+            aubury = sdk.findNearbyNpc(/aubury/i);
+        }
+        if (!aubury) {
+            log(`essence: Aubury not found @ ${pos().x},${pos().z}`);
+            return false;
+        }
+        intent('Asking Aubury for the rune essence mine');
+        if ((aubury.optionsWithIndex ?? []).some((o) => /teleport/i.test(o.text))) {
+            await bot.interactNpc(aubury, /teleport/i);
+        } else {
+            await bot.talkTo(aubury);
+            await chat([/teleport me to the rune essence/i, /rune essence/i]);
+        }
+        await sdk.waitForCondition(() => inEssenceMine(), 15_000).catch(() => {});
+        if (inEssenceMine()) {
+            progress('location', 'essence mine');
+            return true;
+        }
+        if (/completed the rune mysteries/i.test(messages())) {
+            log('essence: Aubury refused the teleport — Rune Mysteries is not finished on this account');
+            return false;
+        }
+        log(`essence: teleport did not land in the mine @ ${pos().x},${pos().z}`);
+        return false;
+    }
+
+    /** Mine up to `limit` essence, or until the pack is full. */
+    async function mineEssence(limit: number): Promise<number> {
+        const start = count(ESSENCE);
+        let wander = 0;
+        for (let pass = 0; pass < 240 && count(ESSENCE) - start < limit && bagSpace() > 0; pass++) {
+            let rock = essenceRock();
+            if (!rock) {
+                await sdk.scanNearbyLocs(15).catch(() => {});
+                rock = essenceRock();
+            }
+            if (!rock) {
+                const p = pos();
+                const [dx, dz] = MINE_WANDER[wander % MINE_WANDER.length]!;
+                wander++;
+                await walkNear(
+                    Math.min(ESSENCE_MINE.x2, Math.max(ESSENCE_MINE.x1, p.x + dx)),
+                    Math.min(ESSENCE_MINE.z2, Math.max(ESSENCE_MINE.z1, p.z + dz)),
+                    4
+                );
+                continue;
+            }
+            intent(`Mining rune essence (${count(ESSENCE) - start}/${limit})`);
+            await bot.interactLoc(rock, /^mine$/i);
+            await sdk.waitForTicks(4);
+        }
+        const mined = count(ESSENCE) - start;
+        if (mined > 0) progress('inventory', `mined ${mined} rune essence`);
+        return mined;
+    }
+
+    /** The pocket's ONLY exit is the portal back to Aubury's shop. */
+    async function leaveEssenceMine(): Promise<boolean> {
+        for (let attempt = 0; attempt < 8 && inEssenceMine(); attempt++) {
+            await sdk.scanNearbyLocs(15).catch(() => {});
+            const portal = (sdk.getNearbyLocs() ?? [])
+                .filter((l) => /portal/i.test(l.name))
+                .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+            if (!portal) {
+                const p = pos();
+                const [dx, dz] = MINE_WANDER[attempt % MINE_WANDER.length]!;
+                await walkNear(p.x + dx, p.z + dz, 4);
+                continue;
+            }
+            intent('Stepping through the essence portal');
+            await bot.interactLoc(portal, /use|enter|exit|teleport|climb/i);
+            await sdk.waitForCondition(() => !inEssenceMine(), 10_000).catch(() => {});
+        }
+        if (inEssenceMine()) log(`essence: still in the mine @ ${pos().x},${pos().z}`);
+        return !inEssenceMine();
+    }
+
+    /** Bank every essence held; returns how many were deposited. */
+    async function bankMinedEssence(): Promise<number> {
+        if (!(await travel(SHOPS.VARROCK_EAST_BANK.x, SHOPS.VARROCK_EAST_BANK.z, 'Varrock East bank'))) return 0;
+        await walkNear(SHOPS.VARROCK_EAST_BANK.x, SHOPS.VARROCK_EAST_BANK.z, 3);
+        if (!(await bot.openBank()).success) return 0;
+        await sdk.waitForTicks(2);
+        const before = count(ESSENCE);
+        // Deposit by RE-READING the pack. Essence is one item per slot, so a
+        // held item object's slot index goes stale the moment the first one
+        // leaves the bag and a snapshot loop deposits exactly ONE (observed:
+        // "banked 1 mined essence" after mining 24).
+        for (let guard = 0; guard < before + 4 && count(ESSENCE) > 0; guard++) {
+            const item = sdk.getInventory().find((i) => ESSENCE.test(i.name));
+            if (!item) break;
+            const r = await bot.depositItem(item, -1);
+            await sdk.waitForTicks(1);
+            if (!r.success) {
+                log(`essence deposit: ${r.message ?? r.reason ?? 'failed'}`);
+                await bot.closeBank().catch(() => {});
+                if (!(await bot.openBank()).success) break;
+                await sdk.waitForTicks(2);
+            }
+        }
+        await bot.closeBank().catch(() => {});
+        const moved = before - count(ESSENCE);
+        if (moved > 0) progress('bank', `banked ${moved} mined essence`);
+        return moved;
+    }
+
+    /**
+     * Get `target` essence into the bank, mining what the bank cannot provide.
+     * Returns the banked total (0 = the account cannot be supplied at all, and
+     * the caller must stop honestly rather than loop the mausoleum leg).
+     */
+    async function stockEssence(target: number): Promise<number> {
+        if (!(await ensurePickaxe())) {
+            log('essence: no pickaxe in inventory, equipment or the Varrock east bank — cannot mine the shortfall');
+            return 0;
+        }
+        for (let trip = 1; trip <= 4; trip++) {
+            const banked = await bankedEssence();
+            if (banked < 0) {
+                log('essence: bank would not open — cannot measure the stock');
+                return 0;
+            }
+            if (banked >= target) {
+                await bot.closeBank().catch(() => {});
+                log(`essence: bank already holds ${banked}`);
+                return banked;
+            }
+            await bot.closeBank().catch(() => {});
+            if (!(await enterEssenceMine())) return 0;
+            const want = Math.min(ESSENCE_PER_TRIP, target - banked);
+            const mined = await mineEssence(want);
+            log(`essence mine trip ${trip}: mined ${mined} of ${want}`);
+            await leaveEssenceMine();
+            await bankMinedEssence();
+        }
+        const final = await bankedEssence();
+        await bot.closeBank().catch(() => {});
+        return Math.max(0, final);
+    }
+
     async function essenceTrips(): Promise<void> {
-        for (let trip = 1; trip <= 5; trip++) {
+        for (let trip = 1; trip <= 8; trip++) {
             if ((await readStage()) === 'complete') return;
             if (count(ESSENCE) === 0) {
                 if (bagSpace() < 1) {
@@ -1457,8 +1691,15 @@ await runScript(async ({ bot, sdk }) => {
                 const want = Math.min(ESSENCE_PER_TRIP, bagSpace());
                 const got = await withdrawEssence(want);
                 if (got === 0) {
-                    log('essence: bank holds no rune essence — stopping');
-                    return;
+                    log(`essence: bank holds no rune essence — mining the ${ESSENCE_NEEDED} the quest needs`);
+                    await bot.closeBank().catch(() => {});
+                    const stocked = await stockEssence(ESSENCE_NEEDED);
+                    if (stocked === 0) {
+                        log('essence: cannot supply rune essence (no pickaxe, no mine access, or the mine would not yield) — stopping');
+                        return;
+                    }
+                    log(`essence: bank now holds ${stocked}`);
+                    continue;
                 }
                 log(`essence trip ${trip}: withdrew ${got}`);
             }

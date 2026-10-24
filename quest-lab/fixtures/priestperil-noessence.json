@@ -1,0 +1,17 @@
+{
+  "bank": [
+    { "name": "coins", "count": 20000 },
+    { "name": "shark", "count": 20 },
+    { "name": "swordfish", "count": 10 },
+    { "name": "bucket_empty", "count": 2 },
+    { "name": "bronze_pickaxe", "count": 1 }
+  ],
+  "position": { "level": 0, "x": 3253, "z": 3420 },
+  "questId": "priestperil",
+  "schemaVersion": 1,
+  "skills": "maxed",
+  "target": { "unstarted": 10, "varp": "priestperil" },
+  "tutorial": true,
+  "varps": { "runemysteries": 6, "priestperil": 10 },
+  "worn": []
+}
