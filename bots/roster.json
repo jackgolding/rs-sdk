@@ -128,8 +128,11 @@
         {
             "name": "jacklove4",
             "view": "fleet",
-            "script": "bots/quests/beads-harvester.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "jacklove4",
+                "--then",
+                "bots/quests/beads-harvester.ts",
                 "jacklove4",
                 "--camp=ardougne",
                 "--target=0",
@@ -179,8 +182,11 @@
         {
             "name": "jacklove7",
             "view": "loves",
-            "script": "bots/quests/seers-wc-fm.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "jacklove7",
+                "--then",
+                "bots/quests/seers-wc-fm.ts",
                 "jacklove7",
                 "--fletch"
             ]
