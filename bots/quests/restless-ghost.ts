@@ -302,6 +302,11 @@ if (stage !== 'unknown') {
 }
 if (stage === 'complete') {
     log('The Restless Ghost is already complete — nothing to do');
+    // Record the proof: the run record requires `complete`, and a record without
+    // it grades FAIL in the fleet's todo-runner even though the quest is done.
+    if (!(await checkpoint('complete', 'already complete at start'))) {
+        log('WARN journal did not confirm completion on re-read');
+    }
     session.log('log', 'quest already complete; nothing to do');
     sdk.disconnect();
     process.exit(0);

@@ -50,8 +50,11 @@
         {
             "name": "Jackpoo3",
             "view": "fleet",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "Jackpoo3",
+                "--then",
+                "bots/quests/fishing-route.ts",
                 "Jackpoo3",
                 "--bignet"
             ]
@@ -59,8 +62,11 @@
         {
             "name": "Jackpoo4",
             "view": "fleet",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "Jackpoo4",
+                "--then",
+                "bots/quests/fishing-route.ts",
                 "Jackpoo4",
                 "--bignet"
             ]
@@ -110,8 +116,11 @@
         {
             "name": "jacklove3",
             "view": "fleet",
-            "script": "bots/quests/thieving-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "jacklove3",
+                "--then",
+                "bots/quests/thieving-route.ts",
                 "jacklove3",
                 "--knights"
             ]
@@ -258,8 +267,11 @@
         {
             "name": "jacklove16",
             "view": "loves",
-            "script": "bots/quests/coal-trucks.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "jacklove16",
+                "--then",
+                "bots/quests/coal-trucks.ts",
                 "jacklove16",
                 "--wildy"
             ]
@@ -279,8 +291,11 @@
         {
             "name": "jacklove18",
             "view": "loves",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "jacklove18",
+                "--then",
+                "bots/quests/fishing-route.ts",
                 "jacklove18",
                 "--bignet"
             ]
@@ -288,8 +303,11 @@
         {
             "name": "jacklove19",
             "view": "loves",
-            "script": "bots/quests/coal-trucks.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "jacklove19",
+                "--then",
+                "bots/quests/coal-trucks.ts",
                 "jacklove19"
             ]
         },
@@ -349,8 +367,11 @@
         {
             "name": "ABGARMY05",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "ABGARMY05",
+                "--then",
+                "bots/quests/fishing-route.ts",
                 "ABGARMY05",
                 "--bignet"
             ]
@@ -402,8 +423,11 @@
         {
             "name": "ABGARMY10",
             "view": "army",
-            "script": "bots/quests/fishing-route.ts",
+            "script": "bots/quests/todo-runner.ts",
             "args": [
+                "ABGARMY10",
+                "--then",
+                "bots/quests/fishing-route.ts",
                 "ABGARMY10",
                 "--bignet"
             ]
