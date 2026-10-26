@@ -138,11 +138,9 @@
       "args": [
         "jacklove4",
         "--then",
-        "bots/quests/beads-harvester.ts",
+        "bots/quests/thieving-route.ts",
         "jacklove4",
-        "--camp=ardougne",
-        "--target=0",
-        "--minutes=0"
+        "--knights"
       ]
     },
     {
