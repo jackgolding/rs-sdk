@@ -321,9 +321,8 @@
       "args": [
         "jacklove17",
         "--then",
-        "bots/quests/edgeville-dungeon-melee.ts",
-        "jacklove17",
-        "thugs"
+        "bots/quests/edgeville-bank-all.ts",
+        "jacklove17"
       ]
     },
     {
@@ -333,9 +332,8 @@
       "args": [
         "jacklove18",
         "--then",
-        "bots/quests/edgeville-dungeon-melee.ts",
-        "jacklove18",
-        "thugs"
+        "bots/quests/edgeville-bank-all.ts",
+        "jacklove18"
       ]
     },
     {
@@ -356,9 +354,8 @@
       "args": [
         "jacklove20",
         "--then",
-        "bots/quests/edgeville-dungeon-melee.ts",
-        "jacklove20",
-        "thugs"
+        "bots/quests/edgeville-bank-all.ts",
+        "jacklove20"
       ]
     },
     {
@@ -368,9 +365,8 @@
       "args": [
         "ABGARMY01",
         "--then",
-        "bots/quests/edgeville-dungeon-melee.ts",
-        "ABGARMY01",
-        "thugs"
+        "bots/quests/edgeville-bank-all.ts",
+        "ABGARMY01"
       ]
     },
     {
@@ -380,9 +376,8 @@
       "args": [
         "ABGARMY02",
         "--then",
-        "bots/quests/edgeville-dungeon-melee.ts",
-        "ABGARMY02",
-        "thugs"
+        "bots/quests/edgeville-bank-all.ts",
+        "ABGARMY02"
       ]
     },
     {
