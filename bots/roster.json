@@ -321,8 +321,12 @@
       "args": [
         "jacklove17",
         "--then",
-        "bots/quests/edgeville-bank-all.ts",
-        "jacklove17"
+        "bots/quests/lost-city-prep.ts",
+        "jacklove17",
+        "--then",
+        "bots/quests/seers-wc-fm.ts",
+        "jacklove17",
+        "--fletch"
       ]
     },
     {
@@ -332,8 +336,12 @@
       "args": [
         "jacklove18",
         "--then",
-        "bots/quests/edgeville-bank-all.ts",
-        "jacklove18"
+        "bots/quests/lost-city-prep.ts",
+        "jacklove18",
+        "--then",
+        "bots/quests/seers-wc-fm.ts",
+        "jacklove18",
+        "--fletch"
       ]
     },
     {
@@ -354,8 +362,12 @@
       "args": [
         "jacklove20",
         "--then",
-        "bots/quests/edgeville-bank-all.ts",
-        "jacklove20"
+        "bots/quests/lost-city-prep.ts",
+        "jacklove20",
+        "--then",
+        "bots/quests/seers-wc-fm.ts",
+        "jacklove20",
+        "--fletch"
       ]
     },
     {
@@ -365,8 +377,12 @@
       "args": [
         "ABGARMY01",
         "--then",
-        "bots/quests/edgeville-bank-all.ts",
-        "ABGARMY01"
+        "bots/quests/lost-city-prep.ts",
+        "ABGARMY01",
+        "--then",
+        "bots/quests/seers-wc-fm.ts",
+        "ABGARMY01",
+        "--fletch"
       ]
     },
     {
@@ -376,8 +392,12 @@
       "args": [
         "ABGARMY02",
         "--then",
-        "bots/quests/edgeville-bank-all.ts",
-        "ABGARMY02"
+        "bots/quests/lost-city-prep.ts",
+        "ABGARMY02",
+        "--then",
+        "bots/quests/seers-wc-fm.ts",
+        "ABGARMY02",
+        "--fletch"
       ]
     },
     {
