@@ -9,14 +9,13 @@
 import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
+import { crossAlKharidToll } from './alkharid-toll';
 
 const botName = process.argv.slice(2).find((a) => !a.startsWith('-')) ?? '';
 const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
 
 const FALADOR_EAST = { x: 3012, z: 3355 };
 const COW_GATE = { x: 3253, z: 3266 };
-const TOLL_WEST = { x: 3267, z: 3228 };
-const TOLL_EAST = { x: 3277, z: 3227 };
 const TANNER = { x: 3276, z: 3193 };
 const ALKHARID_BANK = { x: 3269, z: 3167 };
 
@@ -37,7 +36,6 @@ const COINS = /^coins$/i;
 const COW = /^cow$/i;
 const KEEP = /^(bronze pickaxe|coins|cow hide|leather)$/i;
 const TARGET_GP = 500;
-const TOLL = 10;
 
 function botIndex(name: string): number {
     const n = Number(name.replace(/\D/g, ''));
@@ -137,29 +135,11 @@ await runScript(async ({ bot, sdk }) => {
         }
     }
 
+    // Shared, proven crossing (alkharid-toll.ts): side by x=3268, talk to the Border
+    // Guard on our side, answer "Yes, ok." by text, step off the fence tile.
     async function crossToll(wantEast: boolean): Promise<boolean> {
-        const east = pos().x >= 3272;
-        if (wantEast === east) return true;
-        if (count(COINS) < TOLL) {
-            log(`Need ${TOLL}gp for the toll @ ${pos().x},${pos().z}`);
-            return false;
-        }
         await closeUi();
-        await walkNear(wantEast ? TOLL_WEST.x : TOLL_EAST.x, wantEast ? TOLL_WEST.z : TOLL_EAST.z, 3);
-        const guard = sdk.findNearbyNpc(/^border guard$/i);
-        if (!guard) {
-            log('No Border Guard nearby');
-            return false;
-        }
-        await bot.talkTo(guard);
-        await clickYesOkOrContinue();
-        await walkNear(wantEast ? TOLL_EAST.x : TOLL_WEST.x, wantEast ? TOLL_EAST.z : TOLL_WEST.z, 2);
-        for (let i = 0; i < 25 && (pos().x >= 3272) !== wantEast; i++) {
-            if (sdk.getDialog()?.isOpen) await clickYesOkOrContinue();
-            await walkNear(wantEast ? TOLL_EAST.x : TOLL_WEST.x, wantEast ? TOLL_EAST.z : TOLL_WEST.z, 2);
-            await sdk.waitForTicks(1);
-        }
-        const ok = (pos().x >= 3272) === wantEast;
+        const ok = await crossAlKharidToll(bot, sdk, wantEast, { log });
         log(ok ? `Toll ok @ ${pos().x},${pos().z}` : `Still ${pos().x},${pos().z} after toll`);
         return ok;
     }

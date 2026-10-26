@@ -1,0 +1,264 @@
+{
+ "generated_from": [
+  "banker1 (npc placements)",
+  "bankbooth (loc placements)"
+ ],
+ "radius": 12,
+ "hubs": {
+  "varrock-east": {
+   "x": 3254,
+   "z": 3418,
+   "level": 0,
+   "placements": 3,
+   "near": "varrock",
+   "dist_to_town": 54,
+   "verified": true
+  },
+  "varrock-west": {
+   "x": 3187,
+   "z": 3441,
+   "level": 0,
+   "placements": 3,
+   "near": "varrock",
+   "dist_to_town": 25,
+   "verified": true
+  },
+  "edgeville": {
+   "x": 3097,
+   "z": 3490,
+   "level": 0,
+   "placements": 2,
+   "near": "edgeville",
+   "dist_to_town": 4,
+   "verified": true
+  },
+  "draynor": {
+   "x": 3089,
+   "z": 3244,
+   "level": 0,
+   "placements": 2,
+   "near": "draynor",
+   "dist_to_town": 3,
+   "verified": true
+  },
+  "falador-east": {
+   "x": 3013,
+   "z": 3353,
+   "level": 0,
+   "placements": 3,
+   "near": "falador",
+   "dist_to_town": 2,
+   "verified": true
+  },
+  "falador-west": {
+   "x": 2947,
+   "z": 3366,
+   "level": 0,
+   "placements": 4,
+   "near": "falador",
+   "dist_to_town": 66,
+   "note": "Falador West bank \u2014 real (2946,3369); the bulk prune was wrong about this cluster",
+   "verified": true
+  },
+  "catherby": {
+   "x": 2808,
+   "z": 3444,
+   "level": 0,
+   "placements": 2,
+   "near": "catherby",
+   "dist_to_town": 1,
+   "verified": true
+  },
+  "seers": {
+   "x": 2726,
+   "z": 3496,
+   "level": 0,
+   "placements": 4,
+   "near": "seers",
+   "dist_to_town": 11,
+   "verified": true
+  },
+  "ardougne-south": {
+   "x": 2657,
+   "z": 3284,
+   "level": 0,
+   "placements": 2,
+   "near": "ardougne",
+   "dist_to_town": 1,
+   "verified": true
+  },
+  "yanille": {
+   "x": 2615,
+   "z": 3093,
+   "level": 0,
+   "placements": 2,
+   "near": "yanille",
+   "dist_to_town": 1,
+   "verified": true,
+   "via": [
+    {
+     "x": 2618,
+     "z": 3130
+    },
+    {
+     "x": 2628,
+     "z": 3200
+    },
+    {
+     "x": 2648,
+     "z": 3260
+    }
+   ],
+   "viaNote": "Yanille <-> Ardougne south bank: out through the north gate, then follow the road north to Ardougne"
+  },
+  "ardougne-north": {
+   "x": 2614,
+   "z": 3330,
+   "level": 0,
+   "placements": 1,
+   "near": "ardougne",
+   "dist_to_town": 64,
+   "verified": true
+  },
+  "bank-2584-3420": {
+   "x": 2584,
+   "z": 3420,
+   "level": 0,
+   "placements": 3,
+   "near": "gnome",
+   "dist_to_town": 144,
+   "verified": false
+  },
+  "alkharid": {
+   "x": 3269,
+   "z": 3167,
+   "level": 0,
+   "reachable": true,
+   "verified": false,
+   "viaNote": "Crossing is a GUARD TOLL, not a walk-through (operator correction + content area_alkharid/border_gate.rs2): click the gate or talk to borderguard1/2, pay 10gp, choose \"Yes, ok.\" and pass_toll_gate TELEPORTS you onto 3268,3227. The opening is per-account, so the gate stays shut for any other player \u2014 and the tile reads \"Door at (3268,3227) cant_reach\" to a walker that has not paid. Proven outbound Al Kharid -> Lumbridge on qlhub2 (coins 120->110). The via road below is only a last-resort fallback, not evidence that no gate exists.",
+   "toll": "alkharid"
+  },
+  "mage-bank": {
+   "x": 2534,
+   "z": 4714,
+   "level": 0,
+   "note": "Mage Arena bank, deep wilderness \u2014 levers only",
+   "verified": false
+  },
+  "brimhaven": {
+   "x": 2772,
+   "z": 3225,
+   "level": 0,
+   "note": "Brimhaven customs/dock",
+   "verified": false
+  },
+  "gnome-stronghold": {
+   "x": 2474,
+   "z": 3436,
+   "level": 0,
+   "note": "Tree Gnome Stronghold start",
+   "verified": false
+  },
+  "deserted-keep": {
+   "x": 3154,
+   "z": 3924,
+   "level": 0,
+   "note": "Wilderness keep; lever to East Ardougne",
+   "verified": false
+  },
+  "lumbridge": {
+   "x": 3222,
+   "z": 3218,
+   "level": 0,
+   "kind": "point",
+   "note": "Lumbridge courtyard \u2014 no bank in this revision. Hub-prep banks at the nearest BANK hub first, then walks here empty-handed. Quest starts: cook, sheep, restless ghost, doric (via the mine), goblin diplomacy.",
+   "verified": false
+  }
+ },
+ "links": [
+  {
+   "from": "edgeville",
+   "to": "mage-bank",
+   "kind": "lever",
+   "stand": {
+    "x": 3090,
+    "z": 3475
+   },
+   "loc": "lever",
+   "option": "operate",
+   "note": "Edgeville lever (tiles.ts EDGEVILLE_LEVER) \u2014 the direct edgeville<->mage-bank hop"
+  },
+  {
+   "from": "mage-bank",
+   "to": "edgeville",
+   "kind": "lever",
+   "stand": {
+    "x": 2534,
+    "z": 4714
+   },
+   "loc": "lever",
+   "option": "operate",
+   "note": "lever inside the mage bank pulls back to Edgeville"
+  },
+  {
+   "from": "ardougne",
+   "to": "deserted-keep",
+   "kind": "lever",
+   "stand": {
+    "x": 2561,
+    "z": 3311
+   },
+   "loc": "lever",
+   "option": "operate",
+   "note": "East Ardougne wilderness lever (tiles.ts ARDOUGNE_WILDY_LEVER)"
+  },
+  {
+   "from": "deserted-keep",
+   "to": "ardougne",
+   "kind": "lever",
+   "stand": {
+    "x": 3154,
+    "z": 3924
+   },
+   "loc": "lever",
+   "option": "operate",
+   "note": "Deserted Keep lever pulls to East Ardougne (2562,3311) \u2014 thieving-route.ts:132"
+  },
+  {
+   "from": "mage-bank",
+   "to": "deserted-keep",
+   "kind": "walk",
+   "stand": {
+    "x": 2534,
+    "z": 4714
+   },
+   "loc": "ladder|web",
+   "option": "climb|slash",
+   "note": "ladder/web out of the mage bank into the keep"
+  },
+  {
+   "from": "ardougne",
+   "to": "gnome-stronghold",
+   "kind": "walk",
+   "stand": {
+    "x": 2459,
+    "z": 3383
+   },
+   "loc": "gate",
+   "option": "open",
+   "note": "Tree Gnome Stronghold gate (tiles.ts GNOME_GATE)"
+  },
+  {
+   "from": "brimhaven",
+   "to": "musa",
+   "kind": "ship",
+   "stand": {
+    "x": 2772,
+    "z": 3225
+   },
+   "loc": "gangplank|customs",
+   "option": "cross|board|pay",
+   "note": "Brimhaven <-> Karamja/Musa customs"
+  }
+ ]
+}

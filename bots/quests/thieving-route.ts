@@ -50,6 +50,7 @@ import {
 } from './movement';
 import { foodHeal, foodHp } from './food-heal';
 import { installGracefulShutdown } from '../../sdk/runner';
+import { crossAlKharidToll } from './alkharid-toll';
 
 const TARGET_LEVEL = 99;
 const RESTOCK_FOOD_BELOW = 1;
@@ -1834,13 +1835,13 @@ async function buyTenKebabs(): Promise<void> {
     log(`Kebab restock: ${kebabCount()} held, ${coinCount()} gp`);
 }
 
-async function payAlKharidToll(): Promise<void> {
-    await clickYesOrContinue(true);
-    const gate = sdk.getNearbyLocs().find((l) => /gate/i.test(l.name) && l.x >= 3265 && l.x <= 3274 && l.z >= 3225 && l.z <= 3231);
-    if (!gate) return;
-    await sdk.sendInteractLoc(gate.x, gate.z, gate.id, 1);
-    await sdk.waitForTicks(2);
-    await clickYesOrContinue(true);
+/**
+ * Pay the border guard and cross (shared, proven path — alkharid-toll.ts). Side is
+ * decided by x=3268; the old gate-click only worked with a guard within one tile.
+ */
+async function payAlKharidToll(wantEast: boolean): Promise<boolean> {
+    await clickYesOrContinue(false);
+    return crossAlKharidToll(bot, sdk, wantEast, { log, walk: (x, z) => walkNear(x, z, 2) });
 }
 
 let alkharidGateSince = 0;
@@ -1931,12 +1932,7 @@ async function crossAlKharidGate(): Promise<void> {
         return;
     }
     intent('Paying the toll, then walking south into Al Kharid');
-    if (pos().x <= 3268) {
-        await sdk.sendWalk(3261, 3220, true);
-        await sdk.waitForTicks(3);
-        await payAlKharidToll();
-    }
-    await clickYesOrContinue(true);
+    if (pos().x < 3268 && !(await payAlKharidToll(true))) return; // retried next tick; bypass timer still runs
     await sdk.sendWalk(KEBAB_SELLER.x, KEBAB_SELLER.z, true);
     await sdk.waitForTicks(8);
 }
@@ -1953,13 +1949,7 @@ async function leaveAlKharid(dest: { x: number; z: number } = LUMBY_CHICKENS): P
         return;
     }
     intent(dest === LUMBY_GOBLINS ? 'Paying the toll once, then walking west to goblins' : 'Paying the toll once, then walking west to chickens');
-    await clickYesOrContinue(true);
-    if (pos().z >= 3225) {
-        await sdk.sendWalk(3276, 3220, true);
-        await sdk.waitForTicks(4);
-    }
-    await payAlKharidToll();
-    await clickYesOrContinue(true);
+    if (!(await payAlKharidToll(false))) return; // retried next tick; bypass timer still runs
     await sdk.sendWalk(dest.x, dest.z, true);
     await sdk.waitForTicks(8);
 }
@@ -1984,13 +1974,7 @@ async function exitAlKharidWest(): Promise<void> {
     }
 
     intent('Paying toll, walking west toward Edgeville / wildy lever');
-    await clickYesOrContinue(true);
-    if (pos().z >= 3225) {
-        await sdk.sendWalk(3276, 3220, true);
-        await sdk.waitForTicks(4);
-    }
-    await payAlKharidToll();
-    await clickYesOrContinue(true);
+    if (!(await payAlKharidToll(false))) return; // retried next tick; bypass timer still runs
     await sdk.sendWalk(3215, 3255, true);
     await sdk.waitForTicks(8);
 }
