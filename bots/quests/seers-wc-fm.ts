@@ -242,6 +242,16 @@ const untilWcArg = argv.find((a) => a.startsWith('--until-wc='));
 const untilWc = Number(untilWcArg?.split('=')[1]);
 /** Chop-only stop. Tree choice follows Woodcutting, logs are dropped, no FM. */
 const WC_UNTIL = Number.isFinite(untilWc) && untilWc > 0 ? untilWc : 0;
+const untilFletchArg = argv.find((a) => a.startsWith('--until-fletch='));
+const untilFletch = Number(untilFletchArg?.split('=')[1]);
+/** Fletch-only stop; implies the fletch leg without waiting for Firemaking 99. */
+const FLETCH_UNTIL = Number.isFinite(untilFletch) && untilFletch > 0 ? untilFletch : 0;
+/**
+ * Exit 2 instead of parking once a target is met. Orchestrators (lost-city-prep)
+ * read exit 2 as "level met, next leg"; the default stays park-forever so the
+ * box supervisor never relaunches a finished grind.
+ */
+const EXIT_WHEN_MET = argv.includes('--exit-when-met');
 
 const BOBS_AXES = { x: 3232, z: 3203 };
 const EDGEVILLE_BANK = { x: 3094, z: 3492 };
@@ -422,7 +432,7 @@ function bestUsableAxeName(): string | null {
 
 function fletchingNow(): boolean {
     if (BANK_YEWS || WC_UNTIL > 0) return false;
-    return FLETCH_FORCE || fm() >= TARGET;
+    return FLETCH_FORCE || FLETCH_UNTIL > 0 || fm() >= TARGET;
 }
 
 function chopOnly(): boolean {
@@ -1054,6 +1064,12 @@ async function sleepChunked(ms: number): Promise<boolean> {
  * long and then return so the caller can retry). Never exits by itself.
  */
 async function park(reason: string, resumeAfterMs = 0): Promise<void> {
+    // --exit-when-met: a met level target ends the process instead of idling,
+    // because the caller is an orchestrator waiting on this child.
+    if (EXIT_WHEN_MET && ((WC_UNTIL > 0 && wc() >= WC_UNTIL) || (FLETCH_UNTIL > 0 && fl() >= FLETCH_UNTIL))) {
+        log(`${reason} — --exit-when-met, exiting 2`);
+        process.exit(2);
+    }
     const until = resumeAfterMs > 0 ? Date.now() + resumeAfterMs : Number.POSITIVE_INFINITY;
     warn(`parking: ${reason} @ ${pos().x},${pos().z} — idling instead of exiting (exit 0 is relaunched in seconds)`);
     while (Date.now() < until) {
@@ -1335,6 +1351,7 @@ function logLevels(): void {
  */
 function targetReached(): string | null {
     if (WC_UNTIL > 0 && wc() >= WC_UNTIL) return `WC ${wc()} — --until-wc=${WC_UNTIL} met`;
+    if (FLETCH_UNTIL > 0 && fl() >= FLETCH_UNTIL) return `Fletch ${fl()} — --until-fletch=${FLETCH_UNTIL} met`;
     if (!BANK_YEWS && !(WC_UNTIL > 0) && wc() >= TARGET && fm() >= TARGET && fl() >= TARGET) {
         return `WC ${wc()} FM ${fm()} FL ${fl()} — all 99`;
     }

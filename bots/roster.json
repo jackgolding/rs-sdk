@@ -102,6 +102,9 @@
       "args": [
         "jacklove1",
         "--then",
+        "bots/quests/lost-city-prep.ts",
+        "jacklove1",
+        "--then",
         "bots/quests/thieving-route.ts",
         "jacklove1",
         "--knights"
@@ -186,6 +189,9 @@
       "args": [
         "jacklove6",
         "--then",
+        "bots/quests/lost-city-prep.ts",
+        "jacklove6",
+        "--then",
         "bots/quests/thieving-route.ts",
         "jacklove6",
         "--knights"
@@ -220,6 +226,9 @@
       "view": "loves",
       "script": "bots/quests/todo-runner.ts",
       "args": [
+        "jacklove9",
+        "--then",
+        "bots/quests/lost-city-prep.ts",
         "jacklove9",
         "--then",
         "bots/quests/thieving-route.ts",
@@ -483,6 +492,9 @@
       "args": [
         "ABGARMY11",
         "--then",
+        "bots/quests/lost-city-prep.ts",
+        "ABGARMY11",
+        "--then",
         "bots/quests/thieving-route.ts",
         "ABGARMY11",
         "--knights"
@@ -505,6 +517,9 @@
       "view": "army",
       "script": "bots/quests/todo-runner.ts",
       "args": [
+        "ABGARMY13",
+        "--then",
+        "bots/quests/lost-city-prep.ts",
         "ABGARMY13",
         "--then",
         "bots/quests/thieving-route.ts",
@@ -591,8 +606,12 @@
       "args": [
         "ABGARMY20",
         "--then",
+        "bots/quests/lost-city-prep.ts",
+        "ABGARMY20",
+        "--then",
         "bots/quests/thieving-route.ts",
-        "ABGARMY20"
+        "ABGARMY20",
+        "--knights"
       ]
     }
   ]
