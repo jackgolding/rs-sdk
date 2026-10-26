@@ -1,597 +1,601 @@
 {
- "_comment": [
-  "Single source of truth for the fleet. Consumed by:",
-  "  .cursor/skills/wake-fleet/scripts/fleet-launchd.ts  (what launchd supervises)",
-  "  .cursor/skills/wake-fleet/scripts/fleet-status.ts   (default when a bot is down)",
-  "  bots/watch-fleet.sh                                 (which grind.log gets a pane)",
-  "Bot order within a view is column-major: consecutive names stack into a column.",
-  "Pause a bot without editing this file by adding its name to",
-  ".cursor/skills/wake-fleet/skip-bots.txt."
- ],
- "views": [
-  {
-   "name": "fleet",
-   "columns": 4
-  },
-  {
-   "name": "loves",
-   "columns": 5
-  },
-  {
-   "name": "army",
-   "columns": 5
-  }
- ],
- "bots": [
-  {
-   "name": "Jackpoo1",
-   "view": "fleet",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "Jackpoo1",
-    "--then",
-    "bots/quests/thieving-route.ts",
-    "Jackpoo1",
-    "--knights"
-   ]
-  },
-  {
-   "name": "Jackpoo2",
-   "view": "fleet",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "Jackpoo2",
-    "--then",
-    "bots/quests/fishing-route.ts",
-    "Jackpoo2",
-    "--bignet"
-   ]
-  },
-  {
-   "name": "Jackpoo3",
-   "view": "fleet",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "Jackpoo3",
-    "--then",
-    "bots/quests/fishing-route.ts",
-    "Jackpoo3",
-    "--bignet"
-   ]
-  },
-  {
-   "name": "Jackpoo4",
-   "view": "fleet",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "Jackpoo4",
-    "--then",
-    "bots/quests/fishing-route.ts",
-    "Jackpoo4",
-    "--bignet"
-   ]
-  },
-  {
-   "name": "Jackpoo5",
-   "view": "fleet",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "Jackpoo5",
-    "--then",
-    "bots/quests/thieving-route.ts",
-    "Jackpoo5",
-    "--knights"
-   ]
-  },
-  {
-   "name": "fatpig",
-   "view": "fleet",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "fatpig",
-    "--then",
-    "bots/quests/fishing-route.ts",
-    "fatpig",
-    "--bignet"
-   ]
-  },
-  {
-   "name": "jacklove1",
-   "view": "fleet",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove1",
-    "--then",
-    "bots/quests/thieving-route.ts",
-    "jacklove1",
-    "--knights"
-   ]
-  },
-  {
-   "name": "jacklove2",
-   "view": "fleet",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove2",
-    "--then",
-    "bots/quests/thieving-route.ts",
-    "jacklove2",
-    "--knights"
-   ]
-  },
-  {
-   "name": "jacklove3",
-   "view": "fleet",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove3",
-    "--then",
-    "bots/quests/thieving-route.ts",
-    "jacklove3",
-    "--knights"
-   ]
-  },
-  {
-   "name": "jacklove4",
-   "view": "fleet",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove4",
-    "--then",
-    "bots/quests/beads-harvester.ts",
-    "jacklove4",
-    "--camp=ardougne",
-    "--target=0",
-    "--minutes=0"
-   ]
-  },
-  {
-   "name": "jacklove5",
-   "view": "fleet",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove5",
-    "--then",
-    "bots/quests/fishing-route.ts",
-    "jacklove5",
-    "--bignet"
-   ]
-  },
-  {
-   "name": "jackthief",
-   "view": "fleet",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jackthief",
-    "--then",
-    "bots/quests/rune-mysteries.ts",
-    "jackthief"
-   ]
-  },
-  {
-   "name": "pigfat",
-   "view": "fleet",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "pigfat",
-    "--then",
-    "bots/quests/thieving-route.ts",
-    "pigfat",
-    "--knights"
-   ]
-  },
-  {
-   "name": "jacklove6",
-   "view": "loves",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove6",
-    "--then",
-    "bots/quests/rune-mysteries.ts",
-    "jacklove6"
-   ]
-  },
-  {
-   "name": "jacklove7",
-   "view": "loves",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove7",
-    "--then",
-    "bots/quests/seers-wc-fm.ts",
-    "jacklove7",
-    "--fletch"
-   ]
-  },
-  {
-   "name": "jacklove8",
-   "view": "loves",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove8",
-    "--then",
-    "bots/quests/rune-mysteries.ts",
-    "jacklove8"
-   ]
-  },
-  {
-   "name": "jacklove9",
-   "view": "loves",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove9",
-    "--then",
-    "bots/quests/thieving-route.ts",
-    "jacklove9",
-    "--knights"
-   ]
-  },
-  {
-   "name": "jacklove10",
-   "view": "loves",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove10",
-    "--then",
-    "bots/quests/edgeville-dungeon-melee.ts",
-    "jacklove10",
-    "thugs"
-   ]
-  },
-  {
-   "name": "jacklove11",
-   "view": "loves",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove11",
-    "--then",
-    "bots/quests/edgeville-dungeon-melee.ts",
-    "jacklove11",
-    "thugs"
-   ]
-  },
-  {
-   "name": "jacklove12",
-   "view": "loves",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove12",
-    "--then",
-    "bots/quests/rune-mysteries.ts",
-    "jacklove12"
-   ]
-  },
-  {
-   "name": "jacklove13",
-   "view": "loves",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove13",
-    "--then",
-    "bots/quests/fishing-route.ts",
-    "jacklove13",
-    "--bignet"
-   ]
-  },
-  {
-   "name": "jacklove14",
-   "view": "loves",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove14",
-    "--then",
-    "bots/quests/thieving-route.ts",
-    "jacklove14",
-    "--knights"
-   ]
-  },
-  {
-   "name": "jacklove15",
-   "view": "loves",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove15",
-    "--then",
-    "bots/quests/thieving-route.ts",
-    "jacklove15",
-    "--knights"
-   ]
-  },
-  {
-   "name": "jacklove16",
-   "view": "loves",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove16",
-    "--then",
-    "bots/quests/coal-trucks.ts",
-    "jacklove16",
-    "--wildy"
-   ]
-  },
-  {
-   "name": "jacklove17",
-   "view": "loves",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove17",
-    "--then",
-    "bots/quests/edgeville-dungeon-melee.ts",
-    "jacklove17",
-    "thugs"
-   ]
-  },
-  {
-   "name": "jacklove18",
-   "view": "loves",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove18",
-    "--then",
-    "bots/quests/edgeville-dungeon-melee.ts",
-    "jacklove18",
-    "thugs"
-   ]
-  },
-  {
-   "name": "jacklove19",
-   "view": "loves",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove19",
-    "--then",
-    "bots/quests/coal-trucks.ts",
-    "jacklove19"
-   ]
-  },
-  {
-   "name": "jacklove20",
-   "view": "loves",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "jacklove20",
-    "--then",
-    "bots/quests/edgeville-dungeon-melee.ts",
-    "jacklove20",
-    "thugs"
-   ]
-  },
-  {
-   "name": "ABGARMY01",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY01",
-    "--then",
-    "bots/quests/edgeville-dungeon-melee.ts",
-    "ABGARMY01",
-    "thugs"
-   ]
-  },
-  {
-   "name": "ABGARMY02",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY02",
-    "--then",
-    "bots/quests/rune-mysteries.ts",
-    "ABGARMY02"
-   ]
-  },
-  {
-   "name": "ABGARMY03",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY03",
-    "--then",
-    "bots/quests/fishing-route.ts",
-    "ABGARMY03",
-    "--bignet"
-   ]
-  },
-  {
-   "name": "ABGARMY04",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY04",
-    "--then",
-    "bots/quests/fishing-route.ts",
-    "ABGARMY04",
-    "--bignet"
-   ]
-  },
-  {
-   "name": "ABGARMY05",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY05",
-    "--then",
-    "bots/quests/fishing-route.ts",
-    "ABGARMY05",
-    "--bignet"
-   ]
-  },
-  {
-   "name": "ABGARMY06",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY06",
-    "--then",
-    "bots/quests/thieving-route.ts",
-    "ABGARMY06",
-    "--knights"
-   ]
-  },
-  {
-   "name": "ABGARMY07",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY07",
-    "--then",
-    "bots/quests/fishing-route.ts",
-    "ABGARMY07",
-    "--bignet"
-   ]
-  },
-  {
-   "name": "ABGARMY08",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY08",
-    "--then",
-    "bots/quests/rune-mysteries.ts",
-    "ABGARMY08"
-   ]
-  },
-  {
-   "name": "ABGARMY09",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY09",
-    "--then",
-    "bots/quests/thieving-route.ts",
-    "ABGARMY09",
-    "--knights"
-   ]
-  },
-  {
-   "name": "ABGARMY10",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY10",
-    "--then",
-    "bots/quests/fishing-route.ts",
-    "ABGARMY10",
-    "--bignet"
-   ]
-  },
-  {
-   "name": "ABGARMY11",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY11",
-    "--then",
-    "bots/quests/thieving-route.ts",
-    "ABGARMY11",
-    "--knights"
-   ]
-  },
-  {
-   "name": "ABGARMY12",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY12",
-    "--then",
-    "bots/quests/fishing-route.ts",
-    "ABGARMY12",
-    "--bignet"
-   ]
-  },
-  {
-   "name": "ABGARMY13",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY13",
-    "--then",
-    "bots/quests/thieving-route.ts",
-    "ABGARMY13",
-    "--knights"
-   ]
-  },
-  {
-   "name": "ABGARMY14",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY14",
-    "--then",
-    "bots/quests/thieving-route.ts",
-    "ABGARMY14",
-    "--knights"
-   ]
-  },
-  {
-   "name": "ABGARMY15",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY15",
-    "--then",
-    "bots/quests/seers-wc-fm.ts",
-    "ABGARMY15",
-    "--fletch"
-   ]
-  },
-  {
-   "name": "ABGARMY16",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY16",
-    "--then",
-    "bots/quests/fishing-route.ts",
-    "ABGARMY16",
-    "--bignet"
-   ]
-  },
-  {
-   "name": "ABGARMY17",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY17",
-    "--then",
-    "bots/quests/fishing-route.ts",
-    "ABGARMY17",
-    "--bignet"
-   ]
-  },
-  {
-   "name": "ABGARMY18",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY18",
-    "--then",
-    "bots/quests/fishing-route.ts",
-    "ABGARMY18",
-    "--bignet"
-   ]
-  },
-  {
-   "name": "ABGARMY19",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY19",
-    "--then",
-    "bots/quests/thieving-route.ts",
-    "ABGARMY19",
-    "--knights"
-   ]
-  },
-  {
-   "name": "ABGARMY20",
-   "view": "army",
-   "script": "bots/quests/todo-runner.ts",
-   "args": [
-    "ABGARMY20",
-    "--then",
-    "bots/quests/thieving-route.ts",
-    "ABGARMY20"
-   ]
-  }
- ]
+  "_comment": [
+    "Single source of truth for the fleet. Consumed by:",
+    "  .cursor/skills/wake-fleet/scripts/fleet-launchd.ts  (what launchd supervises)",
+    "  .cursor/skills/wake-fleet/scripts/fleet-status.ts   (default when a bot is down)",
+    "  bots/watch-fleet.sh                                 (which grind.log gets a pane)",
+    "Bot order within a view is column-major: consecutive names stack into a column.",
+    "Pause a bot without editing this file by adding its name to",
+    ".cursor/skills/wake-fleet/skip-bots.txt."
+  ],
+  "views": [
+    {
+      "name": "fleet",
+      "columns": 4
+    },
+    {
+      "name": "loves",
+      "columns": 5
+    },
+    {
+      "name": "army",
+      "columns": 5
+    }
+  ],
+  "bots": [
+    {
+      "name": "Jackpoo1",
+      "view": "fleet",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "Jackpoo1",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "Jackpoo1",
+        "--knights"
+      ]
+    },
+    {
+      "name": "Jackpoo2",
+      "view": "fleet",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "Jackpoo2",
+        "--then",
+        "bots/quests/fishing-route.ts",
+        "Jackpoo2",
+        "--bignet"
+      ]
+    },
+    {
+      "name": "Jackpoo3",
+      "view": "fleet",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "Jackpoo3",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "Jackpoo3",
+        "--knights"
+      ]
+    },
+    {
+      "name": "Jackpoo4",
+      "view": "fleet",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "Jackpoo4",
+        "--then",
+        "bots/quests/fishing-route.ts",
+        "Jackpoo4",
+        "--bignet"
+      ]
+    },
+    {
+      "name": "Jackpoo5",
+      "view": "fleet",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "Jackpoo5",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "Jackpoo5",
+        "--knights"
+      ]
+    },
+    {
+      "name": "fatpig",
+      "view": "fleet",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "fatpig",
+        "--then",
+        "bots/quests/fishing-route.ts",
+        "fatpig",
+        "--bignet"
+      ]
+    },
+    {
+      "name": "jacklove1",
+      "view": "fleet",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove1",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "jacklove1",
+        "--knights"
+      ]
+    },
+    {
+      "name": "jacklove2",
+      "view": "fleet",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove2",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "jacklove2",
+        "--knights"
+      ]
+    },
+    {
+      "name": "jacklove3",
+      "view": "fleet",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove3",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "jacklove3",
+        "--knights"
+      ]
+    },
+    {
+      "name": "jacklove4",
+      "view": "fleet",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove4",
+        "--then",
+        "bots/quests/beads-harvester.ts",
+        "jacklove4",
+        "--camp=ardougne",
+        "--target=0",
+        "--minutes=0"
+      ]
+    },
+    {
+      "name": "jacklove5",
+      "view": "fleet",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove5",
+        "--then",
+        "bots/quests/fishing-route.ts",
+        "jacklove5",
+        "--bignet"
+      ]
+    },
+    {
+      "name": "jackthief",
+      "view": "fleet",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jackthief",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "jackthief",
+        "--knights"
+      ]
+    },
+    {
+      "name": "pigfat",
+      "view": "fleet",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "pigfat",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "pigfat",
+        "--knights"
+      ]
+    },
+    {
+      "name": "jacklove6",
+      "view": "loves",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove6",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "jacklove6",
+        "--knights"
+      ]
+    },
+    {
+      "name": "jacklove7",
+      "view": "loves",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove7",
+        "--then",
+        "bots/quests/seers-wc-fm.ts",
+        "jacklove7",
+        "--fletch"
+      ]
+    },
+    {
+      "name": "jacklove8",
+      "view": "loves",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove8",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "jacklove8",
+        "--knights"
+      ]
+    },
+    {
+      "name": "jacklove9",
+      "view": "loves",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove9",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "jacklove9",
+        "--knights"
+      ]
+    },
+    {
+      "name": "jacklove10",
+      "view": "loves",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove10",
+        "--then",
+        "bots/quests/edgeville-bank-all.ts",
+        "jacklove10"
+      ]
+    },
+    {
+      "name": "jacklove11",
+      "view": "loves",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove11",
+        "--then",
+        "bots/quests/edgeville-bank-all.ts",
+        "jacklove11"
+      ]
+    },
+    {
+      "name": "jacklove12",
+      "view": "loves",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove12",
+        "--then",
+        "bots/quests/seers-wc-fm.ts",
+        "jacklove12",
+        "--fletch"
+      ]
+    },
+    {
+      "name": "jacklove13",
+      "view": "loves",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove13",
+        "--then",
+        "bots/quests/fishing-route.ts",
+        "jacklove13",
+        "--bignet"
+      ]
+    },
+    {
+      "name": "jacklove14",
+      "view": "loves",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove14",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "jacklove14",
+        "--knights"
+      ]
+    },
+    {
+      "name": "jacklove15",
+      "view": "loves",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove15",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "jacklove15",
+        "--knights"
+      ]
+    },
+    {
+      "name": "jacklove16",
+      "view": "loves",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove16",
+        "--then",
+        "bots/quests/coal-trucks.ts",
+        "jacklove16",
+        "--wildy"
+      ]
+    },
+    {
+      "name": "jacklove17",
+      "view": "loves",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove17",
+        "--then",
+        "bots/quests/edgeville-dungeon-melee.ts",
+        "jacklove17",
+        "thugs"
+      ]
+    },
+    {
+      "name": "jacklove18",
+      "view": "loves",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove18",
+        "--then",
+        "bots/quests/edgeville-dungeon-melee.ts",
+        "jacklove18",
+        "thugs"
+      ]
+    },
+    {
+      "name": "jacklove19",
+      "view": "loves",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove19",
+        "--then",
+        "bots/quests/coal-trucks.ts",
+        "jacklove19"
+      ]
+    },
+    {
+      "name": "jacklove20",
+      "view": "loves",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jacklove20",
+        "--then",
+        "bots/quests/edgeville-dungeon-melee.ts",
+        "jacklove20",
+        "thugs"
+      ]
+    },
+    {
+      "name": "ABGARMY01",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY01",
+        "--then",
+        "bots/quests/edgeville-dungeon-melee.ts",
+        "ABGARMY01",
+        "thugs"
+      ]
+    },
+    {
+      "name": "ABGARMY02",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY02",
+        "--then",
+        "bots/quests/edgeville-dungeon-melee.ts",
+        "ABGARMY02",
+        "thugs"
+      ]
+    },
+    {
+      "name": "ABGARMY03",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY03",
+        "--then",
+        "bots/quests/fishing-route.ts",
+        "ABGARMY03",
+        "--bignet"
+      ]
+    },
+    {
+      "name": "ABGARMY04",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY04",
+        "--then",
+        "bots/quests/fishing-route.ts",
+        "ABGARMY04",
+        "--bignet"
+      ]
+    },
+    {
+      "name": "ABGARMY05",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY05",
+        "--then",
+        "bots/quests/fishing-route.ts",
+        "ABGARMY05",
+        "--bignet"
+      ]
+    },
+    {
+      "name": "ABGARMY06",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY06",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "ABGARMY06",
+        "--knights"
+      ]
+    },
+    {
+      "name": "ABGARMY07",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY07",
+        "--then",
+        "bots/quests/fishing-route.ts",
+        "ABGARMY07",
+        "--bignet"
+      ]
+    },
+    {
+      "name": "ABGARMY08",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY08",
+        "--then",
+        "bots/quests/seers-wc-fm.ts",
+        "ABGARMY08",
+        "--fletch"
+      ]
+    },
+    {
+      "name": "ABGARMY09",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY09",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "ABGARMY09",
+        "--knights"
+      ]
+    },
+    {
+      "name": "ABGARMY10",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY10",
+        "--then",
+        "bots/quests/fishing-route.ts",
+        "ABGARMY10",
+        "--bignet"
+      ]
+    },
+    {
+      "name": "ABGARMY11",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY11",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "ABGARMY11",
+        "--knights"
+      ]
+    },
+    {
+      "name": "ABGARMY12",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY12",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "ABGARMY12",
+        "--knights"
+      ]
+    },
+    {
+      "name": "ABGARMY13",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY13",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "ABGARMY13",
+        "--knights"
+      ]
+    },
+    {
+      "name": "ABGARMY14",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY14",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "ABGARMY14",
+        "--knights"
+      ]
+    },
+    {
+      "name": "ABGARMY15",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY15",
+        "--then",
+        "bots/quests/seers-wc-fm.ts",
+        "ABGARMY15",
+        "--fletch"
+      ]
+    },
+    {
+      "name": "ABGARMY16",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY16",
+        "--then",
+        "bots/quests/fishing-route.ts",
+        "ABGARMY16",
+        "--bignet"
+      ]
+    },
+    {
+      "name": "ABGARMY17",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY17",
+        "--then",
+        "bots/quests/fishing-route.ts",
+        "ABGARMY17",
+        "--bignet"
+      ]
+    },
+    {
+      "name": "ABGARMY18",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY18",
+        "--then",
+        "bots/quests/fishing-route.ts",
+        "ABGARMY18",
+        "--bignet"
+      ]
+    },
+    {
+      "name": "ABGARMY19",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY19",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "ABGARMY19",
+        "--knights"
+      ]
+    },
+    {
+      "name": "ABGARMY20",
+      "view": "army",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "ABGARMY20",
+        "--then",
+        "bots/quests/thieving-route.ts",
+        "ABGARMY20"
+      ]
+    }
+  ]
 }
