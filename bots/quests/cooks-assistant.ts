@@ -478,6 +478,25 @@ async function climbMillTo(targetLevel: number): Promise<void> {
     }
 }
 
+/** Poll a predicate on the live state until it holds or the budget expires.
+ *  Used to VERIFY an interaction's effect: `success` on a dispatch is only
+ *  "no error seen", so every supply leg is graded on the resulting state. */
+async function pollFor(pred: () => boolean, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (pred()) return true;
+        await sdk.waitForTicks(2);
+    }
+    return pred();
+}
+
+/** Server chat lines published since `mark`. Read from `state.gameMessages`
+ *  (the ring the server actually writes) — `sdk.getChat()` is empty on the lite
+ *  client, so a helper built on it reports "no reply" for every step. */
+function messagesSince(mark: number): string[] {
+    return (sdk.getState()?.gameMessages ?? []).slice(mark).map((m) => m.text);
+}
+
 async function gatherFlour(): Promise<void> {
     const FLOUR = NEEDED[2]!.pattern;
     if (invCount(FLOUR) > 0) return;
@@ -503,35 +522,77 @@ async function gatherFlour(): Promise<void> {
         if (invCount(GRAIN) === 0) throw new Error('gathering failed: no grain from the wheat field');
     }
     await travelTo(MILL_DOOR, 'the mill door');
-    await climbMillTo(2);
-    await sdk.scanNearbyLocs(10).catch(() => {});
-    await sdk.waitForTicks(2);
-    await sdk.scanNearbyLocs(10).catch(() => {});
-    const hopper = sdk.findNearbyLoc(/^hopper$/i);
-    if (!hopper) throw new Error(`gathering failed: no hopper in range @ (${pos().x},${pos().z}) l${pos().level}`);
-    const beforeHopper = inventorySignature(sdk);
-    const fill = await bot.useItemOnLoc(GRAIN, hopper);
-    log(`grain into the hopper: ${fill.success}${fill.success ? '' : ` (${fill.message ?? '?'})`}`);
-    if (!fill.success) throw new Error(`gathering failed: the hopper rejected the grain (${fill.message ?? '?'})`);
-    await untilInventoryChange(sdk, beforeHopper, { log });
-    await sdk.scanNearbyLocs(10).catch(() => {});
-    const controls = sdk.findNearbyLoc(/^hopper controls$/i);
-    if (!controls) throw new Error('gathering failed: no hopper controls in range');
-    const lever = await bot.interactLoc(controls, /operate/i);
-    log(`operated the hopper: ${lever.success}${lever.success ? '' : ` (${lever.message ?? '?'})`}`);
-    await sdk.waitForTicks(2);
-    await climbMillTo(0);
-    await bot.closeInterface();
-    await sdk.scanNearbyLocs(10).catch(() => {});
-    await sdk.waitForTicks(2);
-    await sdk.scanNearbyLocs(10).catch(() => {});
-    const bin = sdk.findNearbyLoc(/^flour bin$/i);
-    if (!bin) throw new Error(`gathering failed: no flour bin in range @ (${pos().x},${pos().z}) l${pos().level}`);
-    const beforeBin = inventorySignature(sdk);
-    const fillPot = await bot.useItemOnLoc(POT_EMPTY, bin);
-    log(`pot from the flour bin: ${fillPot.success}${fillPot.success ? '' : ` (${fillPot.message ?? '?'})`}`);
-    await untilInventoryChange(sdk, beforeBin, { log });
-    if (invCount(FLOUR) === 0) throw new Error('gathering failed: the flour bin gave no flour');
+    // The mill is a three-leg chain over TWO planes (hopper + controls on L2,
+    // flour bin on L0) and every leg's receipt is weak: `success` means
+    // "dispatched, no error seen", and `untilInventoryChange` compares item
+    // NAMES — so a grain stack going 2 -> 1 (or 1 -> 0 with another grain still
+    // held) reads as "no change" and a discarded return value hides it. A live
+    // run with an EMPTY ingredient bank (what a fished-out fleet account looks
+    // like) logged `grain into the hopper: true` then `operated the hopper:
+    // true` 44ms later, and the bin answered no flour 11s after that: the grain
+    // never entered, the lever said "You operate the empty hopper", and the
+    // gather died on a supply leg the stocked fixture could never exercise.
+    // Verify each leg by its EFFECT and retry the leg, not the whole run.
+    let milled = false;
+    for (let cycle = 1; cycle <= 2 && !milled; cycle++) {
+        await climbMillTo(2);
+        await sdk.scanNearbyLocs(10).catch(() => {});
+        await sdk.waitForTicks(2);
+        await sdk.scanNearbyLocs(10).catch(() => {});
+
+        // (1) grain -> hopper, proven by the BAG losing a grain.
+        const grainBefore = invCount(GRAIN);
+        let hopperTook = grainBefore === 0; // no grain left: assume an earlier hand-over took
+        for (let attempt = 1; attempt <= 3 && !hopperTook; attempt++) {
+            const hopper = sdk.findNearbyLoc(/^hopper$/i);
+            if (!hopper) {
+                log(`no hopper in range @ (${pos().x},${pos().z}) l${pos().level} (fill ${attempt}/3)`);
+                await travelTo(MILL_CORE, 'the mill interior');
+                await climbMillTo(2);
+                continue;
+            }
+            const res = await bot.useItemOnLoc(GRAIN, hopper);
+            hopperTook = await pollFor(() => invCount(GRAIN) < grainBefore, 6_000);
+            log(`grain into the hopper @ (${hopper.x},${hopper.z}) l${pos().level} (fill ${attempt}/3): dispatch=${res.success}${res.success ? '' : ` (${res.message ?? '?'})`} — grain ${grainBefore} -> ${invCount(GRAIN)} (${hopperTook ? 'took' : 'NOT taken'})`);
+        }
+        if (!hopperTook) throw new Error(`gathering failed: the hopper never took the grain @ (${pos().x},${pos().z}) l${pos().level}`);
+
+        // (2) operate the hopper, proven by the SERVER's own line: silence or
+        // "You operate the empty hopper" means the pull milled nothing.
+        const controls = sdk.findNearbyLoc(/^hopper controls$/i);
+        if (!controls) throw new Error(`gathering failed: no hopper controls in range @ (${pos().x},${pos().z}) l${pos().level}`);
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            const mark = (sdk.getState()?.gameMessages ?? []).length;
+            const lever = await bot.interactLoc(controls, /operate/i);
+            const slid = await pollFor(() => /slides down the chute/i.test(messagesSince(mark).join(' ')), 8_000);
+            const lines = messagesSince(mark).filter((l) => /hopper|chute|flour/i.test(l));
+            log(`operated the hopper (pull ${attempt}/3) @ (${controls.x},${controls.z}) l${pos().level}: dispatch=${lever.success}${lever.success ? '' : ` (${lever.message ?? '?'})`} — server=${JSON.stringify(lines.slice(-2))}`);
+            if (slid) break;
+            if (attempt === 3) log('WARN the hopper never answered "the grain slides down the chute" — trying the bin for whatever it holds');
+            await sdk.waitForTicks(3);
+        }
+
+        // (3) descend, then fill a pot — proven by a pot of flour in the bag.
+        if (invCount(POT_EMPTY) === 0 && invCount(FLOUR) === 0 && !(await stockEmptyVessel(POT_EMPTY, 'pot'))) {
+            throw new Error('gathering failed: no empty pot left to fill from the bin');
+        }
+        await sdk.waitForTicks(2);
+        await climbMillTo(0);
+        await bot.closeInterface();
+        await sdk.scanNearbyLocs(10).catch(() => {});
+        await sdk.waitForTicks(2);
+        await sdk.scanNearbyLocs(10).catch(() => {});
+        const bin = sdk.findNearbyLoc(/^flour bin$/i);
+        if (!bin) throw new Error(`gathering failed: no flour bin in range @ (${pos().x},${pos().z}) l${pos().level}`);
+        const markBin = (sdk.getState()?.gameMessages ?? []).length;
+        const fillPot = await bot.useItemOnLoc(POT_EMPTY, bin);
+        milled = await pollFor(() => invCount(FLOUR) > 0, 6_000);
+        const binLines = messagesSince(markBin).filter((l) => /flour|pot\b/i.test(l));
+        log(`pot from the flour bin @ (${bin.x},${bin.z}) l${pos().level} (cycle ${cycle}/2): dispatch=${fillPot.success}${fillPot.success ? '' : ` (${fillPot.message ?? '?'})`} — flour x${invCount(FLOUR)} (${milled ? 'filled' : 'EMPTY'}) server=${JSON.stringify(binLines.slice(-2))}`);
+    }
+    if (!milled || invCount(FLOUR) === 0) {
+        throw new Error(`gathering failed: the flour bin gave no flour (grain in bag ${invCount(GRAIN)}, pots ${invCount(POT_EMPTY)}) @ (${pos().x},${pos().z}) l${pos().level}`);
+    }
     log('Bag: pot of flour x1 (gathered)');
 }
 
