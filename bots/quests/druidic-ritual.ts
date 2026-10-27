@@ -7,12 +7,14 @@
  * Cauldron of Thunder in Taverley dungeon, then hands the enchanted meats
  * to Sanfew and finishes with Kaqemeex.
  */
-import { appendFileSync } from 'fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { runScript } from '../../sdk/runner';
 import { ActivitySession } from '../../sdk/activity';
 import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
 import type { JournalRule } from '../../quest-lab/evidence';
+import { appendCheckpoint, createRun, safeRunId, summarizeRun } from '../../quest-lab/records';
+import { closestFleetBank } from './tiles';
 
 const KAQEMEEX = { x: 2925, z: 3486 };
 const SANFEW = { x: 2899, z: 3428 };
@@ -126,7 +128,9 @@ await runScript(async ({ bot, sdk }) => {
     // sentence UNIQUE to that stage. Recognising only the two endpoints made a
     // mid-quest account read as 'unknown' and threw, even though the loop below
     // already knows how to resume from any of them.
-    const STAGE_RULES: Record<string, JournalRule> = {
+    const STAGE_ORDER = ['not_started', 'started', 'spoken_sanfew', 'given_ingredients', 'complete'] as const;
+    type Stage = (typeof STAGE_ORDER)[number];
+    const STAGE_RULES: Record<Stage, JournalRule> = {
         not_started: {
             id: 'druid:not_started',
             kind: 'unstarted',
@@ -151,14 +155,8 @@ await runScript(async ({ bot, sdk }) => {
     };
 
     /** The first stage rule that passes is the account's real stage. */
-    async function readStage(): Promise<string> {
-        for (const name of [
-            'complete',
-            'given_ingredients',
-            'spoken_sanfew',
-            'started',
-            'not_started',
-        ] as const) {
+    async function readStage(): Promise<Stage | 'unknown'> {
+        for (const name of [...STAGE_ORDER].reverse()) {
             const read = await readJournalCheckpoint(sdk, JOURNAL, STAGE_RULES[name]!);
             log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
             if (read.verdict?.verdict === 'PASS') return name;
@@ -571,25 +569,115 @@ await runScript(async ({ bot, sdk }) => {
     });
     await session.setPhase('inspect');
 
-    // Ask the journal what state this account is in BEFORE acting. With the old
-    // XP test a maxed account fell straight through as "already complete".
-    const stage = await readStage();
-    log(`Druidic Ritual stage at start: ${stage}`);
-    if (stage === 'complete') {
-        log('Druidic Ritual is already complete — nothing to do');
-        await session.setPhase('done');
-        // Park, do not exit. `return` here exits 0 and the supervisor relaunches
-        // the container straight back into this branch — this exact loop ran 215
-        // times an hour for a maxed account.
-        let lastParkLog = Date.now();
-        while (!session.isStoppedOrRequested() && sdk.isConnected()) {
-            await sdk.waitForTicks(5).catch(() => new Promise((r) => setTimeout(r, 3_000)));
-            session.noteProgress('phase', 'done');
-            if (Date.now() - lastParkLog >= 30 * 60_000) {
-                lastParkLog = Date.now();
-                log(`Parked — Druidic Ritual complete, Herblore ${herbXp()} xp @ ${pos().x},${pos().z}`);
-            }
+    // ── durable run record ──────────────────────────────────────────────────
+    // quest-eval scores `no-run-record` as a FAIL. This script finished the
+    // quest and printed `Druidic Ritual complete (journal-verified)` on three
+    // green runs, but wrote no evidence, so the gate read 0/3 and the canary
+    // tier could never grade it. Checkpoint evidence is appended verbatim as
+    // the run proceeds, so an audit never depends on this script's stdout or on
+    // sampled telemetry.
+    const account = botName || 'unknown';
+    const MODE = process.env.QUEST_LAB_MODE === 'staging' ? 'staging' : 'development';
+    const run = createRun(
+        join(process.cwd(), 'quest-lab', 'runs'),
+        safeRunId('druid', account, new Date().toISOString()),
+        {
+            questId: 'druid',
+            account,
+            mode: MODE,
+            scriptHash: Bun.hash(await Bun.file(import.meta.path).text()).toString(16),
+            fixtureHash: process.env.QUEST_LAB_FIXTURE_HASH ?? 'unrecorded',
+            contentHash: process.env.QUEST_LAB_CONTENT_HASH ?? 'unrecorded',
+            requiredCheckpoints: ['complete']
         }
+    );
+    log(`Run record: ${run.directory} (mode=${MODE})`);
+
+    const proved = new Set<Stage>();
+
+    /** Checkpoint gate. UNKNOWN is a failure like any other here: proceed on nothing. */
+    async function checkpoint(name: Stage, label: string): Promise<boolean> {
+        const read = await readJournalCheckpoint(sdk, JOURNAL, STAGE_RULES[name]!);
+        const verdict = read.verdict?.verdict ?? 'UNKNOWN';
+        appendCheckpoint(run.directory, {
+            checkpointId: name,
+            verdict,
+            reason: read.reason,
+            kind: STAGE_RULES[name]!.kind,
+            rawLines: read.rawLines
+        });
+        if (verdict !== 'PASS') {
+            log(`CHECKPOINT ${name} ${verdict}: ${read.reason}`);
+            return false;
+        }
+        proved.add(name);
+        log(`CHECKPOINT ${name} PASS (${label}) — ${read.reason}`);
+        session.log('log', `checkpoint ${name} PASS: ${label}`);
+        return true;
+    }
+
+    /**
+     * Prove the furthest live stage the journal currently shows. Called at
+     * conversation boundaries ONLY: opening the journal is a MAIN modal, so
+     * polling it mid-chain destroys the grant the chain is about to make.
+     *
+     * The terminal 'complete' stage is deliberately absent — `questDone()` owns
+     * it, and sweeping it here would burn a journal open on every boundary.
+     */
+    const LIVE_STAGES = STAGE_ORDER.filter(s => s !== 'complete');
+    async function proveCurrentStage(label: string): Promise<string> {
+        for (let i = LIVE_STAGES.length - 1; i >= 0; i--) {
+            const name = LIVE_STAGES[i]!;
+            if (proved.has(name)) return name;
+            if (await checkpoint(name, label)) return name;
+        }
+        log(`journal stage after ${label}: UNKNOWN (journal not ready)`);
+        return 'unknown';
+    }
+
+    // Ask the journal what state this account is in BEFORE acting. Right after
+    // login the quest-tab side interface has not streamed in, so an early
+    // UNKNOWN is not-ready, not a verdict: retry bounded before the first side
+    // effect, so an already-complete account still exits before banking.
+    let stage = await readStage();
+    for (let i = 0; i < 12 && stage === 'unknown'; i++) {
+        await sdk.waitForTicks(5);
+        stage = await readStage();
+    }
+    log(`Druidic Ritual stage at start: ${stage}`);
+
+    // Rule 59: the promotion gate may require only what THIS run can
+    // demonstrate. A resume at 'spoken_sanfew' can never re-prove
+    // 'not_started', so the required list starts at the probed stage; a static
+    // all-stages list fails every resume even on the run that completes.
+    const REQUIRED_FROM: Record<string, string[]> = {
+        not_started: ['not_started', 'complete'],
+        started: ['started', 'complete'],
+        spoken_sanfew: ['spoken_sanfew', 'complete'],
+        given_ingredients: ['given_ingredients', 'complete'],
+        complete: ['complete']
+    };
+    const required = REQUIRED_FROM[stage] ?? ['complete'];
+    const runFile = join(run.directory, 'run.json');
+    writeFileSync(
+        runFile,
+        JSON.stringify(
+            { ...(JSON.parse(readFileSync(runFile, 'utf-8')) as object), requiredCheckpoints: required },
+            null,
+            2
+        )
+    );
+    log(`required checkpoints: ${required.join(', ')} (probed stage=${stage})`);
+
+    if (stage !== 'unknown') await checkpoint(stage as Stage, `stage at start (${stage})`);
+
+    if (stage === 'complete') {
+        // A finished account: write the complete checkpoint and exit 0 at once —
+        // no bank-out, no supply trek. The journal is the only proof either way.
+        log('Druidic Ritual is already complete — nothing to do');
+        session.log('log', 'already complete: nothing to do');
+        await session.setPhase('done');
+        session.stop('done', 'already complete', { restartable: false });
         return;
     }
     if (stage === 'unknown') {
@@ -598,8 +686,88 @@ await runScript(async ({ bot, sdk }) => {
     }
     session.log('log', `stage=${stage} herbXp=${startXp}`);
 
-    const until = Date.now() + 20 * 60_000;
-    while (Date.now() < until && !(await questDone())) {
+    // ── start bank ──────────────────────────────────────────────────────────
+    // Bank-first, and the leg must actually RUN on a live account: all four meats
+    // are NPC drops this script farms in-quest, so the walk is only worth it when
+    // the bag needs clearing — but that is exactly the case a fleet account is in.
+    // A 40-tile cap around a hardcoded Falador west made the leg a no-op for every
+    // fisher/cooker account (they park at Catherby/Ardougne), so the bag stayed
+    // full and the hunt died on inventory space. The dev fixture starts at Falador
+    // west bank, which is why the gate never saw this.
+    async function settleBank(): Promise<void> {
+        // Two reasons to bank, and the second one used to be ignored: a full bag
+        // cannot hold the four meats, so a fisher parked at Catherby (104 tiles
+        // from Falador west) skipped this leg and then logged "not enough
+        // inventory space" ten times with the bear meat on the ground — fatpig
+        // canary 2026-10-27T13:57Z ran 28/28 slots of shark. Bank the nearest
+        // named bank whenever the bag is nearly full, distance be damned.
+        const used = sdk.getInventory().filter(i => (i.count ?? 0) > 0).length;
+        const free = 28 - used;
+        const mustBank = free < 8;
+        const near = closestFleetBank(pos().x, pos().z);
+        const away = Math.round(near.distance);
+        const bank = near.bank;
+        if (pos().level !== 0 || (!mustBank && away > 40)) {
+            log(
+                `start bank skipped: ${free} free slot(s), nearest ${bank.name} ${away} tiles — farming the meats in-quest`
+            );
+            return;
+        }
+        log(`start bank: ${free} free slot(s) — walking to ${bank.name} (${away} tiles)`);
+        if (away > 4) await walkNear(bank.x, bank.z, 3);
+        const opened = await bot.openBank();
+        if (!opened?.success) {
+            log(`bank did not open: ${opened?.message ?? '?'}`);
+            return;
+        }
+        // Bank items stream in a tick or two AFTER isOpen flips: settle, then
+        // read fresh state, or an instant read sees an empty bank.
+        await sdk.waitForCondition(s => (s.bank?.items?.length ?? 0) > 0, 8_000).catch(() => {});
+        await sdk.waitForTicks(2);
+        const keep = (name: string) =>
+            /^coins$/i.test(name) || MEATS.some(m => m.raw.test(name) || m.enchanted.test(name));
+        let deposited = 0;
+        for (const item of sdk.getInventory()) {
+            if ((item.count ?? 0) <= 0 || keep(item.name)) continue;
+            const res = await bot.depositItem(item);
+            if (res.success) deposited++;
+        }
+        const bankedLabels = MEATS.filter(m => sdk.getBankItems().some(b => m.raw.test(b.name))).map(
+            m => m.label
+        );
+        for (const m of MEATS) {
+            if (count(m.raw) > 0 || count(m.enchanted) > 0) continue;
+            // A park between runs banks whatever the account was carrying, so a
+            // resume legitimately finds ENCHANTED meats in the bank and no raw
+            // ones. Withdrawing only raw made that account re-farm the whole list
+            // (fatpig canary 2026-10-27T16:32Z ended with 4/4 enchanted banked).
+            if (sdk.getBankItems().some(b => m.enchanted.test(b.name))) {
+                await bot.withdrawItem(m.enchanted, 1);
+                log(`withdrew ${m.label} (enchanted): ${count(m.enchanted)}`);
+                continue;
+            }
+            if (!sdk.getBankItems().some(b => m.raw.test(b.name))) continue;
+            const before = count(m.raw);
+            await bot.withdrawItem(m.raw, 1);
+            log(`withdrew ${m.label}: ${before} -> ${count(m.raw)}`);
+        }
+        log(
+            `start bank (${bank.name}): deposited ${deposited} stack(s); bank held [${bankedLabels.join(',') || 'no meats'}]`
+        );
+        await bot.closeBank();
+    }
+
+    if (!allRawOrEnchanted()) await settleBank();
+
+    // 12 minutes was a dev-world budget: the fixture starts at Falador west bank
+    // with the route already walked. A live account spends 13 minutes on the
+    // Kaqemeex walk alone, so fatpig dipped all four meats at 16:55 and then fell
+    // out of this loop and threw "Quest unfinished" with the enchanted meats in
+    // hand (canary 2026-10-27T16:32Z). 30 minutes matches the canary TTL's useful
+    // half, and a run that already holds the enchanted meats ignores the clock
+    // entirely — finishing is two conversations, never a new hunt.
+    const until = Date.now() + 30 * 60_000;
+    while ((Date.now() < until || allEnchanted()) && !(await questDone())) {
         await closeUi();
         if (pos().isDead) {
             await sdk.waitForTicks(3);
@@ -611,6 +779,8 @@ await runScript(async ({ bot, sdk }) => {
             log(`Sanfew: ${seen || '(no dialog)'}`);
             await chat();
             await closeUi();
+            await sdk.waitForTicks(8);
+            await proveCurrentStage('Sanfew took the enchanted meats');
             if (await questDone()) break;
         }
 
@@ -619,6 +789,8 @@ await runScript(async ({ bot, sdk }) => {
             log(`Kaqemeex: ${fin || '(no dialog)'}`);
             await chat();
             await closeUi();
+            await sdk.waitForTicks(8);
+            await proveCurrentStage('Kaqemeex briefing');
             if (await questDone()) break;
             await gatherMeats();
             continue;
@@ -628,17 +800,38 @@ await runScript(async ({ bot, sdk }) => {
         log(`Kaqemeex: ${startSeen || '(no dialog)'}`);
         await chat();
         await closeUi();
+        await sdk.waitForTicks(8);
+        await proveCurrentStage('accepted the quest at the Druids Circle');
         if (await questDone()) break;
 
         const san = (await talkSanfew()).join(' | ');
         log(`Sanfew: ${san || '(no dialog)'}`);
         await chat();
         await closeUi();
+        await sdk.waitForTicks(8);
+        await proveCurrentStage('Sanfew named the ingredients');
         if (await questDone()) break;
 
         await dipMeats();
     }
 
-    if (await questDone()) log(`Druidic Ritual complete (journal-verified) herbloreXp=${herbXp()} (+${herbXp() - startXp})`);
-    else throw new Error(`Quest unfinished @ ${pos().x},${pos().z} herbXp=${herbXp()}`);
+    if (await questDone()) {
+        // The journal write LAGS the finishing message: settle, then re-read, so
+        // the terminal checkpoint is evidence and not a race.
+        await sdk.waitForTicks(8);
+        if (!(await checkpoint('complete', 'journal reports QUEST COMPLETE'))) {
+            throw new Error('quest finished but the complete checkpoint did not pass');
+        }
+        const gate = summarizeRun(run.directory);
+        log(`Druidic Ritual complete (journal-verified) herbloreXp=${herbXp()} (+${herbXp() - startXp})`);
+        log(
+            `Run record: ${gate.ok ? 'COMPLETE' : 'INCOMPLETE'} at ${run.directory} missing=[${gate.missing.join(',')}]`
+        );
+        // Exit 0 at once: the pipeline grades the complete checkpoint, and this
+        // quest leaves no worn kit — the next task's start-bank owns the hand-off.
+        await session.setPhase('done');
+        session.stop('done', 'Druidic Ritual complete', { restartable: false });
+        return;
+    }
+    throw new Error(`Quest unfinished @ ${pos().x},${pos().z} herbXp=${herbXp()}`);
 });
