@@ -69,11 +69,12 @@ export const graph = defineGraph<ImpCtx>({
             },
             on: { stocked: 'travel' },
             // This leg is travelled from wherever the account stands: a thiever
-            // at the Ardougne knights planned 52 waypoints (~35-40 min on a
-            // loaded box) and blew a 15-minute budget at leg 18 while every leg
-            // was landing. A blocked leg still throws on the spot, so a long
+            // at the Ardougne knights planned 52 waypoints and measured ~48s per
+            // leg (~40 min on a loaded box), which blew the old 15-minute budget
+            // at leg 18 while every leg was landing. 60 minutes leaves margin for
+            // a slower box. A blocked leg still throws on the spot, so a long
             // envelope cannot mask a stall.
-            timeoutMs: 2_700_000,
+            timeoutMs: 3_600_000,
         },
 
         travel: {
