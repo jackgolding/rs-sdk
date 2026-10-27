@@ -133,13 +133,9 @@
     {
       "name": "jacklove4",
       "view": "fleet",
-      "script": "bots/quests/todo-runner.ts",
+      "script": "bots/quests/draynor-bank-all.ts",
       "args": [
-        "jacklove4",
-        "--then",
-        "bots/quests/thieving-route.ts",
-        "jacklove4",
-        "--knights"
+          "jacklove4"
       ]
     },
     {
