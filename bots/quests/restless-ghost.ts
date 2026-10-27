@@ -302,11 +302,6 @@ if (stage !== 'unknown') {
 }
 if (stage === 'complete') {
     log('The Restless Ghost is already complete — nothing to do');
-    // Record the proof: the run record requires `complete`, and a record without
-    // it grades FAIL in the fleet's todo-runner even though the quest is done.
-    if (!(await checkpoint('complete', 'already complete at start'))) {
-        log('WARN journal did not confirm completion on re-read');
-    }
     session.log('log', 'quest already complete; nothing to do');
     sdk.disconnect();
     process.exit(0);
@@ -757,26 +752,55 @@ if (!reached('spoken_urhney')) {
     log('Resuming: Urhney stage is already journal-confirmed');
 }
 
-// Amulet lost mid-quest? Urhney carries a spare ("I've lost the amulet.",
-// father_urhney.rs2: father_urhney_priest_lost_amulet) — detour before the ghost.
-if (!reached('spoken_ghost') && invCount(AMULET) === 0 && !amuletWorn()) {
-    log('Amulet missing; returning to Urhney for the spare');
-    await session.setPhase('amulet-spare');
-    await travelTo(approach(URHNEY), 'Father Urhney (spare amulet)');
-    await talkRetry(/father urhney/i, 'Father Urhney (spare)');
-    await runDialog([/lost the amulet/i], 'urhney spare');
-    if (invCount(AMULET) === 0 && !amuletWorn()) throw new Error('Urhney spare dialog ended but no amulet arrived');
-    session.noteProgress('inventory', 'spare ghostspeak amulet received');
-}
+// Only the GHOST leg needs the amulet worn (restless_ghost.rs2:15). A resume that
+// already proved spoken_ghost must not die on a step it no longer needs: the
+// amulet is usually banked by then (parking banks everything), so the old
+// unconditional equip threw 'could not wear the Ghostspeak amulet' on runs that
+// were already past it (ABGARMY10 2026-10-26T17:31Z, right after 'Inventory
+// already empty; skipping the bank leg').
+if (!reached('spoken_ghost')) {
+    // Check the bank BEFORE the Urhney detour: an earlier revision banked the
+    // amulet as carry-over, and the spare-amulet dialog is not offered once the
+    // journal has moved past spoken_urhney.
+    if (!amuletWorn() && invCount(AMULET) === 0) {
+        log('Ghostspeak amulet missing; checking the bank first');
+        await session.setPhase('amulet-bank');
+        await leaveTowerIfInside();
+        await travelTo(approach(DRAYNOR_BANK), 'Draynor bank (amulet check)');
+        if ((await bot.openBank()).success) {
+            await sdk.waitForTicks(2);
+            const withdrew = await bot.withdrawItem(AMULET, 1);
+            log(`withdraw amulet: ${withdrew.success}${withdrew.success ? '' : ` (${withdrew.message ?? '?'})`}`);
+            await bot.closeInterface();
+        } else {
+            log('amulet bank check: could not open the bank');
+        }
+        if (invCount(AMULET) > 0 || amuletWorn()) log('Ghostspeak amulet recovered from the bank');
+    }
 
-// The ghost only understands you with the amulet WORN (restless_ghost.rs2:15).
-if (!amuletWorn()) {
-    const res = await bot.equipItem(AMULET);
-    log(`equipped ghostspeak amulet: ${res.success}${res.success ? '' : ` (${res.message ?? '?'})`}`);
-    if (!amuletWorn()) throw new Error('could not wear the Ghostspeak amulet');
-    session.noteProgress('inventory', 'ghostspeak amulet worn');
+    // Amulet lost mid-quest? Urhney carries a spare ("I've lost the amulet.",
+    // father_urhney.rs2: father_urhney_priest_lost_amulet) — detour before the ghost.
+    if (invCount(AMULET) === 0 && !amuletWorn()) {
+        log('Amulet missing; returning to Urhney for the spare');
+        await session.setPhase('amulet-spare');
+        await travelTo(approach(URHNEY), 'Father Urhney (spare amulet)');
+        await talkRetry(/father urhney/i, 'Father Urhney (spare)');
+        await runDialog([/lost the amulet/i], 'urhney spare');
+        if (invCount(AMULET) === 0 && !amuletWorn()) throw new Error('Urhney spare dialog ended but no amulet arrived');
+        session.noteProgress('inventory', 'spare ghostspeak amulet received');
+    }
+
+    // The ghost only understands you with the amulet WORN (restless_ghost.rs2:15).
+    if (!amuletWorn()) {
+        const res = await bot.equipItem(AMULET);
+        log(`equipped ghostspeak amulet: ${res.success}${res.success ? '' : ` (${res.message ?? '?'})`}`);
+        if (!amuletWorn()) throw new Error('could not wear the Ghostspeak amulet');
+        session.noteProgress('inventory', 'ghostspeak amulet worn');
+    } else {
+        log('Ghostspeak amulet already worn');
+    }
 } else {
-    log('Ghostspeak amulet already worn');
+    log('Resuming: ghost already spoken to — the amulet is not needed again');
 }
 
 // ── 5. talk to the ghost, only from spoken_urhney ───────────────────────────
@@ -867,8 +891,20 @@ if (!reached('obtained_skull')) {
         skullEntity = await sdk.scanFindGroundItem(SKULL, 30).catch(() => null);
         if (!skullEntity) log(`skull scan attempt ${i + 1}/8: not yet visible`);
     }
-    const took = await bot.pickupItem(skullEntity ?? SKULL);
+    let took = await bot.pickupItem(skullEntity ?? SKULL);
     log(`take skull: ${took.success}${took.success ? '' : ` (${took.message ?? '?'})`}`);
+    // The skull is ONE world spawn, so a second body in the basement (another
+    // fleet account, or a parallel eval attempt in the same world) can take it
+    // out from under this one: 'Skull was taken by someone else'. That is
+    // contention, not a defect — wait for the respawn and re-take instead of
+    // throwing (observed: qlepriere42 vs qlepriere41 at --concurrency 2).
+    for (let i = 0; i < 12 && !took.success && invCount(SKULL) === 0; i++) {
+        await sdk.waitForTicks(8);
+        const again = await sdk.scanFindGroundItem(SKULL, 30).catch(() => null);
+        if (!again) { log(`skull respawn wait ${i + 1}/12: not visible yet`); continue; }
+        took = await bot.pickupItem(again);
+        log(`skull retake ${i + 1}/12: ${took.success}${took.success ? '' : ` (${took.message ?? '?'})`}`);
+    }
     if (!took.success && invCount(SKULL) === 0) throw new Error(`could not take the Ghost's skull: ${took.message ?? '?'}`);
     // Taking the skull spawns a level-13 skeleton (quest_priest.rs2:73-79):
     // leave immediately by short hops rather than fighting it. The pickup
