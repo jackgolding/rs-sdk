@@ -125,13 +125,9 @@
     {
       "name": "jacklove3",
       "view": "fleet",
-      "script": "bots/quests/todo-runner.ts",
+      "script": "bots/quests/druidic-ritual.ts",
       "args": [
-        "jacklove3",
-        "--then",
-        "bots/quests/thieving-route.ts",
-        "jacklove3",
-        "--knights"
+        "jacklove3"
       ]
     },
     {
