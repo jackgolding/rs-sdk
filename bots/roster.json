@@ -87,9 +87,8 @@
       "args": [
         "fatpig",
         "--then",
-        "bots/quests/fishing-route.ts",
-        "fatpig",
-        "--bignet"
+        "bots/quests/essence.ts",
+        "fatpig"
       ]
     },
     {
