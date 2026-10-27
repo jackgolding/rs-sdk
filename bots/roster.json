@@ -133,8 +133,14 @@
     {
       "name": "jacklove4",
       "view": "fleet",
-      "script": "bots/quests/draynor-bank-all.ts",
+      "script": "bots/quests/todo-runner.ts",
       "args": [
+          "jacklove4",
+          "--then",
+          "bots/quests/climb-down.ts",
+          "jacklove4",
+          "--then",
+          "bots/quests/draynor-bank-all.ts",
           "jacklove4"
       ]
     },
