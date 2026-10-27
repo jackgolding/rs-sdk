@@ -1,12 +1,15 @@
 /**
- * Rimmington iron → Falador east bank.
+ * Rimmington iron → Falador east bank (or → Falador furnace with --smelt).
  *
  *   bun bots/quests/rimmington-iron.ts {botname}
+ *   bun bots/quests/rimmington-iron.ts {botname} --smelt
  *   bun bots/Jackpoo4/rimmington-iron.ts
  *
  * Mines the SE Rimmington iron cluster (~2969, 3240) and banks at
- * Falador east (3012, 3355). Wilderness exits use sendWalk — walkTo
- * will not path north of the Edgeville ditch.
+ * Falador east (3012, 3355). With --smelt the full inventory is smelted at
+ * the Falador furnace (2974, 3369) first and the bars are what gets banked
+ * (needs Smithing 15; iron smelts 1 ore → 1 bar, no coal). Wilderness exits
+ * use sendWalk — walkTo will not path north of the Edgeville ditch.
  */
 import {
     ActivitySession,
@@ -59,9 +62,13 @@ const OUT_OF_WILDY = [
     { x: 3102, z: 3610 },
     { x: 3088, z: 3525 }
 ];
+/** Falador furnace + a route in from the mine side (skips the castle). */
+const FURNACE = { x: 2974, z: 3369 };
+const TO_FURNACE = [{ x: 3010, z: 3265 }, { x: 3007, z: 3340 }, { x: 2990, z: 3358 }];
 
 const PICKAXE = /^(bronze|iron|steel|mithril|adamant|rune) pickaxe$/i;
 const IRON = /^iron ore$/i;
+const IRON_BAR = /^iron bar$/i;
 const ROCK = /rocks iron ore/i;
 const FOOD_NAME =
     /shrimp|anchov|sardine|herring|trout|pike|salmon|tuna|lobster|swordfish|shark|bass|meat|chicken|bread|cake|wine|kebab|beer/i;
@@ -69,6 +76,7 @@ const FOOD_NAME =
 const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-'));
 const bench = argv.includes('--bench');
+const smelt = argv.includes('--smelt');
 
 function isCookedFood(name: string): boolean {
     return FOOD_NAME.test(name) && !/^raw |^burnt /i.test(name);
@@ -153,6 +161,14 @@ function mining(): number {
 
 function miningXp(): number {
     return sdk.getSkill('Mining')?.experience ?? 0;
+}
+
+function smithing(): number {
+    return sdk.getSkill('Smithing')?.baseLevel ?? 1;
+}
+
+function smithingXp(): number {
+    return sdk.getSkill('Smithing')?.experience ?? 0;
 }
 
 function occupiedSlots(): number {
@@ -436,6 +452,125 @@ async function bankOres(): Promise<boolean> {
     return occupiedSlots() < 27;
 }
 
+function findFurnace() {
+    return (
+        sdk.findNearbyLoc(/furnace/i, { withOption: /smelt/i }) ??
+        (sdk.getNearbyLocs() ?? []).find(
+            (l) => /furnace/i.test(l.name) && l.optionsWithIndex.some((o) => /smelt/i.test(o.text))
+        ) ??
+        null
+    );
+}
+
+/** Smelting dialog: prefer the 10-batch button, fall back to any iron entry. */
+async function clickSmelt10(): Promise<boolean> {
+    const dialog = sdk.getDialog();
+    if (!dialog?.isOpen) return false;
+    const direct = await sdk.clickDialogByText(/smelt\s+10.*iron|make\s+10.*iron/i).catch(() => ({ success: false }));
+    if (direct.success) return true;
+    const opts = dialog.options ?? [];
+    const pick =
+        opts.find((o) => /smelt\s+10|make\s+10/i.test(o.text) && /iron/i.test(o.text)) ??
+        opts.find((o) => /iron/i.test(o.text)) ??
+        opts.find((o) => /smelt\s+10|make\s+10/i.test(o.text));
+    if (!pick) return false;
+    await sdk.sendClickDialog(pick.index);
+    return true;
+}
+
+async function goToFurnace(): Promise<boolean> {
+    await closeUi();
+    if (northOfDitch() && !(await leaveWildy())) return false;
+    if (inGuild() && !(await leaveGuild())) return false;
+    if (distTo(FURNACE.x, FURNACE.z) <= 4) return true;
+    intent('Walking to Falador furnace');
+    session.setAnchor(FURNACE.x, FURNACE.z);
+    if (distTo(FURNACE.x, FURNACE.z) > 24) await walkWaypoints(TO_FURNACE);
+    await walkNear(FURNACE.x, FURNACE.z, 2);
+    await sdk.scanNearbyLocs(10).catch(() => {});
+    return distTo(FURNACE.x, FURNACE.z) <= 6;
+}
+
+/**
+ * Smelt every iron ore in the bag into bars at the Falador furnace.
+ * Iron bars are 1 ore → 1 bar (no coal) and fail ~half the time, so the batch
+ * is driven by watching the ore count fall rather than by a fixed wait.
+ */
+async function smeltOres(): Promise<number> {
+    const oreAtStart = count(IRON);
+    if (oreAtStart < 1) return 0;
+    if (smithing() < 15) {
+        session.log('warn', `Smelt skipped: Smithing ${smithing()} < 15 (banking ore instead)`);
+        return 0;
+    }
+    if (session.metrics().phase !== 'smelt') await session.setPhase('smelt');
+    if (!(await goToFurnace())) {
+        session.noteFailure('furnace_walk', `Could not reach Falador furnace from ${pos().x},${pos().z}`);
+        return 0;
+    }
+    const beforeBars = count(IRON_BAR);
+    const beforeXp = smithingXp();
+    let furnace = findFurnace();
+    if (!furnace) {
+        await sdk.scanNearbyLocs(10).catch(() => {});
+        furnace = findFurnace();
+    }
+    if (!furnace) {
+        session.noteFailure('furnace', `No smeltable furnace @ ${pos().x},${pos().z}`);
+        return 0;
+    }
+    const trigger = async (): Promise<void> => {
+        const target = findFurnace() ?? furnace!;
+        const opened = await bot.interactLoc(target, /smelt/i);
+        await sdk.waitForCondition((s) => s.dialog?.isOpen || count(IRON_BAR) > beforeBars, 6_000).catch(() => {});
+        if (sdk.getDialog()?.isOpen) {
+            await clickSmelt10();
+            return;
+        }
+        const ore = sdk.findInventoryItem(IRON);
+        if (!opened.success && ore) {
+            await sdk.sendUseItemOnLoc(ore.slot, target.x, target.z, target.id);
+            await sdk.waitForCondition((s) => s.dialog?.isOpen || count(IRON_BAR) > beforeBars, 8_000).catch(() => {});
+            if (sdk.getDialog()?.isOpen) await clickSmelt10();
+        }
+    };
+    intent('Smelting iron bars');
+    await trigger();
+    let stalls = 0;
+    while (count(IRON) > 0 && stalls < 2 && !session.isStopped()) {
+        const oreBefore = count(IRON);
+        const barsBefore = count(IRON_BAR);
+        await sdk
+            .waitForCondition((s) => count(IRON) < oreBefore || count(IRON_BAR) > barsBefore, 8_000)
+            .catch(() => {});
+        if (count(IRON) === oreBefore && count(IRON_BAR) === barsBefore) {
+            stalls++;
+            await closeUi();
+            if (sdk.getDialog()?.isOpen) await clickSmelt10();
+            else await trigger();
+        }
+    }
+    await closeUi();
+    const made = count(IRON_BAR) - beforeBars;
+    const oreLeft = count(IRON);
+    if (made > 0 || smithingXp() > beforeXp) {
+        session.noteProgress('xp', 'iron bar');
+        log(
+            `Smelted +${made} iron bar(s) from ${oreAtStart - oreLeft} ore | inv bars ${count(IRON_BAR)} ` +
+                `ore ${oreLeft} | Smithing ${smithing()} (${smithingXp()} xp)`
+        );
+    } else {
+        session.log('warn', `Smelt made no bars (ore ${oreLeft} left @ ${pos().x},${pos().z})`);
+    }
+    return made;
+}
+
+/** --smelt: furnace first, then the normal bank run (bars get deposited). */
+async function smeltThenBank(): Promise<boolean> {
+    if (smelt) await smeltOres();
+    return bankOres();
+}
+
 function otherPlayers() {
     const me = username.toLowerCase();
     return (sdk.getNearbyPlayers() ?? []).filter((p) => (p.name ?? '').toLowerCase() !== me);
@@ -602,7 +737,7 @@ session.registerRecovery([
         name: 'bank_if_full',
         run: async () => {
             if (!shouldBank() && occupiedSlots() < 20) return false;
-            return bankOres();
+            return smeltThenBank();
         }
     },
     {
@@ -618,10 +753,14 @@ try {
     await bot.skipTutorial();
     await closeUi();
     log(
-        `Rimmington iron start Mining ${mining()} (${miningXp()} xp) @ ${pos().x},${pos().z} lv${pos().level} ` +
+        `Rimmington iron${smelt ? ' --smelt' : ''} start Mining ${mining()} (${miningXp()} xp) ` +
+            `Smithing ${smithing()} (${smithingXp()} xp) @ ${pos().x},${pos().z} lv${pos().level} ` +
             `pick=${sdk.findEquipmentItem(PICKAXE)?.name ?? sdk.findInventoryItem(PICKAXE)?.name ?? 'none'} ` +
-            `iron=${count(IRON)}`
+            `iron=${count(IRON)} bars=${count(IRON_BAR)}`
     );
+    if (smelt && smithing() < 15) {
+        session.stop('smithing_too_low', `--smelt needs Smithing 15, account is ${smithing()}`);
+    }
 
     for (let prep = 0; prep < 8 && !hasPickaxe() && !session.isStopped(); prep++) {
         if (await ensurePickaxe()) break;
@@ -659,7 +798,7 @@ try {
         }
 
         if (shouldBank() || (!inMine() && occupiedSlots() >= 20 && count(IRON) > 0)) {
-            await bankOres();
+            await smeltThenBank();
             continue;
         }
 

@@ -38,13 +38,10 @@
     {
       "name": "Jackpoo2",
       "view": "fleet",
-      "script": "bots/quests/todo-runner.ts",
+      "script": "bots/quests/rimmington-iron.ts",
       "args": [
         "Jackpoo2",
-        "--then",
-        "bots/quests/fishing-route.ts",
-        "Jackpoo2",
-        "--bignet"
+        "--smelt"
       ]
     },
     {
