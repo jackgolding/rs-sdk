@@ -629,7 +629,7 @@
       "args": [
         "jackquests",
         "--then",
-        "bots/quests/thieve-lumbridge.ts",
+        "bots/quests/melee-lumbridge.ts",
         "jackquests"
       ]
     }
