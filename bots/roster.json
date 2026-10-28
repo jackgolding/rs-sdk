@@ -630,7 +630,8 @@
         "jackquests",
         "--then",
         "bots/quests/melee-lumbridge.ts",
-        "jackquests"
+        "jackquests",
+        "--until=40"
       ]
     }
   ]
