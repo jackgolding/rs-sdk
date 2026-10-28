@@ -292,6 +292,17 @@ export async function openEdgevilleBank(ctx: SupplyCtx): Promise<boolean> {
 
 export async function depositAllInventory(ctx: SupplyCtx, keep: RegExp[] = []): Promise<void> {
     const keepItem = (name: string) => keep.some((p) => p.test(name));
+    // Unequip before the bank opens: an equipment change closes the bank modal,
+    // and every deposit after it failed with "Bank is not open" (druid fixture
+    // wearing a scimitar, 2026-10-28).
+    if (ctx.sdk.getEquipment().length > 0) {
+        if (ctx.sdk.getState()?.bank?.isOpen) await ctx.bot.closeBank().catch(() => undefined);
+        for (const eq of [...ctx.sdk.getEquipment()]) {
+            const r = await ctx.bot.unequipItem(eq);
+            if (!r.success) ctx.log(`Unequip ${eq.name}: ${r.message}`);
+            await ctx.sdk.waitForTicks(1);
+        }
+    }
     if (!ctx.sdk.getState()?.bank?.isOpen) {
         const opened = await ctx.bot.openBank();
         if (!opened.success) {
@@ -303,11 +314,6 @@ export async function depositAllInventory(ctx: SupplyCtx, keep: RegExp[] = []): 
     if (!ctx.sdk.getState()?.bank?.isOpen) {
         ctx.log('Bank not open — skipping deposit');
         return;
-    }
-    for (const eq of [...ctx.sdk.getEquipment()]) {
-        const r = await ctx.bot.unequipItem(eq);
-        if (!r.success) ctx.log(`Unequip ${eq.name}: ${r.message}`);
-        await ctx.sdk.waitForTicks(1);
     }
     for (let i = 0; i < 32; i++) {
         const item = ctx.sdk.getInventory().find((it) => (it.count ?? 0) > 0 && !keepItem(it.name));

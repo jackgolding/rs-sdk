@@ -46,7 +46,7 @@ import { closeUi } from '../movement';
 import { countItems, requireSkills, talkAndChoose } from '../quest-lib';
 import { depositAllInventory, type SupplyCtx } from '../quest-supplies';
 import { SAFE_BANKS, type SafeBankName } from '../safe-stops';
-import { GROUPS, itemPattern, SOURCES, type Need } from './sources';
+import { GROUPS, itemPattern, needMet, SOURCES, type Need } from './sources';
 import { TRAINERS } from './training';
 import { tickNow, untilTicks } from './ticks';
 
@@ -64,8 +64,11 @@ export interface Quest {
     level: (skill: string) => number;
     /** Train `skill` to `level` with its trainer (lib/training.ts) if below it. Throws when it cannot. */
     ensureLevel: (skill: string, level: number) => Promise<void>;
-    /** Walk (or, assisted, teleport) to a tile. Throws when it cannot get there. */
-    goTo: (tile: Tile, tolerance?: number) => Promise<void>;
+    /**
+     * Walk (or, assisted, teleport) to a tile, climbing to its plane first
+     * (`level`, default 0 — the ground floor). Throws when it cannot get there.
+     */
+    goTo: (tile: Tile & { level?: number }, tolerance?: number) => Promise<void>;
     /**
      * Make a nearby loc reachable: open the closed doors nearest to IT (not to
      * the player) until the client can route there. Throws when none helps.
@@ -126,13 +129,6 @@ export function runTask(def: { id: string; hub: SafeBankName; needs?: Need[]; ta
 
 /** Arrival radius goTo asks travelTo for before bot.walkTo finishes the approach. */
 const APPROACH = 15;
-/**
- * Legs up to this long go straight to bot.walkTo, which pathfinds the whole map
- * and opens doors and gates. travelTo's hops cannot: from Lumbridge castle and
- * the sheep pen it stalled 10-20s per leg, and on Doric's 209-tile mine ->
- * Falador leg ~200 ticks at the city wall, before handing over (2026-10-28).
- */
-const WALK_FIRST = 250;
 /** Where goTo lets travelTo stop: on the road, before a fenced or walled destination. */
 const TRAVEL_ARRIVAL = 20;
 /** Exit code for a run that completed with assistance: steps proven, route not. */
@@ -269,12 +265,19 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 }
                 const t0 = tickNow(sdk);
                 const from = pos();
+                // walkTo cannot route between planes: from Sanfew's upstairs it reported
+                // the ground-floor target "unroutable" and travelTo's fallback took ~270t
+                // (druid, 2026-10-28). Change plane where we stand, then walk.
+                if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0);
                 const viaTravel = async () => {
                     const res = await travelTo(sdk, bot, tile, { log, tolerance: TRAVEL_ARRIVAL });
                     if (!res.ok) log(`travel stopped ${Math.round(away(tile))} tiles short (${res.reason})`);
                 };
-                // Long trips: travelTo knows the world routes; walkTo finishes through doors.
-                if (away(tile) > WALK_FIRST) await viaTravel();
+                // bot.walkTo first at any distance: it pathfinds the whole mainland and opens
+                // doors and gates. travelTo's hops cannot, and stalled 10-20s per leg at the
+                // sheep pen, ~200 ticks at Falador's wall on Doric's mine leg, and looped at
+                // the same wall on Druid's 276-tile rats -> bears leg (2026-10-28). travelTo
+                // stays as the fallback for routes walkTo cannot find.
                 if (away(tile) > tolerance) {
                     // walkTo measures arrival its own way; trust its success.
                     let res = await bot.walkTo(tile.x, tile.z, tolerance);
@@ -381,7 +384,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (prep.length) {
             await session.setPhase('prepare');
             log(`prepare: ${prep.map((n) => `${n.count} ${n.item}`).join(', ')}`);
-            for (const need of prep) await q.ensure(need.item, need.count);
+            for (const need of prep) if (!needMet(q, need)) await q.ensure(need.item, need.count);
             log(`prepared; carrying ${describeInventory(sdk)}`);
         }
 
@@ -404,7 +407,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
             log(`transition ${t.from} → ${t.to} (attempt ${attempts})`);
             await session.setPhase(`${t.from}->${t.to}`);
 
-            for (const need of t.needs ?? []) await q.ensure(need.item, need.count);
+            for (const need of t.needs ?? []) if (!needMet(q, need)) await q.ensure(need.item, need.count);
             if (t.talk) await q.talk(t.talk.npc, t.talk.choices ?? [], t.at);
             else if (t.at) await q.goTo(t.at, teleport ? 2 : 4);
             if (t.run) await t.run(q);
@@ -464,8 +467,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
  * (shears for wool, coins for shears), recursively.
  */
 async function withdrawTowardNeeds(q: Quest, transitions: Transition[]): Promise<void> {
-    const want = new Map<string, number>();
-    for (const t of transitions) for (const n of t.needs ?? []) want.set(n.item, Math.max(want.get(n.item) ?? 0, n.count));
+    const want = mergeNeeds(transitions.flatMap((t) => t.needs ?? []));
 
     const visit = async (item: string, count: number, depth: number) => {
         if (depth > 4 || count <= 0) return;
@@ -482,19 +484,29 @@ async function withdrawTowardNeeds(q: Quest, transitions: Transition[]): Promise
         if (short <= 0) return;
         for (const input of SOURCES[item]?.inputs?.(short) ?? []) await visit(input.item, input.count, depth + 1);
     };
-    for (const [item, count] of want) await visit(item, count, 0);
+    for (const need of want) {
+        // A quest-processed form already in the bank (a resumed run) counts first.
+        if (need.or) await visit(need.or, need.count, 0);
+        if (!needMet(q, need)) await visit(need.item, need.count, 0);
+    }
+}
+
+/** One entry per item (highest count wins), in first-seen order — the order prepare gathers in. */
+function mergeNeeds(needs: Need[]): Need[] {
+    const out = new Map<string, Need>();
+    for (const n of needs) {
+        const prev = out.get(n.item);
+        out.set(n.item, { ...n, count: Math.max(prev?.count ?? 0, n.count) });
+    }
+    return [...out.values()];
 }
 
 /** Needs the prepare phase can produce: those with a source that is not quest-tracked. Max count per item. */
 function preparableNeeds(transitions: Transition[]): Need[] {
-    const want = new Map<string, number>();
-    for (const t of transitions) {
-        for (const n of t.needs ?? []) {
-            const source = SOURCES[n.item];
-            if (source?.get && source.spawnable !== false) want.set(n.item, Math.max(want.get(n.item) ?? 0, n.count));
-        }
-    }
-    return [...want].map(([item, count]) => ({ item, count }));
+    return mergeNeeds(transitions.flatMap((t) => t.needs ?? [])).filter((n) => {
+        const source = SOURCES[n.item];
+        return source?.get && source.spawnable !== false;
+    });
 }
 
 function describeInventory(sdk: BotSDK): string {

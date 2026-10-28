@@ -16,6 +16,16 @@ export interface Need {
     /** Item name as the game shows it, e.g. 'ball of wool'. */
     item: string;
     count: number;
+    /**
+     * The quest-processed form of `item` that also satisfies the need, e.g.
+     * 'enchanted beef' for 'raw beef'. A resumed run holding it must not go
+     * hunting for the raw item again; the prologue withdraws it like the item.
+     */
+    or?: string;
+}
+
+export function needMet(q: Pick<Quest, 'count'>, need: Need): boolean {
+    return q.count(need.item) >= need.count || (need.or != null && q.count(need.or) >= need.count);
 }
 
 export interface Source {
@@ -72,6 +82,18 @@ function ore(name: Ore): Source {
     };
 }
 
+/** Where an npc that always drops `item` can be killed for it. */
+interface HuntSpot {
+    x: number;
+    z: number;
+    npc: RegExp;
+}
+/** Every kill drops the meat. Spots from the old druidic-ritual.ts, south-west of Falador up to Taverley. */
+const FALADOR_FARM_COWS: HuntSpot = { x: 3027, z: 3307, npc: /^cow$/i };
+const FALADOR_FARM_CHICKENS: HuntSpot = { x: 3015, z: 3287, npc: /^chicken$/i };
+const PORT_SARIM_GIANT_RATS: HuntSpot = { x: 2995, z: 3191, npc: /^giant rat$/i };
+const TAVERLEY_BEARS: HuntSpot = { x: 2965, z: 3465, npc: /^bear$/i };
+
 export const SOURCES: Record<string, Source> = {
     coins: {},
 
@@ -87,6 +109,11 @@ export const SOURCES: Record<string, Source> = {
     clay: ore('clay'),
     'copper ore': ore('copper ore'),
     'iron ore': ore('iron ore'),
+
+    'raw beef': { get: (q, count) => huntDrop(q, FALADOR_FARM_COWS, 'raw beef', count) },
+    'raw chicken': { get: (q, count) => huntDrop(q, FALADOR_FARM_CHICKENS, 'raw chicken', count) },
+    'raw rat meat': { get: (q, count) => huntDrop(q, PORT_SARIM_GIANT_RATS, 'raw rat meat', count) },
+    'raw bear meat': { get: (q, count) => huntDrop(q, TAVERLEY_BEARS, 'raw bear meat', count) },
 
     shears: {
         inputs: () => [{ item: 'coins', count: 5 }],
@@ -209,4 +236,48 @@ async function buyWaitingForRestock(q: Quest, shop: { x: number; z: number; npc:
         q.log(`restock wait ${tickNow(q.sdk) - t0}t (stock now ${stock()?.count ?? '?'})`);
     }
     await q.bot.closeShop().catch(() => undefined);
+}
+
+/** Consecutive kill/pickup attempts that gain nothing before a hunt gives up. */
+const HUNT_MISSES = 12;
+
+/**
+ * Kill `spot.npc` and pick up `item` until holding `count`. Loot already on the
+ * ground (ours or someone else's) is taken first. attack() returns once combat
+ * starts, so each kill is waited out by its drop appearing or the npc leaving.
+ */
+async function huntDrop(q: Quest, spot: HuntSpot, item: string, count: number): Promise<void> {
+    const pattern = itemPattern(item);
+    if (q.sdk.getState()?.player?.level) await q.climbTo(0);
+    await q.goTo(spot, 6);
+    const t0 = tickNow(q.sdk);
+    let kills = 0;
+    for (let misses = 0; misses < HUNT_MISSES && q.count(item) < count; ) {
+        const before = q.count(item);
+        const loot = q.sdk.findGroundItem(pattern, { reachable: true });
+        if (loot) {
+            await q.bot.pickupItem(loot);
+            await untilTicks(q.sdk, () => q.count(item) > before, 8);
+        } else {
+            const npc = q.sdk.findNearbyNpc(spot.npc, { reachable: true });
+            if (!npc) {
+                await q.goTo(spot, 3);
+                await q.sdk.waitForTicks(5);
+            } else {
+                const res = await q.bot.attack(npc, ticksToMs(20));
+                if (res.success) {
+                    kills++;
+                    await untilTicks(
+                        q.sdk,
+                        (s) =>
+                            (s.groundItems ?? []).some((g) => pattern.test(g.name)) ||
+                            !(s.nearbyNpcs ?? []).some((n) => n.index === npc.index),
+                        60
+                    );
+                }
+            }
+        }
+        misses = q.count(item) > before ? 0 : misses + 1;
+    }
+    q.log(`hunted ${q.count(item)} ${item} in ${tickNow(q.sdk) - t0}t (${kills} kills)`);
 }
