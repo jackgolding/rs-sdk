@@ -26,7 +26,14 @@ import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { installGracefulShutdown } from '../../sdk/runner';
 
-const AUBURY = { x: 3253, z: 3401 };
+const AUBURY = { x: 3252, z: 3403 };
+/**
+ * Stand here to use Aubury: adjacent to him (3252,3403) and inside the shop, reached
+ * from the corridor's north run. The old constant said 3253,3401, so `walkNear(...,2)`
+ * stopped at 3253,3398 — five tiles and a room-wall away from the NPC — and every
+ * option click then returned "Nothing happened interacting with Aubury".
+ */
+const AUBURY_APPROACH = { x: 3253, z: 3403 };
 const VARROCK_EAST_BANK = { x: 3253, z: 3420 };
 const WIZARD_TOWER = { x: 3109, z: 3162 };
 const GUILD_LADDER_DOWN = { x: 3019, z: 9739 };
@@ -424,9 +431,9 @@ async function goToAubury(): Promise<boolean> {
     if (distTo(CORRIDOR.south.x, CORRIDOR.south.z) > 6) {
         await walkNear(CORRIDOR.south.x, CORRIDOR.south.z, 4);
     }
-    await walkWaypoints([CORRIDOR.north, CORRIDOR.shopBend]);
+    await walkWaypoints([CORRIDOR.north, CORRIDOR.shopBend, AUBURY_APPROACH]);
     await openToward(AUBURY.x, AUBURY.z);
-    await walkNear(AUBURY.x, AUBURY.z, 2);
+    if (distTo(AUBURY.x, AUBURY.z) > 2) await walkNear(AUBURY_APPROACH.x, AUBURY_APPROACH.z, 1);
     return !!sdk.findNearbyNpc(/aubury/i);
 }
 
@@ -489,6 +496,13 @@ async function teleportToEssence(): Promise<boolean> {
             sdk.findNearbyNpc(/cromperty/i);
     }
     if (!teleporter) return false;
+    // A teleport click from more than two tiles out — or from the far side of the shop
+    // wall — is a no-op that surfaces as "Nothing happened interacting with Aubury",
+    // so close the last tiles before clicking.
+    if ((teleporter.distance ?? 99) > 2 && /aubury/i.test(teleporter.name)) {
+        await walkWaypoints([AUBURY_APPROACH]);
+        teleporter = sdk.findNearbyNpc(/aubury/i) ?? teleporter;
+    }
     const beforeTick = sdk.getState()?.tick ?? 0;
     if (npcHasTeleportOption(teleporter.optionsWithIndex)) {
         intent(`Teleport via ${teleporter.name}`);
