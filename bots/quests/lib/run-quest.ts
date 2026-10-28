@@ -46,7 +46,8 @@ import { closeUi } from '../movement';
 import { countItems, requireSkills, talkAndChoose } from '../quest-lib';
 import { depositAllInventory, type SupplyCtx } from '../quest-supplies';
 import { SAFE_BANKS, type SafeBankName } from '../safe-stops';
-import { itemPattern, SOURCES, type Need } from './sources';
+import { GROUPS, itemPattern, SOURCES, type Need } from './sources';
+import { TRAINERS } from './training';
 import { tickNow, untilTicks } from './ticks';
 
 export type { Need } from './sources';
@@ -57,7 +58,12 @@ export interface Quest {
     log: (msg: string) => void;
     /** Journal stage id, re-read after every transition. */
     stage: string;
+    /** Held count. A GROUPS name ('pickaxe') counts the usable members held or worn. */
     count: (item: string | RegExp) => number;
+    /** Base level of a skill ('mining'). */
+    level: (skill: string) => number;
+    /** Train `skill` to `level` with its trainer (lib/training.ts) if below it. Throws when it cannot. */
+    ensureLevel: (skill: string, level: number) => Promise<void>;
     /** Walk (or, assisted, teleport) to a tile. Throws when it cannot get there. */
     goTo: (tile: Tile, tolerance?: number) => Promise<void>;
     /**
@@ -99,13 +105,23 @@ export interface QuestDef {
     id: string;
     /** Bank the quest starts and ends at, naked. */
     hub: SafeBankName;
-    journal: { label: string; title: string };
+    journal?: { label: string; title: string };
     /** In quest order: first is not-started, last is complete. */
     stages: StageDef[];
     transitions: Transition[];
     skills?: Record<string, number>;
     /** Attempts per transition before giving up (default 3). */
     retries?: number;
+    /**
+     * Task mode (no journal): run this between the hub prologue and epilogue
+     * instead of transitions. For units like training that are not quests.
+     */
+    task?: (q: Quest) => Promise<void>;
+}
+
+/** A unit of work that is not a quest: same hub prologue/epilogue, no journal. */
+export function runTask(def: { id: string; hub: SafeBankName; needs?: Need[]; task: (q: Quest) => Promise<void> }): Promise<void> {
+    return runQuest({ id: def.id, hub: def.hub, stages: [], transitions: def.needs ? [{ from: '', to: '', needs: def.needs }] : [], task: def.task });
 }
 
 /** Arrival radius goTo asks travelTo for before bot.walkTo finishes the approach. */
@@ -113,9 +129,10 @@ const APPROACH = 15;
 /**
  * Legs up to this long go straight to bot.walkTo, which pathfinds the whole map
  * and opens doors and gates. travelTo's hops cannot: from Lumbridge castle and
- * the sheep pen it stalled 10-20s per leg before handing over (2026-10-28).
+ * the sheep pen it stalled 10-20s per leg, and on Doric's 209-tile mine ->
+ * Falador leg ~200 ticks at the city wall, before handing over (2026-10-28).
  */
-const WALK_FIRST = 150;
+const WALK_FIRST = 250;
 /** Where goTo lets travelTo stop: on the road, before a fenced or walled destination. */
 const TRAVEL_ARRIVAL = 20;
 /** Exit code for a run that completed with assistance: steps proven, route not. */
@@ -138,7 +155,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
     const spawn = hook?.give && assist.has('items') ? hook.give : null;
     const prepareOnly = process.argv.includes('--prepare-only');
     const stageIds = def.stages.map((s) => s.id);
-    const completeId = stageIds[stageIds.length - 1]!;
+    const completeId = stageIds[stageIds.length - 1] ?? '';
+    const isTask = !!def.task;
 
     const result = await runScript(async ({ bot, sdk }) => {
         const log = (msg: string) => {
@@ -159,7 +177,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         /** The last stage whose rule PASSes is the account's real stage. */
         async function readStage(): Promise<string | null> {
             for (const stage of [...def.stages].reverse()) {
-                const read = await readJournalCheckpoint(sdk, def.journal, stage.rule);
+                const read = await readJournalCheckpoint(sdk, def.journal!, stage.rule);
                 if (read.verdict?.verdict === 'PASS') return stage.id;
             }
             return null;
@@ -169,7 +187,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         const recorded = new Set<string>();
         async function checkpoint(id: string): Promise<boolean> {
             const rule = def.stages.find((s) => s.id === id)!.rule;
-            const read = await readJournalCheckpoint(sdk, def.journal, rule);
+            const read = await readJournalCheckpoint(sdk, def.journal!, rule);
             const verdict = read.verdict?.verdict ?? 'UNKNOWN';
             if (run) {
                 appendCheckpoint(run.directory, { checkpointId: id, verdict, reason: read.reason, kind: rule.kind, rawLines: read.rawLines });
@@ -184,16 +202,16 @@ export async function runQuest(def: QuestDef): Promise<void> {
 
         // The fleet image's journal reader does not retry; the quest tab streams in
         // late after login and a first read can come back empty.
-        let start = await readStage();
-        for (let i = 0; !start && i < 3; i++) {
+        let start = isTask ? '' : await readStage();
+        for (let i = 0; !isTask && !start && i < 3; i++) {
             await sdk.waitForTicks(5);
             start = await readStage();
         }
-        if (!start) throw new Error('could not read the quest stage from the journal');
-        log(`stage at start: ${start}`);
+        if (start === null) throw new Error('could not read the quest stage from the journal');
+        if (!isTask) log(`stage at start: ${start}`);
 
         // A resumed run can only demonstrate the stages still ahead of it.
-        run = createRun(join(process.cwd(), 'quest-lab', 'runs'), safeRunId(def.id, account, new Date().toISOString()), {
+        if (!isTask) run = createRun(join(process.cwd(), 'quest-lab', 'runs'), safeRunId(def.id, account, new Date().toISOString()), {
             questId: def.id,
             account,
             mode: process.env.QUEST_LAB_MODE === 'staging' ? 'staging' : 'development',
@@ -202,14 +220,14 @@ export async function runQuest(def: QuestDef): Promise<void> {
             contentHash: process.env.QUEST_LAB_CONTENT_HASH ?? 'unrecorded',
             requiredCheckpoints: stageIds.slice(stageIds.indexOf(start)),
         });
-        if (teleport || spawn) {
+        if (run && (teleport || spawn)) {
             // Marked before anything happens so even a partial assisted run can never grade as PASS.
             const what = [teleport && 'travel', spawn && 'items'].filter(Boolean).join('+');
             writeFileSync(join(run.directory, 'assisted.json'), JSON.stringify({ assisted: true, what, reason: hook!.reason, hook: hookPath, at: new Date().toISOString() }) + '\n');
             log(`ASSISTED run (${what}): ${hook!.reason} — proves steps and dialog, not the route`);
         }
-        await checkpoint(start);
-        if (start === completeId) {
+        if (run) await checkpoint(start);
+        if (run && start === completeId) {
             log('already complete — nothing to do');
             return summarizeRun(run.directory).ok;
         }
@@ -222,7 +240,25 @@ export async function runQuest(def: QuestDef): Promise<void> {
             bot,
             log,
             stage: start,
-            count: (item) => countItems(sdk, typeof item === 'string' ? itemPattern(item) : item),
+            count: (item) => {
+                if (typeof item !== 'string') return countItems(sdk, item);
+                const group = GROUPS[item];
+                if (!group) return countItems(sdk, itemPattern(item));
+                const usable = group.filter((m) => q.level(m.skill) >= m.level).map((m) => itemPattern(m.item));
+                return [...sdk.getInventory(), ...sdk.getEquipment()].filter((i) => usable.some((p) => p.test(i.name))).length;
+            },
+            level: (skill) => sdk.getSkill(skill)?.baseLevel ?? 0,
+            async ensureLevel(skill, level) {
+                if (q.level(skill) >= level) return;
+                const trainer = TRAINERS[skill];
+                if (!trainer) throw new Error(`need ${skill} ${level}, have ${q.level(skill)}, and no trainer for it`);
+                await session.setPhase(`train ${skill}`);
+                const t0 = tickNow(sdk);
+                log(`training ${skill} ${q.level(skill)} -> ${level}`);
+                await trainer.train(q, level);
+                if (q.level(skill) < level) throw new Error(`training left ${skill} at ${q.level(skill)}/${level}`);
+                log(`trained ${skill} to ${q.level(skill)} in ${tickNow(sdk) - t0}t`);
+            },
             async goTo(tile, tolerance = 4) {
                 if (teleport) {
                     if (!(await teleport(sdk, tile)) || away(tile) > Math.max(tolerance, 2)) {
@@ -306,6 +342,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
                     return;
                 }
                 if (!source?.get) throw new Error(`need ${count} ${item}, have ${have}, and no source procedure for it`);
+                for (const [skill, level] of Object.entries(source.levels ?? {})) await q.ensureLevel(skill, level);
                 log(`sourcing ${count - have} ${item}`);
                 await source.get(q, count);
                 if (q.count(item) < count) throw new Error(`source for ${item} left ${q.count(item)}/${count}`);
@@ -348,10 +385,15 @@ export async function runQuest(def: QuestDef): Promise<void> {
             log(`prepared; carrying ${describeInventory(sdk)}`);
         }
 
+        if (def.task && !prepareOnly) {
+            await session.setPhase(def.id);
+            await def.task(q);
+        }
+
         // ── transitions until the journal says complete
         const retries = def.retries ?? 3;
         let attempts = 0;
-        while (!prepareOnly && q.stage !== completeId) {
+        while (!isTask && !prepareOnly && q.stage !== completeId) {
             if (session.stopRequested) {
                 log('stop requested — returning to the hub');
                 break;
@@ -368,7 +410,13 @@ export async function runQuest(def: QuestDef): Promise<void> {
             if (t.run) await t.run(q);
             await closeUi(bot, sdk);
 
-            const now = await readStage();
+            // The journal write can trail the dialog by a few ticks (Doric's hand-in
+            // completes through a queue); settle before calling the attempt failed.
+            let now = await readStage();
+            for (let i = 0; i < 4 && now === q.stage; i++) {
+                await sdk.waitForTicks(4);
+                now = await readStage();
+            }
             if (now && now !== q.stage) {
                 if (now !== t.to) log(`WARN expected ${t.to}, journal says ${now}`);
                 q.stage = now;
@@ -383,14 +431,19 @@ export async function runQuest(def: QuestDef): Promise<void> {
         await depositAllInventory(q.supply);
         await bot.closeBank().catch(() => undefined);
         const end = pos();
-        const endOk = Math.hypot(end.x - startAt.x, end.z - startAt.z) <= 4 && sdk.getInventory().length === 0 && sdk.getEquipment().length === 0;
+        // At the hub bank, not on the prologue's exact tile: both stop anywhere near the booths.
+        const endOk = Math.hypot(end.x - hub.x, end.z - hub.z) <= 6 && sdk.getInventory().length === 0 && sdk.getEquipment().length === 0;
         log(`epilogue: ${endOk ? 'END STATE OK' : 'WARN END STATE MISMATCH'} at (${end.x},${end.z}) carrying ${describeInventory(sdk)}`);
 
         if (prepareOnly) {
             log('PREPARED — items banked at the hub for the quest run');
             return 'prepared';
         }
-        if (q.stage !== completeId) return false;
+        if (isTask) {
+            log(`TASK DONE ${def.id}`);
+            return 'prepared';
+        }
+        if (q.stage !== completeId || !run) return false;
         const summary = summarizeRun(run.directory);
         if (!summary.ok) throw new Error(`evidence gate failed: missing ${JSON.stringify(summary.missing)}`);
         if (teleport || spawn) {
@@ -416,7 +469,9 @@ async function withdrawTowardNeeds(q: Quest, transitions: Transition[]): Promise
 
     const visit = async (item: string, count: number, depth: number) => {
         if (depth > 4 || count <= 0) return;
-        const banked = q.sdk.findBankItem(itemPattern(item));
+        // A group ('pickaxe') takes the best member the account can use.
+        const names = GROUPS[item]?.filter((m) => q.level(m.skill) >= m.level).map((m) => m.item) ?? [item];
+        const banked = names.map((n) => q.sdk.findBankItem(itemPattern(n))).find(Boolean);
         const take = Math.min(count - q.count(item), banked?.count ?? 0);
         if (banked && take > 0) {
             await q.bot.withdrawItem(banked, take);

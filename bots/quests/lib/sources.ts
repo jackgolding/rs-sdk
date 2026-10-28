@@ -9,6 +9,7 @@
  * mark them `spawnable: false` so assisted runs never fake them.
  */
 import type { Quest } from './run-quest';
+import { mineAtRimmington, ROCKS, type Ore } from './mining';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 
 export interface Need {
@@ -24,6 +25,8 @@ export interface Source {
     spawnable?: boolean;
     /** What producing `count` consumes, for the prologue's bank withdrawal. */
     inputs?: (count: number) => Need[];
+    /** Skill levels `get` needs; the runner trains them first (lib/training.ts). */
+    levels?: Record<string, number>;
     /** Produce until holding `count` in total. */
     get?: (q: Quest, count: number) => Promise<void>;
 }
@@ -33,14 +36,57 @@ export function itemPattern(item: string): RegExp {
     return new RegExp(`^${item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
 }
 
+/**
+ * Needs any one of several items will satisfy, best first, each with the skill
+ * level it takes to use. `q.count('pickaxe')` counts the usable ones held or worn;
+ * the prologue withdraws the best usable one the bank has.
+ */
+export const GROUPS: Record<string, Array<{ item: string; skill: string; level: number }>> = {
+    pickaxe: [
+        { item: 'rune pickaxe', skill: 'mining', level: 41 },
+        { item: 'adamant pickaxe', skill: 'mining', level: 31 },
+        { item: 'mithril pickaxe', skill: 'mining', level: 21 },
+        { item: 'steel pickaxe', skill: 'mining', level: 6 },
+        { item: 'iron pickaxe', skill: 'mining', level: 1 },
+        { item: 'bronze pickaxe', skill: 'mining', level: 1 },
+    ],
+};
+
 const LUMBRIDGE_GENERAL_STORE = { x: 3211, z: 3246, npc: /shop\s*(keeper|assistant)/i };
+/** Bob's Brilliant Axes: bronze pickaxe 1gp, stock 5 (wiki/shops/bobs-brilliant-axes.md). */
+const BOBS_AXES = { x: 3232, z: 3203, npc: /^bob$/i };
 const LUMBRIDGE_CASTLE_STAIRS = { x: 3205, z: 3208 };
 const FRED_SHEEP_PEN = { x: 3203, z: 3266 };
 /** Npc id of a sheep that still has wool; a shorn one changes id. */
 const UNSHEARED_SHEEP = 43;
 
+/** An ore mined at Rimmington: needs a usable pickaxe and the rock's Mining level. */
+function ore(name: Ore): Source {
+    return {
+        levels: { mining: ROCKS[name].level },
+        inputs: () => [{ item: 'pickaxe', count: 1 }],
+        get: async (q, count) => {
+            await q.ensure('pickaxe', 1);
+            await mineAtRimmington(q, name, { count });
+        },
+    };
+}
+
 export const SOURCES: Record<string, Source> = {
     coins: {},
+
+    pickaxe: {
+        obj: 'bronze_pickaxe',
+        inputs: () => [{ item: 'coins', count: 5 }],
+        get: async (q) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, BOBS_AXES, 'bronze pickaxe', 1);
+        },
+    },
+
+    clay: ore('clay'),
+    'copper ore': ore('copper ore'),
+    'iron ore': ore('iron ore'),
 
     shears: {
         inputs: () => [{ item: 'coins', count: 5 }],
