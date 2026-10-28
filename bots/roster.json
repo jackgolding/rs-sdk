@@ -38,10 +38,9 @@
     {
       "name": "Jackpoo2",
       "view": "fleet",
-      "script": "bots/quests/rimmington-iron.ts",
+      "script": "bots/quests/falador-bank-all.ts",
       "args": [
-        "Jackpoo2",
-        "--smelt"
+        "Jackpoo2"
       ]
     },
     {
