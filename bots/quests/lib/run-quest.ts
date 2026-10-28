@@ -325,9 +325,21 @@ export async function runQuest(def: QuestDef): Promise<void> {
                     const now = pos().level;
                     if (now === level) return;
                     const opt = now < level ? /climb-up|climb up/i : /climb-down|climb down/i;
-                    // From a closed room (the castle wheel room) the stairs are behind a door.
-                    await q.reach(/stair|ladder/i, opt).catch(() => undefined);
-                    const loc = sdk.findNearbyLoc(/stair|ladder/i, { withOption: opt, reachable: true });
+                    // Only stairs/ladders beside us, reachable first. Opening doors toward
+                    // "the nearest" one let the bot pick a ladder 24 tiles off and climb a
+                    // castle tower instead of the stairs it stood at (sheep, 2026-10-28).
+                    const near = async () => {
+                        await sdk.scanNearbyLocs(12).catch(() => undefined);
+                        return (sdk.getNearbyLocs() ?? [])
+                            .filter((l) => /stair|ladder/i.test(l.name) && l.options?.some((o) => opt.test(o)) && (l.distance ?? 99) <= 12)
+                            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99));
+                    };
+                    let loc = (await near()).find((l) => l.reachable !== false);
+                    if (!loc) {
+                        // From a closed room (the castle wheel room) the stairs are behind a door.
+                        await q.reach(/stair|ladder/i, opt).catch(() => undefined);
+                        loc = (await near()).find((l) => l.reachable !== false);
+                    }
                     if (!loc) throw new Error(`no stairs/ladder to climb ${now < level ? 'up' : 'down'} near the player`);
                     await bot.interactLoc(loc, opt);
                     await untilTicks(sdk, (s) => (s.player?.level ?? now) !== now, 30);

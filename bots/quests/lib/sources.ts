@@ -197,6 +197,12 @@ export const SOURCES: Record<string, Source> = {
     'raw rat meat': { get: (q, count) => huntDrop(q, PORT_SARIM_GIANT_RATS, 'raw rat meat', count) },
     'raw bear meat': { get: (q, count) => huntDrop(q, TAVERLEY_BEARS, 'raw bear meat', count) },
 
+    // ── Imp Catcher: each imp kill drops one bead colour at 5/128 (drop tables/imp.rs2)
+    'black bead': impBead('black'),
+    'red bead': impBead('red'),
+    'white bead': impBead('white'),
+    'yellow bead': impBead('yellow'),
+
     shears: {
         tool: true,
         inputs: () => [{ item: 'coins', count: 5 }],
@@ -562,27 +568,36 @@ export async function buyWaitingForRestock(q: Quest, shop: { x: number; z: numbe
  */
 const HUNT_PATIENCE_TICKS = 400;
 
+interface HuntOptions {
+    /** Other drops worth taking while hunting (the rest of a set); picking one up counts as progress. */
+    alsoLoot?: RegExp;
+    /** Ticks without progress before giving up; default HUNT_PATIENCE_TICKS. */
+    patience?: number;
+}
+
 /**
  * Kill `spot.npc` and pick up `item` until holding `count`. Loot already on the
  * ground is taken first. Npcs someone else is fighting are skipped ("Someone
  * else is fighting that"). attack() returns once combat starts, so each kill is
  * waited out by its drop appearing or the npc leaving.
  */
-async function huntDrop(q: Quest, spot: HuntSpot, item: string, count: number): Promise<void> {
-    const pattern = itemPattern(item);
+async function huntDrop(q: Quest, spot: HuntSpot, item: string, count: number, opts: HuntOptions = {}): Promise<void> {
+    const pattern = opts.alsoLoot ? new RegExp(`${itemPattern(item).source}|${opts.alsoLoot.source}`, 'i') : itemPattern(item);
+    const looted = () => (opts.alsoLoot ? q.count(opts.alsoLoot) : 0) + q.count(item);
+    const patience = opts.patience ?? HUNT_PATIENCE_TICKS;
     await q.goTo(spot, 6);
     const t0 = tickNow(q.sdk);
     let progressAt = t0;
     let kills = 0;
-    while (q.count(item) < count && tickNow(q.sdk) - progressAt < HUNT_PATIENCE_TICKS) {
-        const before = q.count(item);
+    while (q.count(item) < count && tickNow(q.sdk) - progressAt < patience) {
+        const before = looted();
         const loot = q.sdk.findGroundItem(pattern, { reachable: true });
         const npc = (q.sdk.getNearbyNpcs() ?? [])
             .filter((n) => spot.npc.test(n.name) && !n.inCombat && n.reachable !== false)
             .sort((a, b) => a.distance - b.distance)[0];
         if (loot) {
             await q.bot.pickupItem(loot);
-            await untilTicks(q.sdk, () => q.count(item) > before, 8);
+            await untilTicks(q.sdk, () => looted() > before, 8);
         } else if (npc) {
             const res = await q.bot.attack(npc, ticksToMs(20));
             if (res.success) {
@@ -591,18 +606,50 @@ async function huntDrop(q: Quest, spot: HuntSpot, item: string, count: number): 
                     q.sdk,
                     (s) =>
                         (s.groundItems ?? []).some((g) => pattern.test(g.name)) ||
-                        !(s.nearbyNpcs ?? []).some((n) => n.index === npc.index),
+                        // Gone, or teleported off (imps do, mid-fight): a fought npc stays adjacent.
+                        !(s.nearbyNpcs ?? []).some((n) => n.index === npc.index && n.distance <= 6),
                     60
                 );
             }
         } else {
-            // Nothing free to fight: back to the spot and wait for a respawn.
-            await q.goTo(spot, 3);
+            // Nothing free to fight: back to the spot (if wandered off) and wait for a respawn.
+            const p = q.sdk.getState()?.player;
+            if (Math.hypot((p?.worldX ?? 0) - spot.x, (p?.worldZ ?? 0) - spot.z) > 6) await q.goTo(spot, 3);
             await q.sdk.waitForTicks(5);
         }
-        if (q.count(item) > before) progressAt = tickNow(q.sdk);
+        if (looted() > before) progressAt = tickNow(q.sdk);
     }
-    q.log(`hunted ${q.count(item)} ${item} in ${tickNow(q.sdk) - t0}t (${kills} kills)`);
+    q.log(`hunted ${q.count(item)} ${item} in ${tickNow(q.sdk) - t0}t (${kills} kills) at (${spot.x},${spot.z})`);
+}
+
+/**
+ * Imp spawns nearest the Draynor hub (quest-lab-npcfind.ts imp): three south of
+ * Falador by the farm, one west of Draynor, one south-west of Falador. Imps wander
+ * 25 tiles and teleport up to 20 when hit or idle, so a spot is a neighbourhood.
+ * The Wizards' Tower itself has none within 40 tiles.
+ */
+const IMP_SPOTS: HuntSpot[] = [
+    { x: 3012, z: 3311, npc: /^imp$/i },
+    { x: 3073, z: 3250, npc: /^imp$/i },
+    { x: 2941, z: 3236, npc: /^imp$/i },
+];
+const IMP_BEADS = ['black', 'red', 'white', 'yellow'];
+/** A bead is ~25 kills on average; a spot gets this long without any bead before the next one. */
+const IMP_SPOT_PATIENCE_TICKS = 1_200;
+const IMP_SPOT_VISITS = 6;
+
+/** One bead colour; every other bead still missing is looted on the way. */
+function impBead(colour: string): Source {
+    const item = `${colour} bead`;
+    return {
+        get: async (q, count) => {
+            for (let visit = 0; visit < IMP_SPOT_VISITS && q.count(item) < count; visit++) {
+                const missing = IMP_BEADS.filter((c) => c !== colour && q.count(`${c} bead`) === 0);
+                const alsoLoot = missing.length ? new RegExp(`^(${missing.join('|')}) bead$`, 'i') : undefined;
+                await huntDrop(q, IMP_SPOTS[visit % IMP_SPOTS.length]!, item, count, { alsoLoot, patience: IMP_SPOT_PATIENCE_TICKS });
+            }
+        },
+    };
 }
 
 /** Pick up a respawning ground item at `tile` until holding `count`. */
