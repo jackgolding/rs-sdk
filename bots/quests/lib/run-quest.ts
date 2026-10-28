@@ -49,6 +49,7 @@ import { SAFE_BANKS, type SafeBankName } from '../safe-stops';
 import { GROUPS, itemPattern, needMet, SOURCES, type Need } from './sources';
 import { TRAINERS } from './training';
 import { talkThrough } from './dialog';
+import { leaveStuckArea } from './doors';
 import { tickNow, untilTicks } from './ticks';
 
 export type { Need } from './sources';
@@ -279,6 +280,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // the ground-floor target "unroutable" and travelTo's fallback took ~270t
                 // (druid, 2026-10-28). Change plane where we stand, then walk.
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0);
+                // Buildings whose doorway the client map gets wrong (lib/doors.ts).
+                if (away(tile) > tolerance) await leaveStuckArea(sdk, bot, tile, log);
                 const viaTravel = async () => {
                     const res = await travelTo(sdk, bot, tile, { log, tolerance: TRAVEL_ARRIVAL });
                     if (!res.ok) log(`travel stopped ${Math.round(away(tile))} tiles short (${res.reason})`);
@@ -349,7 +352,12 @@ export async function runQuest(def: QuestDef): Promise<void> {
             async talk(npc, choices = [], at) {
                 await closeUi(bot, sdk);
                 // Only get near: bot.talkTo routes to the NPC itself, gates and fences included.
-                if (at) await q.goTo(at, teleport ? 2 : APPROACH);
+                if (at) {
+                    await q.goTo(at, teleport ? 2 : APPROACH);
+                    // A wandering npc can be out of view from the edge of APPROACH: Romeo
+                    // was not seen from 13 tiles off his square (2026-10-29). Close in on `at`.
+                    if (!teleport && !(await untilTicks(sdk, () => !!sdk.findNearbyNpc(npc), 5))) await q.goTo(at, 3);
+                }
                 const seen = await talkThrough(sdk, bot, npc, choices, log);
                 session.noteProgress('dialog', String(npc));
                 return seen;

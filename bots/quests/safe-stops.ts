@@ -23,6 +23,7 @@ import {
     CATHERBY_BANK,
     DRAYNOR_BANK,
     FALADOR_EAST_BANK,
+    VARROCK_WEST_BANK,
     YANILLE_BANK,
     type Tile,
 } from './tiles';
@@ -31,7 +32,10 @@ import { walkSendHops } from './movement';
 /** Local copies in thieving-route.ts / lost-city.ts agree on this stand. */
 const EDGEVILLE_BANK: Tile = { x: 3094, z: 3492 };
 
-export type SafeBankName = 'draynor' | 'catherby' | 'ardougne' | 'yanille' | 'falador-east' | 'edgeville';
+export type SafeBankName = 'draynor' | 'catherby' | 'ardougne' | 'yanille' | 'falador-east' | 'edgeville' | 'varrock-west';
+
+/** The stops nearestBank() chooses between — fixed, so new quest hubs don't move fleet banking. */
+const FLEET_BANKS: SafeBankName[] = ['draynor', 'catherby', 'ardougne', 'yanille', 'falador-east', 'edgeville'];
 
 export const SAFE_BANKS: Record<SafeBankName, Tile> = {
     draynor: DRAYNOR_BANK,
@@ -40,6 +44,8 @@ export const SAFE_BANKS: Record<SafeBankName, Tile> = {
     yanille: YANILLE_BANK,
     'falador-east': FALADOR_EAST_BANK,
     edgeville: EDGEVILLE_BANK,
+    /** Romeo & Juliet's hub: Juliet's house, Romeo and the Apothecary are all within ~60 tiles. */
+    'varrock-west': VARROCK_WEST_BANK,
 };
 
 export interface RouteLeg {
@@ -119,7 +125,10 @@ export function nearestBank(sdk: BotSDK): SafeBankName {
     const p = playerTile(sdk);
     let best: SafeBankName = 'draynor';
     let bestDist = Infinity;
-    for (const [name, tile] of Object.entries(SAFE_BANKS) as Array<[SafeBankName, Tile]>) {
+    // Only the original fleet stops: a hub added for one quest (varrock-west) must not
+    // change where the fleet's existing scripts bank.
+    for (const name of FLEET_BANKS) {
+        const tile = SAFE_BANKS[name];
         const dist = Math.hypot(p.x - tile.x, p.z - tile.z);
         if (dist < bestDist) {
             bestDist = dist;

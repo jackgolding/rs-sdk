@@ -304,6 +304,9 @@ export const SOURCES: Record<string, Source> = {
         },
     },
 
+    /** Romeo & Juliet: static ground spawns west of Varrock's south-east mine. */
+    'cadava berries': { obj: 'cadavaberries', get: (q, count) => pickSpawns(q, 'cadava berries', count, CADAVA_SPAWNS) },
+
     /**
      * Onions grow only in the field south of Rellekka in this revision
      * (quest-lab-locfind onion: all 14 surface plants at 2674-2684,3649-3708;
@@ -347,6 +350,12 @@ const REDBERRY_SPAWNS = [
     { x: 3267, z: 3371 },
     { x: 3271, z: 3366 },
     { x: 3278, z: 3374 },
+];
+/** Cadava berry ground spawns, one each (quest-lab-objfind cadavaberries); the redberry patch is the same field. */
+const CADAVA_SPAWNS = [
+    { x: 3266, z: 3361 },
+    { x: 3273, z: 3375 },
+    { x: 3277, z: 3370 },
 ];
 /** Goblin camps east of Lumbridge and north of Port Sarim (the old script's npcfind-verified camps). */
 const GOBLIN_CAMPS = [

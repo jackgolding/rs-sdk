@@ -96,12 +96,22 @@ export async function talkThrough(
     choices: Array<RegExp | string> = [],
     log?: (msg: string) => void
 ): Promise<string> {
+    // Right after a climb or a long walk the npc list has not caught up yet: up
+    // the stairs to Juliet it was empty for all three attempts (2026-10-29).
+    await untilTicks(sdk, () => !!sdk.findNearbyNpc(npc), 10);
     const target = sdk.findNearbyNpc(npc, { reachable: true }) ?? sdk.findNearbyNpc(npc);
     if (!target) {
         log?.(`talk: no NPC matching ${String(npc)} nearby`);
         return '';
     }
-    const res = await bot.talkTo(target);
+    let res = await bot.talkTo(target);
+    if (!res.success) {
+        // A wandering npc can step behind a counter for a moment ("Cannot reach
+        // Apothecary", Romeo & Juliet port): one more try once it has moved.
+        log?.(`talk ${target.name}: ${res.message} — retrying`);
+        await sdk.waitForTicks(3);
+        res = await bot.talkTo(sdk.findNearbyNpc(npc, { reachable: true }) ?? target);
+    }
     if (!res.success) {
         log?.(`talk ${target.name}: ${res.message}`);
         return '';
