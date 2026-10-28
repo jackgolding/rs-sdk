@@ -496,9 +496,10 @@ async function teleportToEssence(): Promise<boolean> {
             sdk.findNearbyNpc(/cromperty/i);
     }
     if (!teleporter) return false;
-    // A teleport click from more than two tiles out — or from the far side of the shop
-    // wall — is a no-op that surfaces as "Nothing happened interacting with Aubury",
-    // so close the last tiles before clicking.
+    // A click the client cannot route is never answered — the engine sends nothing and
+    // the promise never settles, which is how a teleport phase sat silent for 1h45m on
+    // 2026-10-28. So: click from close range, bound the wait, and on a silent or failed
+    // click step off and come back at him once before handing to the recovery chain.
     if ((teleporter.distance ?? 99) > 2 && /aubury/i.test(teleporter.name)) {
         await walkWaypoints([AUBURY_APPROACH]);
         teleporter = sdk.findNearbyNpc(/aubury/i) ?? teleporter;
@@ -506,7 +507,22 @@ async function teleportToEssence(): Promise<boolean> {
     const beforeTick = sdk.getState()?.tick ?? 0;
     if (npcHasTeleportOption(teleporter.optionsWithIndex)) {
         intent(`Teleport via ${teleporter.name}`);
-        const r = await bot.interactNpc(teleporter, /teleport/i);
+        const click = async () =>
+            Promise.race([
+                bot.interactNpc(teleporter!, /teleport/i),
+                new Promise<{ success: boolean; message: string }>((res) =>
+                    setTimeout(() => res({ success: false, message: 'no reply in 8s' }), 8_000)
+                )
+            ]);
+        let r = await click();
+        if (!r.success && /aubury/i.test(teleporter.name)) {
+            session.noteFailure('teleport', r.message);
+            const back = sdk.findNearbyNpc(/aubury/i) ?? teleporter;
+            await walkNear(back.x, back.z, 1);
+            teleporter = sdk.findNearbyNpc(/aubury/i) ?? back;
+            r = await click();
+            if (r.success) session.noteProgress('location', 'teleport retry');
+        }
         if (!r.success) session.noteFailure('teleport', r.message);
     } else {
         await bot.talkTo(teleporter);
