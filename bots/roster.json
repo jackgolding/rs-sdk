@@ -621,6 +621,14 @@
         "ABGARMY20",
         "--knights"
       ]
+    },
+    {
+      "name": "jackquests",
+      "view": "fleet",
+      "script": "bots/quests/todo-runner.ts",
+      "args": [
+        "jackquests"
+      ]
     }
   ]
 }

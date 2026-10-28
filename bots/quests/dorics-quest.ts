@@ -285,7 +285,7 @@ async function depositEverything(): Promise<number> {
  */
 async function bankForQuest(): Promise<void> {
     await bot.dismissBlockingUI().catch(() => undefined);
-    if (!(await goToArea(FALADOR_BANK, 'the Falador West bank', 4))) {
+    if (!(await goToFaladorWest('the Falador West bank'))) {
         throw new Error(`could not reach the Falador West bank at ${pos().x},${pos().z}`);
     }
     if (!(await openBankHere())) throw new Error(`could not open the Falador West bank at ${pos().x},${pos().z}`);
@@ -373,8 +373,17 @@ function planWaypoints(from: { x: number; z: number }, to: { x: number; z: numbe
  * often unwalkable (rock, booth, doorway).
  */
 async function goToArea(dest: { x: number; z: number }, what: string, acceptRadius: number): Promise<boolean> {
-    const deadline = Date.now() + 8 * 60_000;
+    // Budget the leg by DISTANCE, not a flat 8 minutes. A fleet account can start
+    // the quest anywhere on the map: the 2026-10-24 rollout failed on every account
+    // that began >100 tiles out (ABGARMY12 walking in from the Rimmington mine was
+    // still 59 tiles short when the 8-minute clock expired — moving the whole way,
+    // at a measured ~5-6 s/tile under fleet load). The old flat deadline turned a
+    // healthy walk into `could not reach the Falador West bank` + exit 1.
+    const tilesShort = Math.round(cheb(pos(), dest));
+    const deadline = Date.now() + Math.min(40 * 60_000, Math.max(12 * 60_000, tilesShort * 8_000));
+
     let frontier = '';
+    let nudges = 0;
     for (let plan = 0; plan < 12 && Date.now() < deadline; plan++) {
         if (cheb(pos(), dest) <= acceptRadius) {
             log(`Arrived ${what} at (${pos().x},${pos().z}) l${pos().level}`);
@@ -410,8 +419,27 @@ async function goToArea(dest: { x: number; z: number }, what: string, acceptRadi
         }
         const key = `${pos().x},${pos().z}`;
         if (key === frontier) {
+            // Stuck frontier: a shut door (or a masked gap) makes every re-plan
+            // answer the same tile. Nudge the bot before giving up — open what is
+            // adjacent, take one short step toward the bank, re-plan from there.
             log(`travel to ${what}: plan frontier stuck at (${key}) — ${Math.round(cheb(pos(), dest))} tiles short`);
-            break;
+            nudges++;
+            if (nudges > 2) break;
+            const door = sdk.findNearbyLoc(/^(door|gate|large door)$/i, { withOption: /^open$/i });
+            if (door) {
+                await bot.interactLoc(door, /^open$/i).catch(() => undefined);
+                await sdk.waitForTicks(3);
+                log(`  opened ${door.name} @ ${door.x},${door.z}`);
+            }
+            const now = pos();
+            const dx = dest.x - now.x;
+            const dz = dest.z - now.z;
+            const len = Math.max(1, Math.hypot(dx, dz));
+            await bot.walkTo(Math.round(now.x + (dx / len) * 4), Math.round(now.z + (dz / len) * 4), 0).catch(() => undefined);
+            await sdk.waitForTicks(3);
+            log(`  nudge ${nudges}/2 -> (${pos().x},${pos().z})`);
+            if (`${pos().x},${pos().z}` === key) nudges = 99;
+            continue;
         }
         frontier = key;
     }
@@ -667,11 +695,40 @@ async function handIn(): Promise<boolean> {
 }
 
 // ── bank out ────────────────────────────────────────────────────────────────
+/**
+ * The Falador West bank approach. From the NORTH the static plan crosses the
+ * closed gap at (2964-2967,3397): the planner rates it ~11 tiles, the client
+ * refuses it, and the logger then reports "33 tiles short" on a leg the plan
+ * thinks is short. Come round the east gate and walk the booth row instead.
+ * Waypoints verified in collision data (all walkable at plane 0).
+ */
+const FALADOR_APPROACH = [
+    { x: 3012, z: 3364 },
+    { x: 2988, z: 3368 },
+    { x: 2964, z: 3372 },
+    { x: 2946, z: 3368 }
+];
+
+async function goToFaladorWest(what: string): Promise<boolean> {
+    if (cheb(pos(), FALADOR_BANK) <= 6) return true;
+    for (const wp of FALADOR_APPROACH) {
+        if (cheb(pos(), FALADOR_BANK) <= 6) break;
+        if (cheb(pos(), wp) <= 4) continue;
+        await withTimeout(bot.walkTo(wp.x, wp.z, 4), 120_000, `approach ${wp.x},${wp.z}`).catch(() => undefined);
+        await sdk.waitForTicks(1);
+        log(`Falador approach -> (${wp.x},${wp.z}): now (${pos().x},${pos().z}) ${Math.round(cheb(pos(), FALADOR_BANK))} from the bank`);
+        session.noteProgress('location', `Falador approach ${wp.x},${wp.z}`);
+    }
+    if (cheb(pos(), FALADOR_BANK) <= 6) return true;
+    // Still short: let the planner try from where we actually stand.
+    return goToArea(FALADOR_BANK, what, 4);
+}
+
 /** Hand the account back clean. Runs AFTER the completion checkpoint: WARN only, never throw. */
 async function bankOut(): Promise<void> {
     try {
         await session.setPhase('bankout');
-        if (!(await goToArea(FALADOR_BANK, 'the Falador West bank', 4))) {
+        if (!(await goToFaladorWest('the Falador West bank'))) {
             log(`WARN bank-out travel failed at ${pos().x},${pos().z}`);
             return;
         }
@@ -713,7 +770,9 @@ async function main(): Promise<void> {
         }
         const summary = summarizeRun(run!.directory);
         if (!summary.ok) throw new Error(`promotion gate failed: missing/unpassed ${JSON.stringify(summary.missing)}`);
-        // No bank-out: nothing was gathered, and stripping kit breaks the next job.
+        // Exit AT ONCE: the brief the canary tier and the fleet todo-runner invoke under
+        // requires an already-finished account to write the checkpoint and leave, with no
+        // bank-out and no supply trek. A finished account has nothing to bank here.
         log("DONE Doric's Quest (already complete)");
         return;
     }

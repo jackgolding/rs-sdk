@@ -1574,6 +1574,40 @@ services:
         max-file: "3"
     stop_grace_period: 700s
     restart: unless-stopped
+  lite-jackquests:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "src/lite/runner.ts", "jackquests"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    restart: unless-stopped
+  quest-jackquests:
+    <<: *runner
+    working_dir: /opt/fleet
+    command: ["bun", "bots/quests/todo-runner.ts", "jackquests"]
+    volumes:
+      # Whole bots tree (quests + every per-bot dir + roster.json): quest
+      # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
+      # per-bot mounts break cross-imports and shadowing is avoided by
+      # syncing host quests too. See README sync command.
+      - /srv/fleet/bots:/opt/fleet/bots
+      - /srv/fleet/bots/roster.json:/opt/fleet/bots/roster.json:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    stop_grace_period: 700s
+    restart: unless-stopped
   lite-jackthief:
     <<: *runner
     working_dir: /opt/fleet/server/webclient
