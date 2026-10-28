@@ -51,6 +51,28 @@ export interface WalkResult {
 
 const dist = (a: Tile, b: Tile): number => Math.hypot(a.x - b.x, a.z - b.z);
 
+/** Polls without movement that end a hop: the walk finished short or was refused. */
+const STILL_POLLS = 3;
+
+/**
+ * Wait for one hop to land. Returns early once the player has stopped moving:
+ * a hop the client walks around a fence ends short, and polling the full budget
+ * afterwards cost minutes per refusal (sheep pen and Fred's farmhouse, 2026-10-28).
+ */
+async function waitForHop(host: WalkHost, step: Tile, tolerance: number, polls: number, pollTicks: number): Promise<boolean> {
+    let last = host.getPos();
+    let still = 0;
+    for (let p = 0; p < polls; p++) {
+        await host.waitTicks(pollTicks);
+        const now = host.getPos();
+        if (dist(now, step) <= tolerance) return true;
+        still = now.x === last.x && now.z === last.z ? still + 1 : 0;
+        if (still >= STILL_POLLS) return false;
+        last = now;
+    }
+    return false;
+}
+
 /**
  * Walk a waypoint list in order. Waypoints advance by INDEX: selecting by
  * distance cannot mark one as passed and the bot walks back to it.
@@ -90,11 +112,7 @@ export async function walkRoute(
 
             // Wait for arrival at THIS hop before issuing another walk, or the
             // in-progress walk is interrupted and the bot oscillates.
-            let reached = false;
-            for (let p = 0; p < arrivalPolls; p++) {
-                await host.waitTicks(pollTicks);
-                if (dist(host.getPos(), step) <= tolerance) { reached = true; break; }
-            }
+            const reached = await waitForHop(host, step, tolerance, arrivalPolls, pollTicks);
 
             const now = host.getPos();
             const moved = dist(now, me);
@@ -118,10 +136,7 @@ export async function walkRoute(
                         };
                     log(`  hop refused — retrying a ${shrink}-tile step to (${near.x},${near.z})`);
                     await host.walk(near.x, near.z);
-                    for (let p = 0; p < arrivalPolls; p++) {
-                        await host.waitTicks(pollTicks);
-                        if (dist(host.getPos(), near) <= tolerance) break;
-                    }
+                    await waitForHop(host, near, tolerance, arrivalPolls, pollTicks);
                     if (dist(host.getPos(), now) >= 1) {
                         noProgress = 0;
                         continue;

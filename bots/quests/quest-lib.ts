@@ -112,12 +112,16 @@ export async function waitForQuestComplete(
             ? new RegExp(`completed?.*${questName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|${questName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}.*complete`, 'i')
             : questName;
     try {
-        await ctx.sdk.waitForChat({ matching: re, timeout: timeoutMs } as never);
-        return true;
+        // NOTE: waitForChat RESOLVES NULL on timeout — it never rejects.
+        // An unchecked await here returned true on every timeout, declaring
+        // quests complete that never finished. Check the handle first.
+        const msg = await ctx.sdk.waitForChat({ matching: re, timeout: timeoutMs } as never);
+        if (msg) return true;
     } catch {
-        const tail = visibleText(ctx.sdk, 40);
-        return re.test(tail);
+        // fall through to the visible-text tail check below
     }
+    const tail = visibleText(ctx.sdk, 40);
+    return re.test(tail);
 }
 
 /** Client baseLevel (permanent, not boosted) or null when unknown. */

@@ -22,7 +22,7 @@ import { join } from 'node:path';
 
 import type { BotSDK } from '../../sdk/index';
 import { findLongPath } from '../../sdk/pathfinding';
-import { hopSend, playerPos } from './movement';
+import { playerPos } from './movement';
 import { walkRoute } from './walk-route';
 
 export interface Tile {
@@ -152,7 +152,11 @@ export async function travelTo(sdk: BotSDK, bot: BotActions, dest: Tile, options
 
     const host = {
         getPos: () => playerPos(sdk),
-        walk: (x: number, z: number) => hopSend(sdk, x, z, 10),
+        // One send per hop: walkRoute waits, shrinks and retries. hopSend's own
+        // 40-try loop made a single hop at a fence take minutes (sheep pen, 2026-10-28).
+        walk: async (x: number, z: number) => {
+            await sdk.sendWalk(x, z, true);
+        },
         waitTicks: (n: number) => sdk.waitForTicks(n),
     };
 
@@ -170,7 +174,12 @@ export async function travelTo(sdk: BotSDK, bot: BotActions, dest: Tile, options
             return { ok: false, at: now, reason: `no route from (${now.x},${now.z}) l${now.level} — ${Math.round(d)} tiles away`, plans };
         }
 
-        const res = await walkRoute(host, waypoints, { maxHop: 10, tolerance: 3, log });
+        // Stop at the first waypoint already inside the arrival radius: walking on
+        // toward the exact tile hops at walls the walker cannot open (a farmhouse
+        // door), each refusal costing minutes. Callers finish the last stretch.
+        const cut = waypoints.findIndex((w) => Math.hypot(w.x - dest.x, w.z - dest.z) <= tolerance);
+        const route = cut >= 0 ? waypoints.slice(0, cut + 1) : waypoints;
+        const res = await walkRoute(host, route, { maxHop: 10, tolerance: 3, log });
         const after = playerPos(sdk);
         if (!res.ok) {
             blocked = res.blocked;
