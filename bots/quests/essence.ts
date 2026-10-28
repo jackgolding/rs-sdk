@@ -30,13 +30,30 @@ const AUBURY = { x: 3253, z: 3401 };
 const VARROCK_EAST_BANK = { x: 3253, z: 3420 };
 const WIZARD_TOWER = { x: 3109, z: 3162 };
 const GUILD_LADDER_DOWN = { x: 3019, z: 9739 };
-const TOWER_TO_VARROCK = [
-    { x: 3109, z: 3162 },
-    { x: 3105, z: 3290 },
-    { x: 3080, z: 3420 },
-    { x: 3180, z: 3430 },
-    { x: 3253, z: 3401 }
-];
+/**
+ * Bank ↔ Aubury runs up the EAST side of Aubury's shop, and only up that side.
+ *
+ * The house between the two (interiors around 3252-3256, 3414-3418) is a dead-end
+ * pocket: findLongPath from 3254,3416 returns NO PATH, and from 3253,3417 or
+ * 3256,3418 it stops 13-15 tiles short of Aubury. A bot that walks into it can
+ * never path out to him, and every interaction then logs "Nothing happened
+ * interacting with Aubury" — which reads like a broken click and is really the
+ * position. So both legs are pinned to these tiles instead of a bare walkNear.
+ *
+ * Verified route (quest-route-view, 10 waypoints, ends 0 tiles short):
+ *   bank 3253,3420 → 3253,3427 (south door) → 3259,3428 → 3260,3427 →
+ *   3260,3405 (22-tile north run) → 3259,3402 → shop door 3260,3400 → Aubury.
+ */
+const CORRIDOR = {
+    /** South door of the bank building. */
+    bankDoor: { x: 3253, z: 3427 },
+    /** Turn from the door onto the east-side street. */
+    south: { x: 3260, z: 3428 },
+    /** North end of the straight run, outside the shop. */
+    north: { x: 3260, z: 3405 },
+    /** Bend to the shop door at 3260,3400. */
+    shopBend: { x: 3259, z: 3402 }
+};
 
 /** jackthief supply cadence, counted on banked essence trips. */
 const SUPPLY_EVERY = 5;
@@ -401,10 +418,13 @@ async function goToAubury(): Promise<boolean> {
     if (pos().level > 0) await climb('down');
     await leaveWizardTower();
     intent('Walking to Aubury in Varrock');
-    if (distTo(AUBURY.x, AUBURY.z) > 20) {
-        if (pos().x < 3150 && pos().z < 3300) await walkWaypoints(TOWER_TO_VARROCK);
-        else await walkNear(AUBURY.x, AUBURY.z, 3);
+    // East corridor only. The long leg walks to the corridor's south turn and then
+    // up it; the approach never uses a bare walkNear from the bank side and never
+    // detours via the Wizard's Tower (user rule).
+    if (distTo(CORRIDOR.south.x, CORRIDOR.south.z) > 6) {
+        await walkNear(CORRIDOR.south.x, CORRIDOR.south.z, 4);
     }
+    await walkWaypoints([CORRIDOR.north, CORRIDOR.shopBend]);
     await openToward(AUBURY.x, AUBURY.z);
     await walkNear(AUBURY.x, AUBURY.z, 2);
     return !!sdk.findNearbyNpc(/aubury/i);
@@ -584,9 +604,11 @@ async function bankEssence(): Promise<boolean> {
     if (session.metrics().phase !== 'deposit') await session.setPhase('deposit');
     session.setAnchor(VARROCK_EAST_BANK.x, VARROCK_EAST_BANK.z);
     intent('Banking rune essence at Varrock east');
-    if (distTo(VARROCK_EAST_BANK.x, VARROCK_EAST_BANK.z) > 20) {
-        if (pos().x < 3150 && pos().z < 3300) await walkWaypoints(TOWER_TO_VARROCK);
+    // Return leg: down the same east corridor to the bank's south door, then in.
+    if (distTo(CORRIDOR.north.x, CORRIDOR.north.z) > 6) {
+        await walkNear(CORRIDOR.north.x, CORRIDOR.north.z, 4);
     }
+    await walkWaypoints([CORRIDOR.south, CORRIDOR.bankDoor]);
     await openToward(VARROCK_EAST_BANK.x, VARROCK_EAST_BANK.z);
     if (distTo(VARROCK_EAST_BANK.x, VARROCK_EAST_BANK.z) > 2) {
         await walkNear(VARROCK_EAST_BANK.x, VARROCK_EAST_BANK.z, 2);
