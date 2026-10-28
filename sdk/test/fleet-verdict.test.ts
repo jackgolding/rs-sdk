@@ -277,6 +277,29 @@ describe('fleet verdict precedence', () => {
         expect(row.kind).toBe('alive-not-producing');
         expect(row.check).toBe('recovery');
     });
+
+    test('no effect yet is starting within one window of the owner start, then no_effect', () => {
+        const startedMinutesAgo = (m: number) => ({
+            pid: 100,
+            command: 'bun bots/quests/fishing-route.ts TestBot',
+            supervised: true,
+            startedAt: new Date(NOW - m * 60 * 1000).toISOString(),
+            legacy: false,
+        });
+        const noEffect = [snap(NOW - 60 * 1000, 1000, { lastEffectAt: undefined })];
+        const early = classify(base({ owner: startedMinutesAgo(4), snapshots: noEffect }));
+        expect(early.kind).toBe('producing');
+        expect(early.check).toBe('starting');
+        const late = classify(base({ owner: startedMinutesAgo(20), snapshots: noEffect }));
+        expect(late.kind).toBe('alive-not-producing');
+        expect(late.check).toBe('no_effect');
+    });
+
+    test('a parked todo-runner is finished even with no controller', () => {
+        const row = classify(base({ todoParked: true, gateway: { reachable: true, status: 'ok', inGame: true, stateAge: 1000, controllers: 0 } }));
+        expect(row.kind).toBe('finished');
+        expect(row.check).toBe('parked');
+    });
 });
 
 describe('restart command and drift', () => {
