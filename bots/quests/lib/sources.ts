@@ -9,8 +9,11 @@
  * mark them `spawnable: false` so assisted runs never fake them.
  */
 import type { Quest } from './run-quest';
-import { mineAtRimmington, ROCKS, type Ore } from './mining';
+import { combine, cookAtPalaceRange, fetchJugOfWater, makeDough } from './cooking';
+import { mineAtRimmington, mineBlurite, ROCKS, type Ore } from './mining';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
+import { closeUi } from '../movement';
+import { driveDialog } from './dialog';
 
 export interface Need {
     /** Item name as the game shows it, e.g. 'ball of wool'. */
@@ -33,8 +36,22 @@ export interface Source {
     obj?: string;
     /** False for items whose acquisition the quest itself tracks. Default true. */
     spawnable?: boolean;
+    /**
+     * A tool: held once however many sources list it as an input (shears, a
+     * pickaxe). Every other input is consumed, so the prologue adds up what
+     * each source claims (two dyes at 5 coins each withdraw 10, not 5).
+     */
+    tool?: boolean;
     /** What producing `count` consumes, for the prologue's bank withdrawal. */
     inputs?: (count: number) => Need[];
+    /**
+     * Supplied to the account's bank by a mule before the quest runs (a separate
+     * stocking job: bots/quests/give-item.ts / quest-mule.ts), never produced by a
+     * source. The prologue withdraws it like any banked need; a shortfall stops the
+     * run with NEEDS STOCK (exit 4) before any walking — the account needs stock,
+     * the quest script did not fail. Assisted runs still spawn it.
+     */
+    mule?: boolean;
     /** Skill levels `get` needs; the runner trains them first (lib/training.ts). */
     levels?: Record<string, number>;
     /** Produce until holding `count` in total. */
@@ -66,6 +83,12 @@ const LUMBRIDGE_GENERAL_STORE = { x: 3211, z: 3246, npc: /shop\s*(keeper|assista
 /** Bob's Brilliant Axes: bronze pickaxe 1gp, stock 5 (wiki/shops/bobs-brilliant-axes.md). */
 const BOBS_AXES = { x: 3232, z: 3203, npc: /^bob$/i };
 const LUMBRIDGE_CASTLE_STAIRS = { x: 3205, z: 3208 };
+/** Wydin's Food Store, Port Sarim: pot of flour 10gp (stock 3), redberries 3gp (stock 1). */
+const WYDIN = { x: 3014, z: 3204, npc: /^wydin$/i };
+/** Pie dish ground spawn in the Varrock palace kitchen. */
+const PIE_DISH_SPAWN = { x: 3222, z: 3494 };
+/** Redberry pie burns often near Cooking 10; each attempt costs one dough + one berry portion. */
+const PIE_ATTEMPTS = 4;
 const FRED_SHEEP_PEN = { x: 3203, z: 3266 };
 /** Npc id of a sheep that still has wool; a shorn one changes id. */
 const UNSHEARED_SHEEP = 43;
@@ -99,10 +122,69 @@ export const SOURCES: Record<string, Source> = {
 
     pickaxe: {
         obj: 'bronze_pickaxe',
+        tool: true,
         inputs: () => [{ item: 'coins', count: 5 }],
         get: async (q) => {
             await q.ensure('coins', 1);
             await buyWaitingForRestock(q, BOBS_AXES, 'bronze pickaxe', 1);
+        },
+    },
+
+    'blurite ore': {
+        levels: { mining: 10 },
+        inputs: () => [{ item: 'pickaxe', count: 1 }],
+        get: async (q, count) => {
+            await q.ensure('pickaxe', 1);
+            await mineBlurite(q, count);
+        },
+    },
+
+    /** The fleet's mule holds enough iron bars for every account (2026-10-29). */
+    'iron bar': { mule: true },
+
+    'pot of flour': {
+        inputs: () => [{ item: 'coins', count: 30 }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, WYDIN, 'pot of flour', count);
+        },
+    },
+    'pie dish': { get: (q, count) => pickUpSpawn(q, PIE_DISH_SPAWN, 'pie dish', count) },
+    'jug of water': { get: (q) => fetchJugOfWater(q) },
+
+    'redberry pie': {
+        levels: { cooking: 10 },
+        inputs: () => [
+            { item: 'pot of flour', count: 1 },
+            { item: 'redberries', count: 1 },
+            { item: 'pie dish', count: 1 },
+            { item: 'coins', count: 40 },
+        ],
+        get: async (q, count) => {
+            for (let attempt = 1; attempt <= PIE_ATTEMPTS && q.count('redberry pie') < count; attempt++) {
+                if (q.count('uncooked berry pie') < 1) {
+                    if (q.count('pie shell') < 1) {
+                        await q.ensure('pie dish', 1);
+                        if (q.count('pastry dough') < 1) {
+                            await q.ensure('pot of flour', 1);
+                            await q.ensure('jug of water', 1);
+                            await makeDough(q, /^pastry dough$/i, /pastry dough/i);
+                        }
+                        await combine(q, /^pastry dough$/i, /^pie dish$/i, /^pie shell$/i);
+                    }
+                    await q.ensure('redberries', 1);
+                    await combine(q, /^pie shell$/i, /^redberries$/i, /^uncooked berry pie$/i);
+                }
+                const result = await cookAtPalaceRange(q, /^uncooked berry pie$/i, /^redberry pie$/i);
+                q.log(`redberry pie attempt ${attempt}: ${result}`);
+                if (result === 'burnt') {
+                    // A burnt pie's first op ("Empty dish") gives the pie dish back for the next try.
+                    const burnt = q.sdk.findInventoryItem(/^burnt pie$/i);
+                    if (burnt) await q.sdk.sendUseItem(burnt.slot, 1).catch(() => undefined);
+                    await q.sdk.waitForTicks(3);
+                    await q.bot.dismissBlockingUI();
+                }
+            }
         },
     },
 
@@ -116,6 +198,7 @@ export const SOURCES: Record<string, Source> = {
     'raw bear meat': { get: (q, count) => huntDrop(q, TAVERLEY_BEARS, 'raw bear meat', count) },
 
     shears: {
+        tool: true,
         inputs: () => [{ item: 'coins', count: 5 }],
         get: async (q, count) => {
             await q.ensure('coins', 1);
@@ -176,7 +259,241 @@ export const SOURCES: Record<string, Source> = {
             await q.climbTo(0);
         },
     },
+
+    // ── Goblin Diplomacy: goblin mail and the dyes for it
+    'goblin mail': {
+        get: async (q, count) => {
+            await killForDrop(q, 'goblin mail', count, GOBLIN_CAMPS, /^goblin$/i);
+        },
+    },
+    'orange goblin mail': dyedMail('orange'),
+    'blue goblin mail': dyedMail('blue'),
+
+    'orange dye': {
+        inputs: (count) => [
+            { item: 'red dye', count },
+            { item: 'yellow dye', count },
+        ],
+        get: async (q, count) => {
+            const more = count - q.count('orange dye');
+            await q.ensure('red dye', more);
+            await q.ensure('yellow dye', more);
+            // dye_cape.rs2 craft_dyes: red on yellow makes orange at once, no dialog.
+            await useUntil(q, 'red dye', 'yellow dye', 'orange dye', count);
+        },
+    },
+    'red dye': aggieDye('red', 'redberries', 3),
+    'yellow dye': aggieDye('yellow', 'onion', 2),
+    'blue dye': aggieDye('blue', 'woad leaf', 2),
+
+    redberries: {
+        inputs: () => [{ item: 'coins', count: 10 }],
+        get: async (q, count) => {
+            await pickSpawns(q, 'redberries', count, REDBERRY_SPAWNS);
+            if (q.count('redberries') >= count) return;
+            // Wydin stocks one per restock (port_sarim.inv), shared with every account.
+            q.log(`redberries: ${q.count('redberries')}/${count} from the spawns; buying the rest at Wydin's`);
+            await q.ensure('coins', 3 * (count - q.count('redberries')));
+            await buyWaitingForRestock(q, WYDIN, 'redberries', count);
+        },
+    },
+
+    /**
+     * Onions grow only in the field south of Rellekka in this revision
+     * (quest-lab-locfind onion: all 14 surface plants at 2674-2684,3649-3708;
+     * no shop or ground spawn in reach). Prod is a members world, so pick them.
+     */
+    onion: { get: (q, count) => pickLocs(q, 'onion', /^onion$/i, ONION_FIELD, count) },
+
+    'woad leaf': {
+        inputs: (count) => [{ item: 'coins', count: 10 * count }],
+        get: async (q, count) => {
+            // wyson_the_gardener.rs2: "How about 20 coins?" -> two leaves.
+            for (let misses = 0; misses < 3 && q.count('woad leaf') < count; ) {
+                const before = q.count('woad leaf');
+                await q.ensure('coins', 20);
+                await q.talk(/^wyson/i, [/looking for woad/i, /20 coins/i], WYSON);
+                await untilTicks(q.sdk, () => q.count('woad leaf') > before, 10);
+                await closeUi(q.bot, q.sdk);
+                misses = q.count('woad leaf') > before ? 0 : misses + 1;
+            }
+        },
+    },
 };
+
+// ── Goblin Diplomacy helpers
+
+/** Aggie's house, Draynor (aggie.rs2). */
+const AGGIE = { x: 3086, z: 3259 };
+/** Wyson the gardener, Falador park. */
+const WYSON = { x: 3027, z: 3379 };
+/** Static ground spawns, one each, respawning in 100 ticks (quest-lab-objfind redberries). */
+/** Spots inside the Rellekka onion field; each is within a few tiles of a plant pair. */
+const ONION_FIELD = [
+    { x: 2681, z: 3666 },
+    { x: 2677, z: 3674 },
+    { x: 2684, z: 3683 },
+    { x: 2680, z: 3689 },
+    { x: 2675, z: 3696 },
+    { x: 2678, z: 3649 },
+];
+const REDBERRY_SPAWNS = [
+    { x: 3267, z: 3371 },
+    { x: 3271, z: 3366 },
+    { x: 3278, z: 3374 },
+];
+/** Goblin camps east of Lumbridge and north of Port Sarim (the old script's npcfind-verified camps). */
+const GOBLIN_CAMPS = [
+    { x: 3252, z: 3230 },
+    { x: 3001, z: 3207 },
+];
+
+/** Plain goblin mail dyed `colour` (goblin_mail.rs2: use the dye on the mail). */
+function dyedMail(colour: string): Source {
+    const dye = `${colour} dye`;
+    const product = `${colour} goblin mail`;
+    return {
+        inputs: (count) => [
+            { item: 'goblin mail', count },
+            { item: dye, count },
+        ],
+        get: async (q, count) => {
+            const more = count - q.count(product);
+            await q.ensure(dye, more);
+            await q.ensure('goblin mail', more);
+            await useUntil(q, dye, 'goblin mail', product, count);
+        },
+    };
+}
+
+/** Use `src` on `dst` (both held) until holding `count` of `product`; each use waits for its result. */
+async function useUntil(q: Quest, src: string, dst: string, product: string, count: number): Promise<void> {
+    for (let misses = 0; misses < 3 && q.count(product) < count; ) {
+        const a = q.sdk.findInventoryItem(itemPattern(src));
+        const b = q.sdk.findInventoryItem(itemPattern(dst));
+        if (!a || !b) break;
+        const before = q.count(product);
+        await q.sdk.sendUseItemOnItem(a.slot, b.slot);
+        await untilTicks(q.sdk, () => q.count(product) > before, 5);
+        misses = q.count(product) > before ? 0 : misses + 1;
+    }
+}
+
+/**
+ * Aggie makes one dye per use of its ingredient on her ([opnpcu,aggie] in
+ * aggie.rs2): `per` of the ingredient and 5 coins. The dye lands after the
+ * player's "make me some" page is continued, so pump continues until it does.
+ */
+function aggieDye(colour: string, ingredient: string, per: number): Source {
+    const dye = `${colour} dye`;
+    return {
+        inputs: (count) => [
+            { item: ingredient, count: per * count },
+            { item: 'coins', count: 5 * count },
+        ],
+        get: async (q, count) => {
+            const more = count - q.count(dye);
+            await q.ensure(ingredient, per * more);
+            await q.ensure('coins', 5 * more);
+            for (let misses = 0; misses < 3 && q.count(dye) < count; ) {
+                const before = q.count(dye);
+                await closeUi(q.bot, q.sdk);
+                await q.goTo(AGGIE, 3);
+                await q.bot.useItemOnNpc(itemPattern(ingredient), /^aggie$/i, { timeout: ticksToMs(20) });
+                await driveDialog(q.sdk, [], { done: () => q.count(dye) > before, ticks: 40, log: q.log });
+                await closeUi(q.bot, q.sdk);
+                misses = q.count(dye) > before ? 0 : misses + 1;
+            }
+        },
+    };
+}
+
+/** Pick `item` from its static ground spawns until holding `count`, waiting out respawns (bounded). */
+async function pickSpawns(q: Quest, item: string, count: number, spawns: Array<{ x: number; z: number }>): Promise<void> {
+    const pattern = itemPattern(item);
+    const t0 = tickNow(q.sdk);
+    // Two respawn cycles (100t each) plus the walks between spawns.
+    while (q.count(item) < count && tickNow(q.sdk) - t0 < 400) {
+        let took = false;
+        for (const spot of spawns) {
+            if (q.count(item) >= count) break;
+            const p = q.sdk.getState()?.player;
+            if (Math.hypot((p?.worldX ?? 0) - spot.x, (p?.worldZ ?? 0) - spot.z) > 6) await q.goTo(spot, 3);
+            const ground = (q.sdk.getState()?.groundItems ?? []).find((g) => pattern.test(g.name) && g.x === spot.x && g.z === spot.z);
+            if (!ground) continue;
+            const before = q.count(item);
+            await q.bot.pickupItem(ground);
+            await untilTicks(q.sdk, () => q.count(item) > before, 10);
+            took ||= q.count(item) > before;
+        }
+        if (!took && q.count(item) < count) await q.sdk.waitForTicks(10);
+    }
+    q.log(`picked ${q.count(item)}/${count} ${item} in ${tickNow(q.sdk) - t0}t`);
+}
+
+/** Pick `item` from `loc` plants (op "Pick") around the spots until holding `count`; plants respawn. */
+async function pickLocs(q: Quest, item: string, loc: RegExp, spots: Array<{ x: number; z: number }>, count: number): Promise<void> {
+    const t0 = tickNow(q.sdk);
+    while (q.count(item) < count && tickNow(q.sdk) - t0 < 600) {
+        let took = false;
+        for (const spot of spots) {
+            if (q.count(item) >= count) break;
+            const p = q.sdk.getState()?.player;
+            if (Math.hypot((p?.worldX ?? 0) - spot.x, (p?.worldZ ?? 0) - spot.z) > 6) await q.goTo(spot, 3);
+            await q.sdk.scanNearbyLocs(8).catch(() => undefined);
+            // The Rellekka plants sit in fenced patches: open the gate toward one first
+            // (seen 7 onions, "I can't reach that!", 0 picked in 704t without this).
+            if (q.sdk.findNearbyLoc(loc, { withOption: /pick/i })?.reachable === false) await q.reach(loc, /pick/i).catch(() => undefined);
+            const plant = q.sdk.findNearbyLoc(loc, { withOption: /pick/i, reachable: true });
+            if (!plant) continue;
+            const before = q.count(item);
+            await q.bot.interactLoc(plant, /pick/i);
+            await untilTicks(q.sdk, () => q.count(item) > before, 10);
+            took ||= q.count(item) > before;
+        }
+        if (!took && q.count(item) < count) await q.sdk.waitForTicks(10);
+    }
+    q.log(`picked ${q.count(item)}/${count} ${item} in ${tickNow(q.sdk) - t0}t`);
+}
+
+/** Kill `npc` at the camps and loot `item` until holding `count`: a rare drop, so budgeted in ticks. */
+async function killForDrop(q: Quest, item: string, count: number, camps: Array<{ x: number; z: number }>, npc: RegExp): Promise<void> {
+    const pattern = itemPattern(item);
+    const t0 = tickNow(q.sdk);
+    let camp = 0;
+    let lastGain = t0;
+    let kills = 0;
+    while (q.count(item) < count && tickNow(q.sdk) - t0 < 6_000) {
+        // Other accounts grind the same camp and take the drops: move on after a dry spell.
+        if (tickNow(q.sdk) - lastGain > 500) {
+            camp = (camp + 1) % camps.length;
+            lastGain = tickNow(q.sdk);
+            q.log(`no ${item} for 500t, moving to camp (${camps[camp]!.x},${camps[camp]!.z})`);
+        }
+        const drop = q.sdk.findGroundItem(pattern, { reachable: true });
+        if (drop) {
+            const before = q.count(item);
+            await q.bot.pickupItem(drop);
+            await untilTicks(q.sdk, () => q.count(item) > before, 10);
+            if (q.count(item) > before) lastGain = tickNow(q.sdk);
+            continue;
+        }
+        const here = camps[camp]!;
+        const p = q.sdk.getState()?.player;
+        if (Math.hypot((p?.worldX ?? 0) - here.x, (p?.worldZ ?? 0) - here.z) > 15) await q.goTo(here, 6);
+        const target = q.sdk.findNearbyNpc(npc, { reachable: true });
+        if (!target) {
+            await q.sdk.waitForTicks(3);
+            continue;
+        }
+        await q.bot.attack(target, ticksToMs(20));
+        // Until it dies (gone, or hp 0); the drop lands on its tile a tick later.
+        await untilTicks(q.sdk, (s) => !s.nearbyNpcs.some((n) => n.index === target.index && (n.hp ?? 1) > 0), 60);
+        await q.sdk.waitForTicks(2);
+        kills++;
+    }
+    q.log(`${item}: ${q.count(item)}/${count} after ${kills} kills in ${tickNow(q.sdk) - t0}t`);
+}
 
 /** Spin → Make 10 (wool) at the reachable wheel; returns once the wool stops going down. */
 async function spinBatch(q: Quest): Promise<void> {
@@ -219,7 +536,7 @@ const RESTOCK_WAIT_TICKS = 2_000;
  * Buy until holding `count` of `item`. When the shop has none in stock, keep the
  * shop open and wait for the restock (up to RESTOCK_WAIT_TICKS), then buy.
  */
-async function buyWaitingForRestock(q: Quest, shop: { x: number; z: number; npc: RegExp }, item: string, count: number): Promise<void> {
+export async function buyWaitingForRestock(q: Quest, shop: { x: number; z: number; npc: RegExp }, item: string, count: number): Promise<void> {
     const { buyAtShop } = await import('../quest-supplies');
     const pattern = itemPattern(item);
     const deadline = tickNow(q.sdk) + RESTOCK_WAIT_TICKS;
@@ -238,46 +555,70 @@ async function buyWaitingForRestock(q: Quest, shop: { x: number; z: number; npc:
     await q.bot.closeShop().catch(() => undefined);
 }
 
-/** Consecutive kill/pickup attempts that gain nothing before a hunt gives up. */
-const HUNT_MISSES = 12;
+/**
+ * Ticks without a new item before a hunt gives up. Long enough to sit out
+ * respawns while other players clear the spot: three hunters on the Port
+ * Sarim giant rats ran a 12-attempt budget dry in ~70 ticks (2026-10-28).
+ */
+const HUNT_PATIENCE_TICKS = 400;
 
 /**
  * Kill `spot.npc` and pick up `item` until holding `count`. Loot already on the
- * ground (ours or someone else's) is taken first. attack() returns once combat
- * starts, so each kill is waited out by its drop appearing or the npc leaving.
+ * ground is taken first. Npcs someone else is fighting are skipped ("Someone
+ * else is fighting that"). attack() returns once combat starts, so each kill is
+ * waited out by its drop appearing or the npc leaving.
  */
 async function huntDrop(q: Quest, spot: HuntSpot, item: string, count: number): Promise<void> {
     const pattern = itemPattern(item);
-    if (q.sdk.getState()?.player?.level) await q.climbTo(0);
     await q.goTo(spot, 6);
     const t0 = tickNow(q.sdk);
+    let progressAt = t0;
     let kills = 0;
-    for (let misses = 0; misses < HUNT_MISSES && q.count(item) < count; ) {
+    while (q.count(item) < count && tickNow(q.sdk) - progressAt < HUNT_PATIENCE_TICKS) {
         const before = q.count(item);
         const loot = q.sdk.findGroundItem(pattern, { reachable: true });
+        const npc = (q.sdk.getNearbyNpcs() ?? [])
+            .filter((n) => spot.npc.test(n.name) && !n.inCombat && n.reachable !== false)
+            .sort((a, b) => a.distance - b.distance)[0];
         if (loot) {
             await q.bot.pickupItem(loot);
             await untilTicks(q.sdk, () => q.count(item) > before, 8);
-        } else {
-            const npc = q.sdk.findNearbyNpc(spot.npc, { reachable: true });
-            if (!npc) {
-                await q.goTo(spot, 3);
-                await q.sdk.waitForTicks(5);
-            } else {
-                const res = await q.bot.attack(npc, ticksToMs(20));
-                if (res.success) {
-                    kills++;
-                    await untilTicks(
-                        q.sdk,
-                        (s) =>
-                            (s.groundItems ?? []).some((g) => pattern.test(g.name)) ||
-                            !(s.nearbyNpcs ?? []).some((n) => n.index === npc.index),
-                        60
-                    );
-                }
+        } else if (npc) {
+            const res = await q.bot.attack(npc, ticksToMs(20));
+            if (res.success) {
+                kills++;
+                await untilTicks(
+                    q.sdk,
+                    (s) =>
+                        (s.groundItems ?? []).some((g) => pattern.test(g.name)) ||
+                        !(s.nearbyNpcs ?? []).some((n) => n.index === npc.index),
+                    60
+                );
             }
+        } else {
+            // Nothing free to fight: back to the spot and wait for a respawn.
+            await q.goTo(spot, 3);
+            await q.sdk.waitForTicks(5);
         }
-        misses = q.count(item) > before ? 0 : misses + 1;
+        if (q.count(item) > before) progressAt = tickNow(q.sdk);
     }
     q.log(`hunted ${q.count(item)} ${item} in ${tickNow(q.sdk) - t0}t (${kills} kills)`);
+}
+
+/** Pick up a respawning ground item at `tile` until holding `count`. */
+async function pickUpSpawn(q: Quest, tile: { x: number; z: number }, item: string, count: number): Promise<void> {
+    await q.goTo(tile, 2);
+    const pattern = itemPattern(item);
+    for (let i = 0; i < 30 && q.count(item) < count; i++) {
+        await q.sdk.scanGroundItems(8).catch(() => undefined);
+        const ground = q.sdk.findGroundItem(pattern);
+        if (!ground) {
+            await q.sdk.waitForTicks(5);
+            continue;
+        }
+        const before = q.count(item);
+        await q.bot.pickupItem(ground).catch(() => undefined);
+        await untilTicks(q.sdk, (s) => s.inventory.filter((it) => pattern.test(it.name)).length > before, 6);
+    }
+    if (q.count(item) < count) throw new Error(`no ${item} spawned at (${tile.x},${tile.z})`);
 }

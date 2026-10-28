@@ -95,3 +95,53 @@ async function dropDown(q: Quest, ore: Ore, keep: number): Promise<void> {
         await untilTicks(q.sdk, (s) => s.inventory.filter((i) => named(ore).test(i.name)).length < before, 4);
     }
 }
+
+/**
+ * Blurite: the cave under Thurgo's hut. Ladder 1759 at (3008,3150) climbs down to
+ * (3008,9550); blurite rocks (loc 2110) are at (3049,9566) and (3059,9564), with
+ * ice warriors and giants standing on them. One ore per trip and straight back up
+ * — camping the rock is what killed accounts in the pre-runner script.
+ */
+const BLURITE_LADDER = { x: 3008, z: 3150 };
+const BLURITE_ROCK = { x: 3047, z: 9566 };
+const BLURITE_ROCK_ID = 2110;
+const UNDERGROUND = (s: { player?: { worldZ?: number } | null }) => (s.player?.worldZ ?? 0) > 9000;
+const FOOD = /shark|lobster|swordfish|monkfish|tuna|trout|salmon|bread|cake|meat|chicken/i;
+
+export async function mineBlurite(q: Quest, count: number): Promise<void> {
+    const ore = /^blurite ore$/i;
+    const eatIfHurt = async () => {
+        const p = q.sdk.getState()?.player;
+        const max = q.sdk.getSkill('Hitpoints')?.baseLevel ?? 10;
+        const food = q.sdk.findInventoryItem(FOOD);
+        if (p && food && (p.hp ?? max) < max * 0.4) await q.bot.eatFood(food).catch(() => undefined);
+    };
+    for (let trip = 1; trip <= 4 && q.count(ore) < count; trip++) {
+        await q.goTo(BLURITE_LADDER, 2);
+        await q.sdk.scanNearbyLocs(8).catch(() => undefined);
+        const down = q.sdk.findNearbyLoc(/^ladder$/i, { withOption: /climb-down/i });
+        if (!down) throw new Error(`no climb-down ladder at the blurite cave (${BLURITE_LADDER.x},${BLURITE_LADDER.z})`);
+        await q.bot.interactLoc(down, /climb-down/i);
+        if (!(await untilTicks(q.sdk, UNDERGROUND, 20))) continue;
+        await q.bot.walkTo(BLURITE_ROCK.x, BLURITE_ROCK.z, 2).catch(() => undefined);
+        await q.sdk.scanNearbyLocs(20).catch(() => undefined);
+        const rock = (q.sdk.getNearbyLocs() ?? []).find((l) => l.id === BLURITE_ROCK_ID && l.optionsWithIndex.some((o) => /^mine$/i.test(o.text)));
+        if (rock) {
+            const before = q.count(ore);
+            await q.bot.interactLoc(rock, /^mine$/i);
+            const start = tickNow(q.sdk);
+            while (q.count(ore) <= before && tickNow(q.sdk) - start < SWING_TICKS) {
+                await eatIfHurt();
+                await q.sdk.waitForTicks(2);
+            }
+        } else q.log(`blurite trip ${trip}: no mineable rock near (${BLURITE_ROCK.x},${BLURITE_ROCK.z})`);
+        q.log(`blurite trip ${trip}: ${q.count(ore)}/${count}, hp ${q.sdk.getState()?.player?.hp ?? '?'}`);
+        // Back to the ladder and up, ore or not.
+        await q.bot.walkTo(BLURITE_LADDER.x + 1, 9550, 2).catch(() => undefined);
+        await q.sdk.scanNearbyLocs(12).catch(() => undefined);
+        const up = q.sdk.findNearbyLoc(/^ladder$/i, { withOption: /climb-up/i });
+        if (up) await q.bot.interactLoc(up, /climb-up/i);
+        await untilTicks(q.sdk, (s) => !UNDERGROUND(s), 20);
+        if (q.sdk.getState() && UNDERGROUND(q.sdk.getState()!)) throw new Error('stuck in the blurite cave');
+    }
+}

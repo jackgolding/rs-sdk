@@ -43,11 +43,12 @@ import { appendCheckpoint, createRun, safeRunId, summarizeRun, type RunHandle } 
 import type { JournalRule } from '../../../quest-lab/evidence';
 import { travelTo, type Tile } from '../travel';
 import { closeUi } from '../movement';
-import { countItems, requireSkills, talkAndChoose } from '../quest-lib';
+import { countItems, requireSkills } from '../quest-lib';
 import { depositAllInventory, type SupplyCtx } from '../quest-supplies';
 import { SAFE_BANKS, type SafeBankName } from '../safe-stops';
 import { GROUPS, itemPattern, needMet, SOURCES, type Need } from './sources';
 import { TRAINERS } from './training';
+import { talkThrough } from './dialog';
 import { tickNow, untilTicks } from './ticks';
 
 export type { Need } from './sources';
@@ -133,6 +134,15 @@ const APPROACH = 15;
 const TRAVEL_ARRIVAL = 20;
 /** Exit code for a run that completed with assistance: steps proven, route not. */
 const ASSISTED_EXIT = 3;
+/** Exit code for a run stopped because mule-supplied stock is missing: stock the account, not a script failure. */
+export const NEEDS_STOCK_EXIT = 4;
+
+/** Thrown when a mule-supplied need (Source.mule) is short; runQuest exits NEEDS_STOCK_EXIT. */
+export class NeedsStock extends Error {
+    constructor(readonly short: Need[]) {
+        super(`NEEDS STOCK: ${short.map((n) => `${n.item} ×${n.count}`).join(', ')} — stock the account from the mule before this quest`);
+    }
+}
 
 /** Local-dev assistance (QUEST_ASSIST_HOOK=path). Never set on the fleet. */
 interface AssistHook {
@@ -328,7 +338,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 await closeUi(bot, sdk);
                 // Only get near: bot.talkTo routes to the NPC itself, gates and fences included.
                 if (at) await q.goTo(at, teleport ? 2 : APPROACH);
-                const seen = await talkAndChoose({ sdk, bot, session, log }, npc, choices);
+                const seen = await talkThrough(sdk, bot, npc, choices, log);
                 session.noteProgress('dialog', String(npc));
                 return seen;
             },
@@ -344,6 +354,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
                     session.noteProgress('inventory', item);
                     return;
                 }
+                if (source?.mule) throw new NeedsStock([{ item, count: count - have }]);
                 if (!source?.get) throw new Error(`need ${count} ${item}, have ${have}, and no source procedure for it`);
                 for (const [skill, level] of Object.entries(source.levels ?? {})) await q.ensureLevel(skill, level);
                 log(`sourcing ${count - have} ${item}`);
@@ -380,7 +391,14 @@ export async function runQuest(def: QuestDef): Promise<void> {
         log(`prologue: naked at ${def.hub} (${startAt.x},${startAt.z}); carrying ${describeInventory(sdk)}`);
 
         // ── prepare: every sourced item the rest of the quest needs, before any quest step
-        const prep = preparableNeeds(def.transitions.slice(def.transitions.findIndex((t) => t.from === start)));
+        const remaining = def.transitions.slice(def.transitions.findIndex((t) => t.from === start));
+        // Mule-supplied stock first: the prologue has withdrawn what the bank holds, so a
+        // shortfall now means the account was never stocked — stop before walking anywhere.
+        const mule = mergeNeeds(remaining.flatMap((t) => t.needs ?? [])).filter((n) => SOURCES[n.item]?.mule);
+        if (spawn) for (const need of mule) if (!needMet(q, need)) await q.ensure(need.item, need.count);
+        const short = mule.filter((n) => !needMet(q, n)).map((n) => ({ item: n.item, count: n.count - q.count(n.item) }));
+        if (short.length) throw new NeedsStock(short);
+        const prep = preparableNeeds(remaining);
         if (prep.length) {
             await session.setPhase('prepare');
             log(`prepare: ${prep.map((n) => `${n.count} ${n.item}`).join(', ')}`);
@@ -457,6 +475,10 @@ export async function runQuest(def: QuestDef): Promise<void> {
         return true;
     });
 
+    if (result.error instanceof NeedsStock) {
+        console.log(result.error.message);
+        process.exit(NEEDS_STOCK_EXIT);
+    }
     if (result.success && result.result === 'assisted') process.exit(ASSISTED_EXIT);
     process.exit(result.success && (result.result === true || result.result === 'prepared') ? 0 : 1);
 }
@@ -469,18 +491,27 @@ export async function runQuest(def: QuestDef): Promise<void> {
 async function withdrawTowardNeeds(q: Quest, transitions: Transition[]): Promise<void> {
     const want = mergeNeeds(transitions.flatMap((t) => t.needs ?? []));
 
+    // Consumed items add up across everything that claims them (Goblin Diplomacy:
+    // the orange and the blue mail each use up one goblin mail, the hand-in needs a
+    // third; each Aggie dye costs 5 coins). A tool is claimed once.
+    const claimed = new Map<string, number>();
     const visit = async (item: string, count: number, depth: number) => {
         if (depth > 4 || count <= 0) return;
+        const tool = !!SOURCES[item]?.tool || !!GROUPS[item];
+        if (tool && claimed.has(item)) return;
+        const target = tool ? count : (claimed.get(item) ?? 0) + count;
+        claimed.set(item, target);
         // A group ('pickaxe') takes the best member the account can use.
         const names = GROUPS[item]?.filter((m) => q.level(m.skill) >= m.level).map((m) => m.item) ?? [item];
         const banked = names.map((n) => q.sdk.findBankItem(itemPattern(n))).find(Boolean);
-        const take = Math.min(count - q.count(item), banked?.count ?? 0);
+        const take = Math.min(target - q.count(item), banked?.count ?? 0);
         if (banked && take > 0) {
             await q.bot.withdrawItem(banked, take);
             await q.sdk.waitForTicks(2);
             q.log(`withdrew ${take} ${item}`);
         }
-        const short = count - q.count(item);
+        // Only this claim's part of the shortfall: earlier claims already visited their inputs.
+        const short = Math.min(count, target - q.count(item));
         if (short <= 0) return;
         for (const input of SOURCES[item]?.inputs?.(short) ?? []) await visit(input.item, input.count, depth + 1);
     };
