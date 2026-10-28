@@ -12,7 +12,7 @@ import { join } from 'path';
 import { readJsonlTail } from '../../../../sdk/grind-log';
 import { readOwnership, resolveOwner } from '../../../../sdk/assignment';
 import { formatCompactLevels, type ActivityEvent, type HeartbeatRecord } from './fleet-rates';
-import { ROOT, botsDir, rosterBots } from './roster';
+import { ROOT, botsDir, rosterBots, type RosterBot } from './roster';
 import { loadState } from './fleet-shepherd';
 import { assignmentRoot, resolveSupervisorOwner, supervisorInfo, supervisorKind } from './supervisor';
 import {
@@ -167,6 +167,7 @@ export async function collectFleet(now = Date.now()): Promise<{
             snapshots: readJsonlTail<HeartbeatRecord>(heartbeatPath),
             events: existsSync(eventsPath) ? readJsonlTail<ActivityEvent>(eventsPath) : null,
             grindTail: tailLines(join(liveBots, bot.name, 'grind.log'), 40),
+            todoParked: todoParked(liveBots, bot),
             shepherd: {
                 capped: botState?.capped ?? false,
                 cappedAt: botState?.cappedAt ?? null,
@@ -179,6 +180,27 @@ export async function collectFleet(now = Date.now()): Promise<{
         rows,
         unownedProcesses: procs.filter((proc) => !ownerPids.has(proc.pid)),
     };
+}
+
+/** Same strike limit as todo-runner's MAX_FAILURES: past it the runner skips the quest. */
+const TODO_MAX_FAILURES = 2;
+
+/**
+ * True for a todo-runner with no `--then` whose todo.json entries are all done or
+ * exhausted — mirrors todo-runner's isDone/exhausted. Such a runner parks.
+ */
+function todoParked(liveBots: string, bot: RosterBot): boolean {
+    if (!/todo-runner\.ts/.test(bot.command) || /\s--then\s/.test(bot.command)) return false;
+    try {
+        const accounts = JSON.parse(readFileSync(join(liveBots, 'todo.json'), 'utf-8')).accounts ?? {};
+        const key = Object.keys(accounts).find((k) => k.toLowerCase() === bot.name.toLowerCase());
+        const items: Array<{ questId: string; done?: unknown }> = key ? accounts[key] : [];
+        const statePath = join(liveBots, bot.name, 'todo-state.json');
+        const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf-8')) : {};
+        return items.every((i) => i.done || state[i.questId]?.done || (state[i.questId]?.failures ?? 0) >= TODO_MAX_FAILURES);
+    } catch {
+        return false;
+    }
 }
 
 async function main(): Promise<void> {

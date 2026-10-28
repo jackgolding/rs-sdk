@@ -77,6 +77,13 @@ export interface ClassifyInput {
     events: ActivityEvent[] | null;
     grindTail: string[];
     shepherd: ShepherdView;
+    /**
+     * A todo-runner with no `--then` whose list is all done or out of retries. It
+     * parks with no controller and no effects by design (jackquests, 2026-10-28,
+     * was restarted every tick once its quest finished). fleet-status derives it
+     * from todo.json + the bot's todo-state.json.
+     */
+    todoParked?: boolean;
 }
 
 export interface VerdictRow {
@@ -350,13 +357,24 @@ export function classify(input: ClassifyInput): VerdictRow {
         );
     }
 
+    if (input.todoParked) {
+        return set('finished', 'parked', 'todo list finished, no --then — parked until a quest is added');
+    }
+
     if (owner) {
+        const limit = thresholdMinutes(bot);
+        // No effect yet is not "stopped producing" until one window has passed since
+        // the start: a fresh account walks to its first bank before any XP or item,
+        // and restarting it at minute 4 only restarts the walk (jackquests, 2026-10-28).
+        const uptimeMinutes = owner.startedAt ? (now - Date.parse(owner.startedAt)) / 60_000 : null;
+        if (minutesSinceEffect == null && uptimeMinutes != null && uptimeMinutes <= limit) {
+            return set('producing', 'starting', `started ${Math.round(uptimeMinutes)}m ago, no effect yet, ${ownerLabel(owner)}`);
+        }
         if (row.controllers === 0) {
             return set('alive-not-producing', 'no_controller', `no controller attached, ${ownerLabel(owner)}`);
         }
         const silent = telemetrySilent(input, owner, minutesSinceSnapshot, newest);
         if (silent) return set('alive-not-producing', 'telemetry_silent', silent);
-        const limit = thresholdMinutes(bot);
         // A fresh effect outranks the log-shape detectors. Recovery/repeat counters in the
         // grind tail are cumulative (`(×N)`) and stay in the window after the stall cleared,
         // so flagging them while XP is still moving restarts bots that are working.
