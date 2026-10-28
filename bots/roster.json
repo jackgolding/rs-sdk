@@ -627,6 +627,9 @@
       "view": "fleet",
       "script": "bots/quests/todo-runner.ts",
       "args": [
+        "jackquests",
+        "--then",
+        "bots/quests/thieve-lumbridge.ts",
         "jackquests"
       ]
     }
