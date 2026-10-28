@@ -516,12 +516,15 @@ async function teleportToEssence(): Promise<boolean> {
             ]);
         let r = await click();
         if (!r.success && /aubury/i.test(teleporter.name)) {
+            // The option click comes back "Nothing happened" whenever the shop counter is
+            // between him and us, and the engine never answers such a click. Dialogue
+            // works from the same tile, so fall back to talking and picking the answer
+            // instead of re-walking (a re-found NPC also came back target_not_found).
             session.noteFailure('teleport', r.message);
-            const back = sdk.findNearbyNpc(/aubury/i) ?? teleporter;
-            await walkNear(back.x, back.z, 1);
-            teleporter = sdk.findNearbyNpc(/aubury/i) ?? back;
-            r = await click();
-            if (r.success) session.noteProgress('location', 'teleport retry');
+            const live = sdk.findNearbyNpc(/aubury/i) ?? teleporter;
+            await bot.talkTo(live);
+            await chat([/can you teleport me to the rune essence/i]);
+            r = { success: true, message: 'dialogue route' };
         }
         if (!r.success) session.noteFailure('teleport', r.message);
     } else {
