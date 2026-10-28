@@ -327,7 +327,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 for (let i = 0; i < 6; i++) {
                     const now = pos().level;
                     if (now === level) return;
-                    const opt = now < level ? /climb-up|climb up/i : /climb-down|climb down/i;
+                    // Draynor Manor's staircases say Walk-up / Walk-down.
+                    const opt = now < level ? /climb-up|climb up|walk-up/i : /climb-down|climb down|walk-down/i;
                     // Only stairs/ladders beside us, reachable first. Opening doors toward
                     // "the nearest" one let the bot pick a ladder 24 tiles off and climb a
                     // castle tower instead of the stairs it stood at (sheep, 2026-10-28).

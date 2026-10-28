@@ -14,6 +14,7 @@ import { mineAtRimmington, mineBlurite, ROCKS, type Ore } from './mining';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { closeUi } from '../movement';
 import { driveDialog } from './dialog';
+import { manorSpade, oilCan, pressureGauge, rubberTube } from './draynor-manor';
 
 export interface Need {
     /** Item name as the game shows it, e.g. 'ball of wool'. */
@@ -202,6 +203,12 @@ export const SOURCES: Record<string, Source> = {
     'red bead': impBead('red'),
     'white bead': impBead('white'),
     'yellow bead': impBead('yellow'),
+
+    // ── Ernest the Chicken: the machine parts, all from Draynor Manor (lib/draynor-manor.ts)
+    spade: { tool: true, get: (q) => manorSpade(q) },
+    'rubber tube': { inputs: () => [{ item: 'spade', count: 1 }], get: (q) => rubberTube(q) },
+    'pressure gauge': { get: (q) => pressureGauge(q) },
+    'oil can': { get: (q) => oilCan(q) },
 
     shears: {
         tool: true,
