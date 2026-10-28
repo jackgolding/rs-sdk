@@ -58,7 +58,8 @@ def main():
         ".cursor/skills/wake-fleet/scripts/launchd-info.ts",
     }
     need_build = any(
-        c.startswith(build_triggers) or c in image_wake_fleet or c == "infra/pilot/Dockerfile"
+        (c.startswith(build_triggers) and not c.startswith("sdk/test/"))
+        or c in image_wake_fleet or c == "infra/pilot/Dockerfile"
         for c in changed
     )
 
