@@ -38,7 +38,7 @@
     {
       "name": "Jackpoo2",
       "view": "fleet",
-      "script": "bots/quests/falador-bank-all.ts",
+      "script": "bots/quests/druidic-ritual.ts",
       "args": [
         "Jackpoo2"
       ]

@@ -1457,7 +1457,7 @@ services:
   quest-jackpoo2:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/falador-bank-all.ts", "Jackpoo2"]
+    command: ["bun", "bots/quests/druidic-ritual.ts", "Jackpoo2"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
