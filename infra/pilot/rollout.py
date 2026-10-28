@@ -48,10 +48,17 @@ def main():
     extra = sys.argv[3:]
     changed = sh("git", "diff", "--name-only", before, now).split()
 
-    build_triggers = ("sdk/", "server/", "tools/fleet-desk/", "quest-lab/",
-                      ".cursor/skills/wake-fleet/scripts/")
+    build_triggers = ("sdk/", "server/", "tools/fleet-desk/", "quest-lab/")
+    # Of the wake-fleet scripts the image only runs roster + launchd-info
+    # (handoff.ts -> fleet-desk/roster-edit). The shepherd, status and verdict
+    # run on the host from /srv/fleet/repo, so the git pull above deploys them;
+    # rebuilding and rolling every bot for them restarted the fleet for nothing.
+    image_wake_fleet = {
+        ".cursor/skills/wake-fleet/scripts/roster.ts",
+        ".cursor/skills/wake-fleet/scripts/launchd-info.ts",
+    }
     need_build = any(
-        c.startswith(build_triggers) or c == "infra/pilot/Dockerfile"
+        c.startswith(build_triggers) or c in image_wake_fleet or c == "infra/pilot/Dockerfile"
         for c in changed
     )
 
