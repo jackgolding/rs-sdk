@@ -155,7 +155,7 @@ export async function mineBlurite(q: Quest, count: number): Promise<void> {
  */
 const AUBURY = { x: 3253, z: 3401 };
 const ESSENCE_MINE = { x1: 2860, x2: 3040, z1: 4760, z2: 4940 };
-const inEssenceMine = (s: { player?: { worldX?: number; worldZ?: number } | null }) => {
+export const inEssenceMine = (s: { player?: { worldX?: number; worldZ?: number } | null }) => {
     const x = s.player?.worldX ?? 0;
     const z = s.player?.worldZ ?? 0;
     return x >= ESSENCE_MINE.x1 && x <= ESSENCE_MINE.x2 && z >= ESSENCE_MINE.z1 && z <= ESSENCE_MINE.z2;
@@ -196,7 +196,11 @@ export async function mineRuneEssence(q: Quest, count: number): Promise<void> {
         misses = held() > before ? 0 : misses + 1;
     }
     q.log(`mined ${held()} rune essence in ${tickNow(q.sdk) - t0}t`);
-    // Out through the portal, whatever the haul.
+    await leaveEssenceMine(q);
+}
+
+/** Out through the nearest portal (any of the mine's four corners); goTo calls this too. */
+export async function leaveEssenceMine(q: Quest): Promise<void> {
     for (let i = 0; i < 6 && inEssenceMine(q.sdk.getState()!); i++) {
         const locs = (await q.sdk.scanNearbyLocs(25).catch(() => undefined)) ?? q.sdk.getNearbyLocs() ?? [];
         const portal = locs.filter((l) => /portal/i.test(l.name)).sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];

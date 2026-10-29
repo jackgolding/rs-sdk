@@ -160,7 +160,11 @@ const LOGS_SPAWNS_SW_ARDOUGNE = [
 const PALACE_KITCHEN_SINK = { x: 3224, z: 3494 };
 
 export const SOURCES: Record<string, Source> = {
-    coins: {},
+    /**
+     * The prologue withdraws coins first; this only runs on a broke account (ABGARMY19 had
+     * none for the Fortress disguise, 2026-10-29): pickpocket the men outside Lumbridge castle.
+     */
+    coins: { get: (q, count) => pickpocketCoins(q, count) },
 
     pickaxe: {
         obj: 'bronze_pickaxe',
@@ -181,8 +185,8 @@ export const SOURCES: Record<string, Source> = {
         },
     },
 
-    /** The fleet's mule holds enough iron bars for every account (2026-10-29). */
-    'iron bar': { mule: true },
+    /** Jackpoo2 holds the fleet's iron bars (121 in its bank snapshot, 2026-10-29) and serves them. */
+    'iron bar': { mule: true, muleSupply: 'Jackpoo2' },
 
     'pot of flour': {
         inputs: () => [{ item: 'coins', count: 30 }],
@@ -594,6 +598,32 @@ async function withdrawUnstackable(q: Quest, item: string, count: number, bank: 
         q.log(`withdrew ${q.count(item) - before} ${item} (bank had ${stock.count ?? '?'})`);
     }
     await q.bot.closeBank().catch(() => undefined);
+}
+
+// ── Coins
+
+/** Men outside Lumbridge castle (npc spawns 3223,3240 and 3216,3219). */
+const LUMBRIDGE_MEN = { x: 3223, z: 3240 };
+
+/** Shop sources ask for 1 coin (the prologue normally withdrew the real amount); a broke account earns a working float. */
+const COIN_FLOAT = 300;
+
+async function pickpocketCoins(q: Quest, asked: number): Promise<void> {
+    const count = Math.max(asked, COIN_FLOAT);
+    await q.goTo(LUMBRIDGE_MEN, 6);
+    const t0 = tickNow(q.sdk);
+    for (let tries = 0; q.count('coins') < count && tickNow(q.sdk) - t0 < 3000; tries++) {
+        const man = q.sdk.findNearbyNpc(/^man$/i);
+        if (!man) {
+            await q.goTo(LUMBRIDGE_MEN, 3);
+            await q.sdk.waitForTicks(5);
+            continue;
+        }
+        const r = await q.bot.pickpocketNpc(man).catch((e) => ({ success: false, message: String(e) }));
+        if (!r.success && tries % 10 === 0) q.log(`coins pickpocket: ${r.message}`);
+        await q.sdk.waitForTicks(1);
+    }
+    q.log(`pickpocketed ${q.count('coins')} coins in ${tickNow(q.sdk) - t0}t`);
 }
 
 // ── Prince Ali Rescue helpers

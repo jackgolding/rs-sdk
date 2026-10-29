@@ -4,6 +4,11 @@
  * every goblin mail (5/128 drop; Goblin Diplomacy needs 3) and burying bones.
  *
  *   bun bots/quests/melee-lumbridge.ts {botname} [--until=40]
+ *   bun bots/quests/melee-lumbridge.ts {botname} --mail=66   # goblin mail mule stock
+ *
+ * --mail=N: stock N goblin mail in the bank for the fleet (it does not stack, so a
+ * near-full pack is banked at Draynor, where the bank's count is read), then hand
+ * over in-process to quest-mule --serve-only. Levels are ignored in this mode.
  *
  * Trains Attack, Strength and Defence evenly: before each fight the combat style
  * switches to whichever of the three is lowest. It punches unless a melee weapon
@@ -21,6 +26,11 @@ import { installGracefulShutdown, runScript } from '../../sdk/runner';
 const argv = process.argv.slice(2);
 const BOT = argv.find((a) => !a.startsWith('-')) ?? process.env.BOT_USERNAME ?? '';
 const UNTIL = Number(argv.find((a) => a.startsWith('--until='))?.split('=')[1] ?? 40);
+const MAIL_TARGET = Number(argv.find((a) => a.startsWith('--mail='))?.split('=')[1] ?? 0);
+/** Draynor bank (supply.ts MULE_BANK): where the mule serves from. */
+const DRAYNOR_BANK = { x: 3092, z: 3243 };
+/** Bank the mail with this many slots used (it does not stack). */
+const BANK_AT_SLOTS = 26;
 const GRIND_LOG = join(process.cwd(), 'bots', BOT, 'grind.log');
 
 /** Lumbridge goblins (learnings/combat.md, goblin-diplomacy.ts); the cluster runs north-east from here. */
@@ -37,6 +47,7 @@ const RESUME_AT_HP = 9;
 let shutdownRequested = false;
 for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.once(sig, () => (shutdownRequested = true));
 let exitCode = 0;
+let mailStocked = false;
 
 await runScript(async ({ bot, sdk }) => {
     const session = new ActivitySession(sdk, bot, { name: 'melee-lumbridge', grindLogPath: GRIND_LOG, stallMs: 150_000, maxRecoveryTactics: 8 });
@@ -49,7 +60,22 @@ await runScript(async ({ bot, sdk }) => {
     const away = () => Math.hypot(pos().x - GOBLINS.x, pos().z - GOBLINS.z);
     const stopping = () => shutdownRequested || session.stopRequested || session.isStopped();
     const melee = () => `Att ${lvl('attack')} Str ${lvl('strength')} Def ${lvl('defence')} HP ${hp()}/${maxHp()}`;
-    const done = () => lvl('attack') >= UNTIL && lvl('strength') >= UNTIL && lvl('defence') >= UNTIL;
+    /** Goblin mail in the bank, read at every bank visit (-1: not read yet). */
+    let banked = -1;
+    const done = () => (MAIL_TARGET > 0 ? banked >= MAIL_TARGET : lvl('attack') >= UNTIL && lvl('strength') >= UNTIL && lvl('defence') >= UNTIL);
+
+    /** Draynor bank: deposit the goblin mail and read how much the bank holds. */
+    async function bankMail(): Promise<void> {
+        await session.setPhase('bank');
+        const walked = await bot.walkTo(DRAYNOR_BANK.x, DRAYNOR_BANK.z, 3);
+        if (!walked.success) return log(`walk to Draynor bank: ${walked.message}`);
+        if (!(await bot.openBank()).success) return log('Draynor bank would not open');
+        if (sdk.findInventoryItem(MAIL)) await bot.depositItem(MAIL, -1).catch(() => undefined);
+        await sdk.waitForTicks(2);
+        banked = sdk.findBankItem(MAIL)?.count ?? 0;
+        await bot.closeBank().catch(() => undefined);
+        log(`banked goblin mail: ${banked}/${MAIL_TARGET} after ${kills} fights`);
+    }
 
     /** Combat style on whichever of Attack/Strength/Defence is lowest. */
     async function balanceStyle(): Promise<void> {
@@ -95,9 +121,13 @@ await runScript(async ({ bot, sdk }) => {
         for (const item of [...sdk.getInventory()]) {
             if (WEAPON.test(item.name) || SHIELD.test(item.name)) await bot.equipItem(item).catch(() => undefined);
         }
-        log(`start | ${melee()} (until ${UNTIL}) wearing ${sdk.getEquipment().map((e) => e.name).join(', ') || 'nothing — punching'} @ ${pos().x},${pos().z}`);
+        log(`start | ${melee()} (${MAIL_TARGET > 0 ? `goblin mail to ${MAIL_TARGET}` : `until ${UNTIL}`}) wearing ${sdk.getEquipment().map((e) => e.name).join(', ') || 'nothing — punching'} @ ${pos().x},${pos().z}`);
 
         while (!stopping() && !done()) {
+            if (MAIL_TARGET > 0 && (banked < 0 || sdk.getInventory().length >= BANK_AT_SLOTS)) {
+                await bankMail();
+                continue;
+            }
             if (hp() <= REST_AT_HP) {
                 await session.setPhase('rest');
                 log(`resting at HP ${hp()}/${maxHp()}`);
@@ -113,7 +143,8 @@ await runScript(async ({ bot, sdk }) => {
                 continue;
             }
             if (session.metrics().phase !== 'fight') await session.setPhase('fight');
-            await balanceStyle();
+            // --mail keeps the style the account was set to (jackquests: Kick, Strength only).
+            if (MAIL_TARGET === 0) await balanceStyle();
             const goblin = sdk.findNearbyNpc(GOBLIN, { reachable: true });
             if (!goblin) {
                 await sdk.waitForTicks(3);
@@ -137,6 +168,12 @@ await runScript(async ({ bot, sdk }) => {
             if (lvl('attack') + lvl('strength') + lvl('defence') > before) log(`${melee()} after ${kills} fights`);
         }
 
+        if (!stopping() && done() && MAIL_TARGET > 0) {
+            log(`goblin mail stocked: ${banked} banked after ${kills} fights — handing over to quest-mule --serve-only`);
+            session.stop('done', `goblin mail >= ${MAIL_TARGET}`);
+            mailStocked = true;
+            return;
+        }
         if (!stopping() && done()) {
             await session.setPhase('idle');
             log(`stopped done | ${melee()} after ${kills} fights — idling`);
@@ -154,4 +191,10 @@ await runScript(async ({ bot, sdk }) => {
     }
 });
 
+if (mailStocked && !shutdownRequested) {
+    // Same handover todo-runner does for its grind: the mule runs in this process.
+    process.argv = [process.argv[0]!, join(process.cwd(), 'bots/quests/quest-mule.ts'), BOT, '--serve-only'];
+    await import(join(process.cwd(), 'bots/quests/quest-mule.ts'));
+    await new Promise<never>(() => {});
+}
 process.exit(exitCode || process.exitCode || 0);

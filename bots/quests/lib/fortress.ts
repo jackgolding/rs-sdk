@@ -24,7 +24,7 @@
  */
 import type { Quest } from './run-quest';
 import { driveDialog } from './dialog';
-import { untilTicks } from './ticks';
+import { tickNow, untilTicks } from './ticks';
 
 interface Tile {
     x: number;
@@ -48,7 +48,10 @@ const ROOMS: Array<[Room, Box]> = [
     ['entrance', { level: 0, x0: 3015, x1: 3019, z0: 3515, z1: 3516 }],
     ['secret', { level: 0, x0: 3014, x1: 3016, z0: 3517, z1: 3519 }],
     ['hall', { level: 0, x0: 3020, x1: 3030, z0: 3511, z1: 3518 }],
-    ['grill', { level: 0, x0: 3021, x1: 3025, z0: 3505, z1: 3510 }],
+    // The grill corridor is z 3510 (x 3021-3024) and x 3025 (z 3506-3510) only: the tiles
+    // south-west of it (3022-3024 x 3505-3509) are outdoors, outside the fortress wall.
+    ['grill', { level: 0, x0: 3021, x1: 3024, z0: 3510, z1: 3510 }],
+    ['grill', { level: 0, x0: 3025, x1: 3025, z0: 3506, z1: 3510 }],
     ['a', { level: 1, x0: 3015, x1: 3016, z0: 3517, z1: 3519 }],
     ['b', { level: 1, x0: 3015, x1: 3019, z0: 3515, z1: 3516 }],
     ['cd', { level: 1, x0: 3020, x1: 3024, z0: 3513, z1: 3516 }],
@@ -92,9 +95,29 @@ async function walk(q: Quest, t: Tile): Promise<void> {
  * Op `opt` on the loc named `name` at `at` (current plane) until `done`. A dialog
  * that opens (the hall guard) is driven with `choices`.
  */
-async function op(q: Quest, at: Tile, name: RegExp, opt: RegExp, done: () => boolean, label: string, choices: RegExp[] = []): Promise<void> {
+async function op(
+    q: Quest,
+    at: Tile,
+    name: RegExp,
+    opt: RegExp,
+    done: () => boolean,
+    label: string,
+    choices: RegExp[] = [],
+    dialogTicks = 80
+): Promise<void> {
+    const drive = async () => {
+        // Drive what is open to its end; a long one (the grill's nine pages) gets the
+        // whole budget again rather than a fresh click, which would restart it.
+        for (let rounds = 0; rounds < 3 && q.sdk.getDialog()?.isOpen && !done(); rounds++) {
+            await driveDialog(q.sdk, choices, { done, ticks: dialogTicks, log: q.log });
+        }
+    };
     for (let attempt = 1; attempt <= 4; attempt++) {
         if (done()) return;
+        if (q.sdk.getDialog()?.isOpen) {
+            await drive();
+            if (await untilTicks(q.sdk, done, 5)) return;
+        }
         await q.sdk.scanNearbyLocs(10).catch(() => undefined);
         const loc = (q.sdk.getNearbyLocs() ?? []).find((l) => l.x === at.x && l.z === at.z && name.test(l.name) && l.optionsWithIndex.some((o) => opt.test(o.text)));
         if (!loc) {
@@ -104,11 +127,12 @@ async function op(q: Quest, at: Tile, name: RegExp, opt: RegExp, done: () => boo
             continue;
         }
         const index = loc.optionsWithIndex.find((o) => opt.test(o.text))!.opIndex;
+        const t0 = tickNow(q.sdk);
         await q.sdk.sendInteractLoc(at.x, at.z, loc.id, index);
         await untilTicks(q.sdk, (s) => done() || !!s.dialog?.isOpen, 25);
-        if (q.sdk.getDialog()?.isOpen) await driveDialog(q.sdk, choices, { done, ticks: 80, log: q.log });
+        await drive();
         if (await untilTicks(q.sdk, done, 5)) return;
-        q.log(`fortress: ${label} did not take from ${where(q)} (attempt ${attempt})`);
+        q.log(`fortress: ${label} did not take from ${where(q)} (attempt ${attempt}, ${tickNow(q.sdk) - t0}t, dialog ${q.sdk.getDialog()?.isOpen ? 'still open' : 'closed'})`);
     }
     throw new Error(`fortress: ${label} failed at ${where(q)}`);
 }
@@ -117,7 +141,9 @@ const inRoom = (q: Quest, room: Room) => () => fortressRoom(q) === room;
 
 /** Climb the ladder at `at` (on the current plane) into `room`. */
 async function climb(q: Quest, from: Tile, at: Tile, room: Room, label: string): Promise<void> {
-    await walk(q, from);
+    // The op walks to the ladder itself: a bot left elsewhere in the room (a failed run,
+    // ABGARMY01/18 at 3025,3506) cannot always stand on `from` (stuck at 3022,3509).
+    await walk(q, from).catch((e) => q.log(`${label}: ${(e as Error).message}; using the ladder from here`));
     const up = /climb-up/i.test(label);
     await op(q, at, /^ladder$/i, up ? /climb-up/i : /climb-down/i, inRoom(q, room), label);
 }
@@ -312,7 +338,9 @@ export async function listenAtGrill(q: Quest): Promise<void> {
         heard ||= !!q.sdk.getDialog()?.isOpen;
         return heard && !q.sdk.getDialog()?.isOpen;
     };
-    await op(q, { x: 3025, z: 3507 }, /^grill$/i, /listen/i, done, 'listen at the grill');
+    // Nine chatnpc pages; at 300-600ms ticks with latency they outran an 80-tick budget on
+    // prod (jacklove2, ABGARMY10, 2026-10-29) and each retry restarted the conversation.
+    await op(q, { x: 3025, z: 3507 }, /^grill$/i, /listen/i, done, 'listen at the grill', [], 400);
 }
 
 /** Use a cabbage on the hole above the witch's cauldron (blackknighthole, L1). */

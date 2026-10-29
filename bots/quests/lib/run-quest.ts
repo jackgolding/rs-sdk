@@ -53,6 +53,8 @@ import { TRAINERS } from './training';
 import { talkThrough } from './dialog';
 import { enterStuckArea, leaveStuckArea } from './doors';
 import { escapeMaze, inLeverMaze, leaveManor, onManorGround } from './draynor-manor';
+import { fortressRoom, leaveFortress } from './fortress';
+import { inEssenceMine, leaveEssenceMine } from './mining';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 
 export type { Need } from './sources';
@@ -147,6 +149,9 @@ const MULE_WAIT_TICKS = 200;
 const onKaramja = (t: Tile) => t.x >= 2880 && t.x <= 2990 && t.z >= 3120 && t.z <= 3200;
 /** Karamja customs officers (2953,3147)/(2955,3146): the boat back to Port Sarim, 30gp. */
 const KARAMJA_CUSTOMS = { x: 2954, z: 3147 };
+/** A man by the customs officers (npc spawn 2948,3146): pickpocketed for the fare when broke. */
+const KARAMJA_MAN = { x: 2948, z: 3146 };
+const KARAMJA_FARE = 30;
 /** Dungeons and cellars are mapped at z + 6400. */
 const UNDERGROUND_Z = 6400;
 /** Arrival radius goTo asks travelTo for before bot.walkTo finishes the approach. */
@@ -203,6 +208,24 @@ export async function runQuest(def: QuestDef): Promise<void> {
 
         /** Customs boat back to Port Sarim, then over the gangplank (pirates-treasure.ts sail). */
         async function sailFromKaramja(): Promise<void> {
+            // Broke on the island (jacklove13 spent its coins on the rum and fare out, 2026-10-29):
+            // pickpocket the man by the customs officers until the fare is in hand.
+            if (q.count('coins') < KARAMJA_FARE) {
+                await q.goTo(KARAMJA_MAN, 4);
+                const t0 = tickNow(sdk);
+                for (let tries = 0; q.count('coins') < KARAMJA_FARE && tries < 60 && tickNow(sdk) - t0 < 1500; tries++) {
+                    const man = sdk.findNearbyNpc(/^man$/i);
+                    if (!man) {
+                        await q.goTo(KARAMJA_MAN, 2);
+                        await sdk.waitForTicks(5);
+                        continue;
+                    }
+                    const r = await bot.pickpocketNpc(man).catch((e) => ({ success: false, message: String(e) }));
+                    if (!r.success && tries % 10 === 0) log(`Karamja fare pickpocket: ${r.message}`);
+                    await sdk.waitForTicks(2);
+                }
+                log(`pickpocketed for the Karamja fare: ${q.count('coins')} coins in ${tickNow(sdk) - t0}t`);
+            }
             for (let i = 0; i < 3 && onKaramja(pos()); i++) {
                 await q.talk(/^customs officer$/i, [/can i journey on this ship/i, /search away/i, /^ok\.?$/i], KARAMJA_CUSTOMS);
                 await untilTicks(sdk, () => !onKaramja(pos()), 30);
@@ -343,6 +366,13 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // walkTo cannot route between planes: from Sanfew's upstairs it reported
                 // the ground-floor target "unroutable" and travelTo's fallback took ~270t
                 // (druid, 2026-10-28). Change plane where we stand, then walk.
+                // Inside Black Knights' Fortress with a target away from it: its own room graph
+                // out, before climbTo grabs whichever ladder is near (ABGARMY01/18, jacklove8
+                // failed every quest from the grill and secret rooms, 2026-10-29).
+                // Left in the rune essence mine (fatpig, after its essence grind, 2026-10-29): portal out.
+                if (inEssenceMine(sdk.getState()!) && !inEssenceMine({ player: { worldX: tile.x, worldZ: tile.z } })) await leaveEssenceMine(q);
+                const room = fortressRoom(q);
+                if (room && room !== 'outside' && (Math.abs(tile.x - 3022) > 15 || Math.abs(tile.z - 3512) > 15)) await leaveFortress(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in
@@ -507,6 +537,18 @@ export async function runQuest(def: QuestDef): Promise<void> {
         // shortfall now means the account was never stocked — stop before walking anywhere.
         const mule = mergeNeeds(remaining.flatMap((t) => t.needs ?? [])).filter((n) => SOURCES[n.item]?.mule);
         if (spawn) for (const need of mule) if (!needMet(q, need)) await q.ensure(need.item, need.count);
+        // A mule-only line with a serving mule (Source.muleSupply: Jackpoo2's iron bars) is asked
+        // of that mule before the account counts as unstocked.
+        const askMule = new Map<string, Need[]>();
+        for (const need of mule) {
+            const by = SOURCES[need.item]?.muleSupply;
+            if (by && !needMet(q, need)) askMule.set(by, [...(askMule.get(by) ?? []), need]);
+        }
+        for (const [by, needs] of askMule) {
+            const asked = needs.map((n) => ({ label: n.item, pattern: itemPattern(n.item), count: n.count - q.count(n.item) }));
+            const ok = await requestFromMule({ sdk, bot, session: null, log }, asked, { mule: by, timeoutMs: ticksToMs(MULE_WAIT_TICKS) });
+            log(`mule ${by}: ${ok ? 'supplied' : 'not all supplied'}; carrying ${describeInventory(sdk)}`);
+        }
         const short = mule.filter((n) => !needMet(q, n)).map((n) => ({ item: n.item, count: n.count - q.count(n.item) }));
         if (short.length) throw new NeedsStock(short);
         const prep = preparableNeeds(remaining);

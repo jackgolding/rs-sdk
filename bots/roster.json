@@ -40,7 +40,7 @@
       "view": "fleet",
       "script": "bots/quests/todo-runner.ts",
       "args": [
-        "Jackpoo2"
+        "Jackpoo2", "--then", "bots/quests/quest-mule.ts", "Jackpoo2", "--serve-only"
       ]
     },
     {
@@ -627,7 +627,7 @@
       "args": [
         "jackquests",
         "--then",
-        "bots/quests/quest-mule.ts", "jackquests", "--serve-only"
+        "bots/quests/melee-lumbridge.ts", "jackquests", "--mail=66"
       ]
     }
   ]
