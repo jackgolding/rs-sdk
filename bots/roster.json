@@ -40,7 +40,11 @@
       "view": "fleet",
       "script": "bots/quests/todo-runner.ts",
       "args": [
-        "Jackpoo2", "--then", "bots/quests/quest-mule.ts", "Jackpoo2", "--serve-only"
+        "Jackpoo2",
+        "--then",
+        "bots/quests/quest-mule.ts",
+        "Jackpoo2",
+        "--serve-only"
       ]
     },
     {
@@ -86,8 +90,9 @@
       "args": [
         "fatpig",
         "--then",
-        "bots/quests/essence.ts",
-        "fatpig"
+        "bots/quests/thieving-route.ts",
+        "fatpig",
+        "--knights"
       ]
     },
     {
@@ -130,11 +135,11 @@
       "view": "fleet",
       "script": "bots/quests/todo-runner.ts",
       "args": [
-          "jacklove4",
-          "--then",
-          "bots/quests/quest-mule.ts",
-          "jacklove4",
-          "--serve-only"
+        "jacklove4",
+        "--then",
+        "bots/quests/quest-mule.ts",
+        "jacklove4",
+        "--serve-only"
       ]
     },
     {
@@ -256,9 +261,9 @@
       "args": [
         "jacklove12",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/thieving-route.ts",
         "jacklove12",
-        "--fletch"
+        "--knights"
       ]
     },
     {
@@ -304,9 +309,9 @@
       "args": [
         "jacklove16",
         "--then",
-        "bots/quests/coal-trucks.ts",
+        "bots/quests/thieving-route.ts",
         "jacklove16",
-        "--wildy"
+        "--knights"
       ]
     },
     {
@@ -346,8 +351,9 @@
       "args": [
         "jacklove19",
         "--then",
-        "bots/quests/coal-trucks.ts",
-        "jacklove19"
+        "bots/quests/thieving-route.ts",
+        "jacklove19",
+        "--knights"
       ]
     },
     {
@@ -462,9 +468,9 @@
       "args": [
         "ABGARMY08",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/thieving-route.ts",
         "ABGARMY08",
-        "--fletch"
+        "--knights"
       ]
     },
     {
@@ -498,9 +504,6 @@
       "args": [
         "ABGARMY11",
         "--then",
-        "bots/quests/lost-city-prep.ts",
-        "ABGARMY11",
-        "--then",
         "bots/quests/thieving-route.ts",
         "ABGARMY11",
         "--knights"
@@ -523,9 +526,6 @@
       "view": "army",
       "script": "bots/quests/todo-runner.ts",
       "args": [
-        "ABGARMY13",
-        "--then",
-        "bots/quests/lost-city-prep.ts",
         "ABGARMY13",
         "--then",
         "bots/quests/thieving-route.ts",
@@ -627,7 +627,9 @@
       "args": [
         "jackquests",
         "--then",
-        "bots/quests/melee-lumbridge.ts", "jackquests", "--mail=66"
+        "bots/quests/melee-lumbridge.ts",
+        "jackquests",
+        "--mail=66"
       ]
     }
   ]
