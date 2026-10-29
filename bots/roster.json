@@ -132,9 +132,6 @@
       "args": [
           "jacklove4",
           "--then",
-          "bots/quests/climb-down.ts",
-          "jacklove4",
-          "--then",
           "bots/quests/quest-mule.ts",
           "jacklove4",
           "--serve-only"
