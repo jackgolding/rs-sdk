@@ -145,8 +145,10 @@ const inAlKharid = (t: Tile) => t.x >= TOLL_X && t.z > 3080 && t.z < 3300;
 
 /** How long the prepare phase waits on a mule's trade (Source.muleSupply) before sourcing the item itself. */
 const MULE_WAIT_TICKS = 200;
-/** Musa Point and the banana plantation: walkTo and travelTo have no way off the island. */
-const onKaramja = (t: Tile) => t.x >= 2880 && t.x <= 2990 && t.z >= 3120 && t.z <= 3200;
+/** Karamja: walkTo and travelTo have no way off the island. */
+// Whole island, west to Brimhaven's side (jacklove13 at 2804,3179 was outside the old
+// Musa Point box, 2026-10-29); the north edge stays below the Rimmington coast.
+const onKaramja = (t: Tile) => t.x >= 2740 && t.x <= 2990 && t.z >= 2880 && t.z <= 3200;
 /** Karamja customs officers (2953,3147)/(2955,3146): the boat back to Port Sarim, 30gp. */
 const KARAMJA_CUSTOMS = { x: 2954, z: 3147 };
 /** A man by the customs officers (npc spawn 2948,3146): pickpocketed for the fare when broke. */
@@ -158,6 +160,10 @@ const UNDERGROUND_Z = 6400;
 const APPROACH = 15;
 /** Where goTo lets travelTo stop: on the road, before a fenced or walled destination. */
 const TRAVEL_ARRIVAL = 20;
+/** Errors that mean the game client or gateway went away, not that the quest failed. */
+const OUTAGE = /client disconnected|no game client is attached|gateway handshake|connection closed before/i;
+const OUTAGE_RETRIES = 10;
+const OUTAGE_WAIT_MS = 60_000;
 /** Exit code for a run that completed with assistance: steps proven, route not. */
 const ASSISTED_EXIT = 3;
 /** Exit code for a run stopped because mule-supplied stock is missing: stock the account, not a script failure. */
@@ -190,7 +196,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
     const completeId = stageIds[stageIds.length - 1] ?? '';
     const isTask = !!def.task;
 
-    const result = await runScript(async ({ bot, sdk }) => {
+    const body: Parameters<typeof runScript>[0] = async ({ bot, sdk }) => {
         const log = (msg: string) => {
             console.log(msg);
             try {
@@ -640,7 +646,24 @@ export async function runQuest(def: QuestDef): Promise<void> {
         }
         log('QUEST COMPLETE (journal-verified)');
         return true;
-    });
+    };
+
+    // A game-server blip drops every client at once (13:34 and 14:01 on 2026-10-29): the
+    // runner used to fail the quest and burn a retry on each account. Wait for the client
+    // and resume from the journal stage instead; only a long outage counts as a failure.
+    let result = await runScript(body);
+    for (let outage = 1; outage <= OUTAGE_RETRIES && !result.success && OUTAGE.test(result.error?.message ?? ''); outage++) {
+        const line = `game client lost (${result.error?.message}); resuming in ${OUTAGE_WAIT_MS / 1000}s (${outage}/${OUTAGE_RETRIES})`;
+        console.error(line);
+        try {
+            appendFileSync(grindLog, `${new Date().toISOString()} [${def.id}] ${line}\n`);
+        } catch {
+            /* the log must never break the retry */
+        }
+        // Wall-clock, not ticks: there is no game client to count ticks with.
+        await new Promise((r) => setTimeout(r, OUTAGE_WAIT_MS));
+        result = await runScript(body);
+    }
 
     if (result.error instanceof NeedsStock) {
         console.log(result.error.message);
