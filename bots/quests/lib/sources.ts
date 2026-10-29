@@ -80,6 +80,9 @@ export const GROUPS: Record<string, Array<{ item: string; skill: string; level: 
     ],
     /** Witch's House: worn for the cellar's shock gate, so worn ones count. */
     'leather gloves': [{ item: 'leather gloves', skill: 'defence', level: 1 }],
+    /** Black Knights' Fortress: the guard disguise is worn, so worn ones count. */
+    'bronze med helm': [{ item: 'bronze med helm', skill: 'defence', level: 1 }],
+    'iron chainbody': [{ item: 'iron chainbody', skill: 'defence', level: 1 }],
 };
 
 const LUMBRIDGE_GENERAL_STORE = { x: 3211, z: 3246, npc: /shop\s*(keeper|assistant)/i };
@@ -90,6 +93,16 @@ const LUMBRIDGE_CASTLE_STAIRS = { x: 3205, z: 3208 };
 const WYDIN = { x: 3014, z: 3204, npc: /^wydin$/i };
 /** Thessalia's clothes shop, Varrock (varrock.inv clotheshop: leather gloves). */
 const THESSALIA_CLOTHES = { x: 3204, z: 3417, npc: /^thessalia$/i };
+/** Peksa's helmet shop, Barbarian Village: bronze med helm 24gp (wiki/shops/helmet-shop.md). */
+const PEKSA_HELMETS = { x: 3076, z: 3429, npc: /^peksa$/i };
+/** Wayne's Chains, Falador: iron chainbody 210gp, stock 2 (wiki/shops/waynes-chains-chainmail-specialist.md). */
+const WAYNE_CHAINS = { x: 2973, z: 3312, npc: /^wayne$/i };
+/**
+ * The Edgeville monastery garden's cabbage patch (maps/m47_54: 3050-3053 x 3503-3505),
+ * entered through the gap in its north fence at x 3051-3052. Not a Draynor Manor
+ * (magic) cabbage, which Black Knights' Fortress rejects.
+ */
+const MONASTERY_CABBAGES = [{ x: 3051, z: 3506 }];
 /** Pie dish ground spawn in the Varrock palace kitchen. */
 const PIE_DISH_SPAWN = { x: 3222, z: 3494 };
 /** Redberry pie burns often near Cooking 10; each attempt costs one dough + one berry portion. */
@@ -257,6 +270,25 @@ export const SOURCES: Record<string, Source> = {
             await buyWaitingForRestock(q, THESSALIA_CLOTHES, 'leather gloves', count);
         },
     },
+
+    // ── Black Knights' Fortress: the guard disguise and a cabbage for the witch's cauldron
+    'bronze med helm': {
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 24 }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, PEKSA_HELMETS, 'bronze med helm', count);
+        },
+    },
+    'iron chainbody': {
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 210 }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, WAYNE_CHAINS, 'iron chainbody', count);
+        },
+    },
+    cabbage: { get: (q, count) => pickLocs(q, 'cabbage', /^cabbage$/i, MONASTERY_CABBAGES, count) },
 
     shears: {
         tool: true,
