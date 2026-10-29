@@ -105,7 +105,14 @@ export async function leaveStuckArea(sdk: BotSDK, bot: BotActions, dest: Tile, l
             await sdk.waitForTicks(1);
         }
         await sdk.sendWalk(door.outside.x, door.outside.z);
-        out = await untilTicks(sdk, (s) => !within({ x: s.player?.worldX ?? 0, z: s.player?.worldZ ?? 0 }, door.area), 10);
+        // On the outside tile, not merely off the area's edge: "out" at (3107,3161), beside
+        // the Wizards' Tower door, let walkTo plan straight back into the ladder room
+        // (Imp Catcher epilogues on jacklove5/15/19, Jackpoo4, 2026-10-29).
+        out = await untilTicks(sdk, (s) => {
+            const at = { x: s.player?.worldX ?? 0, z: s.player?.worldZ ?? 0 };
+            const fromDoor = Math.max(Math.abs(at.x - door.door.x), Math.abs(at.z - door.door.z));
+            return !within(at, door.area) && ((at.x === door.outside.x && at.z === door.outside.z) || fromDoor >= 2);
+        }, 10);
     }
     const now = sdk.getState()?.player;
     log(`${door.name}: ${out ? 'out' : 'STILL INSIDE'} at (${now?.worldX},${now?.worldZ})${opened ? ' (opened it)' : ''}`);
