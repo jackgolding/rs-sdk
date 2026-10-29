@@ -10,14 +10,17 @@
  *   - Khali brew               bought from the barman inside the step (he only
  *                              sells it once the bored guard has talked)
  *   - Khazard cell keys        the drunk guard (quest item)
- *   - magic shortbow, rune arrows, sharks   mule stock: the ogre (63), the
- *                              scorpion (44) and Bouncer (137) are fought in the pen
+ *   - the fight kit for the ogre (63), the scorpion (44) and Bouncer (137), first
+ *     that fits: melee (dragon longsword, sharks, Protect from Melee), magic (fire
+ *     staff — bank or Zaff's — and Fire Bolt runes from Betty's), ranged (magic
+ *     shortbow, rune arrows, sharks: mule stock)
  * The pen, doors and fights are lib/fight-arena.ts.
  */
-import { runQuest, type Quest } from './lib/run-quest';
+import { runQuest } from './lib/run-quest';
 import {
     buyBrew,
     freeJeremy,
+    kitNeeds,
     LADY_SERVIL,
     leavePen,
     penFight,
@@ -27,15 +30,8 @@ import {
     talkJeremyArena,
 } from './lib/fight-arena';
 
-/** The fight kit, until the bow is worn (arrows then sit in the quiver, sharks get eaten). */
-const kit = (q: Quest) =>
-    q.sdk.getEquipment().some((i) => /^magic shortbow$/i.test(i.name))
-        ? []
-        : [
-              { item: 'magic shortbow', count: 1 },
-              { item: 'rune arrow', count: 150 },
-              { item: 'shark', count: 10 },
-          ];
+/** The pen fights' kit (melee, magic or ranged — lib/fight-arena.ts kitNeeds picks it in the prologue). */
+const kit = kitNeeds;
 
 const stage = (id: string, kind: 'unstarted' | 'active' | 'complete', text: string, optional = false) => ({
     id,
@@ -53,7 +49,10 @@ await runQuest({
     stages: [
         stage('unstarted', 'unstarted', 'I can start this quest by speaking to'),
         stage('started', 'active', 'I should go to the Fight Arena'),
-        stage('armour', 'active', 'Luckily I found some Khazard armour'),
+        // Struck through from bored_guard on; 'disguise myself as a guard' follows it there. A
+        // canary read 'armour' after the scorpion (a partial journal read): exclusive rules
+        // make such a read match nothing, and the runner reads again.
+        { id: 'armour', rule: { id: 'arena:armour', kind: 'active' as const, all: ['Luckily I found some Khazard armour'], none: ['disguise myself as a guard'] } },
         stage('bored_guard', 'active', 'really likes Khali Brew'),
         stage('keys', 'active', "Now I've got the keys"),
         stage('ogre_fight', 'active', 'protect Jeremy and his father'),

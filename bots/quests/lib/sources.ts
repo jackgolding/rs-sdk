@@ -88,6 +88,21 @@ export const GROUPS: Record<string, Array<{ item: string; skill: string; level: 
     ],
     /** Witch's House: worn for the cellar's shock gate, so worn ones count. */
     'leather gloves': [{ item: 'leather gloves', skill: 'defence', level: 1 }],
+    /** Fight Arena's magic kit: a staff that is an endless fire rune source. */
+    'fire staff': [
+        { item: 'fire battlestaff', skill: 'magic', level: 30 },
+        { item: 'staff of fire', skill: 'magic', level: 1 },
+    ],
+    /** Woodcutting: the best axe the account can use (axes.dbrow levels). Lost City also chops with one. */
+    axe: [
+        { item: 'rune axe', skill: 'woodcutting', level: 41 },
+        { item: 'adamant axe', skill: 'woodcutting', level: 31 },
+        { item: 'mithril axe', skill: 'woodcutting', level: 21 },
+        { item: 'black axe', skill: 'woodcutting', level: 11 },
+        { item: 'steel axe', skill: 'woodcutting', level: 6 },
+        { item: 'iron axe', skill: 'woodcutting', level: 1 },
+        { item: 'bronze axe', skill: 'woodcutting', level: 1 },
+    ],
     /** Pirate's Treasure: worn into Wydin's back room, so worn ones count. */
     'white apron': [{ item: 'white apron', skill: 'defence', level: 1 }],
     /** Black Knights' Fortress: the guard disguise is worn, so worn ones count. */
@@ -98,6 +113,14 @@ export const GROUPS: Record<string, Array<{ item: string; skill: string; level: 
 const LUMBRIDGE_GENERAL_STORE = { x: 3211, z: 3246, npc: /shop\s*(keeper|assistant)/i };
 /** Bob's Brilliant Axes: bronze pickaxe 1gp, stock 5 (wiki/shops/bobs-brilliant-axes.md). */
 const BOBS_AXES = { x: 3232, z: 3203, npc: /^bob$/i };
+/** Zaff's Superior Staffs, Varrock (varrock.inv staffshop): staff of fire 1500gp, stock 2. */
+const ZAFF = { x: 3203, z: 3433, npc: /^zaff$/i };
+/** Knife ground spawn, Lumbridge castle (m50_50 obj placement). */
+const LUMBRIDGE_KNIFE = { x: 3224, z: 3202 };
+/** Dommik's Crafting Store, Al Kharid: needle and thread 1gp. */
+const DOMMIK = { x: 3322, z: 3194, npc: /^dommik$/i };
+/** Betty's Magic Emporium, Port Sarim: elemental and chaos runes. */
+const BETTY = { x: 3012, z: 3259, npc: /^betty$/i };
 const LUMBRIDGE_CASTLE_STAIRS = { x: 3205, z: 3208 };
 /** Wydin's Food Store, Port Sarim: pot of flour 10gp (stock 3), redberries 3gp (stock 1). */
 const WYDIN = { x: 3014, z: 3204, npc: /^wydin$/i };
@@ -136,7 +159,7 @@ function ore(name: Ore): Source {
 }
 
 /** Where an npc that always drops `item` can be killed for it. */
-interface HuntSpot {
+export interface HuntSpot {
     x: number;
     z: number;
     npc: RegExp;
@@ -380,6 +403,49 @@ export const SOURCES: Record<string, Source> = {
     shark: { mule: true },
     /** khazard_barman.rs2 only sells it once the bored guard has talked: bought inside the quest step. */
     'khali brew': { spawnable: false },
+
+    // ── Fight Arena's magic kit
+    'fire staff': {
+        obj: 'staff_of_fire',
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 1500 }],
+        get: async (q) => {
+            await q.ensure('coins', 1500);
+            await buyWaitingForRestock(q, ZAFF, 'staff of fire', 1);
+        },
+    },
+    'air rune': runes('air rune', 4),
+    'chaos rune': runes('chaos rune', 15),
+    // ── Tools for the skill trainers (lib/training.ts) and Lost City
+    axe: {
+        obj: 'bronze_axe',
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 16 }],
+        get: async (q) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, BOBS_AXES, 'bronze axe', 1);
+        },
+    },
+    knife: { tool: true, get: (q, count) => pickUpSpawn(q, LUMBRIDGE_KNIFE, 'knife', count) },
+    needle: {
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 1 }],
+        get: async (q) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, DOMMIK, 'needle', 1);
+        },
+    },
+    thread: {
+        inputs: (count) => [{ item: 'coins', count }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, DOMMIK, 'thread', count);
+        },
+    },
+    'fire rune': runes('fire rune', 4),
+    'earth rune': runes('earth rune', 4),
+    /** Not sold near any hub (the Magic Guild store needs 66 Magic): mule stock, like the Telegrab laws. */
+    'law rune': { obj: 'lawrune', mule: true },
 
     shears: {
         tool: true,
@@ -898,6 +964,24 @@ async function spinBatch(q: Quest): Promise<void> {
     await q.bot.dismissBlockingUI();
 }
 
+/** Runes from Betty's (Port Sarim), `price` each. */
+function runes(item: string, price: number): Source {
+    return {
+        obj: item.replace(/ /g, ''),
+        // Shop prices climb as the stock runs down: half again over list price covers a big order.
+        inputs: (count) => [{ item: 'coins', count: Math.ceil(price * count * 1.5) }],
+        get: async (q, count) => {
+            // In batches, topping coins up before each: a 30-rune chaos order ran out of
+            // coins at 29 as the price climbed (2026-10-29).
+            for (let batch = 0; batch < 40 && q.count(item) < count; batch++) {
+                const want = Math.min(count, q.count(item) + 25);
+                await q.ensure('coins', Math.ceil(price * (want - q.count(item)) * 2));
+                await buyWaitingForRestock(q, BETTY, item, want);
+            }
+        },
+    };
+}
+
 /**
  * Newest game-message cursor, taken before an action so only replies to it match.
  * Message ticks are not state.tick: comparing the two matched stale escapes and
@@ -955,7 +1039,7 @@ interface HuntOptions {
  * else is fighting that"). attack() returns once combat starts, so each kill is
  * waited out by its drop appearing or the npc leaving.
  */
-async function huntDrop(q: Quest, spot: HuntSpot, item: string, count: number, opts: HuntOptions = {}): Promise<void> {
+export async function huntDrop(q: Quest, spot: HuntSpot, item: string, count: number, opts: HuntOptions = {}): Promise<void> {
     const pattern = opts.alsoLoot ? new RegExp(`${itemPattern(item).source}|${opts.alsoLoot.source}`, 'i') : itemPattern(item);
     const looted = () => (opts.alsoLoot ? q.count(opts.alsoLoot) : 0) + q.count(item);
     const patience = opts.patience ?? HUNT_PATIENCE_TICKS;

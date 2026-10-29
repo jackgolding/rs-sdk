@@ -54,6 +54,7 @@ import { talkThrough } from './dialog';
 import { enterStuckArea, leaveStuckArea } from './doors';
 import { escapeMaze, inLeverMaze, leaveManor, onManorGround } from './draynor-manor';
 import { fortressRoom, leaveFortress } from './fortress';
+import { inArenaCompound, leaveArena } from './fight-arena';
 import { inEssenceMine, leaveEssenceMine } from './mining';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { acquireQuestSlot, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -348,8 +349,10 @@ export async function runQuest(def: QuestDef): Promise<void> {
             log('already complete — nothing to do');
             return summarizeRun(run.directory).ok;
         }
-        if (def.skills && !requireSkills({ sdk, bot, session, log }, def.skills).ok) {
-            throw new Error('skill gate: account cannot do this quest yet');
+        // Skills with a trainer (lib/training.ts) are trained in the prologue; the rest gate the run.
+        const untrainable = Object.fromEntries(Object.entries(def.skills ?? {}).filter(([skill]) => !TRAINERS[skill]));
+        if (Object.keys(untrainable).length && !requireSkills({ sdk, bot, session, log }, untrainable).ok) {
+            throw new Error(`skill gate: account cannot do this quest yet (needs ${Object.entries(untrainable).map(([s, l]) => `${s} ${l}`).join(', ')})`);
         }
 
         const q: Quest = {
@@ -396,6 +399,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inEssenceMine(sdk.getState()!) && !inEssenceMine({ player: { worldX: tile.x, worldZ: tile.z } })) await leaveEssenceMine(q);
                 const room = fortressRoom(q);
                 if (room && room !== 'outside' && (Math.abs(tile.x - 3022) > 15 || Math.abs(tile.z - 3512) > 15)) await leaveFortress(q);
+                // Fight Arena's pen, cells and corridor: out by their own doors first.
+                if (inArenaCompound(pos()) && !inArenaCompound({ ...tile, level: tile.level ?? 0 })) await leaveArena(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in
@@ -572,6 +577,17 @@ export async function runQuest(def: QuestDef): Promise<void> {
         await q.goTo(hub, 4);
         const startAt = pos();
         await depositAllInventory(q.supply);
+        // QuestDef.skills below their level: train them now, naked but for the trainers'
+        // tools, then come back to the hub for the quest's own withdrawals.
+        const toTrain = Object.entries(def.skills ?? {}).filter(([skill, level]) => TRAINERS[skill] && q.level(skill) < level);
+        if (toTrain.length && !prepareOnly) {
+            if (!spawn) await withdrawTowardNeeds(q, [{ from: '', to: '', needs: toTrain.flatMap(([skill]) => TRAINERS[skill]!.needs) }]);
+            await bot.closeBank().catch(() => undefined);
+            for (const [skill, level] of toTrain) await q.ensureLevel(skill, level);
+            if (pos().level !== 0) await q.climbTo(0);
+            await q.goTo(hub, 4);
+            await depositAllInventory(q.supply);
+        }
         if (!spawn) await withdrawTowardNeeds(q, def.transitions.slice(def.transitions.findIndex((t) => t.from === start)));
         for (const item of def.carry ?? []) {
             // A number is an obj id, for items that share a name (Demon Slayer's three "Key"s).
@@ -628,6 +644,17 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (def.task && !prepareOnly) {
             await session.setPhase(def.id);
             await def.task(q);
+        }
+
+        // The prologue's own walk can move the quest on (Fight Arena: leaving the pen at
+        // defeated_scorpion means fighting Bouncer first). Re-read before the first transition.
+        if (!isTask && !prepareOnly) {
+            const now = await readStage();
+            if (now && now !== q.stage) {
+                log(`stage after prologue: ${now} (was ${q.stage})`);
+                q.stage = now;
+                if (!recorded.has(now)) await checkpoint(now);
+            }
         }
 
         // ── transitions until the journal says complete

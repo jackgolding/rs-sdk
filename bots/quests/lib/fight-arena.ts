@@ -24,6 +24,7 @@
  */
 import type { NearbyNpc } from '../../../sdk/types';
 import type { Quest } from './run-quest';
+import type { Need } from './sources';
 import { driveDialog } from './dialog';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 
@@ -140,10 +141,124 @@ export async function wearDisguise(q: Quest): Promise<void> {
     await wear(q, ARMOUR);
 }
 
-/** Bow in hand, arrows in the quiver (player_ranged.rs2 takes ammo from the quiver slot only). */
-async function wearBow(q: Quest): Promise<void> {
-    await wear(q, /^magic shortbow$/i);
-    await wear(q, /^rune arrow$/i);
+// ── Fight kits
+//
+// The pen fights (ogre 63, scorpion 44, Bouncer 137) take whichever kit the account
+// can equip and stock, first match wins:
+//   melee   dragon longsword (Lost City, Attack 60) + 20 sharks, Protect from Melee
+//           (Prayer 43), prayer topped up at the altar north of the arena
+//   magic   staff of fire / fire battlestaff (bank, else bought at Zaff's) + Fire Bolt
+//           (Magic 35) runes: 300 air, 100 chaos (Betty's, Port Sarim)
+//   ranged  magic shortbow (Ranged 50) + 150 rune arrows + 10 sharks (mule stock)
+
+export type KitName = 'melee' | 'magic' | 'ranged';
+
+const KITS: Record<KitName, Need[]> = {
+    melee: [
+        { item: 'dragon longsword', count: 1 },
+        { item: 'shark', count: 20 },
+    ],
+    magic: [
+        { item: 'fire staff', count: 1 },
+        { item: 'air rune', count: 300 },
+        { item: 'chaos rune', count: 100 },
+    ],
+    ranged: [
+        { item: 'magic shortbow', count: 1 },
+        { item: 'rune arrow', count: 150 },
+        { item: 'shark', count: 10 },
+    ],
+};
+const WEAPON: Record<KitName, RegExp> = {
+    melee: /^dragon longsword$/i,
+    magic: /^(staff of fire|fire battlestaff)$/i,
+    ranged: /^magic shortbow$/i,
+};
+
+let chosen: KitName | null = null;
+let noKitLogged = false;
+
+/** Held, worn or banked (the bank counts while it is open: the prologue's withdrawal). */
+function stock(q: Quest, item: RegExp): number {
+    const all = [...q.sdk.getInventory(), ...q.sdk.getEquipment(), ...(q.sdk.getState()?.bank?.isOpen ? q.sdk.getBankItems() : [])];
+    return all.filter((i) => item.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0);
+}
+
+function pickKit(q: Quest): KitName {
+    const lvl = (s: string) => q.level(s);
+    const sharks = stock(q, /^shark$/i);
+    if (stock(q, WEAPON.melee) > 0 && lvl('attack') >= 60 && lvl('prayer') >= 43 && sharks >= 20) return 'melee';
+    // Runes and the staff are bought (coins are pickpocketed when short): only Magic 35 matters.
+    if (lvl('magic') >= 35) return 'magic';
+    if (lvl('ranged') >= 50 && stock(q, WEAPON.ranged) > 0 && stock(q, /^rune arrow$/i) >= 150 && sharks >= 10) return 'ranged';
+    // None fits. The ranged kit is all mule stock: asking for it names what to stock.
+    if (!noKitLogged) q.log(
+        `arena: no fight kit fits (attack ${lvl('attack')}, prayer ${lvl('prayer')}, magic ${lvl('magic')}, ranged ${lvl('ranged')}, ` +
+            `dragon longsword ${stock(q, WEAPON.melee)}, magic shortbow ${stock(q, WEAPON.ranged)}, rune arrows ${stock(q, /^rune arrow$/i)}, sharks ${sharks}) — ` +
+            'needs Magic 35, or Ranged 50 with the ranged kit stocked, or a dragon longsword with Attack 60 / Prayer 43 / 20 sharks'
+    );
+    noKitLogged = true;
+    return 'ranged';
+}
+
+/**
+ * The chosen kit's needs, until its weapon is worn (the fight has begun: arrows
+ * then sit in the quiver, runes and sharks get used). The choice is made once,
+ * the first time the bank is open (the prologue), and logged.
+ */
+export function kitNeeds(q: Quest): Need[] {
+    if (!chosen && q.sdk.getState()?.bank?.isOpen) {
+        chosen = pickKit(q);
+        q.log(`arena: fight kit ${chosen}`);
+    }
+    const kit = chosen ?? pickKit(q);
+    if (q.sdk.getEquipment().some((i) => WEAPON[kit].test(i.name))) return [];
+    return KITS[kit];
+}
+
+const kitName = (q: Quest): KitName => chosen ?? pickKit(q);
+
+/** Prayer altars north of the arena (maps m40_50): topped up before the pens for Protect from Melee. */
+const ALTAR = { x: 2605, z: 3209 };
+
+async function restorePrayer(q: Quest): Promise<void> {
+    const pr = q.sdk.getState()?.prayers;
+    if (!pr || pr.prayerPoints >= pr.prayerLevel * 0.7) return;
+    await q.goTo(ALTAR, 2);
+    await q.sdk.scanNearbyLocs(6).catch(() => undefined);
+    const altar = q.sdk.findNearbyLoc(/^altar$/i, { withOption: /pray/i });
+    if (!altar) throw new Error(`arena: no altar near (${ALTAR.x},${ALTAR.z})`);
+    await q.bot.interactLoc(altar, /pray/i);
+    await untilTicks(q.sdk, (s) => (s.prayers?.prayerPoints ?? 0) >= (s.prayers?.prayerLevel ?? 99), 10);
+    q.log(`arena: prayer ${q.sdk.getState()?.prayers?.prayerPoints}/${q.sdk.getState()?.prayers?.prayerLevel} at the altar`);
+}
+
+/** Wield the kit's weapon (and quiver the arrows). */
+async function wearKit(q: Quest): Promise<void> {
+    const kit = kitName(q);
+    await wear(q, WEAPON[kit]);
+    if (kit === 'ranged') await wear(q, /^rune arrow$/i);
+}
+
+/** Before walking into the pens: a full prayer bar for Protect from Melee (Prayer 43). */
+async function readyKit(q: Quest): Promise<void> {
+    if ((q.sdk.getState()?.prayers?.prayerLevel ?? 0) >= 43) await restorePrayer(q);
+    await wearKit(q);
+}
+
+/** Spellbook component id of Fire Bolt (sdk/spells.ts Spells.FIRE_BOLT). */
+const FIRE_BOLT = 1169;
+
+/** One attack with the kit: melee/ranged swing, magic casts Fire Bolt. */
+async function strike(q: Quest, mob: NearbyNpc): Promise<{ success: boolean; message?: string }> {
+    // Every pen mob fights in melee: Protect from Melee whenever the account has it
+    // (a magic-kit run without food finished Bouncer at 9 hp, 2026-10-29).
+    const pr = q.sdk.getState()?.prayers;
+    if (pr && pr.prayerLevel >= 43 && pr.prayerPoints > 0 && !pr.activePrayers?.[14]) {
+        await q.bot.activatePrayer('protect_from_melee').catch(() => undefined);
+    }
+    if (kitName(q) === 'magic' && q.sdk.getEquipment().some((i) => WEAPON.magic.test(i.name))) return q.bot.castSpell(mob, FIRE_BOLT, ticksToMs(8));
+    return q.bot.attack(mob, ticksToMs(10));
 }
 
 // ── Steps
@@ -202,9 +317,9 @@ export async function buyBrew(q: Quest): Promise<void> {
 /** Into the cell wing (in disguise), keys on Jeremy's door: he is freed and you are both walked into the pen. */
 export async function freeJeremy(q: Quest): Promise<void> {
     await wearDisguise(q);
-    await wearBow(q);
     if (!inWing(pos(q)) && !inPen(pos(q))) {
         await leaveGuardRoom(q);
+        await readyKit(q);
         await q.goTo(WING_DOOR_OUTSIDE, 1);
         await op(q, WING_DOOR, /door/i, /^open$/i, () => inWing(pos(q)), 'cell wing door in');
     }
@@ -235,7 +350,8 @@ const penMob = (q: Quest, name: RegExp): NearbyNpc | undefined =>
 async function eatIfLow(q: Quest): Promise<void> {
     const p = q.sdk.getState()?.player;
     if (!p || p.hp > (p.maxHp ?? 99) * 0.65) return;
-    const food = q.sdk.findInventoryItem(/^shark$/i);
+    // Whatever the account carries that can be eaten (the magic kit brings none of its own).
+    const food = q.sdk.getInventory().find((i) => i.optionsWithIndex.some((o) => /^eat$/i.test(o.text)));
     if (!food) return;
     await q.bot.eatFood(food).catch(() => undefined);
 }
@@ -247,7 +363,9 @@ async function eatIfLow(q: Quest): Promise<void> {
  */
 export async function penFight(q: Quest, name: RegExp, label: string, then?: RegExp): Promise<void> {
     if (!inPen(pos(q))) throw new Error(`arena: ${label}: not in the pen (${where(q)})`);
-    await wearBow(q);
+    // Not fatal: a bot dropped in the pen without its kit (a resumed run, the prologue's
+    // way out) still fights with whatever it has.
+    await wearKit(q).catch((e) => q.log(`arena: ${label}: ${e instanceof Error ? e.message : String(e)} — fighting with what is worn`));
     await settle(q, 1);
     const t0 = tickNow(q.sdk);
     let attacks = 0;
@@ -284,9 +402,11 @@ export async function penFight(q: Quest, name: RegExp, label: string, then?: Reg
         fought = mob.index;
         await eatIfLow(q);
         const me = q.sdk.getState()?.player;
-        if (!me?.combat?.inCombat || me.combat.targetIndex !== mob.index) {
+        // Spells are cast one at a time; a melee or ranged attack keeps going on its own.
+        const casting = kitName(q) === 'magic' && q.sdk.getEquipment().some((i) => WEAPON.magic.test(i.name));
+        if (casting || !me?.combat?.inCombat || me.combat.targetIndex !== mob.index) {
             attacks++;
-            const res = await q.bot.attack(mob, ticksToMs(10));
+            const res = await strike(q, mob);
             if (!res.success) q.log(`arena: ${label} attack #${attacks}: ${res.message}`);
         }
         await q.sdk.waitForTicks(2);
@@ -318,6 +438,7 @@ export async function toPen(q: Quest): Promise<void> {
     if (inPen(pos(q))) return;
     if (inCells(pos(q))) return hengradToPen(q);
     await wearDisguise(q).catch(() => undefined);
+    await readyKit(q);
     if (inGuardRoom(pos(q)) || inCorridor(pos(q))) await leaveGuardRoom(q);
     await q.goTo(WEST_DOOR_OUTSIDE, 1);
     await op(q, WEST_DOOR, /door/i, /^open$/i, () => inPen(pos(q)), 'west door back into the pen');
@@ -332,6 +453,45 @@ export async function talkJeremyArena(q: Quest, choices: RegExp[] = []): Promise
 
 /** Out of the pen through fightarena_door2 (from inside it forcemoves you to 2607,3151). */
 export async function leavePen(q: Quest): Promise<void> {
+    await q.bot.deactivateAllPrayers().catch(() => undefined);
     if (inPen(pos(q))) await op(q, ARENA_DOOR, /door/i, /^open$/i, () => !inPen(pos(q)), 'arena door out');
+    await leaveGuardRoom(q);
+}
+
+// ── Out of the arena from anywhere (goTo calls this when a walk starts inside)
+
+/** Pen, cell wing, cells, jail corridor, guard and back rooms: walkTo has no way out of any of them. */
+export function inArenaCompound(t: Tile & { level?: number }): boolean {
+    if ((t.level ?? 0) !== 0) return false;
+    return inPen(t) || inWing(t) || inCells(t) || inCorridor(t) || inGuardRoom(t) || inBackRoom(t);
+}
+
+const ANY_PEN_MOB = /^(khazard ogre|khazard scorpion|bouncer)$/i;
+
+/**
+ * Leave the compound by its own doors. From the pen, fightarena_door2 lets you out
+ * except while a fight is owed (sent_jail / defeated_scorpion push you back and
+ * release the next mob): then the mob is fought and the door tried again. A canary
+ * misread its stage in the pen and walked at the corridor door from (2584,3153)
+ * ("unroutable", ABGARMY17, 2026-10-29).
+ */
+export async function leaveArena(q: Quest): Promise<void> {
+    for (let round = 0; round < 4 && inPen(pos(q)); round++) {
+        // The door is out of scan range from the pen's far side (2584,3153).
+        if (Math.hypot(pos(q).x - ARENA_DOOR.x, pos(q).z - ARENA_DOOR.z) > 6) await chord(q, { x: 2603, z: 3155 }, 'across the pen', 2).catch((e) => q.log(String(e)));
+        await op(q, ARENA_DOOR, /door/i, /^open$/i, () => !inPen(pos(q)) || !!penMob(q, ANY_PEN_MOB), 'arena door out').catch((e) => q.log(String(e)));
+        await settle(q, 2);
+        if (inPen(pos(q)) && penMob(q, ANY_PEN_MOB)) await penFight(q, ANY_PEN_MOB, 'pen mob on the way out');
+    }
+    if (inPen(pos(q))) throw new Error(`arena: still in the pen at ${where(q)}`);
+    if (inWing(pos(q))) {
+        await q.bot.walkTo(WING_DOOR.x, WING_DOOR.z, 0);
+        await op(q, WING_DOOR, /door/i, /^open$/i, () => !inWing(pos(q)), 'cell wing door out');
+    }
+    if (inCells(pos(q))) {
+        // The cells only open for the quest's own march to the pen (Hengrad, at sent_jail).
+        await hengradToPen(q);
+        return leaveArena(q);
+    }
     await leaveGuardRoom(q);
 }
