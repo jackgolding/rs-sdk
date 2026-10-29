@@ -59,6 +59,10 @@ const SEDRIDOR_START = [/looking for the head wizard/i, /ok, here you are/i, /ye
 await runQuest({
     id: 'runemysteries',
     hub: 'draynor',
+    // Handed over by the quest and needed at the next NPC. A resumed run's naked prologue
+    // banks them, and Sedridor's dialog never reaches the package without the talisman
+    // (ABGARMY07 failed started -> received_package three times, 2026-10-29).
+    carry: ['air talisman', 'research package', 'notes'],
     journal: { label: 'Rune Mysteries Quest', title: 'Rune Mysteries' },
     stages: [
         { id: 'unstarted', rule: { id: 'runemysteries:unstarted', kind: 'unstarted', all: ['I can start this quest by speaking to'] } },
