@@ -418,6 +418,35 @@ export async function runQuest(def: QuestDef): Promise<void> {
                         await viaTravel();
                         res = await bot.walkTo(tile.x, tile.z, tolerance);
                     }
+                    // Shut in a building whose door walkTo will not open (jacklove13 at 3035,3230 in
+                    // Port Sarim, "unroutable … locked door or separate room?", 2026-10-29): open the
+                    // nearest closed door or gate we can reach and walk again, a few times.
+                    for (let d = 0; d < 3 && !res.success && away(tile) > tolerance; d++) {
+                        await sdk.scanNearbyLocs(10).catch(() => undefined);
+                        const door = (sdk.getNearbyLocs() ?? [])
+                            .filter((l) => /door|gate/i.test(l.name) && l.options?.some((o) => /^open$/i.test(o)) && l.reachable !== false && (l.distance ?? 99) <= 10)
+                            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+                        // A moored ship's hold (jacklove13 at 3035,3230 was below decks at Port
+                        // Sarim): up the ship's ladder, then over the gangplank.
+                        const shipLadder = door ? undefined : (sdk.getNearbyLocs() ?? []).find((l) => /ship's ladder/i.test(l.name) && l.options?.some((o) => /climb-up/i.test(o)) && l.reachable !== false);
+                        if (!door && !shipLadder) break;
+                        if (door) {
+                            log(`opening ${door.name} at (${door.x},${door.z}) to get out of (${pos().x},${pos().z})`);
+                            await bot.openDoor(door).catch(() => undefined);
+                        } else if (shipLadder) {
+                            log(`below decks at (${pos().x},${pos().z}): up the ship's ladder and over the gangplank`);
+                            const lvl = pos().level;
+                            await bot.interactLoc(shipLadder, /climb-up/i).catch(() => undefined);
+                            await untilTicks(sdk, () => pos().level !== lvl, 15);
+                            for (let i = 0; i < 4 && pos().level !== 0; i++) {
+                                await sdk.scanNearbyLocs(10).catch(() => undefined);
+                                const plank = sdk.findNearbyLoc(/gangplank/i, { withOption: /cross/i });
+                                if (plank) await bot.interactLoc(plank, /cross/i).catch(() => undefined);
+                                await untilTicks(sdk, () => pos().level === 0, 10);
+                            }
+                        }
+                        res = await bot.walkTo(tile.x, tile.z, tolerance);
+                    }
                     if (!res.success) throw new Error(`approach to (${tile.x},${tile.z}) failed: ${res.message}`);
                 }
                 log(`goTo (${tile.x},${tile.z}) from (${from.x},${from.z}): ${tickNow(sdk) - t0}t`);
