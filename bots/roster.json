@@ -627,9 +627,9 @@
       "args": [
         "jackquests",
         "--then",
-        "bots/quests/melee-lumbridge.ts",
+        "bots/quests/quest-mule.ts",
         "jackquests",
-        "--mail=66"
+        "--serve-only"
       ]
     }
   ]

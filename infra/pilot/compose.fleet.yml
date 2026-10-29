@@ -1593,7 +1593,7 @@ services:
   quest-jackquests:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "jackquests", "--then", "bots/quests/melee-lumbridge.ts", "jackquests", "--mail=66"]
+    command: ["bun", "bots/quests/todo-runner.ts", "jackquests", "--then", "bots/quests/quest-mule.ts", "jackquests", "--serve-only"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
