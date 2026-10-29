@@ -52,7 +52,7 @@ import { GROUPS, itemPattern, needMet, SOURCES, type Need } from './sources';
 import { TRAINERS } from './training';
 import { talkThrough } from './dialog';
 import { enterStuckArea, leaveStuckArea } from './doors';
-import { escapeMaze, inLeverMaze } from './draynor-manor';
+import { escapeMaze, inLeverMaze, leaveManor, onManorGround } from './draynor-manor';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 
 export type { Need } from './sources';
@@ -199,16 +199,26 @@ export async function runQuest(def: QuestDef): Promise<void> {
 
         /** Up the nearest reachable ladder/stairs until above ground; logs and returns if there is none in view. */
         async function climbOutOfUnderground(): Promise<void> {
-            for (let i = 0; i < 4 && pos().z >= UNDERGROUND_Z; i++) {
-                await sdk.scanNearbyLocs(15).catch(() => undefined);
-                const loc = (sdk.getNearbyLocs() ?? [])
-                    .filter((l) => /stair|ladder/i.test(l.name) && l.options?.some((o) => /climb-up|climb up|walk-up/i.test(o)) && l.reachable !== false)
+            const up = /climb-up|climb up|walk-up/i;
+            const ladderUp = async () => {
+                await sdk.scanNearbyLocs(25).catch(() => undefined);
+                return (sdk.getNearbyLocs() ?? [])
+                    .filter((l) => /stair|ladder/i.test(l.name) && l.options?.some((o) => up.test(o)) && l.reachable !== false)
                     .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+            };
+            for (let i = 0; i < 4 && pos().z >= UNDERGROUND_Z; i++) {
+                let loc = await ladderUp();
+                if (!loc) {
+                    // Shut in a room (the Wizards' Tower basement's side rooms, ABGARMY03
+                    // 2026-10-29): open the doors toward the ladder, as climbTo does.
+                    await q.reach(/stair|ladder/i, up).catch(() => undefined);
+                    loc = await ladderUp();
+                }
                 if (!loc) {
                     log(`underground at (${pos().x},${pos().z}): no reachable ladder/stairs up in view`);
                     return;
                 }
-                await bot.interactLoc(loc, /climb-up|climb up|walk-up/i).catch(() => undefined);
+                await bot.interactLoc(loc, up).catch(() => undefined);
                 if (await untilTicks(sdk, () => pos().z < UNDERGROUND_Z, 30)) log(`climbed ${loc.name} out of the underground to (${pos().x},${pos().z})`);
             }
         }
@@ -319,6 +329,9 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // Draynor Manor's lever maze: its doors hide the ladder from a generic climb
                 // (ABGARMY05/jacklove7/jacklove9 stranded there, 2026-10-29).
                 if (inLeverMaze(q) && tile.z < UNDERGROUND_Z) await escapeMaze(q, tile);
+                // Shut in the manor's bookcase nook or closet: walkTo has no way out of either
+                // (ABGARMY04/07 sat in the nook through four quests, 2026-10-29).
+                if (onManorGround(pos()) && !onManorGround(tile) && tile.z < UNDERGROUND_Z) await leaveManor(q);
                 if (pos().z >= UNDERGROUND_Z && tile.z < UNDERGROUND_Z) await climbOutOfUnderground();
                 // Buildings whose doorway the client map gets wrong (lib/doors.ts).
                 if (away(tile) > tolerance) (await leaveStuckArea(sdk, bot, tile, log)) || (await enterStuckArea(sdk, bot, tile, log));

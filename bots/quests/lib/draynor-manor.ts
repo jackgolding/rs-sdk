@@ -55,6 +55,9 @@ const WAREHOUSE_BOX = { x0: 3120, x1: 3122, z0: 3354, z1: 3360 };
 const NOOK_BOX = { x0: 3088, x1: 3096, z0: 3354, z1: 3366 };
 const CLOSET_BOX = { x0: 3108, x1: 3114, z0: 3365, z1: 3369 };
 
+/** A plane-0 tile inside the manor's ground floor: house, warehouse or the bookcase nook. */
+export const onManorGround = (t: Tile & { level?: number }) =>
+    (t.level ?? 0) === 0 && t.z < 6400 && (inBox(t, MANOR_BOX) || inBox(t, WAREHOUSE_BOX) || inBox(t, NOOK_BOX));
 export const inManor = (q: Quest) => pos(q).z < 6400 && (pos(q).level > 0 || inBox(pos(q), MANOR_BOX) || inBox(pos(q), WAREHOUSE_BOX));
 /**
  * The vampire crypt (Vampire Slayer): stairs.rs2 cryptstairsdown (3115,3357)
