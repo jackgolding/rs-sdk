@@ -614,8 +614,13 @@ const AGGIE = { x: 3086, z: 3259 };
 /** Wyson the gardener, Falador park. */
 const WYSON = { x: 3027, z: 3379 };
 /** Static ground spawns, one each, respawning in 100 ticks (quest-lab-objfind redberries). */
-/** Spots inside the Rellekka onion field; each is within a few tiles of a plant pair. */
+/**
+ * Onion plants: the Rimmington patch beside Melzar's Maze first (12 plants at x 2946-2952,
+ * z 3249-3253, in game 2026-10-29; locfind misses them under another loc id), then the
+ * Rellekka field, an hour's walk from the Lumbridge side.
+ */
 const ONION_FIELD = [
+    { x: 2949, z: 3251 },
     { x: 2681, z: 3666 },
     { x: 2677, z: 3674 },
     { x: 2684, z: 3683 },
