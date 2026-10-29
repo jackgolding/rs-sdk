@@ -44,6 +44,8 @@ const pos = (q: Quest) => {
     return { x: p?.worldX ?? 0, z: p?.worldZ ?? 0, level: p?.level ?? 0 };
 };
 const hasKey = (q: Quest, id: number) => q.sdk.getInventory().some((i) => i.id === id);
+/** In the pack, or in the bank while it is open (the prologue evaluates needs at the bank). */
+const keyHeldOrBanked = (q: Quest, id: number) => hasKey(q, id) || q.sdk.getBankItems().some((i) => i.id === id);
 function cursor(q: Quest): number {
     return Math.max(0, ...(q.sdk.getState()?.gameMessages ?? []).map((m) => m.observationId ?? m.tick));
 }
@@ -228,9 +230,12 @@ await runQuest({
         {
             from: 'key_hunt',
             to: 'keys',
-            needs: [
-                { item: 'bucket of water', count: 1 },
-                { item: 'bones', count: BONES },
+            // Only what the keys still missing need: a resumed run that already holds (or banked)
+            // the drain key needs no bucket, and Traiborn's key no bones. With all of it the pack
+            // overflowed: coins + 25 bones + keys + bucket (jacklove13/15, 2026-10-29).
+            needs: (q) => [
+                ...(keyHeldOrBanked(q, KEY.drain) ? [] : [{ item: 'bucket of water', count: 1 }]),
+                ...(keyHeldOrBanked(q, KEY.traiborn) ? [] : [{ item: 'bones', count: BONES }]),
             ],
             run: async (q) => {
                 await drainKey(q);

@@ -104,7 +104,11 @@ export interface Transition {
     /** Where the transition happens. Walked near (talkTo finishes the approach); assisted runs land on it. */
     at?: Tile;
     /** Items to hold before acting. */
-    needs?: Need[];
+    /**
+     * Items this transition needs. A function is evaluated against the account (inventory,
+     * and the bank while it is open): Demon Slayer drops the 25 bones once Traiborn's key is held.
+     */
+    needs?: Need[] | ((q: Quest) => Need[]);
     talk?: { npc: RegExp; choices?: Array<RegExp | string> };
     /** Extra action after `talk` (or instead of it): use an item, kill an npc, pump a hand-in. */
     run?: (q: Quest) => Promise<void>;
@@ -666,7 +670,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         const remaining = def.transitions.slice(def.transitions.findIndex((t) => t.from === start));
         // Mule-supplied stock first: the prologue has withdrawn what the bank holds, so a
         // shortfall now means the account was never stocked — stop before walking anywhere.
-        const mule = mergeNeeds(remaining.flatMap((t) => t.needs ?? [])).filter((n) => SOURCES[n.item]?.mule);
+        const mule = mergeNeeds(remaining.flatMap((t) => needsOf(t, q))).filter((n) => SOURCES[n.item]?.mule);
         if (spawn) for (const need of mule) if (!needMet(q, need)) await q.ensure(need.item, need.count);
         // A mule-only line with a serving mule (Source.muleSupply: Jackpoo2's iron bars) is asked
         // of that mule before the account counts as unstocked.
@@ -682,7 +686,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         }
         const short = mule.filter((n) => !needMet(q, n)).map((n) => ({ item: n.item, count: n.count - q.count(n.item) }));
         if (short.length) throw new NeedsStock(short);
-        const prep = preparableNeeds(remaining);
+        const prep = preparableNeeds(q, remaining);
         if (prep.length) {
             await session.setPhase('prepare');
             log(`prepare: ${prep.map((n) => `${n.count} ${n.item}`).join(', ')}`);
@@ -721,7 +725,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
             log(`transition ${t.from} → ${t.to} (attempt ${attempts})`);
             await session.setPhase(`${t.from}->${t.to}`);
 
-            for (const need of t.needs ?? []) if (!needMet(q, need)) await q.ensure(need.item, need.count);
+            for (const need of needsOf(t, q)) if (!needMet(q, need)) await q.ensure(need.item, need.count);
             if (t.talk) await q.talk(t.talk.npc, t.talk.choices ?? [], t.at);
             else if (t.at) await q.goTo(t.at, teleport ? 2 : 4);
             if (t.run) await t.run(q);
@@ -818,7 +822,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
  * (shears for wool, coins for shears), recursively.
  */
 async function withdrawTowardNeeds(q: Quest, transitions: Transition[]): Promise<void> {
-    const want = mergeNeeds(transitions.flatMap((t) => t.needs ?? []));
+    const want = mergeNeeds(transitions.flatMap((t) => needsOf(t, q)));
 
     // Consumed items add up across everything that claims them (Goblin Diplomacy:
     // the orange and the blue mail each use up one goblin mail, the hand-in needs a
@@ -861,9 +865,14 @@ function mergeNeeds(needs: Need[]): Need[] {
     return [...out.values()];
 }
 
+/** A transition's needs, evaluated now when they depend on the account. */
+function needsOf(t: Transition, q: Quest): Need[] {
+    return typeof t.needs === 'function' ? t.needs(q) : (t.needs ?? []);
+}
+
 /** Needs the prepare phase can produce: those with a source that is not quest-tracked. Max count per item. */
-function preparableNeeds(transitions: Transition[]): Need[] {
-    return mergeNeeds(transitions.flatMap((t) => t.needs ?? [])).filter((n) => {
+function preparableNeeds(q: Quest, transitions: Transition[]): Need[] {
+    return mergeNeeds(transitions.flatMap((t) => needsOf(t, q))).filter((n) => {
         const source = SOURCES[n.item];
         return source?.get && source.spawnable !== false;
     });
