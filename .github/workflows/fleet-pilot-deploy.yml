@@ -119,4 +119,8 @@ jobs:
                 fi
               done
             fi
+            # The desk runs on the host from this checkout: reload it when it changed.
+            if git -C /srv/fleet/repo diff --name-only "$BEFORE" "$NOW" -- tools/fleet-desk | grep -q .; then
+              systemctl restart fleet-desk && echo "fleet-desk restarted"
+            fi
             docker compose -f compose.fleet.yml ps

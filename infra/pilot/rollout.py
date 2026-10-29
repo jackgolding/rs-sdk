@@ -48,14 +48,18 @@ def main():
     extra = sys.argv[3:]
     changed = sh("git", "diff", "--name-only", before, now).split()
 
-    build_triggers = ("sdk/", "server/", "tools/fleet-desk/", "quest-lab/")
+    build_triggers = ("sdk/", "server/", "quest-lab/")
     # Of the wake-fleet scripts the image only runs roster + launchd-info
     # (handoff.ts -> fleet-desk/roster-edit). The shepherd, status and verdict
     # run on the host from /srv/fleet/repo, so the git pull above deploys them;
     # rebuilding and rolling every bot for them restarted the fleet for nothing.
+    # The desk itself (server.ts, quests.ts, public/) runs on the host as
+    # fleet-desk.service; the image only runs roster-edit (via handoff.ts), which
+    # imports nothing else. A desk-only change restarts the desk, not 96 services.
     image_wake_fleet = {
         ".cursor/skills/wake-fleet/scripts/roster.ts",
         ".cursor/skills/wake-fleet/scripts/launchd-info.ts",
+        "tools/fleet-desk/roster-edit.ts",
     }
     need_build = any(
         (c.startswith(build_triggers) and not c.startswith("sdk/test/"))

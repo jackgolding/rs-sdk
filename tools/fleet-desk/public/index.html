@@ -193,6 +193,20 @@
   .lvl99 { font-weight: 700; color: var(--focus); }
   .lvl1 { color: #6d675e; }
   .num { text-align: right; }
+  #quest-goal { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  #quest-goal b { color: var(--focus); font-size: 15px; }
+  #quest-goal .bad b { color: var(--bad); }
+  #quest-goal .spark { display: inline-flex; align-items: flex-end; gap: 2px; height: 22px; vertical-align: middle; }
+  #quest-goal .spark i { display: block; width: 6px; background: var(--brass); border-radius: 1px 1px 0 0; }
+  #quests th.q { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; font-weight: 500; padding: 6px 2px; }
+  #quests th.q small { color: var(--muted); }
+  #quests td.qc { text-align: center; padding: 3px 2px; min-width: 22px; }
+  .qc.done { color: var(--good); }
+  .qc.running { color: var(--focus); }
+  .qc.queued { color: #6d675e; }
+  .qc.retrying { color: var(--warn); }
+  .qc.failed { color: var(--bad); font-weight: 700; }
+  .qc.stock { color: var(--paused); }
   #toast {
     position: fixed;
     right: 16px;
@@ -345,6 +359,7 @@
     <div class="tabs">
       <button type="button" id="tab-fleet" aria-pressed="true">Fleet</button>
       <button type="button" id="tab-stats" aria-pressed="false">Stats</button>
+      <button type="button" id="tab-quests" aria-pressed="false">Quests</button>
     </div>
     <input id="q" type="search" placeholder="Search accounts" />
     <select id="view"></select>
@@ -381,6 +396,13 @@
       <thead><tr id="stats-head"></tr></thead>
       <tbody></tbody>
     </table>
+    <div id="quests-wrap" hidden>
+      <div id="quest-goal" class="muted">Loading quests…</div>
+      <table id="quests">
+        <thead><tr id="quests-head"></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
   </div>
 </main>
 <div id="toast"></div>
@@ -897,6 +919,86 @@ function renderStats() {
   }
 }
 
+const QUEST_MARK = { done: '✓', running: '▶', queued: '·', retrying: '↻', failed: '✗', stock: '$' };
+const QUEST_WORD = {
+  done: 'done',
+  running: 'running now',
+  queued: 'queued',
+  retrying: 'failed once, will retry',
+  failed: 'gave up after 2 failures',
+  stock: 'needs mule stock',
+};
+let questsLoading = false;
+
+async function loadQuests() {
+  if (questsLoading) return;
+  questsLoading = true;
+  try {
+    const res = await fetch('/api/quests');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    state.quests = await res.json();
+  } catch (err) {
+    state.questsError = String(err);
+  } finally {
+    questsLoading = false;
+  }
+  if (state.tab === 'quests') render();
+}
+
+function renderQuests() {
+  const goal = $('quest-goal');
+  const data = state.quests;
+  if (!data) {
+    goal.textContent = state.questsError ? `Quests unavailable: ${state.questsError}` : 'Loading quests…';
+    return;
+  }
+  const g = data.goal;
+  const since = new Date(data.since).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const peak = Math.max(1, ...g.perHour.map((h) => h.count));
+  const spark = el('span', { class: 'spark', title: g.perHour.map((h) => `${new Date(h.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ${h.count}`).join('\n') },
+    g.perHour.map((h) => el('i', { style: `height:${Math.max(2, Math.round((h.count / peak) * 22))}px` })));
+  const stat = (n, label, bad) => el('span', { class: bad && n ? 'bad' : '' }, [el('b', { text: String(n) }), ` ${label}`]);
+  goal.className = '';
+  goal.replaceChildren(
+    stat(g.completedSince, `quests completed since ${since}`),
+    spark,
+    stat(g.completedLastHour, 'in the last hour'),
+    stat(g.running, 'running'),
+    stat(g.queued, 'queued'),
+    stat(g.failedLastHour, 'failed in the last hour', true),
+    stat(g.stock, 'waiting on mule stock', true),
+    el('span', { class: 'muted', text: `· ${new Date(data.generatedAt).toLocaleTimeString()}` }),
+  );
+  $('quests-head').replaceChildren(
+    el('th', { class: 'account', text: 'Account' }),
+    ...data.columns.map((c) => el('th', { class: 'q', title: `${c.label}: ${c.done} done of ${c.listed} queued` }, [
+      `${c.label} `, el('small', { text: `${c.done}/${c.listed}` }),
+    ])),
+  );
+  const q = $('q').value.trim().toLowerCase();
+  const body = document.querySelector('#quests tbody');
+  body.replaceChildren();
+  for (const row of data.rows) {
+    if (q && !row.name.toLowerCase().includes(q)) continue;
+    const failed = Object.values(row.cells).some((c) => c.state === 'failed');
+    body.append(el('tr', { class: failed ? 'bad' : '' }, [
+      el('td', { class: 'account' }, [
+        el('button', { type: 'button', class: 'name-btn', text: row.name, title: 'Open map', onclick: () => openMap(row.name) }),
+        el('div', { class: 'muted', text: row.running ? `▶ ${data.columns.find((c) => c.id === row.running)?.label ?? row.running}` : '' }),
+      ]),
+      ...data.columns.map((c) => {
+        const cell = row.cells[c.id];
+        if (!cell) return el('td', { class: 'qc' });
+        return el('td', {
+          class: `qc ${cell.state}`,
+          text: QUEST_MARK[cell.state],
+          title: `${row.name} · ${c.label}: ${QUEST_WORD[cell.state]}${cell.note ? ` (${cell.note})` : ''}`,
+        });
+      }),
+    ]));
+  }
+}
+
 function render(opts) {
   const fleet = state.fleet;
   if (!fleet) return;
@@ -931,7 +1033,9 @@ function render(opts) {
   view.value = [...view.options].some((option) => option.value === current) ? current : 'all';
   $('fleet').hidden = state.tab !== 'fleet';
   $('stats').hidden = state.tab !== 'stats';
+  $('quests-wrap').hidden = state.tab !== 'quests';
   if (state.tab === 'fleet') renderFleet(opts);
+  else if (state.tab === 'quests') renderQuests();
   else renderStats();
   wrap.scrollTop = scrollTop;
   wrap.scrollLeft = scrollLeft;
@@ -963,6 +1067,7 @@ async function refreshNow() {
   setRefreshing(true);
   try {
     await loadFleet(true);
+    if (state.tab === 'quests') await loadQuests();
   } catch (err) {
     showToast('Refresh failed', err.message, 'bad');
   } finally {
@@ -1354,11 +1459,14 @@ function setTab(tab) {
   state.tab = tab;
   $('tab-fleet').setAttribute('aria-pressed', String(tab === 'fleet'));
   $('tab-stats').setAttribute('aria-pressed', String(tab === 'stats'));
+  $('tab-quests').setAttribute('aria-pressed', String(tab === 'quests'));
+  if (tab === 'quests') loadQuests();
   render();
 }
 
 $('tab-fleet').onclick = () => setTab('fleet');
 $('tab-stats').onclick = () => setTab('stats');
+$('tab-quests').onclick = () => setTab('quests');
 $('q').addEventListener('input', render);
 $('view').addEventListener('change', render);
 $('kind').addEventListener('change', render);
@@ -1425,6 +1533,7 @@ fetch('/api/jobs').then((res) => res.json()).then((jobs) => {
 setInterval(() => {
   if (document.hidden || refreshing) return;
   loadFleet().catch(() => undefined);
+  if (state.tab === 'quests') loadQuests();
 }, 20000);
 </script>
 </body>

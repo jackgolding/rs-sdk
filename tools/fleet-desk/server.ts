@@ -24,6 +24,7 @@ import { activityLabel } from './activity';
 import { buildLiteScene } from './scene';
 import { assignRosterScript, scriptError, setSkipList } from './roster-edit';
 import { tailFile } from './tail';
+import { questsPayload, type QuestsPayload } from './quests';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.FLEET_DESK_PORT || 8791);
@@ -38,6 +39,16 @@ const isDocker = () => supervisorKind() === 'docker';
 const BANK_CHECK = join(import.meta.dir, 'bank-check.ts');
 const HTML = join(import.meta.dir, 'public', 'index.html');
 const STALE_BANK_MS = 24 * 60 * 60 * 1000;
+/** The quests tab reads every bot's grind.log tail; one pass per 30s is plenty. */
+const QUESTS_TTL_MS = 30_000;
+let questsCache: { at: number; hours: number; payload: QuestsPayload } | null = null;
+function questsCached(hours: number): QuestsPayload {
+    if (questsCache && questsCache.hours === hours && Date.now() - questsCache.at < QUESTS_TTL_MS) return questsCache.payload;
+    const botsDir = process.env.FLEET_BOTS_DIR ? resolve(process.env.FLEET_BOTS_DIR) : join(ROOT, 'bots');
+    const payload = questsPayload(botsDir, Date.now() - hours * 3_600_000);
+    questsCache = { at: Date.now(), hours, payload };
+    return payload;
+}
 
 const SUGGESTED_SCRIPTS = [
     'bots/quests/thieving-route.ts',
@@ -575,6 +586,11 @@ async function handle(req: Request): Promise<Response> {
         const iconsDir = join(import.meta.dir, 'public', 'icons');
         if (!file.startsWith(iconsDir) || !existsSync(file)) throw new HttpError(404, 'Not found');
         return new Response(Bun.file(file), { headers: { 'cache-control': 'no-cache' } });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/quests') {
+        // Goal window: completions counted since `hours` ago (default 12, the overnight run).
+        const hours = Math.min(Math.max(Number(url.searchParams.get('hours')) || 12, 1), 24 * 14);
+        return json(questsCached(hours));
     }
     if (req.method === 'GET' && url.pathname === '/api/fleet') {
         return json(await fleetPayload(url.searchParams.get('fresh') === '1'));
