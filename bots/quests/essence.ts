@@ -1057,6 +1057,15 @@ try {
     while (!session.isStopped()) {
         if (session.needsRecovery()) {
             if ((await session.recover()) === 'exhausted') break;
+            // Tactics used up: recover() keeps returning 'resumed' at once
+            // until the fallback is consumed. Not consuming it spun this loop
+            // on microtasks at 100% CPU, starving the controller watchdog and
+            // heartbeat timers (fatpig, 2026-10-29 03:24 → 12:30).
+            if (session.consumeFallback()) {
+                log('fallback: tactics exhausted — waiting for the client, then starting the lap over');
+                await new Promise((r) => setTimeout(r, 5_000));
+                if (!sdk.isConnected()) await sdk.waitForConnection(60_000).catch(() => undefined);
+            }
             continue;
         }
         await closeUi();
