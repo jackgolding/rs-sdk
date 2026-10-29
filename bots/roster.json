@@ -627,9 +627,7 @@
       "args": [
         "jackquests",
         "--then",
-        "bots/quests/melee-lumbridge.ts",
-        "jackquests",
-        "--until=40"
+        "bots/quests/quest-mule.ts", "jackquests", "--serve-only"
       ]
     }
   ]

@@ -435,6 +435,9 @@ export const SOURCES: Record<string, Source> = {
 
     // ── Goblin Diplomacy: goblin mail and the dyes for it
     'goblin mail': {
+        // Asked of the jackquests mule first: fleet bots crowding the goblin camps left
+        // jacklove7 and ABGARMY04 with no drop (2026-10-29). Killed for if it does not trade.
+        muleSupply: 'jackquests',
         get: async (q, count) => {
             await killForDrop(q, 'goblin mail', count, GOBLIN_CAMPS, /^goblin$/i);
         },
