@@ -35,6 +35,25 @@ export interface StuckDoor {
 
 export const STUCK_DOORS: StuckDoor[] = [
     {
+        // Wizards' Tower basement, the side room south of the corridor: walkTo and the
+        // ladder scan see no way out with this door shut (ABGARMY03/ABGARMY20 stranded
+        // at 3111,9556 after Rune Mysteries, 2026-10-29). Open it, walk north to the ladder.
+        name: "Wizards' Tower basement side-room door",
+        door: { x: 3111, z: 9559 },
+        inside: { x: 3111, z: 9558 },
+        outside: { x: 3111, z: 9560 },
+        area: { x1: 3107, z1: 9550, x2: 3115, z2: 9558 },
+    },
+    {
+        // ...and the corridor north of it, shut by a second door; the ladder up
+        // (3103,9576) only comes into view past this one (probe 2026-10-29).
+        name: "Wizards' Tower basement corridor door",
+        door: { x: 3108, z: 9570 },
+        inside: { x: 3108, z: 9569 },
+        outside: { x: 3108, z: 9571 },
+        area: { x1: 3106, z1: 9559, x2: 3115, z2: 9569 },
+    },
+    {
         // walkTo out heads east to (3164,3435), a wall, with the door open or closed
         // (Romeo & Juliet port, 2026-10-29). Entering through it works.
         name: "Juliet's house front door",

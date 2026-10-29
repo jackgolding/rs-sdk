@@ -198,7 +198,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         const away = (tile: Tile) => Math.hypot(pos().x - tile.x, pos().z - tile.z);
 
         /** Up the nearest reachable ladder/stairs until above ground; logs and returns if there is none in view. */
-        async function climbOutOfUnderground(): Promise<void> {
+        async function climbOutOfUnderground(dest: Tile): Promise<void> {
             const up = /climb-up|climb up|walk-up/i;
             const ladderUp = async () => {
                 await sdk.scanNearbyLocs(25).catch(() => undefined);
@@ -207,6 +207,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                     .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
             };
             for (let i = 0; i < 4 && pos().z >= UNDERGROUND_Z; i++) {
+                // A shut room (lib/doors.ts) first: the ladder is out of sight from inside it.
+                for (let d = 0; d < 3 && (await leaveStuckArea(sdk, bot, dest, log)); d++);
                 let loc = await ladderUp();
                 if (!loc) {
                     // Shut in a room (the Wizards' Tower basement's side rooms, ABGARMY03
@@ -332,7 +334,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // Shut in the manor's bookcase nook or closet: walkTo has no way out of either
                 // (ABGARMY04/07 sat in the nook through four quests, 2026-10-29).
                 if (onManorGround(pos()) && !onManorGround(tile) && tile.z < UNDERGROUND_Z) await leaveManor(q);
-                if (pos().z >= UNDERGROUND_Z && tile.z < UNDERGROUND_Z) await climbOutOfUnderground();
+                if (pos().z >= UNDERGROUND_Z && tile.z < UNDERGROUND_Z) await climbOutOfUnderground(tile);
                 // Buildings whose doorway the client map gets wrong (lib/doors.ts).
                 if (away(tile) > tolerance) (await leaveStuckArea(sdk, bot, tile, log)) || (await enterStuckArea(sdk, bot, tile, log));
                 // Lumbridge side <-> Al Kharid: pay the border guard first. walkTo at the toll
