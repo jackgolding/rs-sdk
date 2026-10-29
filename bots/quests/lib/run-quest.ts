@@ -172,6 +172,9 @@ const KARAMJA_CUSTOMS = { x: 2954, z: 3147 };
 /** A man by the customs officers (npc spawn 2948,3146): pickpocketed for the fare when broke. */
 const KARAMJA_MAN = { x: 2948, z: 3146 };
 const KARAMJA_FARE = 30;
+/** Entrana: the island side's sailing monks (shipmonk2 at 2830-2839,3335) take you back to Port Sarim. */
+const onEntrana = (t: Tile) => t.x >= 2800 && t.x <= 2880 && t.z >= 3320 && t.z <= 3400;
+const ENTRANA_DOCK = { x: 2835, z: 3336 };
 /** Dungeons and cellars are mapped at z + 6400. */
 const UNDERGROUND_Z = 6400;
 /** Arrival radius goTo asks travelTo for before bot.walkTo finishes the approach. */
@@ -262,6 +265,22 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 await untilTicks(sdk, (s) => (s.player?.level ?? 1) === 0, 10);
             }
             log(`sailed back from Karamja to (${pos().x},${pos().z})`);
+        }
+
+        /** The Entrana monks' boat back to Port Sarim (monk_of_entrana.rs2 shipmonk2), then over the gangplank. */
+        async function sailFromEntrana(): Promise<void> {
+            for (let i = 0; i < 3 && onEntrana(pos()); i++) {
+                await q.talk(/^monk of entrana$/i, [/yes,? i'?m ready to go/i], ENTRANA_DOCK);
+                await untilTicks(sdk, () => !onEntrana(pos()), 30);
+            }
+            if (onEntrana(pos())) throw new Error(`the Entrana monks did not sail us (at ${pos().x},${pos().z})`);
+            for (let i = 0; i < 4 && pos().level !== 0; i++) {
+                await sdk.scanNearbyLocs(8).catch(() => undefined);
+                const plank = sdk.findNearbyLoc(/gangplank/i, { withOption: /cross/i });
+                if (plank) await bot.interactLoc(plank, /cross/i).catch(() => undefined);
+                await untilTicks(sdk, (s) => (s.player?.level ?? 1) === 0, 10);
+            }
+            log(`sailed back from Entrana to (${pos().x},${pos().z})`);
         }
 
         /** Up the nearest reachable ladder/stairs until above ground; logs and returns if there is none in view. */
@@ -414,6 +433,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (onManorGround(pos()) && !onManorGround(tile) && tile.z < UNDERGROUND_Z) await leaveManor(q);
                 // Left on Karamja by a failed Pirate's Treasure run (jacklove13, 2026-10-29).
                 if (pos().level === 0 && onKaramja(pos()) && !onKaramja(tile)) await sailFromKaramja();
+                // Left on Entrana (jacklove6 after a Lost City run, 2026-10-29): the monks' boat back.
+                if (pos().level === 0 && onEntrana(pos()) && !onEntrana(tile) && tile.z < UNDERGROUND_Z) await sailFromEntrana();
                 if (pos().z >= UNDERGROUND_Z && tile.z < UNDERGROUND_Z) await climbOutOfUnderground(tile);
                 // Buildings whose doorway the client map gets wrong (lib/doors.ts).
                 if (away(tile) > tolerance) (await leaveStuckArea(sdk, bot, tile, log)) || (await enterStuckArea(sdk, bot, tile, log));
