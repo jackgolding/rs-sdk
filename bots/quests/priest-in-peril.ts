@@ -1,623 +1,417 @@
 /**
- * Priest in Peril — reusable.
+ * Priest in Peril — the fake Drezel's dog, the real Drezel's cell, the vampire, fifty essence.
  *
  *   bun bots/quests/priest-in-peril.ts {botname}
  *
- * King Roald → temple → mausoleum dog → Roald → monk (golden key) → Drezel
- * → monument swap (iron key) → blessed water on coffin → 50 rune essence.
+ * Journal rules from quest_priestperil/scripts/priestperil_journal.rs2 (each stage
+ * replaces the whole text). Dialog and mechanics from area_varrock/king_roald.rs2,
+ * quest_priestperil/scripts/{temple_doors,trapped_drezel,evil_monks,vampire_coffin}.rs2
+ * and area_mausoleum/scripts/{temple_guardian,gates,well,monuments,drezel}.rs2:
  *
- * Needs Rune Mysteries complete (for essence access). Bring combat gear + food;
- * the script withdraws food, a bucket, and banked essence when possible.
+ *   - The temple's Large doors only open at stage >= return_to_drezel; before that
+ *     the door's Knock-at is where the fake Drezel hands out the dog.
+ *   - Only the level-30 Monk of Zamorak drops the golden key, and only to the player
+ *     it fought, before the cell is unlocked. One of the seven monuments under the
+ *     mausoleum trades it for the iron key (which one is seeded): try each.
+ *   - The Salve well (behind the first mausoleum gate, open from find_drezel_key)
+ *     fills a bucket with murky water; Drezel blesses it (use it on him); blessed
+ *     water on the coffin traps the vampire. Murky and blessed are both "Bucket of
+ *     water": told apart by obj id.
+ *   - Drezel then waits behind the second gate (open from meet_in_mausoleum) and
+ *     takes rune essence in any number (drezel_give_blankrunes) until fifty.
+ *
+ * Live tiles from the pre-runner script (client scans, 2026-10-23).
  */
-import { appendFileSync } from 'fs';
-import { join } from 'path';
-import { runScript } from '../../sdk/runner';
-import {
-    ensureCoins,
-    ensureItem,
-    SHOPS,
-    withdrawFromBank,
-    type SupplyCtx
-} from './quest-supplies';
+import type { Quest } from './lib/run-quest';
+import { runQuest } from './lib/run-quest';
+import { driveDialog } from './lib/dialog';
+import { ticksToMs, untilTicks } from './lib/ticks';
 
-const KING_ROALD = { x: 3216, z: 3472 };
-const CASTLE_STAIRS = { x: 3205, z: 3208 };
-const TEMPLE_DOOR = { x: 3405, z: 3507 };
-const MAUSOLEUM_TRAP = { x: 3405, z: 3506 };
+const KING_ROALD = { x: 3222, z: 3476 };
+/** Outside the temple's Large doors (3408,3488)/(3408,3489). */
+const TEMPLE_DOOR = { x: 3406, z: 3488 };
+const TEMPLE_INSIDE = { x: 3412, z: 3486 };
+/** Cell level (plane 2): the cell door and the vampire's coffin. */
+const CELL_DOOR = { x: 3415, z: 3489 };
+const CELL_APPROACH = { x: 3414, z: 3489, level: 2 };
+const COFFIN = { x: 3413, z: 3486 };
+const MAUSOLEUM_TRAPDOOR = { x: 3405, z: 3507 };
+const MAUSOLEUM_LADDER = { x: 3405, z: 9907 };
 const DOG_PIT = { x: 3405, z: 9902 };
-const DREZEL_CELL = { x: 3417, z: 3489 };
-const TEMPLE_INTERIOR = { x: 3410, z: 3484 };
+const SALVE_WELL = { x: 3423, z: 9890 };
+const GATE_DREZEL = { x: 3431, z: 9897 };
 const MAUSOLEUM_DREZEL = { x: 3440, z: 9895 };
-
-const TO_TEMPLE = [
-    { x: 3255, z: 3455 },
-    { x: 3320, z: 3480 },
-    { x: 3370, z: 3500 },
-    TEMPLE_DOOR
-];
-const TO_ROALD = [
-    { x: 3370, z: 3500 },
-    { x: 3320, z: 3480 },
-    { x: 3255, z: 3455 },
-    { x: 3210, z: 3470 },
-    KING_ROALD
+const MONUMENTS = [
+    { id: 3493, x: 3416, z: 9890 },
+    { id: 3499, x: 3418, z: 9894 },
+    { id: 3496, x: 3423, z: 9884 },
+    { id: 3494, x: 3423, z: 9895 },
+    { id: 3498, x: 3427, z: 9885 },
+    { id: 3497, x: 3427, z: 9894 },
+    { id: 3495, x: 3428, z: 9890 },
 ];
 
-const GOLD_KEY = /^golden key$/i;
-const IRON_KEY = /^iron key$/i;
-const BUCKET_EMPTY = /^bucket$/i;
-const BUCKET_WATER = /^bucket of water$/i; // murky and blessed share the same name
-const ESSENCE = /^(rune essence|pure essence)$/i;
-const WOLFBANE = /^wolfbane$/i;
-const FOOD = /^(lobster|swordfish|tuna|shark|trout|salmon|bread|cake|wine|meat pie)$/i;
+/** obj.pack: both waters are "Bucket of water". */
+const MURKY = 2953;
+const BLESSED = 2954;
+/**
+ * A pack of essence carried through the whole quest, with room left for the golden
+ * key: with 25 plus bucket, coins and a mining pickaxe the bag was full and the
+ * monk's key drop could not be picked up (2026-10-29, nostock fixture).
+ */
+const ESSENCE_PER_TRIP = 24;
+const ESSENCE_NEEDED = 50;
 
-const botName = process.argv.slice(2).find((a) => !a.startsWith('-')) ?? '';
-const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
+const pos = (q: Quest) => {
+    const p = q.sdk.getState()?.player;
+    return { x: p?.worldX ?? 0, z: p?.worldZ ?? 0, level: p?.level ?? 0 };
+};
+const underground = (q: Quest) => pos(q).z > 9000;
+const held = (q: Quest, id: number) => q.sdk.getInventory().filter((i) => i.id === id).length;
+const near = (a: { x: number; z: number }, b: { x: number; z: number }, r: number) => Math.max(Math.abs(a.x - b.x), Math.abs(a.z - b.z)) <= r;
 
-await runScript(async ({ bot, sdk }) => {
-    const log = (msg: string) => {
-        console.log(msg);
-        try {
-            appendFileSync(GRIND_LOG, `${new Date().toISOString()} ${msg}\n`);
-        } catch {
-            /* ignore */
+async function locNear(q: Quest, name: RegExp, at: { x: number; z: number }, r: number, option?: RegExp) {
+    await q.sdk.scanNearbyLocs(Math.max(10, r + 4)).catch(() => undefined);
+    return (q.sdk.getNearbyLocs() ?? [])
+        .filter((l) => name.test(l.name) && near(l, at, r) && (!option || l.options.some((o) => option.test(o))))
+        .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+}
+
+// ── the mausoleum (under the trapdoor north of the temple)
+
+async function enterMausoleum(q: Quest): Promise<void> {
+    if (underground(q)) return;
+    await leaveTemple(q);
+    await q.goTo(MAUSOLEUM_TRAPDOOR, 2);
+    for (let i = 0; i < 4 && !underground(q); i++) {
+        const trap = await locNear(q, /trapdoor/i, MAUSOLEUM_TRAPDOOR, 2);
+        if (!trap) throw new Error(`no mausoleum trapdoor near (${pos(q).x},${pos(q).z})`);
+        if (trap.options.some((o) => /^open$/i.test(o))) {
+            await q.bot.interactLoc(trap, /^open$/i);
+            await q.sdk.waitForTicks(2);
+            continue;
         }
-    };
-
-    let lastIntent = '';
-    let sawBlessedWater = false;
-    let sawCoffinPour = false;
-    let sawDogKill = false;
-
-    function intent(msg: string): void {
-        if (msg === lastIntent) return;
-        lastIntent = msg;
-        console.log(`> ${msg}`);
-        void sdk.showIntent(msg);
+        await q.bot.interactLoc(trap, /climb-down|climb down/i);
+        await untilTicks(q.sdk, (s) => (s.player?.worldZ ?? 0) > 9000, 10);
     }
+    if (!underground(q)) throw new Error('could not climb down into the mausoleum');
+}
 
-    function pos() {
-        const p = sdk.getState()?.player;
-        return {
-            x: p?.worldX ?? 0,
-            z: p?.worldZ ?? 0,
-            level: p?.level ?? 0,
-            hp: p?.hp ?? 10,
-            maxHp: p?.maxHp ?? 10,
-            isDead: p?.isDead ?? false,
-            inCombat: p?.combat?.inCombat ?? false
-        };
-    }
-
-    function distTo(x: number, z: number): number {
-        return Math.hypot(pos().x - x, pos().z - z);
-    }
-
-    function count(pattern: RegExp): number {
-        return sdk.getInventory().reduce((n, i) => n + (pattern.test(i.name) ? (i.count ?? 1) : 0), 0);
-    }
-
-    function prayerXp(): number {
-        return sdk.getSkill('Prayer')?.experience ?? 0;
-    }
-
-    function underground(): boolean {
-        return pos().z > 6400;
-    }
-
-    function inTemple(): boolean {
-        const p = pos();
-        return p.x >= 3395 && p.x <= 3435 && p.z >= 3478 && p.z <= 3515 && p.z < 6400;
-    }
-
-    function inMausoleum(): boolean {
-        const p = pos();
-        return underground() && p.x >= 3388 && p.x <= 3460 && p.z >= 9880 && p.z <= 9920;
-    }
-
-    function messages(): string {
-        const msgs = sdk.getState()?.gameMessages ?? [];
-        const chat = sdk.getChat({ limit: 60, types: [0] }).map((m) => m.text);
-        return [...msgs.map((m) => m.text), ...chat].join('\n');
-    }
-
-    function questDone(xpBefore: number): boolean {
-        if (count(WOLFBANE) > 0 && prayerXp() >= xpBefore + 10_000) return true;
-        return /completed the[\s\S]{0,80}priest in peril/i.test(messages());
-    }
-
-    function dogKilled(): boolean {
-        if (sawDogKill) return true;
-        if (/killed that dog|great job you did buddy|feeble intellect/i.test(messages())) sawDogKill = true;
-        return sawDogKill;
-    }
-
-    function kingSentBack(): boolean {
-        return /high treason|safeguard my kingdom|border with morytania is secure/i.test(messages());
-    }
-
-    function drezelFreed(): boolean {
-        return /thank you.*found the key|key fitted the lock|unlocked the cell/i.test(messages());
-    }
-
-    function coffinDone(): boolean {
-        if (sawCoffinPour) return true;
-        if (/pour the blessed water|trapped him in there/i.test(messages())) sawCoffinPour = true;
-        return sawCoffinPour;
-    }
-
-    function essencePhase(): boolean {
-        return /fifty rune essence|bring me fifty|damage done by those zamorakians/i.test(messages());
-    }
-
-    async function closeUi(): Promise<void> {
-        for (let i = 0; i < 10; i++) {
-            await bot.dismissBlockingUI();
-            const dialog = sdk.getDialog();
-            const opts = dialog?.options ?? [];
-            if (dialog?.isOpen && (opts.length <= 1 || opts.every((o) => /click here to continue/i.test(o.text)))) {
-                await sdk.sendClickDialog(opts[0]?.index ?? 0);
-                await sdk.waitForTicks(1);
-                continue;
-            }
-            if (sdk.getState()?.shop?.isOpen || sdk.getState()?.bank?.isOpen || sdk.getState()?.interface?.isOpen) {
-                await bot.closeInterface();
-                await sdk.waitForTicks(1);
-                continue;
-            }
-            break;
+async function leaveMausoleum(q: Quest): Promise<void> {
+    if (!underground(q)) return;
+    await q.bot.walkTo(MAUSOLEUM_LADDER.x, MAUSOLEUM_LADDER.z - 1, 1).catch(() => undefined);
+    for (let i = 0; i < 4 && underground(q); i++) {
+        const ladder = await locNear(q, /ladder/i, MAUSOLEUM_LADDER, 3, /climb-up|climb up/i);
+        if (!ladder) {
+            q.log(`mausoleum: no ladder in view at (${pos(q).x},${pos(q).z})`);
+            await q.bot.walkTo(MAUSOLEUM_LADDER.x, MAUSOLEUM_LADDER.z - 1, 1).catch(() => undefined);
+            continue;
         }
+        await q.bot.interactLoc(ladder, /climb-up|climb up/i);
+        await untilTicks(q.sdk, (s) => (s.player?.worldZ ?? 0) < 9000, 10);
     }
+    if (underground(q)) throw new Error('could not climb out of the mausoleum');
+}
 
-    async function chat(choices: RegExp[] = [], max = 40): Promise<string[]> {
-        const seen: string[] = [];
-        for (let i = 0; i < max; i++) {
-            const dialog = sdk.getDialog();
-            if (!dialog?.isOpen) {
-                await sdk.waitForTicks(1);
-                if (!sdk.getDialog()?.isOpen) break;
-            }
-            const opts = sdk.getDialog()?.options ?? [];
-            for (const o of opts) seen.push(o.text);
-            if (opts.length <= 1 || opts.every((o) => /click here to continue/i.test(o.text))) {
-                await sdk.sendClickDialog(opts[0]?.index ?? 0);
-                await sdk.waitForTicks(1);
-                continue;
-            }
-            let picked = false;
-            for (const c of choices) {
-                const match = opts.find((o) => c.test(o.text));
-                if (match) {
-                    await sdk.sendClickDialog(match.index);
-                    picked = true;
-                    break;
-                }
-            }
-            if (!picked) break;
-            await sdk.waitForTicks(1);
-        }
-        return seen;
+/** Run `fn` in the mausoleum and always come back up: the runner's legs are surface legs. */
+async function inMausoleum(q: Quest, fn: () => Promise<void>): Promise<void> {
+    await enterMausoleum(q);
+    try {
+        await fn();
+    } finally {
+        await leaveMausoleum(q);
     }
+}
 
-    async function walkNear(x: number, z: number, tolerance = 4): Promise<boolean> {
-        if (distTo(x, z) <= tolerance) return true;
-        const r = await bot.walkTo(x, z, Math.min(tolerance, 3));
-        return r.success || distTo(x, z) <= tolerance + 2;
+/** Walk to an underground tile; walkTo opens the metal gates on the way (gates.rs2). */
+async function walkUnder(q: Quest, tile: { x: number; z: number }, tolerance = 2): Promise<void> {
+    for (let i = 0; i < 3 && !near(pos(q), tile, tolerance); i++) {
+        await q.bot.walkTo(tile.x, tile.z, tolerance).catch(() => undefined);
     }
+    if (!near(pos(q), tile, tolerance + 2)) q.log(`walk under: stopped at (${pos(q).x},${pos(q).z}) short of (${tile.x},${tile.z})`);
+}
 
-    async function walkRoute(points: Array<{ x: number; z: number }>): Promise<void> {
-        for (const p of points) await walkNear(p.x, p.z, 4);
-    }
+// ── the temple
 
-    async function climbTo(targetLevel: number): Promise<boolean> {
-        for (let i = 0; i < 10 && pos().level !== targetLevel; i++) {
-            const wantUp = pos().level < targetLevel;
-            const opt = wantUp ? /climb-up|climb.up|go-up|go.up|up/i : /climb-down|climb.down|go-down|go.down|down/i;
-            await sdk.scanNearbyLocs(12).catch(() => {});
-            const stairs = (sdk.getNearbyLocs() ?? [])
-                .filter((l) => /stair|ladder|trapdoor/i.test(l.name) && l.optionsWithIndex.some((o) => opt.test(o.text)))
-                .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
-            if (!stairs) return false;
-            const before = pos().level;
-            await bot.interactLoc(stairs, opt);
-            await sdk.waitForCondition((s) => (s.player?.level ?? before) !== before, 10_000).catch(() => {});
-            await closeUi();
-        }
-        return pos().level === targetLevel;
-    }
+/** In through the Large doors (open from return_to_drezel), then up to `level`. */
+async function intoTemple(q: Quest, level: number): Promise<void> {
+    if (pos(q).level === 0 && !near(pos(q), TEMPLE_INSIDE, 6)) await q.goTo(TEMPLE_INSIDE, 2);
+    if (level > 0) await q.climbTo(level);
+}
 
-    async function eatIfNeeded(): Promise<void> {
-        if (pos().hp >= pos().maxHp - 5) return;
-        const food = sdk.findInventoryItem(FOOD);
-        if (food) await bot.eatFood(food);
-    }
+const inTemple = (q: Quest) => {
+    const p = pos(q);
+    return p.level > 0 || (p.x >= 3409 && p.x <= 3425 && p.z >= 3477 && p.z <= 3499);
+};
 
-    async function waitCombat(): Promise<void> {
-        for (let i = 0; i < 30 && sdk.getState()?.player?.combat?.inCombat; i++) {
-            await eatIfNeeded();
-            await sdk.waitForTicks(1);
-        }
-    }
-
-    const supplyCtx = (): SupplyCtx => ({ bot, sdk, log, intent, walkNear, closeUi });
-
-    async function ensureSupplies(): Promise<void> {
-        const ctx = supplyCtx();
-        await ensureCoins(ctx, 50);
-        await withdrawFromBank(ctx, FOOD, 10, SHOPS.VARROCK_EAST_BANK);
-        // No food purchase: this quest needs none. Food buying is retained only
-        // for death-plateau.ts (and any future holy-grail script), which really
-        // do need it. The bank withdrawal above still takes what is banked.
-        await ensureItem(ctx, BUCKET_EMPTY, 1, {
-            label: 'bucket',
-            shop: SHOPS.VARROCK_GEN,
-            coinsNeeded: 5
-        });
-        if (count(ESSENCE) < 50) {
-            await withdrawFromBank(ctx, ESSENCE, 50, SHOPS.VARROCK_EAST_BANK);
-        }
-    }
-
-    async function talkKingRoald(): Promise<void> {
-        intent('Talking to King Roald');
-        if (pos().level < 1) {
-            await walkNear(CASTLE_STAIRS.x, CASTLE_STAIRS.z, 3);
-            await climbTo(1);
-        }
-        await walkNear(KING_ROALD.x, KING_ROALD.z, 3);
-// Settle-and-retry: climbing rebuilds the client scene and `nearbyNpcs` is
-// EMPTY for the new level until it lands, so a single scan reads the NPC as
-// missing while the bot is standing next to it.
-        let roald = sdk.findNearbyNpc(/king roald/i);
-        for (let t = 0; !roald && t < 40; t++) {
-            await sdk.waitForTicks(4);
-            roald = sdk.findNearbyNpc(/king roald/i);
-        }
-        if (!roald) {
-            log('King Roald not found');
-            return;
-        }
-        await bot.talkTo(roald);
-        await chat([/looking for a quest/i, /^sure\.?$/i, /spoke to the guys at the temple/i, /okay.*going/i]);
-        await chat();
-    }
-
-    async function knockTempleDoor(): Promise<void> {
-        intent('Knocking on temple door');
-        await walkRoute(TO_TEMPLE);
-        await walkNear(TEMPLE_DOOR.x, TEMPLE_DOOR.z, 2);
-        await sdk.scanNearbyLocs(8).catch(() => {});
-        const door = (sdk.getNearbyLocs() ?? []).find((l) => /large door|door/i.test(l.name) && l.optionsWithIndex.some((o) => /knock/i.test(o.text)));
-        if (!door) {
-            log('Temple door not found');
-            return;
-        }
-        await bot.interactLoc(door, /knock/i);
-        await chat([
-            /roald sent me/i,
-            /^sure\.?$/i,
-            /helpful person/i,
-            /killed that dog/i,
-            /what am i supposed to be doing/i
-        ]);
-        await chat();
-    }
-
-    async function openTempleDoor(): Promise<void> {
-        await walkRoute(TO_TEMPLE);
-        await walkNear(TEMPLE_DOOR.x, TEMPLE_DOOR.z, 2);
-        await sdk.scanNearbyLocs(8).catch(() => {});
-        const door = (sdk.getNearbyLocs() ?? []).find((l) => /large door|door/i.test(l.name) && l.optionsWithIndex.some((o) => /open/i.test(o.text)));
+/**
+ * Out through the Large doors. A walk out of the temple stopped on the door tile
+ * (3408,3489) with "I can't reach that!" (2026-10-29): the double door closes behind
+ * you (open_and_close_double_door2), so open it and step out by hand.
+ */
+async function leaveTemple(q: Quest): Promise<void> {
+    if (!inTemple(q)) return;
+    if (pos(q).level > 0) await q.climbTo(0);
+    for (let i = 0; i < 3 && inTemple(q); i++) {
+        const door = await locNear(q, /large door/i, { x: 3408, z: 3488 }, 3, /^open$/i);
         if (door) {
-            await bot.interactLoc(door, /open/i);
-            await sdk.waitForTicks(2);
+            await q.bot.interactLoc(door, /^open$/i);
+            await q.sdk.waitForTicks(2);
         }
+        await q.sdk.sendWalk(TEMPLE_DOOR.x - 1, TEMPLE_DOOR.z).catch(() => undefined);
+        await untilTicks(q.sdk, () => !inTemple(q) && pos(q).x < 3408, 8);
     }
+    if (inTemple(q)) throw new Error(`could not leave the temple (at ${pos(q).x},${pos(q).z} L${pos(q).level})`);
+}
 
-    async function enterMausoleum(): Promise<void> {
-        if (inMausoleum()) return;
-        intent('Entering mausoleum');
-        await walkNear(MAUSOLEUM_TRAP.x, MAUSOLEUM_TRAP.z, 3);
-        await sdk.scanNearbyLocs(10).catch(() => {});
-        let trap = (sdk.getNearbyLocs() ?? []).find((l) => /trapdoor/i.test(l.name) && l.optionsWithIndex.some((o) => /open/i.test(o.text)));
-        if (trap) {
-            await bot.interactLoc(trap, /open/i);
-            await sdk.waitForTicks(2);
-        }
-        trap = (sdk.getNearbyLocs() ?? []).find((l) => /trapdoor/i.test(l.name) && l.optionsWithIndex.some((o) => /climb-down|down/i.test(o.text)));
-        if (trap) {
-            await bot.interactLoc(trap, /climb-down|down/i);
-            await sdk.waitForCondition(() => underground(), 12_000).catch(() => {});
-        }
-        if (!underground()) await walkNear(DOG_PIT.x, DOG_PIT.z, 6);
-    }
+/** Knock at the Large door: the "Drezel" inside asks for the dog (temple_doors.rs2). */
+async function knock(q: Quest): Promise<void> {
+    await q.goTo(TEMPLE_DOOR, 2);
+    const door = await locNear(q, /large door/i, { x: 3408, z: 3488 }, 3, /knock/i);
+    if (!door) throw new Error(`no Large door to knock at near (${pos(q).x},${pos(q).z})`);
+    await q.bot.interactLoc(door, /knock/i);
+    const seen = await driveDialog(q.sdk, [/roald sent me/i, /^sure/i], { ticks: 120, log: q.log });
+    q.log(`knock: …${seen.slice(-120)}`);
+}
 
-    async function fightDog(): Promise<void> {
-        await enterMausoleum();
-        await eatIfNeeded();
-        intent('Killing temple guardian dog');
-        await walkNear(DOG_PIT.x, DOG_PIT.z, 4);
-        let turns = 0;
-        while (turns < 60 && !pos().isDead) {
-            await eatIfNeeded();
-            const dog = sdk.findNearbyNpc(/guard dog|temple guardian/i);
+/** The temple guardian, under the mausoleum (temple_guardian.rs2: its death sets killed_dog). */
+async function killDog(q: Quest): Promise<void> {
+    await inMausoleum(q, async () => {
+        await walkUnder(q, DOG_PIT, 3);
+        for (let i = 0; i < 6; i++) {
+            const dog = q.sdk.findNearbyNpc(/^temple guardian$/i);
             if (!dog) {
-                await sdk.waitForTicks(2);
-                if (!sdk.findNearbyNpc(/guard dog|temple guardian/i)) {
-                    sawDogKill = true;
-                    break;
-                }
-            } else {
-                const r = await bot.attack(dog, 10_000);
-                if (!r.success && /no reason to attack|helpless dog/i.test(messages())) {
-                    sawDogKill = true;
-                    break;
-                }
+                q.log('temple guardian: not in view');
+                await q.sdk.waitForTicks(5);
+                continue;
             }
-            turns++;
-        }
-        await waitCombat();
-    }
-
-    async function fightMonk(): Promise<void> {
-        if (!inTemple()) await openTempleDoor();
-        await walkNear(TEMPLE_INTERIOR.x, TEMPLE_INTERIOR.z, 4);
-        if (pos().level < 1) await climbTo(1);
-        await eatIfNeeded();
-        intent('Killing Monk of Zamorak for golden key');
-        let turns = 0;
-        while (turns < 80 && count(GOLD_KEY) < 1 && !pos().isDead) {
-            await eatIfNeeded();
-            const monk = sdk.findNearbyNpc(/monk of zamorak|zamorak/i);
-            if (!monk) {
-                await walkNear(TEMPLE_INTERIOR.x, TEMPLE_INTERIOR.z, 3);
-                await sdk.waitForTicks(2);
-            } else {
-                await bot.attack(monk, 12_000);
-                if (count(GOLD_KEY) > 0) break;
+            const res = await q.bot.attack(dog, ticksToMs(15));
+            if (!res.success) q.log(`temple guardian: ${res.message}`);
+            if (await untilTicks(q.sdk, () => !q.sdk.getNearbyNpcs().some((n) => n.index === dog.index && (n.hp ?? 1) > 0), 80)) {
+                q.log('temple guardian down');
+                break;
             }
-            turns++;
         }
-        await waitCombat();
-        if (count(GOLD_KEY) < 1) {
-            const ground = sdk.findGroundItem(GOLD_KEY);
-            if (ground) await bot.pickupItem(ground);
-        }
-    }
+        await q.sdk.waitForTicks(3);
+    });
+}
 
-    async function talkDrezelCell(): Promise<void> {
-        intent('Talking to Drezel in the cell');
-        if (!inTemple()) await openTempleDoor();
-        await walkNear(DREZEL_CELL.x, DREZEL_CELL.z, 3);
-        if (pos().level < 2) await climbTo(2);
-// Settle-and-retry: climbing rebuilds the client scene and `nearbyNpcs` is
-// EMPTY for the new level until it lands, so a single scan reads the NPC as
-// missing while the bot is standing next to it.
-        let drezel = sdk.findNearbyNpc(/^drezel$/i);
-        for (let t = 0; !drezel && t < 40; t++) {
-            await sdk.waitForTicks(4);
-            drezel = sdk.findNearbyNpc(/^drezel$/i);
-        }
-        if (!drezel) {
-            log('Drezel not found upstairs');
-            return;
-        }
-        await bot.talkTo(drezel);
-        await chat([/tell me anyway/i, /^yes\.?$/i, /yes, of course/i]);
-        await chat();
-    }
+/** Cell door's Talk-through (trapped_drezel.rs2 oploc2): the long tale, then "Yes." */
+async function talkThroughCell(q: Quest, choices: RegExp[]): Promise<void> {
+    await intoTemple(q, 2);
+    await q.goTo(CELL_APPROACH, 1);
+    const door = await locNear(q, /cell door/i, CELL_DOOR, 2, /talk-through/i);
+    if (!door) throw new Error(`no cell door near (${pos(q).x},${pos(q).z}) L${pos(q).level}`);
+    await q.bot.interactLoc(door, /talk-through/i);
+    if (!(await untilTicks(q.sdk, (s) => !!s.dialog?.isOpen, 10))) q.log('cell talk: no dialog 10t after Talk-through');
+    const seen = await driveDialog(q.sdk, choices, { ticks: 600, log: q.log });
+    q.log(`cell talk: …${seen.slice(-120)}`);
+}
 
-    async function swapForIronKey(): Promise<void> {
-        if (count(IRON_KEY) > 0) return;
-        if (count(GOLD_KEY) < 1) return;
-        intent('Swapping golden key for iron key at monument');
-        if (!inMausoleum()) await enterMausoleum();
-        await sdk.scanNearbyLocs(20).catch(() => {});
-        const monuments = (sdk.getNearbyLocs() ?? []).filter((l) => /monument/i.test(l.name));
-        for (const mon of monuments) {
-            const before = count(IRON_KEY);
-            const r = await bot.useItemOnLoc(GOLD_KEY, mon);
-            if (count(IRON_KEY) > before) {
-                log('Got iron key from monument');
-                return;
+/** Level-30 monks only (evil_monks.rs2 ai_queue3 priestperilevilmonk3 drops the key). */
+async function goldenKey(q: Quest): Promise<void> {
+    if (q.count('golden key') > 0 || q.count('iron key') > 0) return;
+    await intoTemple(q, 0);
+    for (let i = 0; i < 8 && q.count('golden key') < 1; i++) {
+        const loot = q.sdk.findGroundItem(/^golden key$/i);
+        if (loot) {
+            await q.bot.pickupItem(loot);
+            await untilTicks(q.sdk, () => q.count('golden key') > 0, 8);
+            continue;
+        }
+        const monk = q.sdk
+            .getNearbyNpcs()
+            .filter((n) => /^monk of zamorak$/i.test(n.name) && n.combatLevel === 30 && n.reachable !== false)
+            .sort((a, b) => Number(a.inCombat) - Number(b.inCombat) || a.distance - b.distance)[0];
+        if (!monk) {
+            q.log(`monk: no level-30 Monk of Zamorak in view (${q.sdk.getNearbyNpcs().filter((n) => /monk/i.test(n.name)).map((n) => n.combatLevel).join(',') || 'none'})`);
+            await q.goTo(TEMPLE_INSIDE, 2);
+            await q.sdk.waitForTicks(10);
+            continue;
+        }
+        const res = await q.bot.attack(monk, ticksToMs(15));
+        if (!res.success) q.log(`monk: ${res.message}`);
+        await untilTicks(q.sdk, () => !q.sdk.getNearbyNpcs().some((n) => n.index === monk.index && (n.hp ?? 1) > 0), 80);
+        await untilTicks(q.sdk, () => !!q.sdk.findGroundItem(/^golden key$/i), 5);
+    }
+    q.log(`golden key: ${q.count('golden key')} (bag ${q.sdk.getInventory().length}/28)`);
+}
+
+/** Golden key on each monument until one hands over the iron key; the bucket filled at the well. */
+async function underTheTemple(q: Quest): Promise<void> {
+    await inMausoleum(q, async () => {
+        for (const mon of MONUMENTS) {
+            if (q.count('iron key') > 0 || q.count('golden key') < 1) break;
+            await walkUnder(q, mon, 1);
+            await q.sdk.scanNearbyLocs(8).catch(() => undefined);
+            const loc = (q.sdk.getNearbyLocs() ?? []).find((l) => l.id === mon.id);
+            if (!loc) {
+                q.log(`monument ${mon.id} not in view at (${pos(q).x},${pos(q).z})`);
+                continue;
             }
-            if (!r.success) log(`monument use: ${r.message}`);
+            await q.bot.useItemOnLoc(/^golden key$/i, loc, { timeout: ticksToMs(20) });
+            await untilTicks(q.sdk, () => q.count('iron key') > 0, 5);
         }
-    }
-
-    async function unlockDrezel(): Promise<void> {
-        if (count(IRON_KEY) < 1) return;
-        intent('Unlocking Drezel\'s cell');
-        if (!inTemple()) await openTempleDoor();
-        await walkNear(DREZEL_CELL.x, DREZEL_CELL.z, 2);
-        if (pos().level < 2) await climbTo(2);
-        await sdk.scanNearbyLocs(10).catch(() => {});
-        const door = (sdk.getNearbyLocs() ?? []).find((l) => /door|gate/i.test(l.name) && l.distance !== undefined && l.distance <= 6);
-        if (door) {
-            await bot.useItemOnLoc(IRON_KEY, door);
-            await sdk.waitForTicks(3);
-        }
-        const drezel = sdk.findNearbyNpc(/^drezel$/i);
-        if (drezel) {
-            await bot.talkTo(drezel);
-            await chat();
-        }
-    }
-
-    async function fillAndBlessWater(): Promise<void> {
-        if (/blesses the water/i.test(messages())) sawBlessedWater = true;
-        if (sawBlessedWater) return;
-
-        if (count(BUCKET_EMPTY) < 1 && count(BUCKET_WATER) < 1) {
-            await ensureSupplies();
-        }
-
-        if (count(BUCKET_WATER) < 1 && count(BUCKET_EMPTY) > 0) {
-            intent('Filling bucket at Salve well');
-            if (!inTemple()) await openTempleDoor();
-            if (pos().level < 2) await climbTo(2);
-            await sdk.scanNearbyLocs(12).catch(() => {});
-            const well = (sdk.getNearbyLocs() ?? []).find((l) => /^well$/i.test(l.name));
+        q.log(`monuments: iron key ${q.count('iron key')}, golden key ${q.count('golden key')}`);
+        if (held(q, MURKY) + held(q, BLESSED) < 1 && q.count('bucket') > 0) {
+            await walkUnder(q, SALVE_WELL, 1);
+            const well = await locNear(q, /^well$/i, SALVE_WELL, 2);
             if (well) {
-                await bot.useItemOnLoc(BUCKET_EMPTY, well);
-                await sdk.waitForTicks(3);
+                await q.bot.useItemOnLoc(/^bucket$/i, well, { timeout: ticksToMs(20) });
+                await untilTicks(q.sdk, () => held(q, MURKY) > 0, 5);
             }
+            q.log(`well: murky water ${held(q, MURKY)}`);
         }
+    });
+}
 
-        if (count(BUCKET_WATER) > 0) {
-            intent('Getting Drezel to bless the water');
-            const drezel = sdk.findNearbyNpc(/^drezel$/i);
-            if (drezel) {
-                await bot.useItemOnNpc(BUCKET_WATER, drezel);
-                await sdk.waitForTicks(2);
-                if (/blesses the water/i.test(messages())) sawBlessedWater = true;
-            }
-        }
+async function unlockCell(q: Quest): Promise<void> {
+    if (q.count('iron key') < 1) return;
+    await intoTemple(q, 2);
+    await q.goTo(CELL_APPROACH, 1);
+    const door = await locNear(q, /cell door/i, CELL_DOOR, 2);
+    if (!door) throw new Error(`no cell door near (${pos(q).x},${pos(q).z}) L${pos(q).level}`);
+    await q.bot.useItemOnLoc(/^iron key$/i, door, { timeout: ticksToMs(20) });
+    await driveDialog(q.sdk, [], { ticks: 20, log: q.log });
+    q.log(`cell: iron key ${q.count('iron key')}`);
+}
+
+/** Into the cell (Open works from unlocked_drezel); Drezel within reach. */
+async function openCell(q: Quest): Promise<void> {
+    await intoTemple(q, 2);
+    await q.goTo(CELL_APPROACH, 1);
+    const reachable = () => {
+        const d = q.sdk.findNearbyNpc(/^drezel$/i);
+        return !!d && d.reachable !== false;
+    };
+    for (let i = 0; i < 3 && !reachable(); i++) {
+        const door = await locNear(q, /cell door/i, CELL_DOOR, 2, /^open$/i);
+        if (!door) break;
+        await q.bot.interactLoc(door, /^open$/i);
+        await untilTicks(q.sdk, reachable, 6);
     }
+}
 
-    async function pourOnCoffin(): Promise<void> {
-        if (coffinDone()) return;
-        intent('Pouring blessed water on vampire coffin');
-        if (!inTemple()) await openTempleDoor();
-        if (pos().level < 2) await climbTo(2);
-        await sdk.scanNearbyLocs(12).catch(() => {});
-        const coffin = sdk.findNearbyLoc(/^coffin$/i);
-        const water = sdk.findInventoryItem(/bucket/i);
-        if (coffin && water && sawBlessedWater) {
-            await bot.useItemOnLoc(water, coffin);
-            await sdk.waitForTicks(3);
-            if (/pour the blessed water/i.test(messages())) sawCoffinPour = true;
+/**
+ * Back out of the cell (x >= 3416 on plane 2): useItemOnNpc walks in beside Drezel and
+ * the door shuts behind; the planner then finds no path out and fell back to climbing
+ * down a floor (2026-10-29). The door opens from inside once unlocked.
+ */
+async function leaveCell(q: Quest): Promise<void> {
+    const inCell = () => pos(q).level === 2 && pos(q).x >= CELL_DOOR.x && Math.abs(pos(q).z - CELL_DOOR.z) <= 2;
+    for (let i = 0; i < 3 && inCell(); i++) {
+        const door = await locNear(q, /cell door/i, CELL_DOOR, 2, /^open$/i);
+        if (door) {
+            await q.bot.interactLoc(door, /^open$/i);
+            await q.sdk.waitForTicks(2);
         }
-        const drezel = sdk.findNearbyNpc(/^drezel$/i);
-        if (drezel && coffinDone()) {
-            await bot.talkTo(drezel);
-            await chat();
-        }
+        await q.sdk.sendWalk(CELL_APPROACH.x, CELL_APPROACH.z).catch(() => undefined);
+        await untilTicks(q.sdk, () => !inCell(), 8);
     }
+    q.log(`cell: ${inCell() ? 'STILL INSIDE' : 'out'} at (${pos(q).x},${pos(q).z})`);
+}
 
-    async function talkMausoleumDrezel(): Promise<void> {
-        intent('Meeting Drezel in the mausoleum');
-        if (!inMausoleum()) await enterMausoleum();
-        await walkNear(MAUSOLEUM_DREZEL.x, MAUSOLEUM_DREZEL.z, 4);
-        const drezel = sdk.findNearbyNpc(/^drezel$/i);
-        if (!drezel) {
-            log('Drezel not in mausoleum');
-            return;
-        }
-        await bot.talkTo(drezel);
-        await chat();
+/** Murky water blessed by Drezel (opnpcu), poured on the coffin (vampire_coffin.rs2). */
+async function blessAndPour(q: Quest): Promise<void> {
+    if (held(q, MURKY) + held(q, BLESSED) < 1) await underTheTemple(q);
+    if (held(q, BLESSED) < 1) {
+        const bucket = q.sdk.getInventory().find((i) => i.id === MURKY);
+        if (!bucket) throw new Error('no murky water from the Salve well');
+        await openCell(q);
+        await q.bot.useItemOnNpc(bucket, /^drezel$/i, { timeout: ticksToMs(20) });
+        await driveDialog(q.sdk, [], { done: () => held(q, BLESSED) > 0, ticks: 30, log: q.log });
+        await untilTicks(q.sdk, () => held(q, BLESSED) > 0, 5);
+        q.log(`blessed water ${held(q, BLESSED)}`);
     }
+    await intoTemple(q, 2);
+    await leaveCell(q);
+    await q.goTo({ x: COFFIN.x, z: COFFIN.z + 2, level: 2 }, 1);
+    const coffin = await locNear(q, /^coffin$/i, COFFIN, 2);
+    if (!coffin) throw new Error(`no coffin near (${pos(q).x},${pos(q).z}) L${pos(q).level}`);
+    const blessed = q.sdk.getInventory().find((i) => i.id === BLESSED);
+    if (!blessed) throw new Error('blessed water missing at the coffin');
+    await q.bot.useItemOnLoc(blessed, coffin, { timeout: ticksToMs(20) });
+    await untilTicks(q.sdk, () => held(q, BLESSED) < 1, 6);
+}
 
-    async function giveEssence(): Promise<void> {
-        if (count(ESSENCE) < 1) {
-            await ensureSupplies();
-        }
-        if (count(ESSENCE) < 1) {
-            log('Need 50 unnoted rune essence in bank');
-            return;
-        }
-        intent('Giving rune essence to Drezel');
-        if (!inMausoleum()) await enterMausoleum();
-        await walkNear(MAUSOLEUM_DREZEL.x, MAUSOLEUM_DREZEL.z, 4);
-        const drezel = sdk.findNearbyNpc(/^drezel$/i);
-        if (!drezel) return;
-        while (count(ESSENCE) > 0 && !questDone(prayerXp())) {
-            await bot.useItemOnNpc(ESSENCE, drezel);
-            await sdk.waitForTicks(2);
-            if (questDone(prayerXp())) break;
-        }
-        if (!questDone(prayerXp())) {
-            await bot.talkTo(drezel);
-            await chat([/brought you some rune essence/i]);
-        }
+/** Drezel behind the second mausoleum gate (open from meet_in_mausoleum). */
+async function mausoleumDrezel(q: Quest, fn: () => Promise<void>): Promise<void> {
+    await inMausoleum(q, async () => {
+        await walkUnder(q, GATE_DREZEL, 2);
+        await walkUnder(q, MAUSOLEUM_DREZEL, 3);
+        await untilTicks(q.sdk, () => !!q.sdk.findNearbyNpc(/^drezel$/i), 10);
+        await fn();
+    });
+}
+
+/**
+ * Rune essence, a pack at a time, until Drezel has fifty (drezel_give_blankrunes). Each
+ * refill asks only for what is still owed: a third pack of 24 sent a fixture whose bank
+ * held exactly 60 off to mine (2026-10-29).
+ */
+async function handInEssence(q: Quest): Promise<void> {
+    let done = false;
+    let given = 0;
+    for (let trip = 0; trip < 4 && !done; trip++) {
+        if (trip > 0) await q.ensure('rune essence', Math.min(ESSENCE_PER_TRIP, ESSENCE_NEEDED - given));
+        await mausoleumDrezel(q, async () => {
+            const before = q.count('rune essence');
+            await q.bot.useItemOnNpc(/^rune essence$/i, /^drezel$/i, { timeout: ticksToMs(20) });
+            await untilTicks(q.sdk, () => q.count('rune essence') < before, 8);
+            const seen = await driveDialog(q.sdk, [], { ticks: 40, log: q.log });
+            given += before - q.count('rune essence');
+            done = /that should do it/i.test(seen) || given >= ESSENCE_NEEDED;
+            q.log(`essence: gave ${before - q.count('rune essence')} (${given} so far, left ${q.count('rune essence')})${done ? ', Drezel has fifty' : ''}`);
+            if (q.count('rune essence') >= before) throw new Error('Drezel took no essence');
+        });
+        // A leftover pack means Drezel needed fewer than we brought: he is done.
+        if (q.count('rune essence') > 0) done = true;
     }
+}
 
-    const xpBefore = prayerXp();
-    await bot.skipTutorial();
-    await closeUi();
-    await ensureSupplies();
-    log(`Priest in Peril start Prayer xp=${xpBefore} @ ${pos().x},${pos().z}`);
-
-    const until = Date.now() + 25 * 60_000;
-    while (Date.now() < until && !questDone(xpBefore)) {
-        await closeUi();
-        if (pos().isDead) {
-            await sdk.waitForCondition((s) => !s.player.isDead, 45_000).catch(() => {});
-            continue;
-        }
-        if (pos().hp < pos().maxHp - 6 && count(FOOD) < 3) await ensureSupplies();
-
-        if (count(WOLFBANE) > 0 || questDone(xpBefore)) break;
-
-        if (essencePhase() || (coffinDone() && count(ESSENCE) > 0)) {
-            await giveEssence();
-            continue;
-        }
-
-        if (coffinDone()) {
-            await talkMausoleumDrezel();
-            await giveEssence();
-            continue;
-        }
-
-        if (drezelFreed() || sawBlessedWater) {
-            await fillAndBlessWater();
-            await pourOnCoffin();
-            continue;
-        }
-
-        if (count(IRON_KEY) > 0) {
-            await unlockDrezel();
-            await fillAndBlessWater();
-            continue;
-        }
-
-        if (count(GOLD_KEY) > 0) {
-            await swapForIronKey();
-            if (count(IRON_KEY) > 0) continue;
-            await talkDrezelCell();
-            continue;
-        }
-
-        if (kingSentBack()) {
-            await openTempleDoor();
-            await fightMonk();
-            if (count(GOLD_KEY) > 0) continue;
-            await talkDrezelCell();
-            continue;
-        }
-
-        if (dogKilled()) {
-            if (!kingSentBack()) {
-                await knockTempleDoor();
-                await walkRoute(TO_ROALD);
-                await talkKingRoald();
-            }
-            continue;
-        }
-
-        if (/horrible big dog|mausoleum out there|okey-dokey/i.test(messages())) {
-            await fightDog();
-            continue;
-        }
-
-        if (/temple east of here|check on drezel|many thanks adventurer/i.test(messages())) {
-            await knockTempleDoor();
-            continue;
-        }
-
-        if (inTemple() || underground()) {
-            await knockTempleDoor();
-            continue;
-        }
-
-        await talkKingRoald();
-        log(`inv gold=${count(GOLD_KEY)} iron=${count(IRON_KEY)} ess=${count(ESSENCE)} @ ${pos().x},${pos().z} L${pos().level}`);
-        await sdk.waitForTicks(2);
-    }
-
-    if (!questDone(xpBefore)) {
-        throw new Error(`Priest in Peril unfinished @ ${pos().x},${pos().z} prayerXp=${prayerXp()}`);
-    }
-    log(`QUEST COMPLETE Priest in Peril (+${prayerXp() - xpBefore} Prayer xp)`);
+await runQuest({
+    id: 'priestperil',
+    hub: 'varrock-west',
+    journal: { label: 'Priest in Peril', title: 'Priest in Peril' },
+    stages: [
+        { id: 'unstarted', rule: { id: 'priestperil:unstarted', kind: 'unstarted', all: ['start this quest by speaking to'] } },
+        { id: 'started', rule: { id: 'priestperil:started', kind: 'active', all: ['to the east of Varrock Palace'] } },
+        { id: 'agree_to_kill_dog', rule: { id: 'priestperil:agree_to_kill_dog', kind: 'active', all: ['has asked me to kill it'] } },
+        { id: 'killed_dog', rule: { id: 'priestperil:killed_dog', kind: 'active', all: ['claim my reward'] } },
+        { id: 'return_to_drezel', rule: { id: 'priestperil:return_to_drezel', kind: 'active', all: ['will have me executed'] } },
+        { id: 'find_drezel_key', rule: { id: 'priestperil:find_drezel_key', kind: 'active', all: ['to his cell and free him'] } },
+        { id: 'unlocked_drezel', rule: { id: 'priestperil:unlocked_drezel', kind: 'active', all: ['still have to do something about that'] } },
+        { id: 'poured_blessed_water', rule: { id: 'priestperil:poured_blessed_water', kind: 'active', all: ['should speak to Drezel again'] } },
+        { id: 'meet_in_mausoleum', rule: { id: 'priestperil:meet_in_mausoleum', kind: 'active', all: ['damage has been done'] } },
+        { id: 'bring_essence', rule: { id: 'priestperil:bring_essence', kind: 'active', all: ['purify the Salve'] } },
+        { id: 'complete', rule: { id: 'priestperil:complete', kind: 'complete', all: ['QUEST COMPLETE'] } },
+    ],
+    transitions: [
+        { from: 'unstarted', to: 'started', at: KING_ROALD, talk: { npc: /^king roald$/i, choices: [/^sure/i] } },
+        { from: 'started', to: 'agree_to_kill_dog', run: knock },
+        { from: 'agree_to_kill_dog', to: 'killed_dog', run: killDog },
+        { from: 'killed_dog', to: 'return_to_drezel', at: KING_ROALD, talk: { npc: /^king roald$/i } },
+        { from: 'return_to_drezel', to: 'find_drezel_key', run: (q) => talkThroughCell(q, [/tell me anyway/i, /^yes\.?$/i]) },
+        {
+            from: 'find_drezel_key',
+            to: 'unlocked_drezel',
+            needs: [{ item: 'bucket', count: 1, or: 'bucket of water' }],
+            run: async (q) => {
+                await goldenKey(q);
+                await underTheTemple(q);
+                await unlockCell(q);
+            },
+        },
+        { from: 'unlocked_drezel', to: 'poured_blessed_water', needs: [{ item: 'bucket', count: 1, or: 'bucket of water' }], run: blessAndPour },
+        {
+            from: 'poured_blessed_water',
+            to: 'meet_in_mausoleum',
+            run: async (q) => {
+                await openCell(q);
+                await q.talk(/^drezel$/i);
+            },
+        },
+        { from: 'meet_in_mausoleum', to: 'bring_essence', run: (q) => mausoleumDrezel(q, async () => void (await q.talk(/^drezel$/i))) },
+        { from: 'bring_essence', to: 'complete', needs: [{ item: 'rune essence', count: ESSENCE_PER_TRIP }], run: handInEssence },
+    ],
 });

@@ -145,3 +145,64 @@ export async function mineBlurite(q: Quest, count: number): Promise<void> {
         if (q.sdk.getState() && UNDERGROUND(q.sdk.getState()!)) throw new Error('stuck in the blurite cave');
     }
 }
+
+/**
+ * Rune essence: Aubury (Varrock rune shop) teleports to the Rune Essence mine
+ * (aubury.rs2 "Can you teleport me to the Rune Essence?" -> essence_mine.rs2,
+ * refused until Rune Mysteries is complete); one Mine click keeps swinging until
+ * the pack is full. The only way out is the portal (blankrunestone_exit_portal),
+ * which drops you back by Aubury. Essence does not stack: one slot each.
+ */
+const AUBURY = { x: 3253, z: 3401 };
+const ESSENCE_MINE = { x1: 2860, x2: 3040, z1: 4760, z2: 4940 };
+const inEssenceMine = (s: { player?: { worldX?: number; worldZ?: number } | null }) => {
+    const x = s.player?.worldX ?? 0;
+    const z = s.player?.worldZ ?? 0;
+    return x >= ESSENCE_MINE.x1 && x <= ESSENCE_MINE.x2 && z >= ESSENCE_MINE.z1 && z <= ESSENCE_MINE.z2;
+};
+
+export async function mineRuneEssence(q: Quest, count: number): Promise<void> {
+    const ess = /^rune essence$/i;
+    const held = () => q.sdk.getInventory().filter((i) => ess.test(i.name)).length;
+    const free = () => 28 - q.sdk.getInventory().length;
+    if (held() >= count || free() < 1) return;
+    if (!inEssenceMine(q.sdk.getState()!)) {
+        await q.talk(/^aubury$/i, [/teleport me to the rune essence/i], AUBURY);
+        if (!(await untilTicks(q.sdk, inEssenceMine, 20))) throw new Error('Aubury did not teleport us to the essence mine (Rune Mysteries complete?)');
+    }
+    const t0 = tickNow(q.sdk);
+    for (let misses = 0; misses < 6 && held() < count && free() > 0; ) {
+        const locs = (await q.sdk.scanNearbyLocs(20).catch(() => undefined)) ?? q.sdk.getNearbyLocs() ?? [];
+        const rock = locs
+            .filter((l) => /essence/i.test(l.name) && l.optionsWithIndex.some((o) => /^mine$/i.test(o.text)))
+            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+        if (!rock) {
+            misses++;
+            await q.sdk.waitForTicks(3);
+            continue;
+        }
+        const before = held();
+        await q.bot.interactLoc(rock, /^mine$/i);
+        // One click mines on; wait while the pack keeps growing.
+        let last = before;
+        let lastTick = tickNow(q.sdk);
+        while (held() < count && free() > 0 && tickNow(q.sdk) - lastTick < SWING_TICKS) {
+            await q.sdk.waitForTicks(2);
+            if (held() > last) {
+                last = held();
+                lastTick = tickNow(q.sdk);
+            }
+        }
+        misses = held() > before ? 0 : misses + 1;
+    }
+    q.log(`mined ${held()} rune essence in ${tickNow(q.sdk) - t0}t`);
+    // Out through the portal, whatever the haul.
+    for (let i = 0; i < 6 && inEssenceMine(q.sdk.getState()!); i++) {
+        const locs = (await q.sdk.scanNearbyLocs(25).catch(() => undefined)) ?? q.sdk.getNearbyLocs() ?? [];
+        const portal = locs.filter((l) => /portal/i.test(l.name)).sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+        if (!portal) throw new Error('essence mine: no portal in view');
+        await q.bot.interactLoc(portal, portal.options[0] ? new RegExp(`^${portal.options[0]}$`, 'i') : /use|enter|exit/i);
+        await untilTicks(q.sdk, (s) => !inEssenceMine(s), 15);
+    }
+    if (inEssenceMine(q.sdk.getState()!)) throw new Error('essence mine: the portal did not take us out');
+}

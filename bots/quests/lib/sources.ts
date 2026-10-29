@@ -10,7 +10,7 @@
  */
 import type { Quest } from './run-quest';
 import { combine, cookAtPalaceRange, fetchJugOfWater, makeDough } from './cooking';
-import { mineAtRimmington, mineBlurite, ROCKS, type Ore } from './mining';
+import { mineAtRimmington, mineBlurite, mineRuneEssence, ROCKS, type Ore } from './mining';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { closeUi } from '../movement';
 import { driveDialog } from './dialog';
@@ -552,7 +552,46 @@ export const SOURCES: Record<string, Source> = {
         },
     },
 
+    // ── Priest in Peril
+    /**
+     * Unstackable, one slot each, so a quest asks for a pack's worth at a time.
+     * The Varrock east bank first, then the Rune Essence mine (lib/mining.ts
+     * mineRuneEssence: Aubury's teleport, needs Rune Mysteries complete).
+     */
+    'rune essence': {
+        obj: 'blankrune',
+        inputs: () => [{ item: 'pickaxe', count: 1 }],
+        get: async (q, count) => {
+            await withdrawUnstackable(q, 'rune essence', count, VARROCK_EAST_BANK);
+            for (let trip = 0; trip < 3 && q.count('rune essence') < count; trip++) {
+                await q.ensure('pickaxe', 1);
+                await mineRuneEssence(q, count);
+            }
+        },
+    },
+
 };
+
+// ── Priest in Peril helpers
+
+const VARROCK_EAST_BANK = { x: 3253, z: 3420 };
+
+/** Withdraw up to `count` held of an unstackable item from `bank`, as many as the bank and pack allow. */
+async function withdrawUnstackable(q: Quest, item: string, count: number, bank: { x: number; z: number }): Promise<void> {
+    const pattern = itemPattern(item);
+    const want = Math.min(count - q.count(item), 28 - q.sdk.getInventory().length);
+    if (want <= 0) return;
+    await q.goTo(bank, 3);
+    if (!(q.sdk.getState()?.bank?.isOpen || (await q.bot.openBank()).success)) return q.log(`${item}: bank would not open`);
+    const stock = q.sdk.findBankItem(pattern);
+    if (stock) {
+        const before = q.count(item);
+        await q.bot.withdrawItem(stock, Math.min(want, stock.count ?? want));
+        await untilTicks(q.sdk, () => q.count(item) > before, 5);
+        q.log(`withdrew ${q.count(item) - before} ${item} (bank had ${stock.count ?? '?'})`);
+    }
+    await q.bot.closeBank().catch(() => undefined);
+}
 
 // ── Prince Ali Rescue helpers
 
