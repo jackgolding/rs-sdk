@@ -374,6 +374,13 @@ export const SOURCES: Record<string, Source> = {
     bread: { mule: true },
     trout: { mule: true },
 
+    // ── Fight Arena: the pen fights (ogre 63, scorpion 44, Bouncer 137) are ranged; a mule stocks the kit
+    'magic shortbow': { mule: true },
+    'rune arrow': { mule: true },
+    shark: { mule: true },
+    /** khazard_barman.rs2 only sells it once the bored guard has talked: bought inside the quest step. */
+    'khali brew': { spawnable: false },
+
     shears: {
         tool: true,
         inputs: () => [{ item: 'coins', count: 5 }],

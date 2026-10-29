@@ -97,6 +97,13 @@ export interface Quest {
 export interface StageDef {
     id: string;
     rule: JournalRule;
+    /**
+     * A stage the content can pass through in one dialog without the journal ever
+     * showing it (Fight Arena: the ogre's death runs Khazard's "well done" and the
+     * march to the cells when he is near). Still detected on resume; not a required
+     * checkpoint.
+     */
+    optional?: boolean;
 }
 
 export interface Transition {
@@ -328,7 +335,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
             scriptHash: Bun.hash(await Bun.file(process.argv[1]!).text()).toString(16),
             fixtureHash: process.env.QUEST_LAB_FIXTURE_HASH ?? 'unrecorded',
             contentHash: process.env.QUEST_LAB_CONTENT_HASH ?? 'unrecorded',
-            requiredCheckpoints: stageIds.slice(stageIds.indexOf(start)),
+            requiredCheckpoints: stageIds.slice(stageIds.indexOf(start)).filter((id, i) => i === 0 || !def.stages.find((st) => st.id === id)?.optional),
         });
         if (run && (teleport || spawn)) {
             // Marked before anything happens so even a partial assisted run can never grade as PASS.
