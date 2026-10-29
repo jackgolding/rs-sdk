@@ -195,19 +195,25 @@ async function serveOnce(from: string, needs: Array<{ label: string; count: numb
     }
     await bot.closeBank().catch(() => undefined);
     log(`mule: serving ${from}: ${needs.map((n) => `${n.label} x${n.count}`).join(', ')}`);
+    // The requester waits in serveTrades (the receiving half), so the mule must send
+    // the trade request: both sides serving deadlocked every request (2026-10-29).
     try {
-        const served = (await bot.serveTrades({
-            from: new RegExp(`^${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        const res = await bot.trade(from, {
             give,
             want: [],
-            maxTrades: 1,
-            timeout: 5 * 60_000,
-            tradeTimeout: 90_000,
+            timeout: 90_000,
+            requestTimeout: 60_000,
             rejectAfterMs: 60_000,
-        } as never)) as { trades?: unknown[] } | null;
-        const done = !!served?.trades?.length;
-        session.noteProgress(done ? 'trade' : 'location', `mule serve ${from} ${done ? 'ok' : 'timeout'}`);
-        return done;
+            retryOnBusy: true,
+        });
+        log(`mule: trade with ${from} ${res.success ? 'ok' : `failed (${res.reason ?? res.message})`}`);
+        session.noteProgress(res.success ? 'trade' : 'location', `mule serve ${from} ${res.success ? 'ok' : 'failed'}`);
+        if (!res.success && (await openBank().catch(() => false))) {
+            // Back in the bank, so a failed hand-off does not pile beads up in the inventory.
+            for (const g of give) await bot.depositItem(g.item, -1).catch(() => undefined);
+            await bot.closeBank().catch(() => undefined);
+        }
+        return res.success;
     } catch {
         return false;
     }
