@@ -912,6 +912,8 @@ export async function buyWaitingForRestock(q: Quest, shop: { x: number; z: numbe
     const pattern = itemPattern(item);
     const deadline = tickNow(q.sdk) + RESTOCK_WAIT_TICKS;
     while (q.count(item) < count && tickNow(q.sdk) < deadline) {
+        // A full pack reads as 'out of stock' below and waited the whole restock budget.
+        if (q.sdk.getInventory().length >= 28 && q.count(item) === 0) throw new Error(`pack is full — no room to buy ${item}`);
         await buyAtShop(q.supply, shop, [{ pattern, amount: count, label: item }]);
         if (q.count(item) >= count) return;
 

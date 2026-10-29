@@ -199,7 +199,9 @@ await runQuest({
     // The three Silverlight keys are all "Key" (ids below). A resumed run's naked prologue
     // banked a drain key already picked up, and the sewer floor stays empty after that
     // (jacklove15, ABGARMY05: "drain key not on the sewer floor", 2026-10-29).
-    carry: [KEY.traiborn, KEY.rovin, KEY.drain, 'silverlight'],
+    // Only the drain key and the sword: carrying all three keys as well as 25 bones filled the
+    // pack before the bucket was bought (jacklove13, 'No inventory space to buy Bucket').
+    carry: [KEY.drain, 'silverlight'],
     journal: { label: 'Demon Slayer', title: 'Demon Slayer' },
     stages: [
         { id: 'unstarted', rule: { id: 'demon:unstarted', kind: 'unstarted', all: ['I can start this quest by speaking to'] } },
