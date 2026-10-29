@@ -62,7 +62,9 @@ const sdk = new BotSDK({
     browserLaunchTimeout: 90_000,
     readyTimeout: 45_000,
     connectTimeout: 60_000,
-    showChat: false,
+    // Requests arrive as DMs ('quest-supply …'); showChat:false filters every
+    // player message, DMs included, so the mule never saw one (jacklove4, 2026-10-29).
+    showChat: true,
 });
 
 await sdk.connect();
