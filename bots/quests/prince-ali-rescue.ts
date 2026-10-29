@@ -214,6 +214,11 @@ async function freePrince(q: Quest): Promise<void> {
         }
     }
     if (!inCell()) return q.log('prison door did not let us in');
+    // Another fleet bot freeing him first takes him away for a while too (jacklove15, 2026-10-29).
+    if (!q.sdk.findNearbyNpc(/^prince ali$/i)) {
+        q.log('Prince Ali is not in the cell (freed by another player?) — waiting for him');
+        if (!(await untilTicks(q.sdk, () => !!q.sdk.findNearbyNpc(/^prince ali$/i), KELI_RESPAWN_TICKS))) throw new Error(`Prince Ali did not reappear within ${KELI_RESPAWN_TICKS} ticks`);
+    }
     await q.talk(/^prince ali$/i);
     // Out again: walkTo blacklisted the locked door on the way in and finds no path out
     // of the cell. From inside, the door's Open works (quest_prince oploc1,alidoor).
@@ -230,6 +235,8 @@ async function freePrince(q: Quest): Promise<void> {
 await runQuest({
     id: 'prince',
     hub: 'draynor',
+    // Shared NPCs/doors (Keli and the prince; the lever maze) break with many bots in at once.
+    maxConcurrent: 2,
     journal: { label: 'Prince Ali Rescue', title: 'The Rescue Of Prince Ali' },
     stages: [
         { id: 'unstarted', rule: { id: 'prince:unstarted', kind: 'unstarted', all: ['start this quest by speaking to Hassan'] } },
@@ -297,6 +304,8 @@ await runQuest({
                 { item: 'wig', count: 1 },
                 { item: 'pink skirt', count: 1 },
                 { item: 'paste', count: 1 },
+                // Keli can be back at the cell (another bot's wait respawned her): a rope to re-tie her.
+                { item: 'rope', count: 1 },
             ],
             run: (q) => inJail(q, () => freePrince(q)),
         },

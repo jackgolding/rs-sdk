@@ -28,6 +28,8 @@ async function goToOddenstein(q: Quest): Promise<void> {
 await runQuest({
     id: 'haunted',
     hub: 'draynor',
+    // Shared NPCs/doors (Keli and the prince; the lever maze) break with many bots in at once.
+    maxConcurrent: 2,
     journal: { label: 'Ernest the Chicken', title: 'Ernest the Chicken' },
     stages: [
         { id: 'unstarted', rule: { id: 'haunted:unstarted', kind: 'unstarted', all: ['I can start this quest by speaking to'] } },
