@@ -25,6 +25,12 @@ export interface StuckDoor {
     outside: Tile;
     /** Plane-0 box the walk cannot leave without this door. */
     area: { x1: number; z1: number; x2: number; z2: number };
+    /**
+     * Also cross it on the way IN (enterStuckArea). Only where walking in fails too:
+     * forcing the door into the Wizards' Tower ladder room, which walkTo enters fine,
+     * left the bot on the door tile unable to reach Sedridor.
+     */
+    enter?: boolean;
 }
 
 export const STUCK_DOORS: StuckDoor[] = [
@@ -32,6 +38,7 @@ export const STUCK_DOORS: StuckDoor[] = [
         // walkTo out heads east to (3164,3435), a wall, with the door open or closed
         // (Romeo & Juliet port, 2026-10-29). Entering through it works.
         name: "Juliet's house front door",
+        enter: true,
         door: { x: 3160, z: 3440 },
         inside: { x: 3160, z: 3439 },
         outside: { x: 3160, z: 3441 },
@@ -84,4 +91,38 @@ export async function leaveStuckArea(sdk: BotSDK, bot: BotActions, dest: Tile, l
     const now = sdk.getState()?.player;
     log(`${door.name}: ${out ? 'out' : 'STILL INSIDE'} at (${now?.worldX},${now?.worldZ})${opened ? ' (opened it)' : ''}`);
     return out;
+}
+
+/**
+ * The way in: if `dest` is inside a STUCK_DOORS area and the player (plane 0) is
+ * outside it, step in through its door. On prod the walk into Juliet's house
+ * found "No path … no waypoints" from just outside the front door, with the door
+ * in whatever state another player left it (2026-10-29). Returns true when it crossed.
+ */
+export async function enterStuckArea(sdk: BotSDK, bot: BotActions, dest: Tile, log: (msg: string) => void): Promise<boolean> {
+    const p = sdk.getState()?.player;
+    if (!p || p.level !== 0) return false;
+    const here = { x: p.worldX, z: p.worldZ };
+    const door = STUCK_DOORS.find((d) => d.enter && within(dest, d.area) && !within(here, d.area));
+    if (!door) return false;
+    let inside = false;
+    let opened = false;
+    for (let attempt = 0; attempt < 4 && !inside; attempt++) {
+        if (attempt) await sdk.waitForTicks(1 + attempt);
+        await bot.walkTo(door.outside.x, door.outside.z, 1);
+        await sdk.scanNearbyLocs(3).catch(() => undefined);
+        const closed = (sdk.getNearbyLocs() ?? []).find(
+            (l) => l.x === door.door.x && l.z === door.door.z && /door|gate/i.test(l.name) && l.options?.some((o) => /^open$/i.test(o))
+        );
+        if (closed) {
+            await bot.openDoor(closed);
+            opened = true;
+            await sdk.waitForTicks(1);
+        }
+        await sdk.sendWalk(door.inside.x, door.inside.z);
+        inside = await untilTicks(sdk, (s) => within({ x: s.player?.worldX ?? 0, z: s.player?.worldZ ?? 0 }, door.area), 10);
+    }
+    const now = sdk.getState()?.player;
+    log(`${door.name}: ${inside ? 'in' : 'STILL OUTSIDE'} at (${now?.worldX},${now?.worldZ})${opened ? ' (opened it)' : ''}`);
+    return inside;
 }

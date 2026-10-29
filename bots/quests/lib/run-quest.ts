@@ -49,7 +49,7 @@ import { SAFE_BANKS, type SafeBankName } from '../safe-stops';
 import { GROUPS, itemPattern, needMet, SOURCES, type Need } from './sources';
 import { TRAINERS } from './training';
 import { talkThrough } from './dialog';
-import { leaveStuckArea } from './doors';
+import { enterStuckArea, leaveStuckArea } from './doors';
 import { tickNow, untilTicks } from './ticks';
 
 export type { Need } from './sources';
@@ -281,7 +281,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // (druid, 2026-10-28). Change plane where we stand, then walk.
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0);
                 // Buildings whose doorway the client map gets wrong (lib/doors.ts).
-                if (away(tile) > tolerance) await leaveStuckArea(sdk, bot, tile, log);
+                if (away(tile) > tolerance) (await leaveStuckArea(sdk, bot, tile, log)) || (await enterStuckArea(sdk, bot, tile, log));
                 const viaTravel = async () => {
                     const res = await travelTo(sdk, bot, tile, { log, tolerance: TRAVEL_ARRIVAL });
                     if (!res.ok) log(`travel stopped ${Math.round(away(tile))} tiles short (${res.reason})`);

@@ -78,6 +78,8 @@ export const GROUPS: Record<string, Array<{ item: string; skill: string; level: 
         { item: 'iron pickaxe', skill: 'mining', level: 1 },
         { item: 'bronze pickaxe', skill: 'mining', level: 1 },
     ],
+    /** Witch's House: worn for the cellar's shock gate, so worn ones count. */
+    'leather gloves': [{ item: 'leather gloves', skill: 'defence', level: 1 }],
 };
 
 const LUMBRIDGE_GENERAL_STORE = { x: 3211, z: 3246, npc: /shop\s*(keeper|assistant)/i };
@@ -86,6 +88,8 @@ const BOBS_AXES = { x: 3232, z: 3203, npc: /^bob$/i };
 const LUMBRIDGE_CASTLE_STAIRS = { x: 3205, z: 3208 };
 /** Wydin's Food Store, Port Sarim: pot of flour 10gp (stock 3), redberries 3gp (stock 1). */
 const WYDIN = { x: 3014, z: 3204, npc: /^wydin$/i };
+/** Thessalia's clothes shop, Varrock (varrock.inv clotheshop: leather gloves). */
+const THESSALIA_CLOTHES = { x: 3204, z: 3417, npc: /^thessalia$/i };
 /** Pie dish ground spawn in the Varrock palace kitchen. */
 const PIE_DISH_SPAWN = { x: 3222, z: 3494 };
 /** Redberry pie burns often near Cooking 10; each attempt costs one dough + one berry portion. */
@@ -209,6 +213,50 @@ export const SOURCES: Record<string, Source> = {
     'rubber tube': { inputs: () => [{ item: 'spade', count: 1 }], get: (q) => rubberTube(q) },
     'pressure gauge': { get: (q) => pressureGauge(q) },
     'oil can': { get: (q) => oilCan(q) },
+
+    // ── Vampire Slayer: hammer, beer for Dr Harlow, garlic; the stake is Harlow's (quest-tracked)
+    hammer: {
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 5 }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, LUMBRIDGE_GENERAL_STORE, 'hammer', count);
+        },
+    },
+    beer: {
+        inputs: (count) => [{ item: 'coins', count: 2 * count }],
+        get: async (q, count) => {
+            for (let misses = 0; misses < 3 && q.count('beer') < count; ) {
+                const before = q.count('beer');
+                await q.ensure('coins', 2);
+                // area_port_sarim/scripts/bartender.rs2: "Could I buy a beer please?" -> 2gp, one beer.
+                await q.talk(/^bartender$/i, [/buy a beer/i], RUSTY_ANCHOR);
+                await untilTicks(q.sdk, () => q.count('beer') > before, 5);
+                await closeUi(q.bot, q.sdk);
+                misses = q.count('beer') > before ? 0 : misses + 1;
+            }
+        },
+    },
+    garlic: { get: (q, count) => morganGarlic(q, count) },
+    /** Dr Harlow hands it over for a beer (harlow.rs2); untradeable, never spawned. */
+    stake: { spawnable: false },
+
+    // ── Witch's House
+    cheese: {
+        inputs: (count) => [{ item: 'coins', count: 5 * count }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, WYDIN, 'cheese', count);
+        },
+    },
+    'leather gloves': {
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 10 }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, THESSALIA_CLOTHES, 'leather gloves', count);
+        },
+    },
 
     shears: {
         tool: true,
@@ -364,6 +412,41 @@ const CADAVA_SPAWNS = [
     { x: 3273, z: 3375 },
     { x: 3277, z: 3370 },
 ];
+/** The Rusty Anchor, Port Sarim (the Goblin Diplomacy bartender). */
+const RUSTY_ANCHOR = { x: 3045, z: 3257 };
+/** Morgan's house, Draynor: the foot of his stairs (3099,3266), and the garlic cupboard (3096,3268) on plane 1. */
+const MORGAN_STAIRS_FOOT = { x: 3099, z: 3267 };
+const GARLIC_CUPBOARD = { x: 3096, z: 3268 };
+
+/** cupboards.rs2: Morgan's cupboard opens (op1) and then gives one garlic per Search. */
+async function morganGarlic(q: Quest, count: number): Promise<void> {
+    if ((q.sdk.getState()?.player?.level ?? 0) !== 1) {
+        await q.goTo(MORGAN_STAIRS_FOOT, 1);
+        await q.climbTo(1);
+    }
+    for (let misses = 0; misses < 4 && q.count('garlic') < count; ) {
+        await q.sdk.scanNearbyLocs(8).catch(() => undefined);
+        const cupboard = (q.sdk.getNearbyLocs() ?? [])
+            .filter((l) => /^cupboard$/i.test(l.name))
+            .sort((a, b) => Math.hypot(a.x - GARLIC_CUPBOARD.x, a.z - GARLIC_CUPBOARD.z) - Math.hypot(b.x - GARLIC_CUPBOARD.x, b.z - GARLIC_CUPBOARD.z))[0];
+        if (!cupboard) throw new Error(`no cupboard near (${q.sdk.getState()?.player?.worldX},${q.sdk.getState()?.player?.worldZ}) upstairs in Morgan's house`);
+        const before = q.count('garlic');
+        if (cupboard.options?.some((o) => /^search$/i.test(o))) {
+            await q.bot.interactLoc(cupboard, /^search$/i);
+            await untilTicks(q.sdk, () => q.count('garlic') > before, 8);
+        } else {
+            await q.bot.interactLoc(cupboard, /^open$/i);
+            // The shut cupboard changes into the open one; wait for its Search option.
+            const opened = await untilTicks(q.sdk, () => (q.sdk.getNearbyLocs() ?? []).some((l) => l.x === cupboard.x && l.z === cupboard.z && l.options?.some((o) => /^search$/i.test(o))), 6);
+            if (!opened) misses++;
+            continue;
+        }
+        await q.bot.dismissBlockingUI();
+        misses = q.count('garlic') > before ? 0 : misses + 1;
+    }
+    await q.climbTo(0);
+}
+
 /** Goblin camps east of Lumbridge and north of Port Sarim (the old script's npcfind-verified camps). */
 const GOBLIN_CAMPS = [
     { x: 3252, z: 3230 },
@@ -461,7 +544,16 @@ async function pickLocs(q: Quest, item: string, loc: RegExp, spots: Array<{ x: n
         for (const spot of spots) {
             if (q.count(item) >= count) break;
             const p = q.sdk.getState()?.player;
-            if (Math.hypot((p?.worldX ?? 0) - spot.x, (p?.worldZ ?? 0) - spot.z) > 6) await q.goTo(spot, 3);
+            if (Math.hypot((p?.worldX ?? 0) - spot.x, (p?.worldZ ?? 0) - spot.z) > 6) {
+                // A spot inside a fenced patch can be unroutable from where we stand: try the
+                // next spot rather than failing the quest (prod, jacklove3, Stuck at 2675,3655).
+                try {
+                    await q.goTo(spot, 6);
+                } catch (err) {
+                    q.log(`${item}: skipping spot (${spot.x},${spot.z}) — ${err instanceof Error ? err.message : String(err)}`);
+                    continue;
+                }
+            }
             await q.sdk.scanNearbyLocs(8).catch(() => undefined);
             // The Rellekka plants sit in fenced patches: open the gate toward one first
             // (seen 7 onions, "I can't reach that!", 0 picked in 704t without this).

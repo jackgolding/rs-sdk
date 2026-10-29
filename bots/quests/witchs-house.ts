@@ -1,504 +1,487 @@
 /**
- * Witch's House — reusable.
+ * Witch's House — fetch the boy's ball from the witch's shed, Taverley.
  *
  *   bun bots/quests/witchs-house.ts {botname}
  *
- * Boy → door key → magnet/cheese/mouse → shed key → experiment → return ball.
+ * Journal rules from quest_ball/scripts/ball_journal.rs2; mechanics from
+ * quest_ball.rs2, witch.rs2 and witches_experiement.rs2. Tiles are content
+ * placements (maps/m45_54 and its cellar m45_154). Items:
+ *   - leather gloves  lib/sources.ts (Thessalia); worn for the cellar's shock gate
+ *   - cheese          lib/sources.ts (Wydin); lures the mouse out of its hole
+ *   - door key, magnet, shed key, ball: quest items taken in this script
+ *
+ * The garden: hedges fence the witch's patrol (z 3463, x 2904-2930) off from
+ * the paths the player uses — the z 3460 strip, the x 2933 column by the shed
+ * and the z 3466 strip to the fountain. witch.rs2 catches a player within 3
+ * tiles of her in line of sight unless a hedge stands on the tile between, and
+ * throws them out with the shed key and ball taken. So the paths are walked in
+ * hops between hedge-covered tiles, only while she is far enough away.
  */
-import { appendFileSync } from 'fs';
-import { join } from 'path';
-import { runScript } from '../../sdk/runner';
-import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
-import type { JournalRule } from '../../quest-lab/evidence';
-import {
-    ensureCoins,
-    ensureItem,
-    SHOPS,
-    type SupplyCtx,
-    withdrawFromBank
-} from './quest-supplies';
+import { runQuest, type Quest } from './lib/run-quest';
+import { tickNow, untilTicks } from './lib/ticks';
+
+type Tile = { x: number; z: number };
 
 const BOY = { x: 2928, z: 3456 };
-const WITCH_DOOR = { x: 2933, z: 3459 };
-/** The cluster of potted plants by the house; the key pot is among them. */
-const WITCH_POTS = { x: 2900, z: 3474 };
-const MOUSE_HOLE = { x: 2937, z: 3466 };
-const FOUNTAIN = { x: 2943, z: 3454 };
-const SHED = { x: 2943, z: 3450 };
-const DRAYNOR_BANK = { x: 3092, z: 3245 };
+/** Outside the front door (2901,3473); the key pot is beside it (2900,3474). */
+const FRONT_DOOR_OUT = { x: 2900, z: 3473 };
+const FRONT_DOOR = { x: 2901, z: 3473 };
+const KEY_POT = { x: 2900, z: 3474 };
+/** House interior. */
+const CELLAR_LADDER = { x: 2907, z: 3476 };
+const MOUSE_HOLE = { x: 2903, z: 3466 };
+/**
+ * The back porch (x 2901-2902, z 3466-3467) behind the door at (2902,3468): the
+ * mouse hole is on its east wall, the back door (2901,3465) in its south wall.
+ * The static pathfinder does not know that door, so it is opened by hand.
+ */
+const BACK_PORCH = { x: 2901, z: 3466 };
+const PORCH_DOOR = { x: 2902, z: 3468 };
+const MAIN_ROOM = { x: 2902, z: 3469 };
+const BACK_DOOR = { x: 2901, z: 3465 };
+/** Cellar (z + 6400): the ladder up, the shock gate (on the east edge of x 2902) and the magnet cupboard west of it. */
+const CELLAR_UP = { x: 2907, z: 9876 };
+const SHOCK_GATE = { x: 2902, z: 9873 };
+/** Either leaf of the double shock gate passes; another player's pass swaps one out for 3 ticks. */
+const SHOCK_GATE_LEAVES = [SHOCK_GATE, { x: 2902, z: 9874 }];
+const MAGNET_CUPBOARD = { x: 2898, z: 9873 };
+const FOUNTAIN = { x: 2909, z: 3470 };
+const SHED_DOOR = { x: 2934, z: 3463 };
 
-const DOOR_KEY = /door key|witches.? door/i;
+const WITCH = /^nora t\.? hagg$/i;
+const EXPERIMENT = /^witches experiment/i;
+const DOOR_KEY = /^door key$/i;
+const SHED_KEY = /^key$/i;
 const MAGNET = /^magnet$/i;
-const CHEESE = /^cheese$/i;
-const SHED_KEY = /shed key|witches.? shed/i;
 const BALL = /^ball$/i;
-const GLOVES = /^leather gloves$/i;
-const FOOD = /^(lobster|swordfish|tuna|shark|trout|salmon|bread|cake|wine|meat pie)$/i;
 
-const botName = process.argv.slice(2).find((a) => !a.startsWith('-')) ?? '';
-const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
+/** witch.rs2 huntall(npc_coord, 3, 0): she only looks this far. */
+const WITCH_SIGHT = 3;
+/** Ticks a hop's walk packet takes to land and the bot to start moving (latency + a tick of slack). */
+const HOP_SLACK_TICKS = 3;
 
-await runScript(async ({ bot, sdk }) => {
-    const log = (msg: string) => {
-        console.log(msg);
-        try {
-            appendFileSync(GRIND_LOG, `${new Date().toISOString()} ${msg}\n`);
-        } catch {
-            /* ignore */
+// Garden paths, each tile adjacent to the next (maps/m45_54 collision).
+const range = (a: number, b: number, f: (n: number) => Tile): Tile[] => {
+    const out: Tile[] = [];
+    const step = a <= b ? 1 : -1;
+    for (let n = a; n !== b + step; n += step) out.push(f(n));
+    return out;
+};
+/** Back door -> down the x 2901 column -> east along z 3460 -> up the x 2933 column to the shed door. */
+const PORCH_TO_SHED: Tile[] = [
+    ...range(3465, 3460, (z) => ({ x: 2901, z })),
+    ...range(2902, 2933, (x) => ({ x, z: 3460 })),
+    ...range(3461, 3463, (z) => ({ x: 2933, z })),
+];
+/** Shed door -> up the column -> west along z 3466 -> into the fountain's corner. */
+const SHED_TO_FOUNTAIN: Tile[] = [
+    ...range(3463, 3466, (z) => ({ x: 2933, z })),
+    ...range(2932, 2912, (x) => ({ x, z: 3466 })),
+    { x: 2912, z: 3467 },
+    { x: 2911, z: 3467 },
+    { x: 2911, z: 3468 },
+];
+const reverse = (p: Tile[]) => [...p].reverse();
+
+/**
+ * A path tile is covered when the witch cannot catch the player there:
+ * witch.rs2 spares a player south of her with a `hedge` on the tile north of
+ * them, and one north of her with a `hedge`/`hedgecorner` on the tile south.
+ * Hedge placements: m45_54 rows z 3461 and z 3465.
+ */
+const HEDGE_3461 = new Set([2903, 2907, 2908, 2909, 2915, 2916, 2917, 2923, 2924, 2925, 2929, 2930, 2931]);
+const HEDGE_3465 = new Set([2903, 2904, 2905, 2906, 2907, 2908, 2909, 2911, 2912, 2913, 2914, 2919, 2920, 2921, 2926, 2927, 2928, 2932]);
+function covered(t: Tile): boolean {
+    if (t.z === 3460) return HEDGE_3461.has(t.x);
+    if (t.z === 3466) return HEDGE_3465.has(t.x);
+    if (t.z === 3463) return true; // level with her patrol: dz = 0 is never caught
+    return t.z >= 3467; // the fountain corner is beyond her sight
+}
+
+const cheb = (a: Tile, b: Tile) => Math.max(Math.abs(a.x - b.x), Math.abs(a.z - b.z));
+
+function me(q: Quest): Tile & { level: number } {
+    const p = q.sdk.getState()!.player!;
+    return { x: p.worldX, z: p.worldZ, level: p.level };
+}
+
+const onPorch = (t: Tile) => t.x >= 2901 && t.x <= 2902 && t.z >= 3466 && t.z <= 3467;
+const inHouse = (t: Tile) => t.x >= 2901 && t.x <= 2908 && t.z >= 3466 && t.z <= 3477;
+const inShed = (t: Tile) => t.x >= SHED_DOOR.x && t.x <= 2938 && t.z >= 3459 && t.z <= 3467;
+const onGardenPath = (t: Tile) => [...PORCH_TO_SHED, ...SHED_TO_FOUNTAIN].some((p) => cheb(p, t) === 0);
+
+/**
+ * Walk `path` (starting on one of its tiles) in hops from one covered tile to
+ * the next, sending a hop only while the witch stays out of reach of every
+ * uncovered tile in it for as long as the hop takes. Throws if she throws us out.
+ */
+async function sneak(q: Quest, path: Tile[], label: string): Promise<void> {
+    let i = path.findIndex((t) => cheb(t, me(q)) === 0);
+    if (i < 0 && covered(path[0]!) && cheb(path[0]!, me(q)) <= 4) {
+        // Just off the start (the fountain's corner): step onto it.
+        await q.sdk.sendWalk(path[0]!.x, path[0]!.z, true);
+        if (await untilTicks(q.sdk, () => cheb(path[0]!, me(q)) === 0, 10)) i = 0;
+    }
+    if (i < 0) throw new Error(`${label}: not on the path (at ${me(q).x},${me(q).z})`);
+    const t0 = tickNow(q.sdk);
+    let waited = 0;
+    while (i < path.length - 1) {
+        let j = i + 1;
+        while (j < path.length - 1 && !covered(path[j]!)) j++;
+        const hop = path.slice(i + 1, j + 1);
+        const ticks = Math.ceil(hop.length / 2) + HOP_SLACK_TICKS;
+        const witch = q.sdk.findNearbyNpc(WITCH);
+        const safe = !witch || hop.every((t) => covered(t) || cheb(t, witch) > WITCH_SIGHT + ticks);
+        if (!safe) {
+            await q.sdk.waitForTicks(1);
+            if (++waited > 400) throw new Error(`${label}: the witch never left the path near (${path[i]!.x},${path[i]!.z})`);
+            continue;
         }
-    };
-
-    let lastIntent = '';
-    function intent(msg: string): void {
-        if (msg === lastIntent) return;
-        lastIntent = msg;
-        console.log(`> ${msg}`);
-        void sdk.showIntent(msg);
-    }
-
-    function pos() {
-        const p = sdk.getState()?.player;
-        return {
-            x: p?.worldX ?? 0,
-            z: p?.worldZ ?? 0,
-            level: p?.level ?? 0,
-            hp: p?.hp ?? 10,
-            maxHp: p?.maxHp ?? 10,
-            isDead: p?.isDead ?? false,
-            inCombat: p?.combat?.inCombat ?? false
-        };
-    }
-
-    function distTo(x: number, z: number): number {
-        return Math.hypot(pos().x - x, pos().z - z);
-    }
-
-    function count(pattern: RegExp): number {
-        return sdk.getInventory().reduce((n, i) => n + (pattern.test(i.name) ? (i.count ?? 1) : 0), 0);
-    }
-
-    function hpXp(): number {
-        return sdk.getSkill('Hitpoints')?.experience ?? 0;
-    }
-
-    function wearingGloves(): boolean {
-        return !!sdk.getEquipment().find((i) => GLOVES.test(i.name));
-    }
-
-    /**
-     * Witch's House stage and completion, from the QUEST JOURNAL.
-     *
-     * This used to be `hpXp() >= xpBefore + 6000` plus a chat regex. Hitpoints
-     * XP is this quest's REWARD, so the threshold fires on XP gained from ANY
-     * damage taken anywhere — a bot that gets hit before it has even found the
-     * boy reads as finished.
-     *
-     * Rules come from the quest's own handler
-     * (quest_ball/scripts/ball_journal.rs2, journal heading "Witch's House").
-     * The quest is keyed `ball` in content.
-     */
-    const WITCH_JOURNAL = { label: "Witch's House", title: "Witch's House" };
-    const WITCH_STAGES: Record<string, JournalRule> = {
-        not_started: {
-            id: 'ball:not_started',
-            kind: 'unstarted',
-            all: ['I can start this quest by speaking to the little boy standing by the long garden'],
-        },
-        started: {
-            id: 'ball:started',
-            kind: 'active',
-            all: ['I should find a way into the garden where the ball is'],
-        },
-        found_magnet: {
-            id: 'ball:found_magnet',
-            kind: 'active',
-            all: ['I have found a magnet in a cupboard in the basement'],
-        },
-        // Varp `ball_unlocked_mousedoor` (3) and `ball_read_diary_after_door` (5)
-        // emit the SAME journal text, so they are ONE stage here. Encoding them
-        // as two rules would create a predicate that can never pass.
-        unlocked_door: {
-            id: 'ball:unlocked_door',
-            kind: 'active',
-            all: ['I have worked out how to unlock the back door to the garden'],
-        },
-        defeated_experiment: {
-            id: 'ball:defeated_experiment',
-            kind: 'active',
-            all: ["Now the shapeshifter is dead I should return the boy's ball"],
-        },
-        complete: { id: 'ball:complete', kind: 'complete', all: ['QUEST COMPLETE'] },
-    };
-
-    /** The first stage rule that passes is the account's real stage. */
-    async function readStage(): Promise<string> {
-        for (const name of [
-            'complete',
-            'defeated_experiment',
-            'unlocked_door',
-            'found_magnet',
-            'started',
-            'not_started',
-        ]) {
-            const read = await readJournalCheckpoint(sdk, WITCH_JOURNAL, WITCH_STAGES[name]!);
-            log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
-            if (read.verdict?.verdict === 'PASS') return name;
+        const dest = path[j]!;
+        await q.sdk.sendWalk(dest.x, dest.z, true);
+        const arrived = await untilTicks(q.sdk, () => cheb(me(q), dest) === 0, ticks + 8);
+        if (!arrived) {
+            const at = me(q);
+            const k = path.findIndex((t) => cheb(t, at) === 0);
+            if (k < 0) throw new Error(`${label}: thrown out of the garden — now at (${at.x},${at.z})`);
+            i = k;
+            continue;
         }
-        return 'unknown';
+        i = j;
     }
+    q.log(`${label}: ${tickNow(q.sdk) - t0}t (${waited}t waiting on the witch)`);
+}
 
-    let journalComplete = false;
-    let lastJournalCheck = 0;
-    /** Journal-backed completion, throttled: opening the journal is not free. */
-    async function questDone(): Promise<boolean> {
-        if (Date.now() - lastJournalCheck < 5_000) return journalComplete;
-        lastJournalCheck = Date.now();
-        const read = await readJournalCheckpoint(sdk, WITCH_JOURNAL, WITCH_STAGES.complete!);
-        journalComplete = read.verdict?.verdict === 'PASS';
-        return journalComplete;
+/** Interact with the loc at `tile` (scene names are generic: Door, Gate, Cupboard). */
+async function useLoc(q: Quest, at: Tile | Tile[], op: RegExp): Promise<void> {
+    await q.sdk.scanNearbyLocs(10).catch(() => undefined);
+    const tiles = Array.isArray(at) ? at : [at];
+    const tile = tiles[0]!;
+    const locs = q.sdk.getNearbyLocs() ?? [];
+    const loc = tiles.map((t) => locs.find((l) => l.x === t.x && l.z === t.z && l.options.some((o) => op.test(o)))).find(Boolean);
+    if (!loc) {
+        const here = (q.sdk.getNearbyLocs() ?? []).filter((l) => cheb(l, tile) <= 1).map((l) => `${l.name}@${l.x},${l.z}[${l.options.join('/')}]`);
+        throw new Error(`no ${op} loc at (${tile.x},${tile.z}) from (${me(q).x},${me(q).z}); near it: ${here.join(' ') || 'nothing'}`);
     }
+    const r = await q.bot.interactLoc(loc, op);
+    if (!r.success) throw new Error(`${loc.name} ${op} at (${loc.x},${loc.z}): ${r.message ?? r.reason ?? 'failed'}`);
+}
 
-    async function closeUi(): Promise<void> {
-        for (let i = 0; i < 8; i++) {
-            await bot.dismissBlockingUI();
-            const dialog = sdk.getDialog();
-            const opts = dialog?.options ?? [];
-            if (dialog?.isOpen && (opts.length <= 1 || opts.every((o) => /click here to continue/i.test(o.text)))) {
-                await sdk.sendClickDialog(opts[0]?.index ?? 0);
-                await sdk.waitForTicks(1);
-                continue;
-            }
-            if (sdk.getState()?.shop?.isOpen || sdk.getState()?.bank?.isOpen || sdk.getState()?.interface?.isOpen) {
-                await bot.closeInterface();
-                await sdk.waitForTicks(1);
-                continue;
-            }
-            break;
-        }
-    }
-
-    async function chat(choices: RegExp[] = [], max = 28): Promise<string[]> {
-        const seen: string[] = [];
-        for (let i = 0; i < max; i++) {
-            const dialog = sdk.getDialog();
-            if (!dialog?.isOpen) {
-                await sdk.waitForTicks(1);
-                if (!sdk.getDialog()?.isOpen) break;
-            }
-            const opts = sdk.getDialog()?.options ?? [];
-            for (const o of opts) seen.push(o.text);
-            if (opts.length <= 1 || opts.every((o) => /click here to continue/i.test(o.text))) {
-                await sdk.sendClickDialog(opts[0]?.index ?? 0);
-                await sdk.waitForTicks(1);
-                continue;
-            }
-            let picked = false;
-            for (const c of choices) {
-                const match = opts.find((o) => c.test(o.text));
-                if (match) {
-                    await sdk.sendClickDialog(match.index);
-                    picked = true;
-                    break;
-                }
-            }
-            if (!picked) break;
-            await sdk.waitForTicks(1);
-        }
-        return seen;
-    }
-
-    async function walkNear(x: number, z: number, tolerance = 4): Promise<boolean> {
-        if (distTo(x, z) <= tolerance) return true;
-        const r = await bot.walkTo(x, z, Math.min(tolerance, 3));
-        return r.success || distTo(x, z) <= tolerance + 2;
-    }
-
-    async function climbTo(targetLevel: number): Promise<boolean> {
-        for (let i = 0; i < 8 && pos().level !== targetLevel; i++) {
-            const wantUp = pos().level < targetLevel;
-            const opt = wantUp ? /climb-up|climb.up|go-up|go.up/i : /climb-down|climb.down|go-down|go.down/i;
-            await sdk.scanNearbyLocs(8).catch(() => {});
-            const stairs = (sdk.getNearbyLocs() ?? [])
-                .filter((l) => /stair|ladder/i.test(l.name) && l.optionsWithIndex.some((o) => opt.test(o.text)))
-                .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
-            if (!stairs) return false;
-            const before = pos().level;
-            await bot.interactLoc(stairs, opt);
-            await sdk.waitForCondition((s) => (s.player?.level ?? before) !== before, 8_000).catch(() => {});
-            await closeUi();
-        }
-        return pos().level === targetLevel;
-    }
-
-    async function eatIfNeeded(): Promise<void> {
-        if (pos().hp >= pos().maxHp - 5) return;
-        const food = sdk.findInventoryItem(FOOD);
-        if (food) await bot.eatFood(food);
-    }
-
-    const supplyCtx = (): SupplyCtx => ({ bot, sdk, log, intent, walkNear, closeUi });
-
-    async function ensureSupplies(): Promise<void> {
-        const ctx = supplyCtx();
-        await ensureCoins(ctx, 30);
-        await withdrawFromBank(ctx, GLOVES, 1, SHOPS.DRAYNOR_BANK);
-        await withdrawFromBank(ctx, CHEESE, 1, SHOPS.DRAYNOR_BANK);
-        // No FOOD withdrawal. This quest needs no food (the experiment is a
-        // level-53 fight a maxed account walks through), and because the
-        // main loop calls ensureSupplies() EVERY iteration, an unsatisfiable
-        // food request dragged the bot back to the Draynor bank on every lap —
-        // observed as continuous pacing between the bank and Taverley with the
-        // mouse puzzle never reached. vampire-slayer.ts only calls this at start
-        // and on low HP, which is why the same line was harmless there.
-        await ensureItem(ctx, GLOVES, 1, {
-            label: 'leather gloves',
-            shop: SHOPS.THESSALIA,
-            coinsNeeded: 10
-        });
-        await ensureItem(ctx, CHEESE, 1, {
-            label: 'cheese',
-            shop: SHOPS.WYDIN,
-            coinsNeeded: 10
-        });
-        // Food is a convenience, NOT a requirement — same defect vampire-slayer.ts
-        // had. Wydin's stocks neither wine ("item not found in shop") nor bread
-        // ("out of stock") in this revision, so this ran on EVERY loop iteration,
-        // walked to Port Sarim, and came back empty. Whatever the bank already
-        // holds (withdrawn above) is used; nothing further is bought.
-        const gloves = sdk.findInventoryItem(GLOVES);
-        if (gloves) await bot.equipItem(gloves);
-    }
-
-    async function witchNearby(): boolean {
-        return !!(sdk.findNearbyNpc(/nora|witch/i) && (sdk.findNearbyNpc(/nora|witch/i)?.distance ?? 99) < 8);
-    }
-
-    async function startBoy(): Promise<void> {
-        intent('Talking to the boy');
-        await walkNear(BOY.x, BOY.z, 3);
-        const boy = sdk.findNearbyNpc(/^boy$/i);
-        if (!boy) return;
-        await bot.talkTo(boy);
-        const seen = await chat([/what'?s the matter/i, /see what i can do/i, /ok.*see what/i]);
-        log(`Boy: ${seen.join(' | ')}`);
-    }
-
-    async function getDoorKey(): Promise<void> {
-        if (count(DOOR_KEY) > 0) return;
-        intent('Searching flower pot for door key');
-        // Walk to the POT CLUSTER, not to WITCH_DOOR. WITCH_DOOR is (2933,3459)
-        // and the pots sit at (2900,3468..3476) — ~33 tiles apart, so a
-        // scanNearbyLocs from the door could never see them.
-        await walkNear(WITCH_POTS.x, WITCH_POTS.z, 3);
-        await sdk.scanNearbyLocs(8).catch(() => {});
-        // There are ~6 potted plants here and only ONE is the key loc
-        // (`witchpot`, display name "Potted plant"); every decoy has NO options
-        // at all. A name pattern cannot tell them apart — the earlier code
-        // matched the nearest "Potted fern" and clicked an option it does not
-        // have, so nothing happened and the key stayed at 0. Select by option.
-        const byOption = sdk.findNearbyLoc(/pot|plant/i, { withOption: /look.?under/i });
-        const pot = byOption ?? sdk.findNearbyLoc(/flower pot|pot/i);
-        log(
-            `pot: ${pot ? `${pot.name} @ ${pot.x},${pot.z} opts=[${(pot.optionsWithIndex ?? []).map((o) => `${o.opIndex}:${o.text}`).join('/')}]` : 'none'}` +
-                ` (byOption=${byOption ? 'yes' : 'NO — fell back to name)'}`
+/**
+ * Op a door/gate/ladder at `tile` until `through()` holds. An op sent while the
+ * player is still delayed (just off a ladder) is dropped by the server without a
+ * word, so a click that changes nothing within 20 ticks is sent again.
+ */
+async function passLoc(q: Quest, tile: Tile | Tile[], op: RegExp, through: () => boolean, what: string): Promise<void> {
+    for (let attempt = 1; attempt <= 8; attempt++) {
+        // Doors here are shared: another player passing swaps the loc for a moment
+        // (open_and_close_door2), and an op on the swapped loc does nothing.
+        const sent = await useLoc(q, tile, op).then(
+            () => true,
+            (e) => (q.log(`${what}: attempt ${attempt} failed: ${(e as Error).message}`), false),
         );
-        if (pot) {
-            // The key loc is content id `witchpot`, display name "Potted
-            // plant" with op1=Look-under (quest_ball.rs2 grants the key on
-            // [oploc1,witchpot]). The name pattern matched - "Potted"
-            // contains "pot" - but clicking /search/i never matched an
-            // option, so no interaction happened and the door key stayed at
-            // 0 for the whole run. /search/i is kept as a fallback in case a
-            // revision names it that way.
-            // Check the result: interactLoc reports success:false with a
-            // reason (loc_not_found / no such option / unreachable), and the
-            // result was previously discarded, so a silent failure looked
-            // exactly like a successful click that granted nothing.
-            const r = await bot.interactLoc(pot, /look.?under|search/i);
-            log(`interactLoc ${pot.name}: ${r.success ? 'ok' : `FAILED ${r.reason ?? ''} ${r.message ?? ''}`}`);
-            await sdk.waitForTicks(3);
+        if (await untilTicks(q.sdk, through, sent ? 20 : 3 + (attempt % 3))) return;
+        if (sent) q.log(`${what}: no effect after attempt ${attempt} (at ${me(q).x},${me(q).z}; ops rejected ${q.sdk.getState()?.opFeedback?.opRejectedCount ?? '?'})`);
+    }
+    throw new Error(`${what} did not work (at ${me(q).x},${me(q).z})`);
+}
+
+/** Close the mesbox a content script is blocked on, so whatever follows it (an inv_add) lands. */
+async function drainModal(q: Quest, until: () => boolean, ticks = 30): Promise<boolean> {
+    for (let t = 0; t < ticks && !until(); t++) {
+        if (q.sdk.getState()?.dialog?.isOpen) await q.bot.dismissBlockingUI().catch(() => undefined);
+        await q.sdk.waitForTicks(1);
+    }
+    return until();
+}
+
+/** Into the house by the front door, with the key from the pot beside it. */
+async function enterHouse(q: Quest): Promise<void> {
+    if (inHouse(me(q))) return;
+    await q.goTo(FRONT_DOOR_OUT, 1);
+    if (q.count(DOOR_KEY) < 1) {
+        await useLoc(q, KEY_POT, /look-under/i);
+        if (!(await drainModal(q, () => q.count(DOOR_KEY) > 0))) throw new Error('looked under the pot but no door key');
+        q.log('door key from the pot');
+    }
+    await passLoc(q, FRONT_DOOR, /^open$/i, () => inHouse(me(q)), 'front door in');
+}
+
+/** Out of the house by the front door (it opens from inside without the key). */
+async function leaveHouse(q: Quest): Promise<void> {
+    if (!inHouse(me(q))) return;
+    if (onPorch(me(q))) {
+        await q.sdk.scanNearbyLocs(4).catch(() => undefined);
+        const door = (q.sdk.getNearbyLocs() ?? []).find((l) => l.x === PORCH_DOOR.x && l.z === PORCH_DOOR.z && l.options.some((o) => /^open$/i.test(o)));
+        if (door) await q.bot.openDoor(door);
+        for (let attempt = 0; attempt < 3 && onPorch(me(q)); attempt++) {
+            await q.sdk.sendWalk(MAIN_ROOM.x, MAIN_ROOM.z, true);
+            await untilTicks(q.sdk, () => !onPorch(me(q)), 15);
         }
     }
+    await q.goTo(FRONT_DOOR, 0);
+    await passLoc(q, FRONT_DOOR, /^open$/i, () => !inHouse(me(q)), 'front door out');
+}
 
-    async function enterHouse(): Promise<void> {
-        if (count(DOOR_KEY) < 1) return;
-        await walkNear(WITCH_DOOR.x, WITCH_DOOR.z, 1);
-        const door = sdk.findNearbyLoc(/door/i);
-        if (door) {
-            const key = sdk.findInventoryItem(DOOR_KEY);
-            if (key) await bot.useItemOnLoc(key, door);
-            else await bot.openDoor(door);
-            await sdk.waitForTicks(2);
-        }
-        if (pos().level === 0) await climbTo(1);
-        if (pos().level === 1) await climbTo(2);
+/** Into the house and through the porch door onto the back porch. */
+async function toPorch(q: Quest): Promise<void> {
+    if (onPorch(me(q))) return;
+    await enterHouse(q);
+    await q.goTo(MAIN_ROOM, 0);
+    await q.sdk.scanNearbyLocs(4).catch(() => undefined);
+    const door = (q.sdk.getNearbyLocs() ?? []).find((l) => l.x === PORCH_DOOR.x && l.z === PORCH_DOOR.z && l.options.some((o) => /^open$/i.test(o)));
+    if (door) await q.bot.openDoor(door);
+    for (let attempt = 0; attempt < 3 && !onPorch(me(q)); attempt++) {
+        await q.sdk.sendWalk(BACK_PORCH.x, BACK_PORCH.z, true);
+        await untilTicks(q.sdk, () => onPorch(me(q)), 15);
     }
+    if (!onPorch(me(q))) throw new Error(`could not get onto the back porch (at ${me(q).x},${me(q).z})`);
+}
 
-    async function getMagnet(): Promise<void> {
-        if (count(MAGNET) > 0) return;
-        intent('Getting magnet from basement cupboard');
-        if (pos().level > 0) await climbTo(0);
-        await sdk.scanNearbyLocs(8).catch(() => {});
-        const cupboard = (sdk.getNearbyLocs() ?? []).find((l) => /cupboard/i.test(l.name));
-        if (!cupboard) return;
-        await bot.interactLoc(cupboard, /open|search/i);
-        await sdk.waitForTicks(2);
-        await bot.interactLoc(cupboard, /search/i);
-        await sdk.waitForTicks(2);
+/** From the house out of the back door onto the garden path. */
+async function intoGarden(q: Quest): Promise<void> {
+    await toPorch(q);
+    if (cheb(me(q), BACK_PORCH) > 0) {
+        await q.sdk.sendWalk(BACK_PORCH.x, BACK_PORCH.z, true);
+        await untilTicks(q.sdk, () => cheb(me(q), BACK_PORCH) === 0, 10);
     }
+    await passLoc(q, BACK_DOOR, /^open$/i, () => me(q).z <= BACK_DOOR.z, 'back door out (is the mouse door unlocked?)');
+}
 
-    async function mousePuzzle(): Promise<void> {
-        if (count(SHED_KEY) > 0) return;
-        intent('Cheese + magnet mouse puzzle');
-        if (pos().level !== 0) await climbTo(0);
-        await walkNear(MOUSE_HOLE.x, MOUSE_HOLE.z, 2);
-        const cheese = sdk.findInventoryItem(CHEESE);
-        let hole = sdk.findNearbyLoc(/mouse hole/i);
-        // Settle-and-retry: a plane change empties the nearby set until the
-        // client scene rebuilds, so one scan reads the hole as absent.
-        for (let t = 0; !hole && t < 40; t++) {
-            await sdk.waitForTicks(4);
-            hole = sdk.findNearbyLoc(/mouse hole/i);
-        }
-        if (cheese && hole) {
-            await bot.useItemOnLoc(cheese, hole);
-            await sdk.waitForTicks(3);
-        }
-        const rat = sdk.findNearbyNpc(/mouse|rat/i);
-        const magnet = sdk.findInventoryItem(MAGNET);
-        if (rat && magnet) {
-            await bot.useItemOnNpc(magnet, rat);
-            await sdk.waitForTicks(4);
-        }
+/** Cellar: through the shock gate (gloves worn), magnet from the cupboard, back up. */
+async function fetchMagnet(q: Quest): Promise<void> {
+    const gloves = q.sdk.getInventory().find((i) => /^leather gloves$/i.test(i.name));
+    if (gloves) await q.bot.equipItem(gloves);
+    if (!q.sdk.getEquipment().some((i) => /^leather gloves$/i.test(i.name))) throw new Error('leather gloves not worn for the shock gate');
+    if (me(q).z < 9000) {
+        await enterHouse(q);
+        await q.goTo(CELLAR_LADDER, 1);
+        await passLoc(q, CELLAR_LADDER, /climb-down/i, () => me(q).z > 9000, 'cellar ladder down');
     }
-
-    async function getShedKey(): Promise<void> {
-        if (count(SHED_KEY) > 0) return;
-        if (witchNearby()) {
-            log('Witch nearby — waiting');
-            await sdk.waitForTicks(4);
-            return;
-        }
-        intent('Searching fountain for shed key');
-        await walkNear(FOUNTAIN.x, FOUNTAIN.z, 2);
-        if (!wearingGloves()) {
-            const gloves = sdk.findInventoryItem(GLOVES);
-            if (gloves) await bot.equipItem(gloves);
-        }
-        const fountain = sdk.findNearbyLoc(/fountain/i);
-        if (fountain) {
-            await bot.interactLoc(fountain, /search/i);
-            await sdk.waitForTicks(3);
-        }
+    if (me(q).x > SHOCK_GATE.x) {
+        await passLoc(q, SHOCK_GATE_LEAVES, /^open$/i, () => me(q).x <= SHOCK_GATE.x, 'shock gate west');
     }
+    if (q.count(MAGNET) < 1) await searchCupboard(q);
+    await passLoc(q, SHOCK_GATE_LEAVES, /^open$/i, () => me(q).x > SHOCK_GATE.x, 'shock gate east');
+    await passLoc(q, CELLAR_UP, /climb-up/i, () => me(q).z < 9000, 'cellar ladder up');
+}
 
-    async function fightExperiment(): Promise<void> {
-        if (count(BALL) > 0) return;
-        intent('Fighting Witch\'s Experiment');
-        await walkNear(SHED.x, SHED.z, 2);
-        const shedDoor = sdk.findNearbyLoc(/shed|door/i);
-        const key = sdk.findInventoryItem(SHED_KEY);
-        if (shedDoor && key) {
-            await bot.useItemOnLoc(key, shedDoor);
-            await sdk.waitForTicks(3);
-        }
-        let phase = 0;
-        while (phase < 60 && count(BALL) < 1 && !pos().isDead) {
-            await eatIfNeeded();
-            const foe = sdk.findNearbyNpc(/witch|experiment|shapeshifter/i);
-            if (foe) {
-                await bot.attack(foe, 10_000);
-                phase++;
-            } else {
-                const ball = sdk.findGroundItem(BALL);
-                if (ball) {
-                    await bot.pickupItem(ball);
-                    break;
+/**
+ * The magnet cupboard is shared: Open swaps it for the open cupboard (Search/Shut)
+ * for everyone, and another player's Shut or Open can land between our two
+ * clicks. So each try re-scans, does whichever op the cupboard offers now, and
+ * stops only when the magnet is in the inventory.
+ */
+async function searchCupboard(q: Quest): Promise<void> {
+    const t0 = tickNow(q.sdk);
+    for (let attempt = 1; attempt <= 12; attempt++) {
+        await q.bot.dismissBlockingUI().catch(() => undefined);
+        await q.sdk.scanNearbyLocs(10).catch(() => undefined);
+        const cb = (q.sdk.getNearbyLocs() ?? []).find((l) => l.x === MAGNET_CUPBOARD.x && l.z === MAGNET_CUPBOARD.z);
+        const op = cb?.options.find((o) => /^search$/i.test(o)) ?? cb?.options.find((o) => /^open$/i.test(o));
+        if (cb && op) {
+            const r = await q.bot.interactLoc(cb, new RegExp(`^${op}$`, 'i')).catch((e) => ({ success: false, message: (e as Error).message }) as { success: boolean; message?: string });
+            if (/^search$/i.test(op)) {
+                if (await drainModal(q, () => q.count(MAGNET) > 0, 20)) {
+                    q.log(`magnet from the cupboard: ${tickNow(q.sdk) - t0}t, ${attempt} tries`);
+                    return;
                 }
-                await sdk.waitForTicks(2);
+            } else if (r.success) {
+                // Opened: wait for the swap to Search before the next try.
+                await untilTicks(q.sdk, () => (q.sdk.getNearbyLocs() ?? []).some((l) => l.x === MAGNET_CUPBOARD.x && l.z === MAGNET_CUPBOARD.z && l.options.some((o) => /^search$/i.test(o))), 10);
+                continue;
             }
+            q.log(`cupboard ${op} try ${attempt}: no magnet${r.success ? '' : ` (${r.message ?? 'failed'})`}`);
+        } else {
+            q.log(`cupboard try ${attempt}: no cupboard op at (${MAGNET_CUPBOARD.x},${MAGNET_CUPBOARD.z}) [${cb?.options.join('/') ?? 'missing'}]`);
         }
-        if (count(BALL) < 1) {
-            const ball = sdk.findGroundItem(BALL);
-            if (ball) await bot.pickupItem(ball);
-        }
+        await q.sdk.waitForTicks(1 + attempt % 3); // back off off-beat from the other players
     }
+    throw new Error(`no magnet from the cupboard after 12 tries (at ${me(q).x},${me(q).z})`);
+}
 
-    async function returnBall(): Promise<void> {
-        if (count(BALL) < 1) return;
-        intent('Returning ball to boy');
-        await walkNear(BOY.x, BOY.z, 3);
-        const boy = sdk.findNearbyNpc(/^boy$/i);
-        if (!boy) return;
-        await bot.talkTo(boy);
-        await chat();
-    }
-
-    const xpBefore = hpXp();
-    await bot.skipTutorial();
-    await closeUi();
-    // Ask the journal BEFORE shopping or acting: a finished account must not be
-    // sent to buy cheese and a pot first.
-    const startStage = await readStage();
-    log(`Witch's House journal stage at start: ${startStage}`);
-    if (startStage === 'unknown') {
-        throw new Error("could not determine the Witch's House stage from the journal");
-    }
-    if (startStage === 'complete') {
-        log("Witch's House is already complete — nothing to do");
-        return;
-    }
-    await ensureSupplies();
-    log(`Witch's House start hp xp=${xpBefore} @ ${pos().x},${pos().z}`);
-
-    const until = Date.now() + 20 * 60_000;
-    while (Date.now() < until && !(await questDone())) {
-        await closeUi();
-        await ensureSupplies();
-        if (pos().isDead) {
-            await sdk.waitForCondition((s) => !s.player.isDead, 45_000).catch(() => {});
-            await ensureSupplies();
+/** Cheese on the mouse hole brings out the mouse; the magnet goes on its harness. */
+async function magnetTheMouse(q: Quest): Promise<void> {
+    if (q.count(MAGNET) < 1) throw new Error('no magnet for the mouse');
+    await toPorch(q);
+    // The mouse is shared: anyone's cheese deletes the mouse out and brings a new
+    // one, anyone's magnet takes it away (quest_ball.rs2). Any mouse will do for
+    // our magnet, so put the magnet on whichever is out, and cheese the hole again
+    // only when none is.
+    const t0 = tickNow(q.sdk);
+    const mouseOut = () => q.sdk.findNearbyNpc(/^mouse$/i);
+    for (let attempt = 1; q.count(MAGNET) > 0; attempt++) {
+        if (tickNow(q.sdk) - t0 > 400) throw new Error(`magnet on the mouse did not take after ${attempt - 1} tries (cheese left ${q.count(/^cheese$/i)})`);
+        await q.bot.dismissBlockingUI().catch(() => undefined);
+        const mouse = mouseOut();
+        if (mouse) {
+            await q.bot.useItemOnNpc(q.sdk.findInventoryItem(MAGNET)!, mouse).catch(() => undefined);
+            if (await drainModal(q, () => q.count(MAGNET) === 0, 20)) break;
+            q.log(`magnet try ${attempt}: the mouse went before the magnet landed`);
             continue;
         }
-
-        if (count(BALL) > 0) {
-            await returnBall();
-            if (await questDone()) break;
+        const cheese = q.sdk.findInventoryItem(/^cheese$/i);
+        if (!cheese) {
+            // Out of cheese: another player's mouse may still come out.
+            if (!(await untilTicks(q.sdk, () => !!mouseOut(), 30))) q.log(`magnet try ${attempt}: no cheese and no mouse out`);
             continue;
         }
-
-        if (count(SHED_KEY) > 0) {
-            await fightExperiment();
-            continue;
-        }
-
-        // Gate on the MAGNET, not the cheese. ensureSupplies() obtains the
-        // cheese up front, so `count(CHEESE) > 0` was true from the first
-        // lap: the bot took this branch forever, never reached startBoy() ->
-        // door key -> house -> magnet, and the quest sat at `not_started`
-        // for a whole run (verified: Inv held Cheese, no magnet, no door
-        // key; journal stage not_started). The magnet is what only the house
-        // supplies and what the puzzle needs to finish, so it is the real
-        // readiness signal.
-        if (count(MAGNET) > 0) {
-            await mousePuzzle();
-            await getShedKey();
-            continue;
-        }
-
-        if (count(DOOR_KEY) > 0) {
-            await enterHouse();
-            await getMagnet();
-            continue;
-        }
-
-        await startBoy();
-        await getDoorKey();
-
-        log(`key=${count(DOOR_KEY)} magnet=${count(MAGNET)} shedKey=${count(SHED_KEY)} ball=${count(BALL)} @ ${pos().x},${pos().z}`);
-        await sdk.waitForTicks(2);
+        await q.sdk.scanNearbyLocs(6).catch(() => undefined);
+        const hole = q.sdk.findNearbyLoc(/^mouse hole$/i);
+        if (!hole) throw new Error(`no mouse hole from (${me(q).x},${me(q).z})`);
+        await q.bot.useItemOnLoc(cheese, hole);
+        if (!(await drainModal(q, () => !!mouseOut(), 30))) q.log(`cheese try ${attempt}: no mouse came out`);
     }
+    q.log(`magnet on the mouse: ${tickNow(q.sdk) - t0}t`);
+}
 
-    if (!(await questDone())) throw new Error(`Witch's House unfinished @ ${pos().x},${pos().z}`);
-    log(`QUEST COMPLETE Witch's House (+${hpXp() - xpBefore} HP xp)`);
+/** The shed key from the fountain, and in at the shed door with it. */
+async function intoShed(q: Quest): Promise<void> {
+    if (inShed(me(q))) return;
+    if (!onGardenPath(me(q))) await intoGarden(q);
+    const start = me(q);
+    if (PORCH_TO_SHED.some((t) => cheb(t, start) === 0)) await sneak(q, PORCH_TO_SHED, 'porch → shed');
+    if (q.count(SHED_KEY) < 1) {
+        await sneak(q, SHED_TO_FOUNTAIN, 'shed → fountain');
+        await useLoc(q, FOUNTAIN, /^check$/i);
+        if (!(await drainModal(q, () => q.count(SHED_KEY) > 0))) throw new Error('checked the fountain but no shed key');
+        await sneak(q, reverse(SHED_TO_FOUNTAIN), 'fountain → shed');
+    }
+    // The shed admits one player at a time: with someone inside, the key gets
+    // "I think I can hear someone inside!" (quest_ball.rs2). Wait outside on the
+    // door tile (level with the witch's patrol, so never caught) and try again.
+    const t0 = tickNow(q.sdk);
+    for (let attempt = 1; !inShed(me(q)); attempt++) {
+        if (tickNow(q.sdk) - t0 > 1500) throw new Error(`shed door did not let us in after ${attempt - 1} tries (at ${me(q).x},${me(q).z})`);
+        await q.bot.dismissBlockingUI().catch(() => undefined);
+        await q.sdk.scanNearbyLocs(4).catch(() => undefined);
+        const door = (q.sdk.getNearbyLocs() ?? []).find((l) => l.x === SHED_DOOR.x && l.z === SHED_DOOR.z);
+        if (!door) {
+            await q.sdk.waitForTicks(2); // swapped for a moment by a player passing through
+            continue;
+        }
+        const cursor = newestMessageId(q);
+        if (door.options.some((o) => /^open$/i.test(o)) && q.count(SHED_KEY) < 1) {
+            await q.bot.interactLoc(door, /^open$/i); // opens without the key once the experiment is dead
+        } else {
+            await q.bot.useItemOnLoc(q.sdk.findInventoryItem(SHED_KEY)!, door);
+        }
+        if (await untilTicks(q.sdk, () => inShed(me(q)), 20)) break;
+        const occupied = someoneInside(q, cursor);
+        q.log(`shed door attempt ${attempt}: not in${occupied ? ' — someone is inside, waiting' : ''} (at ${me(q).x},${me(q).z})`);
+        await q.bot.dismissBlockingUI().catch(() => undefined);
+        await q.sdk.waitForTicks(occupied ? 30 : 4);
+    }
+    q.log(`into the shed: ${tickNow(q.sdk) - t0}t`);
+}
+
+function newestMessageId(q: Quest): number {
+    const msgs = q.sdk.getState()?.gameMessages ?? [];
+    return msgs.reduce((m, x) => Math.max(m, x.observationId ?? 0), 0);
+}
+
+function someoneInside(q: Quest, after: number): boolean {
+    const st = q.sdk.getState();
+    const texts = [
+        ...(st?.gameMessages ?? []).filter((m) => (m.observationId ?? 0) > after).map((m) => m.text),
+        st?.dialog?.isOpen ? JSON.stringify(st.dialog) : '',
+    ];
+    return texts.some((t) => /hear someone inside/i.test(t ?? ''));
+}
+
+/** The shapeshifter: glob, spider, bear, wolf — each form replaces the last when it dies. */
+async function killExperiment(q: Quest): Promise<void> {
+    const t0 = tickNow(q.sdk);
+    const won = () => (q.sdk.getState()?.gameMessages ?? []).some((m) => /shapeshifter once and for all/i.test(m.text));
+    let idle = 0;
+    while (tickNow(q.sdk) - t0 < 600 && !won()) {
+        const foe = q.sdk.findNearbyNpc(EXPERIMENT);
+        if (!foe) {
+            if (++idle > 20) break;
+            await q.sdk.waitForTicks(1);
+            continue;
+        }
+        idle = 0;
+        q.log(`fighting ${foe.name}`);
+        await q.bot.attack(foe).catch(() => undefined);
+        await untilTicks(q.sdk, () => won() || q.sdk.findNearbyNpc(EXPERIMENT)?.name !== foe.name, 60);
+    }
+    q.log(`experiment fight: ${tickNow(q.sdk) - t0}t${won() ? '' : ' (no kill message)'}`);
+}
+
+/** Take the ball in the shed, back out the way we came, out through the house. */
+async function takeBallOut(q: Quest): Promise<void> {
+    if (q.count(BALL) < 1) {
+        await intoShed(q);
+        // A shared floor spawn: if another player just took it, it respawns.
+        await untilTicks(q.sdk, () => !!q.sdk.findGroundItem(BALL), 200);
+        const ball = q.sdk.findGroundItem(BALL);
+        if (!ball) throw new Error(`no ball on the shed floor (at ${me(q).x},${me(q).z})`);
+        await q.bot.pickupItem(ball);
+        if (!(await untilTicks(q.sdk, () => q.count(BALL) > 0, 30))) throw new Error('ball not picked up');
+    }
+    if (inShed(me(q))) {
+        await passLoc(q, SHED_DOOR, /^open$/i, () => !inShed(me(q)), 'shed door out');
+    }
+    if (onGardenPath(me(q))) {
+        const at = me(q);
+        const back = reverse(PORCH_TO_SHED);
+        if (!back.some((t) => cheb(t, at) === 0)) await sneak(q, reverse(SHED_TO_FOUNTAIN), 'fountain → shed');
+        await sneak(q, back, 'shed → porch');
+        await passLoc(q, BACK_DOOR, /^open$/i, () => inHouse(me(q)), 'back door in');
+    }
+    await leaveHouse(q);
+}
+
+const rule = (id: string, kind: 'unstarted' | 'active' | 'complete', text: string) => ({ id: `ball:${id}`, kind, all: [text] });
+
+await runQuest({
+    id: 'ball',
+    hub: 'falador-east',
+    journal: { label: "Witch's House", title: "Witch's House" },
+    stages: [
+        { id: 'unstarted', rule: rule('not_started', 'unstarted', 'I can start this quest by speaking to the') },
+        { id: 'started', rule: rule('started', 'active', 'I should find a way into the') },
+        { id: 'found_magnet', rule: rule('found_magnet', 'active', 'in a cupboard in the basement') },
+        // Varps 3 (unlocked) and 5 (read the diary after) share this text.
+        { id: 'unlocked', rule: rule('unlocked', 'active', 'how to unlock the back door') },
+        { id: 'defeated', rule: rule('defeated', 'active', 'is dead I should return the') },
+        { id: 'complete', rule: rule('complete', 'complete', 'QUEST COMPLETE') },
+    ],
+    transitions: [
+        {
+            from: 'unstarted',
+            to: 'started',
+            at: BOY,
+            talk: { npc: /^boy$/i, choices: [/what's the matter/i, /ok, i'll see what i can do/i] },
+        },
+        {
+            from: 'started',
+            to: 'found_magnet',
+            needs: [{ item: 'leather gloves', count: 1 }],
+            run: fetchMagnet,
+        },
+        {
+            from: 'found_magnet',
+            to: 'unlocked',
+            needs: [{ item: 'cheese', count: 2 }], // a second in case another player's cheese steals our mouse
+            run: magnetTheMouse,
+        },
+        {
+            from: 'unlocked',
+            to: 'defeated',
+            run: async (q) => {
+                await intoShed(q);
+                await killExperiment(q);
+            },
+        },
+        {
+            from: 'defeated',
+            to: 'complete',
+            run: async (q) => {
+                await takeBallOut(q);
+                await q.talk(/^boy$/i, [], BOY);
+            },
+        },
+    ],
 });

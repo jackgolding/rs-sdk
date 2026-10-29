@@ -56,7 +56,16 @@ const NOOK_BOX = { x0: 3088, x1: 3096, z0: 3354, z1: 3366 };
 const CLOSET_BOX = { x0: 3108, x1: 3114, z0: 3365, z1: 3369 };
 
 export const inManor = (q: Quest) => pos(q).z < 6400 && (pos(q).level > 0 || inBox(pos(q), MANOR_BOX) || inBox(pos(q), WAREHOUSE_BOX));
-const inMaze = (q: Quest) => pos(q).z > 9000;
+/**
+ * The vampire crypt (Vampire Slayer): stairs.rs2 cryptstairsdown (3115,3357)
+ * Walk-Down lands at (3077,9771); cryptstairsup (3077,9768) Walk-Up lands at
+ * (3115,3356) in the manor. West of the lever maze (x >= 3088), so disjoint from it.
+ */
+const CRYPT_STAIRS_DOWN = { x: 3115, z: 3357 };
+const CRYPT_STAIRS_UP = { x: 3077, z: 9768 };
+const CRYPT_BOX = { x0: 3066, x1: 3087, z0: 9758, z1: 9792 };
+export const inCrypt = (q: Quest) => inBox(pos(q), CRYPT_BOX);
+const inMaze = (q: Quest) => pos(q).z > 9000 && !inCrypt(q);
 
 /** Newest game-message cursor: only lines after it answer an action sent now. */
 function cursor(q: Quest): number {
@@ -119,8 +128,40 @@ async function leaveCloset(q: Quest): Promise<void> {
     if (inBox(pos(q), CLOSET_BOX)) throw new Error(`still in the closet at (${pos(q).x},${pos(q).z})`);
 }
 
-/** Out of the manor (any floor, the nook, the closet, the maze) through the east wing. */
+/** Down the crypt stairs from inside the manor (enters it first). */
+export async function enterCrypt(q: Quest): Promise<void> {
+    if (inCrypt(q)) return;
+    await enterManor(q);
+    if (pos(q).level !== 0) await q.climbTo(0);
+    for (let i = 0; i < 3 && !inCrypt(q); i++) {
+        await walk(q, { x: CRYPT_STAIRS_DOWN.x, z: CRYPT_STAIRS_DOWN.z - 1 }, 1);
+        const stairs = await locAt(q, CRYPT_STAIRS_DOWN, /walk-down/i);
+        if (!stairs) {
+            q.log(`crypt: no Walk-Down stairs at (${CRYPT_STAIRS_DOWN.x},${CRYPT_STAIRS_DOWN.z}) from (${pos(q).x},${pos(q).z})`);
+            await q.sdk.waitForTicks(2);
+            continue;
+        }
+        await q.bot.interactLoc(stairs, /walk-down/i);
+        await untilTicks(q.sdk, () => inCrypt(q), 10);
+    }
+    if (!inCrypt(q)) throw new Error(`could not walk down to the crypt from (${pos(q).x},${pos(q).z})`);
+    q.log(`in the crypt at (${pos(q).x},${pos(q).z})`);
+}
+
+/** Up the crypt stairs into the manor's ground floor. */
+export async function leaveCrypt(q: Quest): Promise<void> {
+    for (let i = 0; i < 3 && inCrypt(q); i++) {
+        const stairs = await locAt(q, CRYPT_STAIRS_UP, /walk-up/i);
+        if (!stairs) throw new Error(`crypt: no Walk-Up stairs from (${pos(q).x},${pos(q).z})`);
+        await q.bot.interactLoc(stairs, /walk-up/i);
+        await untilTicks(q.sdk, () => !inCrypt(q), 10);
+    }
+    if (inCrypt(q)) throw new Error('could not walk up out of the crypt');
+}
+
+/** Out of the manor (any floor, the nook, the closet, the maze, the crypt) through the east wing. */
 export async function leaveManor(q: Quest): Promise<void> {
+    if (inCrypt(q)) await leaveCrypt(q);
     if (inMaze(q)) await leaveMaze(q);
     if (!inManor(q)) return;
     if (pos(q).level !== 0) await q.climbTo(0);
