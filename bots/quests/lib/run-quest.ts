@@ -125,7 +125,7 @@ export interface QuestDef {
      * naked prologue banks them, and some quests will not hand out another while one
      * is banked, so the prologue withdraws these again.
      */
-    carry?: string[];
+    carry?: Array<string | number>;
     /** Attempts per transition before giving up (default 3). */
     retries?: number;
     /**
@@ -522,11 +522,13 @@ export async function runQuest(def: QuestDef): Promise<void> {
         await depositAllInventory(q.supply);
         if (!spawn) await withdrawTowardNeeds(q, def.transitions.slice(def.transitions.findIndex((t) => t.from === start)));
         for (const item of def.carry ?? []) {
-            const banked = sdk.findBankItem(itemPattern(item));
-            if (!banked || q.count(item) > 0) continue;
+            // A number is an obj id, for items that share a name (Demon Slayer's three "Key"s).
+            const banked = typeof item === 'number' ? sdk.getBankItems().find((b) => b.id === item) : sdk.findBankItem(itemPattern(item));
+            const held = typeof item === 'number' ? sdk.getInventory().some((i) => i.id === item) : q.count(item) > 0;
+            if (!banked || held) continue;
             await bot.withdrawItem(banked, banked.count);
             await sdk.waitForTicks(2);
-            log(`withdrew ${item} (quest item from an earlier run)`);
+            log(`withdrew ${banked.name}${typeof item === 'number' ? ` #${item}` : ''} (quest item from an earlier run)`);
         }
         await bot.closeBank().catch(() => undefined);
         log(`prologue: naked at ${def.hub} (${startAt.x},${startAt.z}); carrying ${describeInventory(sdk)}`);
