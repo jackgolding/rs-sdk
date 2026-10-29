@@ -134,6 +134,12 @@ const FALADOR_FARM_COWS: HuntSpot = { x: 3027, z: 3307, npc: /^cow$/i };
 const FALADOR_FARM_CHICKENS: HuntSpot = { x: 3015, z: 3287, npc: /^chicken$/i };
 const PORT_SARIM_GIANT_RATS: HuntSpot = { x: 2995, z: 3191, npc: /^giant rat$/i };
 const TAVERLEY_BEARS: HuntSpot = { x: 2965, z: 3465, npc: /^bear$/i };
+/** Every chicken drops bones (Demon Slayer's 25 for Traiborn). East Lumbridge coop, old demon-slayer.ts. */
+const LUMBRIDGE_EAST_CHICKENS: HuntSpot = { x: 3228, z: 3300, npc: /^chicken$/i };
+/** Varrock general store (wiki/shops/varrock-general-store.md): bucket 2gp, stock 2. */
+const VARROCK_GENERAL_STORE = { x: 3218, z: 3415, npc: /shop\s*(keeper|assistant)/i };
+/** Varrock palace kitchen sink (north wing); the sink has no ops, use the bucket on it. */
+const PALACE_KITCHEN_SINK = { x: 3224, z: 3494 };
 
 export const SOURCES: Record<string, Source> = {
     coins: {},
@@ -253,6 +259,30 @@ export const SOURCES: Record<string, Source> = {
     garlic: { get: (q, count) => morganGarlic(q, count) },
     /** Dr Harlow hands it over for a beer (harlow.rs2); untradeable, never spawned. */
     stake: { spawnable: false },
+
+    // ── Demon Slayer: a bucket of water for the palace drain, 25 bones for Traiborn
+    bucket: {
+        inputs: () => [{ item: 'coins', count: 2 }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, VARROCK_GENERAL_STORE, 'bucket', count);
+        },
+    },
+    'bucket of water': {
+        obj: 'bucket_water',
+        inputs: (count) => [{ item: 'bucket', count }],
+        get: async (q, count) => {
+            await q.ensure('bucket', count - q.count('bucket of water'));
+            await q.goTo(PALACE_KITCHEN_SINK, 2);
+            for (let misses = 0; misses < 3 && q.count('bucket of water') < count; ) {
+                const before = q.count('bucket of water');
+                await q.bot.useItemOnLoc(/^bucket$/i, /^sink$/i, { timeout: ticksToMs(20) });
+                await untilTicks(q.sdk, () => q.count('bucket of water') > before, 8);
+                misses = q.count('bucket of water') > before ? 0 : misses + 1;
+            }
+        },
+    },
+    bones: { get: (q, count) => huntDrop(q, LUMBRIDGE_EAST_CHICKENS, 'bones', count) },
 
     // ── Witch's House
     cheese: {
