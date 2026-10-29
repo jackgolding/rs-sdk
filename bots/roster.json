@@ -135,8 +135,9 @@
           "bots/quests/climb-down.ts",
           "jacklove4",
           "--then",
-          "bots/quests/draynor-bank-all.ts",
-          "jacklove4"
+          "bots/quests/quest-mule.ts",
+          "jacklove4",
+          "--serve-only"
       ]
     },
     {

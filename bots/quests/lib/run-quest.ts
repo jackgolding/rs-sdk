@@ -46,12 +46,13 @@ import { crossAlKharidToll, TOLL_X } from '../alkharid-toll';
 import { closeUi } from '../movement';
 import { countItems, requireSkills } from '../quest-lib';
 import { depositAllInventory, type SupplyCtx } from '../quest-supplies';
+import { requestFromMule } from '../supply';
 import { SAFE_BANKS, type SafeBankName } from '../safe-stops';
 import { GROUPS, itemPattern, needMet, SOURCES, type Need } from './sources';
 import { TRAINERS } from './training';
 import { talkThrough } from './dialog';
 import { enterStuckArea, leaveStuckArea } from './doors';
-import { tickNow, untilTicks } from './ticks';
+import { tickNow, ticksToMs, untilTicks } from './ticks';
 
 export type { Need } from './sources';
 
@@ -133,6 +134,8 @@ export function runTask(def: { id: string; hub: SafeBankName; needs?: Need[]; ta
 /** Al Kharid, behind the toll fence (x >= 3268) and south of the Varrock road. */
 const inAlKharid = (t: Tile) => t.x >= TOLL_X && t.z > 3080 && t.z < 3300;
 
+/** How long the prepare phase waits on a mule's trade (Source.muleSupply) before sourcing the item itself. */
+const MULE_WAIT_TICKS = 200;
 /** Dungeons and cellars are mapped at z + 6400. */
 const UNDERGROUND_Z = 6400;
 /** Arrival radius goTo asks travelTo for before bot.walkTo finishes the approach. */
@@ -456,6 +459,18 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (prep.length) {
             await session.setPhase('prepare');
             log(`prepare: ${prep.map((n) => `${n.count} ${n.item}`).join(', ')}`);
+            // Mule-served lines (Source.muleSupply): one request per mule; anything it does
+            // not hand over in MULE_WAIT_TICKS (offline, mid-quest, out of stock) is sourced below.
+            const byMule = new Map<string, Need[]>();
+            for (const need of prep) {
+                const mule = SOURCES[need.item]?.muleSupply;
+                if (mule && !needMet(q, need)) byMule.set(mule, [...(byMule.get(mule) ?? []), need]);
+            }
+            for (const [mule, needs] of byMule) {
+                const asked = needs.map((n) => ({ label: n.item, pattern: itemPattern(n.item), count: n.count }));
+                const ok = await requestFromMule({ sdk, bot, session: null, log }, asked, { mule, timeoutMs: ticksToMs(MULE_WAIT_TICKS) });
+                log(`mule ${mule}: ${ok ? 'supplied' : 'not all supplied'}; carrying ${describeInventory(sdk)}`);
+            }
             for (const need of prep) if (!needMet(q, need)) await q.ensure(need.item, need.count);
             log(`prepared; carrying ${describeInventory(sdk)}`);
         }

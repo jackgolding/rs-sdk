@@ -55,6 +55,12 @@ export interface Source {
      * the quest script did not fail. Assisted runs still spawn it.
      */
     mule?: boolean;
+    /**
+     * A mule account parked at Draynor bank running quest-mule.ts that serves this
+     * item. The prepare phase DMs it once for every short line it serves and takes
+     * the trade; whatever it has not handed over in time is sourced by `get` as usual.
+     */
+    muleSupply?: string;
     /** Skill levels `get` needs; the runner trains them first (lib/training.ts). */
     levels?: Record<string, number>;
     /** Produce until holding `count` in total. */
@@ -892,10 +898,13 @@ const ASHES_IMP_SPOTS: HuntSpot[] = [IMP_SPOTS[1]!, IMP_SPOTS[0]!, IMP_SPOTS[2]!
 const IMP_SPOT_PATIENCE_TICKS = 1_200;
 const IMP_SPOT_VISITS = 6;
 
-/** One bead colour; every other bead still missing is looted on the way. */
+/** One bead colour: from the bead mule, else hunted; every other bead still missing is looted on the way. */
 function impBead(colour: string): Source {
     const item = `${colour} bead`;
     return {
+        // jacklove4 banks hundreds of each colour and serves them at Draynor bank (2026-10-29).
+        // Inline: SOURCES calls impBead before a module const down here is initialised.
+        muleSupply: 'jacklove4',
         get: async (q, count) => {
             for (let visit = 0; visit < IMP_SPOT_VISITS && q.count(item) < count; visit++) {
                 const missing = IMP_BEADS.filter((c) => c !== colour && q.count(`${c} bead`) === 0);

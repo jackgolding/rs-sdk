@@ -2,7 +2,7 @@
  * Quest-bank mule: parks at Draynor bank holding QUEST_STOCK and serves
  * `quest-supply` DM requests from questing accounts.
  *
- *   bun bots/quests/quest-mule.ts {muleName}
+ *   bun bots/quests/quest-mule.ts {muleName} [--stock | --serve-only]
  *
  * Protocol: quester walks to Draynor bank, DMs
  * `quest-supply <label> x<count>, ...`, and waits in a receive trade. The
@@ -26,6 +26,9 @@ const botArg = argv.find((a) => !a.startsWith('-'));
 // instead of only serving. Unsourced lines (bowls, planks, nails, veg) still
 // warn for operator follow-up.
 const STOCK_MODE = argv.includes('--stock');
+// --serve-only: a mule for a few lines only (jacklove4's imp beads) — no
+// QUEST_STOCK audit, which would warn about every Dragon Slayer line it never holds.
+const SERVE_ONLY = argv.includes('--serve-only');
 
 function loadBotEnv(): void {
     const envPath = botArg
@@ -217,7 +220,7 @@ try {
         }
         await parkAtDraynor().catch(() => undefined);
         // Stock audit each round; low lines warn for operator top-up.
-        if (await openBank().catch(() => false)) {
+        if (!SERVE_ONLY && (await openBank().catch(() => false))) {
             for (const [label, target] of Object.entries(QUEST_STOCK)) {
                 const have = bankCount(new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'));
                 if (have < target) session.log('warn', `mule stock low: ${label} ${have}/${target}`);
