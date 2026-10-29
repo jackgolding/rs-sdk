@@ -438,6 +438,9 @@ const rule = (id: string, kind: 'unstarted' | 'active' | 'complete', text: strin
 await runQuest({
     id: 'ball',
     hub: 'falador-east',
+    // The cupboard gives no second magnet while one is banked (quest_ball.rs2 obj_gettotal);
+    // a run resumed after found_magnet banked it in the prologue (ABGARMY08, 2026-10-29).
+    carry: ['magnet'],
     journal: { label: "Witch's House", title: "Witch's House" },
     stages: [
         { id: 'unstarted', rule: rule('not_started', 'unstarted', 'I can start this quest by speaking to the') },

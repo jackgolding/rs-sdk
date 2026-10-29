@@ -117,6 +117,12 @@ export interface QuestDef {
     stages: StageDef[];
     transitions: Transition[];
     skills?: Record<string, number>;
+    /**
+     * Quest items picked up along the way (Witch's House's magnet). A resumed run's
+     * naked prologue banks them, and some quests will not hand out another while one
+     * is banked, so the prologue withdraws these again.
+     */
+    carry?: string[];
     /** Attempts per transition before giving up (default 3). */
     retries?: number;
     /**
@@ -444,6 +450,13 @@ export async function runQuest(def: QuestDef): Promise<void> {
         const startAt = pos();
         await depositAllInventory(q.supply);
         if (!spawn) await withdrawTowardNeeds(q, def.transitions.slice(def.transitions.findIndex((t) => t.from === start)));
+        for (const item of def.carry ?? []) {
+            const banked = sdk.findBankItem(itemPattern(item));
+            if (!banked || q.count(item) > 0) continue;
+            await bot.withdrawItem(banked, banked.count);
+            await sdk.waitForTicks(2);
+            log(`withdrew ${item} (quest item from an earlier run)`);
+        }
         await bot.closeBank().catch(() => undefined);
         log(`prologue: naked at ${def.hub} (${startAt.x},${startAt.z}); carrying ${describeInventory(sdk)}`);
 
