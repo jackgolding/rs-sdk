@@ -113,6 +113,8 @@ const WAYNE_CHAINS = { x: 2973, z: 3312, npc: /^wayne$/i };
  * (magic) cabbage, which Black Knights' Fortress rejects.
  */
 const MONASTERY_CABBAGES = [{ x: 3051, z: 3506 }];
+/** Tostig, behind the Toad and Chicken's ground-floor bar (Burthorpe). */
+const TOSTIG_BAR = { x: 2906, z: 3540, npc: /^tostig$/i };
 /** Pie dish ground spawn in the Varrock palace kitchen. */
 const PIE_DISH_SPAWN = { x: 3222, z: 3494 };
 /** Redberry pie burns often near Cooking 10; each attempt costs one dough + one berry portion. */
@@ -349,6 +351,24 @@ export const SOURCES: Record<string, Source> = {
         },
     },
     cabbage: { get: (q, count) => pickLocs(q, 'cabbage', /^cabbage$/i, MONASTERY_CABBAGES, count) },
+
+    // ── Death Plateau
+    /** Tostig's bar, the Toad and Chicken's ground floor, Burthorpe (the-toad-and-chicken.md). */
+    'asgarnian ale': {
+        inputs: (count) => [{ item: 'coins', count: 5 * count }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, TOSTIG_BAR, 'asgarnian ale', count);
+        },
+    },
+    /**
+     * Harold only gets drunk on this (death_guard_equiproom.rs2 harold_drink2). The
+     * premade one is what a bank holds; the bar is in the Gnome Stronghold, so a mule stocks it.
+     */
+    'blurberry special': { obj: 'premade_blurberry_special', mule: true },
+    /** Tenzing's winter supplies; no shop near Burthorpe sells either, so a mule stocks them. */
+    bread: { mule: true },
+    trout: { mule: true },
 
     shears: {
         tool: true,
