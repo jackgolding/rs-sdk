@@ -149,6 +149,12 @@ const LUMBRIDGE_EAST_CHICKENS: HuntSpot = { x: 3228, z: 3300, npc: /^chicken$/i 
 /** Varrock general store (wiki/shops/varrock-general-store.md): bucket 2gp, stock 2. */
 const VARROCK_GENERAL_STORE = { x: 3218, z: 3415, npc: /shop\s*(keeper|assistant)/i };
 /** Varrock palace kitchen sink (north wing); the sink has no ops, use the bucket on it. */
+/** Logs ground spawns, m38_49 (0 26 55 / 30 51 / 32 55), west of the Ardougne monastery. */
+const LOGS_SPAWNS_SW_ARDOUGNE = [
+    { x: 2458, z: 3191 },
+    { x: 2462, z: 3187 },
+    { x: 2464, z: 3191 },
+];
 const PALACE_KITCHEN_SINK = { x: 3224, z: 3494 };
 
 export const SOURCES: Record<string, Source> = {
@@ -303,6 +309,10 @@ export const SOURCES: Record<string, Source> = {
             await buyWaitingForRestock(q, THESSALIA_CLOTHES, 'white apron', count);
         },
     },
+
+    // ── Monk's Friend: one set of logs for Cedric's cart. Ground spawns south-west of
+    // the monastery (m38_49 obj placements), so no axe or Woodcutting level is needed.
+    logs: { get: (q, count) => pickSpawns(q, 'logs', count, LOGS_SPAWNS_SW_ARDOUGNE) },
 
     // ── Witch's House
     cheese: {
