@@ -37,6 +37,17 @@ export const STUCK_DOORS: StuckDoor[] = [
         outside: { x: 3160, z: 3441 },
         area: { x1: 3155, z1: 3427, x2: 3164, z2: 3439 },
     },
+    {
+        // With this door open (another player, or our own way in) walkTo out of the
+        // ladder room finds no path at all ("stops 45 tiles short at (3105,3162)");
+        // with it shut it walks out. Three concurrent Rune Mysteries runs toggled it
+        // against each other until one timed out (2026-10-29).
+        name: "Wizards' Tower ladder-room door",
+        door: { x: 3107, z: 3162 },
+        inside: { x: 3106, z: 3162 },
+        outside: { x: 3108, z: 3162 },
+        area: { x1: 3100, z1: 3157, x2: 3106, z2: 3166 },
+    },
 ];
 
 const within = (t: Tile, a: StuckDoor['area']) => t.x >= a.x1 && t.x <= a.x2 && t.z >= a.z1 && t.z <= a.z2;
@@ -51,18 +62,26 @@ export async function leaveStuckArea(sdk: BotSDK, bot: BotActions, dest: Tile, l
     const here = { x: p.worldX, z: p.worldZ };
     const door = STUCK_DOORS.find((d) => within(here, d.area) && !within(dest, d.area));
     if (!door) return false;
-    await bot.walkTo(door.inside.x, door.inside.z, 0);
-    await sdk.scanNearbyLocs(3).catch(() => undefined);
-    const closed = (sdk.getNearbyLocs() ?? []).find(
-        (l) => l.x === door.door.x && l.z === door.door.z && /door|gate/i.test(l.name) && l.options?.some((o) => /^open$/i.test(o))
-    );
-    if (closed) {
-        await bot.openDoor(closed);
-        await sdk.waitForTicks(1);
+    // Other players open and close the same door: re-read it every try, step through
+    // when it is already open, and back off a little longer each time.
+    let out = false;
+    let opened = false;
+    for (let attempt = 0; attempt < 4 && !out; attempt++) {
+        if (attempt) await sdk.waitForTicks(1 + attempt);
+        await bot.walkTo(door.inside.x, door.inside.z, 1);
+        await sdk.scanNearbyLocs(3).catch(() => undefined);
+        const closed = (sdk.getNearbyLocs() ?? []).find(
+            (l) => l.x === door.door.x && l.z === door.door.z && /door|gate/i.test(l.name) && l.options?.some((o) => /^open$/i.test(o))
+        );
+        if (closed) {
+            await bot.openDoor(closed);
+            opened = true;
+            await sdk.waitForTicks(1);
+        }
+        await sdk.sendWalk(door.outside.x, door.outside.z);
+        out = await untilTicks(sdk, (s) => !within({ x: s.player?.worldX ?? 0, z: s.player?.worldZ ?? 0 }, door.area), 10);
     }
-    await sdk.sendWalk(door.outside.x, door.outside.z);
-    const out = await untilTicks(sdk, (s) => !within({ x: s.player?.worldX ?? 0, z: s.player?.worldZ ?? 0 }, door.area), 10);
     const now = sdk.getState()?.player;
-    log(`${door.name}: ${out ? 'out' : 'STILL INSIDE'} at (${now?.worldX},${now?.worldZ})${closed ? ' (opened it)' : ''}`);
+    log(`${door.name}: ${out ? 'out' : 'STILL INSIDE'} at (${now?.worldX},${now?.worldZ})${opened ? ' (opened it)' : ''}`);
     return out;
 }
