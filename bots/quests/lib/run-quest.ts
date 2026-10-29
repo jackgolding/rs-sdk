@@ -192,6 +192,15 @@ async function acquireQuestSlot(id: string, max: number, account: string, grindL
     } catch {
         return () => undefined; // no shared dir (local dev without bots/): run unthrottled
     }
+    // One account runs one quest at a time: a slot already under our name is a killed
+    // earlier run's (ABGARMY01 held both haunted slots after a container restart).
+    for (const f of readdirSync(dir)) {
+        try {
+            if (readFileSync(join(dir, f), 'utf-8').split(' ')[0] === account) unlinkSync(join(dir, f));
+        } catch {
+            /* gone already */
+        }
+    }
     const t0 = Date.now();
     let lastNote = 0;
     for (;;) {
