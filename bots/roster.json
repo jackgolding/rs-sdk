@@ -627,6 +627,9 @@
       "args": [
         "jackquests",
         "--then",
+        "bots/quests/lost-city-prep.ts",
+        "jackquests",
+        "--then",
         "bots/quests/quest-mule.ts",
         "jackquests",
         "--serve-only"
