@@ -75,6 +75,7 @@ await runQuest({
         },
         { from: 'spirit_defeated', to: 'tree_chopped', needs: kit, run: (q) => spiritAndBranch(q, true) },
         { from: 'tree_chopped', to: 'staff_made', needs: [{ item: 'knife', count: 1 }], run: (q) => carveStaff(q) },
-        { from: 'staff_made', to: 'complete', run: (q) => enterZanaris(q) },
+        // A staff lost after it was made (carry brings a banked one back) is made again.
+        { from: 'staff_made', to: 'complete', needs: [{ item: 'dramen staff', count: 1 }], run: (q) => enterZanaris(q) },
     ],
 });

@@ -15,6 +15,7 @@ import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { closeUi } from '../movement';
 import { driveDialog } from './dialog';
 import { manorSpade, oilCan, pressureGauge, rubberTube } from './draynor-manor';
+import { dramenStaff } from './lost-city';
 
 export interface Need {
     /** Item name as the game shows it, e.g. 'ball of wool'. */
@@ -88,6 +89,8 @@ export const GROUPS: Record<string, Array<{ item: string; skill: string; level: 
     ],
     /** Witch's House: worn for the cellar's shock gate, so worn ones count. */
     'leather gloves': [{ item: 'leather gloves', skill: 'defence', level: 1 }],
+    /** Lost City: wielded for the shed door, so a worn staff counts. */
+    'dramen staff': [{ item: 'dramen staff', skill: 'attack', level: 1 }],
     /** Fight Arena's magic kit: a staff that is an endless fire rune source. */
     'fire staff': [
         { item: 'fire battlestaff', skill: 'magic', level: 30 },
@@ -446,6 +449,20 @@ export const SOURCES: Record<string, Source> = {
     'earth rune': runes('earth rune', 4),
     /** Not sold near any hub (the Magic Guild store needs 66 Magic): mule stock, like the Telegrab laws. */
     'law rune': { obj: 'lawrune', mule: true },
+    /** Lost City past the spirit with the staff lost: back to Entrana for another branch (lib/lost-city.ts). */
+    'dramen staff': {
+        obj: 'dramen_staff',
+        // Made inside its transition only: prepare must not send an unstarted account to Entrana.
+        spawnable: false,
+        inputs: () => [
+            { item: 'knife', count: 1 },
+            { item: 'law rune', count: 1 },
+            { item: 'air rune', count: 3 },
+            { item: 'earth rune', count: 1 },
+            { item: 'shark', count: 4 },
+        ],
+        get: (q) => dramenStaff(q),
+    },
 
     shears: {
         tool: true,

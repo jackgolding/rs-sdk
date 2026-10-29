@@ -202,7 +202,7 @@ export async function carveStaff(q: Quest): Promise<void> {
 }
 
 /** Lumbridge Teleport out of the dungeon (it is one-way: the ladder up does not exist). */
-async function teleportOut(q: Quest): Promise<void> {
+export async function teleportOut(q: Quest): Promise<void> {
     if (!inDungeon(q) && !onEntrana(q)) return;
     const out = () => !inDungeon(q) && !onEntrana(q);
     for (let attempt = 1; attempt <= 3 && !out(); attempt++) {
@@ -235,4 +235,19 @@ export async function enterZanaris(q: Quest): Promise<void> {
     }
     await op(q, SHED_DOOR, /^door$/i, /^open$/i, inZanaris, 'shed door');
     await q.sdk.waitForTicks(3);
+}
+
+/**
+ * A new Dramen staff for an account past the spirit (staff_made, or tree_chopped)
+ * that lost its staff or branch: Entrana, a zombie's bronze axe, a branch off the
+ * tree (no spirit once it is dead), the knife, and Lumbridge Teleport back.
+ * jacklove6 sat at staff_made with no staff anywhere (2026-10-30).
+ */
+export async function dramenStaff(q: Quest): Promise<void> {
+    if (q.count('dramen branch') === 0) {
+        await toDungeon(q);
+        await spiritAndBranch(q, true);
+    }
+    await carveStaff(q);
+    await teleportOut(q);
 }
