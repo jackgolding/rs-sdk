@@ -56,6 +56,7 @@ import { escapeMaze, inLeverMaze, leaveManor, onManorGround } from './draynor-ma
 import { fortressRoom, leaveFortress } from './fortress';
 import { inArenaCompound, leaveArena } from './fight-arena';
 import { inEssenceMine, leaveEssenceMine } from './mining';
+import { inDungeon as inEntranaDungeon, teleportOut as teleportOutOfEntranaDungeon } from './lost-city';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { acquireQuestSlot, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
 
@@ -435,6 +436,12 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (pos().level === 0 && onKaramja(pos()) && !onKaramja(tile)) await sailFromKaramja();
                 // Left on Entrana (jacklove6 after a Lost City run, 2026-10-29): the monks' boat back.
                 if (pos().level === 0 && onEntrana(pos()) && !onEntrana(tile) && tile.z < UNDERGROUND_Z) await sailFromEntrana();
+                // The Entrana dungeon's ladder is one-way: Lumbridge Teleport out (lib/lost-city.ts), as
+                // the quest does. jacklove18 sat at (2860,9730) failing every quest's first walk.
+                if (inEntranaDungeon(q) && !(tile.z > 9700 && tile.z < 9800 && tile.x >= 2800 && tile.x <= 2890)) {
+                    log(`in the Entrana dungeon at (${pos().x},${pos().z}): Lumbridge Teleport out`);
+                    await teleportOutOfEntranaDungeon(q);
+                }
                 if (pos().z >= UNDERGROUND_Z && tile.z < UNDERGROUND_Z) await climbOutOfUnderground(tile);
                 // Buildings whose doorway the client map gets wrong (lib/doors.ts).
                 if (away(tile) > tolerance) (await leaveStuckArea(sdk, bot, tile, log)) || (await enterStuckArea(sdk, bot, tile, log));
