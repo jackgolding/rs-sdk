@@ -111,7 +111,10 @@ async function smuggle(q: Quest): Promise<void> {
     let since = cursor(q);
     await useOn(q, /^karamjan rum$/i, /^crate$/i, () => q.count(RUM) === 0, 10);
     const stash = linesSince(q, since);
-    if (q.count(RUM) > 0) throw new Error(`rum not stashed in the crate (${stash.join(' / ') || 'no messages'})`);
+    // "There's already some rum in here..." — an earlier attempt stashed it (jacklove13, 2026-10-29).
+    const stashedBefore = stash.some((t) => /already some rum/i.test(t));
+    if (stashedBefore) q.log('rum already in the crate from an earlier attempt');
+    if (q.count(RUM) > 0 && !stashedBefore) throw new Error(`rum not stashed in the crate (${stash.join(' / ') || 'no messages'})`);
 
     // Pick the bananas (each pick changes the tree's stage; empty trees regrow in 500t).
     const t0 = tickNow(q.sdk);

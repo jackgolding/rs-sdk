@@ -143,6 +143,10 @@ const inAlKharid = (t: Tile) => t.x >= TOLL_X && t.z > 3080 && t.z < 3300;
 
 /** How long the prepare phase waits on a mule's trade (Source.muleSupply) before sourcing the item itself. */
 const MULE_WAIT_TICKS = 200;
+/** Musa Point and the banana plantation: walkTo and travelTo have no way off the island. */
+const onKaramja = (t: Tile) => t.x >= 2880 && t.x <= 2990 && t.z >= 3120 && t.z <= 3200;
+/** Karamja customs officers (2953,3147)/(2955,3146): the boat back to Port Sarim, 30gp. */
+const KARAMJA_CUSTOMS = { x: 2954, z: 3147 };
 /** Dungeons and cellars are mapped at z + 6400. */
 const UNDERGROUND_Z = 6400;
 /** Arrival radius goTo asks travelTo for before bot.walkTo finishes the approach. */
@@ -196,6 +200,22 @@ export async function runQuest(def: QuestDef): Promise<void> {
             return { x: p?.worldX ?? 0, z: p?.worldZ ?? 0, level: p?.level ?? 0 };
         };
         const away = (tile: Tile) => Math.hypot(pos().x - tile.x, pos().z - tile.z);
+
+        /** Customs boat back to Port Sarim, then over the gangplank (pirates-treasure.ts sail). */
+        async function sailFromKaramja(): Promise<void> {
+            for (let i = 0; i < 3 && onKaramja(pos()); i++) {
+                await q.talk(/^customs officer$/i, [/can i journey on this ship/i, /search away/i, /^ok\.?$/i], KARAMJA_CUSTOMS);
+                await untilTicks(sdk, () => !onKaramja(pos()), 30);
+            }
+            if (onKaramja(pos())) throw new Error(`the boat from Karamja never sailed (at ${pos().x},${pos().z}; coins ${q.count('coins')})`);
+            for (let i = 0; i < 4 && pos().level !== 0; i++) {
+                await sdk.scanNearbyLocs(8).catch(() => undefined);
+                const plank = sdk.findNearbyLoc(/gangplank/i, { withOption: /cross/i });
+                if (plank) await bot.interactLoc(plank, /cross/i);
+                await untilTicks(sdk, (s) => (s.player?.level ?? 1) === 0, 10);
+            }
+            log(`sailed back from Karamja to (${pos().x},${pos().z})`);
+        }
 
         /** Up the nearest reachable ladder/stairs until above ground; logs and returns if there is none in view. */
         async function climbOutOfUnderground(dest: Tile): Promise<void> {
@@ -334,6 +354,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // Shut in the manor's bookcase nook or closet: walkTo has no way out of either
                 // (ABGARMY04/07 sat in the nook through four quests, 2026-10-29).
                 if (onManorGround(pos()) && !onManorGround(tile) && tile.z < UNDERGROUND_Z) await leaveManor(q);
+                // Left on Karamja by a failed Pirate's Treasure run (jacklove13, 2026-10-29).
+                if (pos().level === 0 && onKaramja(pos()) && !onKaramja(tile)) await sailFromKaramja();
                 if (pos().z >= UNDERGROUND_Z && tile.z < UNDERGROUND_Z) await climbOutOfUnderground(tile);
                 // Buildings whose doorway the client map gets wrong (lib/doors.ts).
                 if (away(tile) > tolerance) (await leaveStuckArea(sdk, bot, tile, log)) || (await enterStuckArea(sdk, bot, tile, log));
