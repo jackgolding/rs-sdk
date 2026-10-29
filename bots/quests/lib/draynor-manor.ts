@@ -19,7 +19,7 @@
  */
 import type { NearbyLoc } from '../../../sdk/types';
 import type { Quest } from './run-quest';
-import { ticksToMs, untilTicks } from './ticks';
+import { tickNow, ticksToMs, untilTicks } from './ticks';
 
 interface Tile {
     x: number;
@@ -65,7 +65,9 @@ const CRYPT_STAIRS_DOWN = { x: 3115, z: 3357 };
 const CRYPT_STAIRS_UP = { x: 3077, z: 9768 };
 const CRYPT_BOX = { x0: 3066, x1: 3087, z0: 9758, z1: 9792 };
 export const inCrypt = (q: Quest) => inBox(pos(q), CRYPT_BOX);
-const inMaze = (q: Quest) => pos(q).z > 9000 && !inCrypt(q);
+const inMaze = (q: Quest) => inBox(pos(q), MAZE_BOX);
+/** True when the player stands in the basement lever maze (run-quest's goTo escapes it first). */
+export const inLeverMaze = inMaze;
 
 /** Newest game-message cursor: only lines after it answer an action sent now. */
 function cursor(q: Quest): number {
@@ -268,7 +270,8 @@ export async function pressureGauge(q: Quest): Promise<void> {
 
 /**
  * Maze levers; a lever's bit set (down) is what doors test (_haunted_door in
- * quest_haunted.rs2: A=0 … F=5). All are up after the up-ladder.
+ * quest_haunted.rs2: A=0 … F=5). The up-ladder resets them all to up; nothing
+ * else does, so a run that starts down here knows none of them.
  */
 const LEVERS = {
     A: { x: 3108, z: 9745 },
@@ -279,117 +282,190 @@ const LEVERS = {
     F: { x: 3096, z: 9765 },
 } as const;
 type Lever = keyof typeof LEVERS;
+const LEVER_BIT: Record<Lever, number> = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5 };
 type Box = { x0: number; x1: number; z0: number; z1: number };
 
-/** Rooms by the wiki's numbers; 7 (ladder) and 8 are one open floor, as are 1 and 4. */
-const ROOM: Record<string, Box> = {
-    r1: { x0: 3104, x1: 3113, z0: 9762, z1: 9768 },
-    r2: { x0: 3099, x1: 3106, z0: 9762, z1: 9768 },
-    r3: { x0: 3094, x1: 3100, z0: 9762, z1: 9768 },
-    r4: { x0: 3104, x1: 3114, z0: 9757, z1: 9764 },
-    r5: { x0: 3099, x1: 3106, z0: 9757, z1: 9764 },
-    r6: { x0: 3093, x1: 3101, z0: 9757, z1: 9764 },
-    r8: { x0: 3099, x1: 3106, z0: 9752, z1: 9759 },
-    r9: { x0: 3088, x1: 3101, z0: 9752, z1: 9758 },
-};
-
-/** A door, a tile beside it on the side we come from, and the room on the far side. */
-interface Crossing {
-    name: string;
-    door: Tile;
-    from: Tile;
-    to: Box;
-}
-const cross = (name: string, door: Tile, from: Tile, to: Box): Crossing => ({ name, door, from, to });
-const D1 = { x: 3108, z: 9758 }; // 4to7
-const D2 = { x: 3105, z: 9760 }; // 4to5
-const D3 = { x: 3102, z: 9758 }; // 5to8
-const D4 = { x: 3100, z: 9760 }; // 5to6
-const D5 = { x: 3097, z: 9763 }; // 3to6
-const D6 = { x: 3100, z: 9765 }; // 2to3
-const D7 = { x: 3105, z: 9765 }; // 1to2
-const D8 = { x: 3102, z: 9763 }; // 2to5
-const D9 = { x: 3100, z: 9755 }; // 8to9
-
 /**
- * One solution, re-derived from the door rules (start all up):
- * A,B down → 4to7; D down → 4to5, 5to8; A,B up → 5to8, 5to6, 3to6; E,F down →
- * 2to3, 1to2; C down → 1to2, 2to3; E up → 2to3, 2to5, 5to8 (its second clause),
- * 8to9 (E up, F down) → the can, and back out through 8to9.
+ * Rooms, flood-filled from the walls of m48_152 (doors closed). The wiki's 1/4
+ * and 7/8 are one floor each here. r78 is not a rectangle: everything at
+ * z <= 9757, x >= 3100 in the maze is it (the ladder, levers A and B).
  */
-type Step = { lever: Lever; down: boolean } | { door: Crossing } | { walk: Tile };
-const SOLUTION: Step[] = [
-    { lever: 'A', down: true },
-    { lever: 'B', down: true },
-    { door: cross('4to7', D1, { x: 3110, z: 9758 }, ROOM.r4!) },
-    { lever: 'D', down: true },
-    { door: cross('4to5', D2, { x: 3107, z: 9760 }, ROOM.r5!) },
-    { door: cross('5to8', D3, { x: 3102, z: 9760 }, ROOM.r8!) },
-    { lever: 'A', down: false },
-    { lever: 'B', down: false },
-    { door: cross('8to5', D3, { x: 3102, z: 9756 }, ROOM.r5!) },
-    { door: cross('5to6', D4, { x: 3102, z: 9760 }, ROOM.r6!) },
-    { door: cross('6to3', D5, { x: 3097, z: 9761 }, ROOM.r3!) },
-    { lever: 'E', down: true },
-    { lever: 'F', down: true },
-    { door: cross('3to2', D6, { x: 3098, z: 9765 }, ROOM.r2!) },
-    { door: cross('2to1', D7, { x: 3103, z: 9765 }, ROOM.r1!) },
-    { lever: 'C', down: true },
-    { door: cross('1to2', D7, { x: 3107, z: 9765 }, ROOM.r2!) },
-    { door: cross('2to3', D6, { x: 3102, z: 9765 }, ROOM.r3!) },
-    { lever: 'E', down: false },
-    { door: cross('3to2', D6, { x: 3098, z: 9765 }, ROOM.r2!) },
-    { door: cross('2to5', D8, { x: 3102, z: 9765 }, ROOM.r5!) },
-    { door: cross('5to8', D3, { x: 3102, z: 9760 }, ROOM.r8!) },
-    { door: cross('8to9', D9, { x: 3102, z: 9755 }, ROOM.r9!) },
-    { walk: OIL_CAN_SPAWN },
+type Room = 'r14' | 'r2' | 'r3' | 'r5' | 'r6' | 'r78' | 'r9';
+const ROOMS: Record<Room, Box> = {
+    r14: { x0: 3105, x1: 3112, z0: 9758, z1: 9767 },
+    r2: { x0: 3100, x1: 3104, z0: 9763, z1: 9767 },
+    r3: { x0: 3096, x1: 3099, z0: 9763, z1: 9767 },
+    r5: { x0: 3100, x1: 3104, z0: 9758, z1: 9762 },
+    r6: { x0: 3096, x1: 3099, z0: 9758, z1: 9762 },
+    r78: { x0: 3100, x1: 3120, z0: 9740, z1: 9757 },
+    r9: { x0: 3088, x1: 3099, z0: 9750, z1: 9757 },
+};
+const LEVER_ROOM: Record<Lever, Room> = { A: 'r78', B: 'r78', C: 'r14', D: 'r14', E: 'r3', F: 'r3' };
+/** The whole maze: underground in here and walkTo cannot leave (closed doors, one ladder). */
+const MAZE_BOX: Box = { x0: 3088, x1: 3122, z0: 9738, z1: 9770 };
+const roomOf = (t: Tile): Room | undefined => (Object.keys(ROOMS) as Room[]).find((r) => inBox(t, ROOMS[r]));
+
+const on = (b: number, l: Lever) => ((b >> LEVER_BIT[l]) & 1) === 1;
+/** A maze door: its loc tile (the `a` side) and the tiles either side of it, with the rule that unlocks it. */
+interface MazeDoor {
+    name: string;
+    a: Room;
+    aTile: Tile;
+    b: Room;
+    bTile: Tile;
+    open: (bits: number) => boolean;
+}
+const DOORS: MazeDoor[] = [
+    { name: '1to2', a: 'r14', aTile: { x: 3105, z: 9765 }, b: 'r2', bTile: { x: 3104, z: 9765 }, open: (b) => !on(b, 'A') && !on(b, 'B') && on(b, 'D') && on(b, 'E') && on(b, 'F') },
+    { name: '2to3', a: 'r2', aTile: { x: 3100, z: 9765 }, b: 'r3', bTile: { x: 3099, z: 9765 }, open: (b) => !on(b, 'B') && on(b, 'D') && on(b, 'F') },
+    { name: '2to5', a: 'r2', aTile: { x: 3102, z: 9763 }, b: 'r5', bTile: { x: 3102, z: 9762 }, open: (b) => !on(b, 'A') && !on(b, 'B') && on(b, 'C') && on(b, 'D') && !on(b, 'E') && on(b, 'F') },
+    { name: '3to6', a: 'r3', aTile: { x: 3097, z: 9763 }, b: 'r6', bTile: { x: 3097, z: 9762 }, open: (b) => !on(b, 'B') && on(b, 'D') && !on(b, 'F') },
+    { name: '4to5', a: 'r14', aTile: { x: 3105, z: 9760 }, b: 'r5', bTile: { x: 3104, z: 9760 }, open: (b) => on(b, 'A') && on(b, 'B') && on(b, 'D') },
+    { name: '4to7', a: 'r14', aTile: { x: 3108, z: 9758 }, b: 'r78', bTile: { x: 3108, z: 9757 }, open: (b) => on(b, 'A') && on(b, 'B') && !on(b, 'C') && !on(b, 'D') && !on(b, 'E') && !on(b, 'F') },
+    { name: '5to6', a: 'r5', aTile: { x: 3100, z: 9760 }, b: 'r6', bTile: { x: 3099, z: 9760 }, open: (b) => on(b, 'D') },
+    {
+        name: '5to8',
+        a: 'r5',
+        aTile: { x: 3102, z: 9758 },
+        b: 'r78',
+        bTile: { x: 3102, z: 9757 },
+        open: (b) => (!on(b, 'C') && on(b, 'D')) || (!on(b, 'A') && !on(b, 'B') && on(b, 'C') && on(b, 'D') && !on(b, 'E') && on(b, 'F')),
+    },
+    { name: '8to9', a: 'r78', aTile: { x: 3100, z: 9755 }, b: 'r9', bTile: { x: 3099, z: 9755 }, open: (b) => !on(b, 'E') && on(b, 'F') },
 ];
 
-/** Lever positions read this descent (the up-ladder resets them all to up). */
-const leverDown = new Map<Lever, boolean>();
+type Move = { lever: Lever } | { door: MazeDoor };
 
-async function setLever(q: Quest, name: Lever, down: boolean): Promise<void> {
-    const at = LEVERS[name];
-    for (let i = 0; i < 4; i++) {
-        if (leverDown.get(name) === down) return;
-        if (Math.max(Math.abs(pos(q).x - at.x), Math.abs(pos(q).z - at.z)) > 2) await walk(q, at, 1);
-        const lever = await locAt(q, at);
-        if (!lever) throw new Error(`maze: lever ${name} not in view from (${pos(q).x},${pos(q).z})`);
+/** Shortest lever/door plan from (room, bits) to `goal`, assuming `bits` are the real lever states. */
+function planMaze(room: Room, bits: number, goal: Room): Move[] | null {
+    const key = (r: Room, b: number) => `${r}:${b}`;
+    const prev = new Map<string, { from: string; move: Move } | null>([[key(room, bits), null]]);
+    const queue: Array<[Room, number]> = [[room, bits]];
+    while (queue.length) {
+        const [r, b] = queue.shift()!;
+        if (r === goal) {
+            const moves: Move[] = [];
+            for (let k = key(r, b); prev.get(k); k = prev.get(k)!.from) moves.unshift(prev.get(k)!.move);
+            return moves;
+        }
+        const next: Array<[Room, number, Move]> = [];
+        for (const l of Object.keys(LEVERS) as Lever[]) if (LEVER_ROOM[l] === r) next.push([r, b ^ (1 << LEVER_BIT[l]), { lever: l }]);
+        for (const d of DOORS) {
+            if (!d.open(b)) continue;
+            if (d.a === r) next.push([d.b, b, { door: d }]);
+            else if (d.b === r) next.push([d.a, b, { door: d }]);
+        }
+        for (const [nr, nb, move] of next) {
+            const k = key(nr, nb);
+            if (prev.has(k)) continue;
+            prev.set(k, { from: key(r, b), move });
+            queue.push([nr, nb]);
+        }
+    }
+    return null;
+}
+
+/** Lever states consistent with everything seen this descent (bitmasks). Reset by the up-ladder. */
+let candidates: number[] = [...Array(64).keys()];
+const leverKnown = (l: Lever) => new Set(candidates.map((b) => on(b, l))).size === 1;
+const describeLevers = () =>
+    (Object.keys(LEVERS) as Lever[]).map((l) => (leverKnown(l) ? `${l}${on(candidates[0]!, l) ? 'v' : '^'}` : `${l}?`)).join(' ');
+
+/** Inspect (unknown) or pull a lever in our room; the game line tells its state either way. */
+async function useLever(q: Quest, l: Lever, pull: boolean): Promise<void> {
+    for (let i = 0; i < 3; i++) {
+        const lever = await locAt(q, LEVERS[l]);
+        if (!lever) throw new Error(`maze: lever ${l} not in view from (${pos(q).x},${pos(q).z})`);
         const since = cursor(q);
-        // Unknown: Inspect ("The lever is up/down."); known and wrong: Pull ("You pull lever A down.").
-        const known = leverDown.has(name);
-        await q.bot.interactLoc(lever, known ? /pull/i : /inspect/i);
-        const re = known ? /you pull lever \w+ (up|down)/i : /the lever is (up|down)/i;
+        await q.bot.interactLoc(lever, pull ? /pull/i : /inspect/i);
+        const re = pull ? /you pull lever \w+ (up|down)/i : /the lever is (up|down)/i;
         await untilTicks(q.sdk, () => linesSince(q, since).some((t) => re.test(t)), 12);
         const line = linesSince(q, since).filter((t) => re.test(t)).pop();
         if (!line) {
-            q.log(`maze: lever ${name} ${known ? 'pull' : 'inspect'} gave no line`);
-            leverDown.delete(name);
+            q.log(`maze: lever ${l} ${pull ? 'pull' : 'inspect'} gave no line`);
             continue;
         }
-        leverDown.set(name, /down\.?\s*$/i.test(line));
-        q.log(`maze: lever ${name} ${line}`);
+        const down = /down\.?\s*$/i.test(line);
+        q.log(`maze: lever ${l}: ${line}`);
+        if (pull) candidates = candidates.map((b) => b ^ (1 << LEVER_BIT[l]));
+        candidates = candidates.filter((b) => on(b, l) === down);
+        return;
     }
-    if (leverDown.get(name) !== down) throw new Error(`maze: lever ${name} never went ${down ? 'down' : 'up'}`);
+    throw new Error(`maze: lever ${l} gave no reply`);
 }
 
-async function crossDoor(q: Quest, c: Crossing): Promise<void> {
-    for (let i = 0; i < 3 && !inBox(pos(q), c.to); i++) {
-        await walk(q, c.from, 0);
-        const door = await locAt(q, c.door, /^open$/i);
-        if (!door) throw new Error(`maze: door ${c.name} not at (${c.door.x},${c.door.z}) from (${pos(q).x},${pos(q).z})`);
+/**
+ * Through a maze door. Up to 5 fleet bots share these doors: an opened one is an
+ * inviswall (no Open op) for 3 ticks, so a missing door is waited out, never an error.
+ * Returns whether the door let us through (and so what it says about the levers).
+ */
+async function tryDoor(q: Quest, d: MazeDoor, from: Room): Promise<'open' | 'locked' | 'busy'> {
+    const to = from === d.a ? d.b : d.a;
+    const side = from === d.a ? d.aTile : d.bTile;
+    for (let i = 0; i < 12; i++) {
+        if (roomOf(pos(q)) === to) return 'open';
+        if (pos(q).x !== side.x || pos(q).z !== side.z) await walk(q, side, 0);
+        const door = await locAt(q, d.aTile, /^open$/i);
+        if (!door) {
+            await q.sdk.waitForTicks(2);
+            continue;
+        }
         const since = cursor(q);
         await q.bot.interactLoc(door, /^open$/i);
-        await untilTicks(q.sdk, () => inBox(pos(q), c.to) || linesSince(q, since).some((t) => /door is locked/i.test(t)), 8);
-        if (linesSince(q, since).some((t) => /door is locked/i.test(t))) {
-            throw new Error(`maze: door ${c.name} locked (levers ${JSON.stringify(Object.fromEntries(leverDown))})`);
-        }
+        await untilTicks(q.sdk, () => roomOf(pos(q)) === to || linesSince(q, since).some((t) => /door is locked/i.test(t)), 8);
+        if (roomOf(pos(q)) === to) return 'open';
+        if (linesSince(q, since).some((t) => /door is locked/i.test(t))) return 'locked';
     }
-    if (!inBox(pos(q), c.to)) throw new Error(`maze: not through ${c.name} (at ${pos(q).x},${pos(q).z})`);
+    return 'busy';
+}
+
+/**
+ * Walk the maze to `goal` from any room with any lever states: inspect the levers
+ * of each room we are in, plan on a state still consistent with what has been
+ * seen, and let every door outcome (through, or "This door is locked.") cut the
+ * candidates down. Each wrong guess removes at least the guessed state.
+ */
+async function mazeTo(q: Quest, goal: Room): Promise<void> {
+    const t0 = tickNow(q.sdk);
+    for (let step = 0; step < 80; step++) {
+        let room = roomOf(pos(q));
+        if (!room) {
+            await q.sdk.waitForTicks(2);
+            room = roomOf(pos(q));
+            if (!room) throw new Error(`maze: (${pos(q).x},${pos(q).z}) is in no known room`);
+        }
+        if (room === goal) {
+            q.log(`maze: in ${goal} after ${step} steps (levers ${describeLevers()}, ${tickNow(q.sdk) - t0}t)`);
+            return;
+        }
+        for (const l of Object.keys(LEVERS) as Lever[]) if (LEVER_ROOM[l] === room && !leverKnown(l)) await useLever(q, l, false);
+        if (!candidates.length) {
+            q.log('maze: no lever state fits what was seen — starting over');
+            candidates = [...Array(64).keys()];
+            continue;
+        }
+        // A room without levers has no way out under some states (r5 with D up), but we
+        // walked in through a door that still opens: plan on a state that has a way out.
+        let plan: Move[] | null = null;
+        for (const b of candidates) if ((plan = planMaze(room, b, goal))?.length) break;
+        if (!plan?.length) throw new Error(`maze: no plan from ${room} to ${goal} (levers ${describeLevers()})`);
+        const move = plan[0]!;
+        if ('lever' in move) {
+            await useLever(q, move.lever, true);
+            continue;
+        }
+        const d = move.door;
+        const res = await tryDoor(q, d, room);
+        q.log(`maze: ${room} door ${d.name} ${res} (levers ${describeLevers()})`);
+        if (res === 'open') candidates = candidates.filter((b) => d.open(b));
+        else if (res === 'locked') candidates = candidates.filter((b) => !d.open(b));
+    }
+    throw new Error(`maze: not in ${goal} after 80 steps, at (${pos(q).x},${pos(q).z}) (levers ${describeLevers()})`);
 }
 
 /** Up the maze ladder (resets the levers) and out of the nook. */
 async function leaveMaze(q: Quest): Promise<void> {
+    if (inMaze(q)) await mazeTo(q, 'r78');
     for (let i = 0; i < 3 && inMaze(q); i++) {
         if (Math.hypot(pos(q).x - MAZE_LADDER.x, pos(q).z - MAZE_LADDER.z) > 3) await walk(q, { x: MAZE_LADDER.x - 1, z: MAZE_LADDER.z }, 1);
         const ladder = await locAt(q, MAZE_LADDER, /climb-up/i);
@@ -398,8 +474,22 @@ async function leaveMaze(q: Quest): Promise<void> {
         await untilTicks(q.sdk, () => !inMaze(q), 10);
     }
     if (inMaze(q)) throw new Error('could not climb out of the maze');
-    leverDown.clear();
+    candidates = [0];
     await leaveNook(q);
+}
+
+/**
+ * Out of the lever maze from any room and any lever states (a run that died in
+ * it, or a resumed one), then out of the manor unless `dest` is inside it.
+ * run-quest's goTo calls this before its generic underground climb, which
+ * cannot reach the ladder past closed maze doors.
+ */
+export async function escapeMaze(q: Quest, dest?: Tile): Promise<void> {
+    if (!inMaze(q)) return;
+    q.log(`maze: escaping from (${pos(q).x},${pos(q).z})`);
+    candidates = [...Array(64).keys()];
+    await leaveMaze(q);
+    if (!dest || !(inBox(dest, MANOR_BOX) || inBox(dest, NOOK_BOX))) await leaveManor(q);
 }
 
 /** Into the nook by the secret bookcase, down its ladder, through the maze to the can, and out. */
@@ -421,18 +511,14 @@ export async function oilCan(q: Quest): Promise<void> {
             await untilTicks(q.sdk, () => inMaze(q), 10);
         }
         if (!inMaze(q)) throw new Error('could not climb down to the lever maze');
-        leverDown.clear();
     }
-    let done = 0;
-    for (const step of SOLUTION) {
-        if ('lever' in step) await setLever(q, step.lever, step.down);
-        else if ('door' in step) await crossDoor(q, step.door);
-        else await walk(q, step.walk, 1);
-        done++;
+    // Whatever the last visit left, the levers are only known once seen (A and B are by the ladder).
+    candidates = [...Array(64).keys()];
+    try {
+        await mazeTo(q, 'r9');
+        await pickUp(q, /^oil can$/i, OIL_CAN_SPAWN);
+    } finally {
+        // Never leave a run inside the maze: every later walk would start in a closed room.
+        await leaveMaze(q);
     }
-    q.log(`maze: ${done} steps to the oil can`);
-    await pickUp(q, /^oil can$/i, OIL_CAN_SPAWN);
-    // 8to9 still holds (E up, F down); room 8 is open floor to the ladder.
-    await crossDoor(q, cross('9to8', D9, { x: 3098, z: 9755 }, ROOM.r8!));
-    await leaveMaze(q);
 }

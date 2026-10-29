@@ -52,6 +52,7 @@ import { GROUPS, itemPattern, needMet, SOURCES, type Need } from './sources';
 import { TRAINERS } from './training';
 import { talkThrough } from './dialog';
 import { enterStuckArea, leaveStuckArea } from './doors';
+import { escapeMaze, inLeverMaze } from './draynor-manor';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 
 export type { Need } from './sources';
@@ -315,6 +316,9 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in
                 // the cellar after a client drop looped on the prologue's walk to the bank
                 // (ABGARMY08, 2026-10-29). Climb the ladder/stairs beside us first.
+                // Draynor Manor's lever maze: its doors hide the ladder from a generic climb
+                // (ABGARMY05/jacklove7/jacklove9 stranded there, 2026-10-29).
+                if (inLeverMaze(q) && tile.z < UNDERGROUND_Z) await escapeMaze(q, tile);
                 if (pos().z >= UNDERGROUND_Z && tile.z < UNDERGROUND_Z) await climbOutOfUnderground();
                 // Buildings whose doorway the client map gets wrong (lib/doors.ts).
                 if (away(tile) > tolerance) (await leaveStuckArea(sdk, bot, tile, log)) || (await enterStuckArea(sdk, bot, tile, log));
@@ -562,7 +566,21 @@ export async function runQuest(def: QuestDef): Promise<void> {
         process.exit(NEEDS_STOCK_EXIT);
     }
     if (result.success && result.result === 'assisted') process.exit(ASSISTED_EXIT);
-    process.exit(result.success && (result.result === true || result.result === 'prepared') ? 0 : 1);
+    const ok = result.success && (result.result === true || result.result === 'prepared');
+    if (!ok) {
+        // The error must reach grind.log: on the fleet only that file survives, and a
+        // run that died in the Draynor maze showed nothing but "controller disconnected".
+        const err = result.error;
+        const where = err?.stack?.split('\n').slice(1).find((l) => l.trim()) ?? '';
+        const line = err ? `FATAL: ${err.message}${where ? ` | ${where.trim()}` : ''}` : `FATAL: run ended without completing (result ${JSON.stringify(result.result)})`;
+        console.error(line);
+        try {
+            appendFileSync(grindLog, `${new Date().toISOString()} [${def.id}] ${line}\n`);
+        } catch {
+            /* the log must never break the exit */
+        }
+    }
+    process.exit(ok ? 0 : 1);
 }
 
 /**
