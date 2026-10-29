@@ -109,6 +109,10 @@ export async function toDungeon(q: Quest): Promise<void> {
         }
         q.log(`lostcity: on Entrana at ${where(q)}`);
     }
+    // The ladder is one-way: without Lumbridge Teleport's runes the only way out is dying
+    // (jacklove6 and jacklove18 went down with a law rune and nothing else, 2026-10-29).
+    const short = [['law rune', 1], ['air rune', 3], ['earth rune', 1]].filter(([r, n]) => q.count(r as string) < (n as number));
+    if (short.length) throw new Error(`lostcity: not climbing down without Lumbridge Teleport runes (short ${short.map(([r]) => r).join(', ')})`);
     await q.goTo({ x: ENTRANA_LADDER.x + 1, z: ENTRANA_LADDER.z + 1 }, 2);
     await op(q, ENTRANA_LADDER, /^ladder$/i, /climb-down/i, () => inDungeon(q), 'Entrana dungeon ladder', [/risk i will have to take/i]);
 }
@@ -179,6 +183,11 @@ export async function spiritAndBranch(q: Quest, branch: boolean): Promise<void> 
             await eatIfLow(q);
             const s = spirit();
             if (!s) break;
+            // A bolt (3 air, 4 fire, 1 chaos) only while Lumbridge Teleport's 3 air stay behind.
+            if (q.count('air rune') < 6 || q.count('fire rune') < 4 || q.count('chaos rune') < 1) {
+                await teleportOut(q);
+                throw new Error(`lostcity: out of Fire Bolt runes after ${casts} casts; teleported out`);
+            }
             const res = await q.bot.castSpell(s, FIRE_BOLT, ticksToMs(8));
             casts++;
             if (!res.success) {
