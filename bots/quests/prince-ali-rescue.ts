@@ -21,7 +21,7 @@
 import type { Quest } from './lib/run-quest';
 import { runQuest } from './lib/run-quest';
 import { driveDialog } from './lib/dialog';
-import { ticksToMs, untilTicks } from './lib/ticks';
+import { tickNow, ticksToMs, untilTicks } from './lib/ticks';
 
 const HASSAN = { x: 3302, z: 3164 };
 const OSMAN = { x: 3286, z: 3181 };
@@ -149,11 +149,26 @@ async function keyPrint(q: Quest): Promise<void> {
 async function keyPrintTalk(q: Quest): Promise<void> {
     for (let i = 0; i < 4 && q.count('key print') < 1; i++) {
         await quietJail(q);
+        await waitForKeli(q);
         const seen = await q.talk(KELI, [/famous in runescape/i, /latest plan/i, /not try to get him out/i, /see the key/i, /touch the key/i]);
         if (await untilTicks(q.sdk, () => q.count('key print') > 0, 6)) return;
         const p = q.sdk.getState()?.player;
         q.log(`Keli key print: none (soft clay ${q.count('soft clay')}, at ${p?.worldX},${p?.worldZ}, combat ${p?.combat?.inCombat ?? '?'}); dialog: …${seen.slice(-200)}`);
     }
+}
+
+/**
+ * Tying Keli runs npc_del: she is gone for everyone until she respawns. With several
+ * fleet bots at the jail (ABGARMY06, ABGARMY12 behind pigfat, 2026-10-29) the others
+ * must wait for her rather than spend their tries on an empty room.
+ */
+const KELI_RESPAWN_TICKS = 400;
+async function waitForKeli(q: Quest): Promise<void> {
+    if (q.sdk.findNearbyNpc(KELI)) return;
+    const t0 = tickNow(q.sdk);
+    q.log('Lady Keli is not here (tied up by another player?) — waiting for her to respawn');
+    if (!(await untilTicks(q.sdk, () => !!q.sdk.findNearbyNpc(KELI), KELI_RESPAWN_TICKS))) throw new Error(`Lady Keli did not respawn within ${KELI_RESPAWN_TICKS} ticks`);
+    q.log(`Lady Keli back after ${tickNow(q.sdk) - t0}t`);
 }
 
 /** Tie Keli up with a rope (lady_keli opnpcu: mesbox, then npc_del). */
@@ -166,7 +181,7 @@ async function tieKeliRope(q: Quest): Promise<void> {
     // A guard's hit cancelled the use once (2026-10-29: ropes 2 -> 2).
     for (let i = 0; i < 3 && q.count('rope') >= start && q.count('rope') > 0; i++) {
         await quietJail(q);
-        await untilTicks(q.sdk, () => !!q.sdk.findNearbyNpc(KELI), 10);
+        await waitForKeli(q);
         const before = q.count('rope');
         const res = await q.bot.useItemOnNpc(/^rope$/i, KELI, { timeout: ticksToMs(30) });
         if (!res.success) q.log(`rope on Keli: ${res.message}`);
