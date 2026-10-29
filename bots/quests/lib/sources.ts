@@ -26,10 +26,12 @@ export interface Need {
      * hunting for the raw item again; the prologue withdraws it like the item.
      */
     or?: string;
+    /** How many of `or` satisfy the need, when not `count` (three balls of wool or one wig). */
+    orCount?: number;
 }
 
 export function needMet(q: Pick<Quest, 'count'>, need: Need): boolean {
-    return q.count(need.item) >= need.count || (need.or != null && q.count(need.or) >= need.count);
+    return q.count(need.item) >= need.count || (need.or != null && q.count(need.or) >= (need.orCount ?? need.count));
 }
 
 export interface Source {
@@ -80,6 +82,8 @@ export const GROUPS: Record<string, Array<{ item: string; skill: string; level: 
     ],
     /** Witch's House: worn for the cellar's shock gate, so worn ones count. */
     'leather gloves': [{ item: 'leather gloves', skill: 'defence', level: 1 }],
+    /** Pirate's Treasure: worn into Wydin's back room, so worn ones count. */
+    'white apron': [{ item: 'white apron', skill: 'defence', level: 1 }],
     /** Black Knights' Fortress: the guard disguise is worn, so worn ones count. */
     'bronze med helm': [{ item: 'bronze med helm', skill: 'defence', level: 1 }],
     'iron chainbody': [{ item: 'iron chainbody', skill: 'defence', level: 1 }],
@@ -284,6 +288,16 @@ export const SOURCES: Record<string, Source> = {
     },
     bones: { get: (q, count) => huntDrop(q, LUMBRIDGE_EAST_CHICKENS, 'bones', count) },
 
+    // ── Pirate's Treasure: Wydin only hires you with a white apron (wydin.rs2)
+    'white apron': {
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 5 }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, THESSALIA_CLOTHES, 'white apron', count);
+        },
+    },
+
     // ── Witch's House
     cheese: {
         inputs: (count) => [{ item: 'coins', count: 5 * count }],
@@ -445,7 +459,75 @@ export const SOURCES: Record<string, Source> = {
             }
         },
     },
+
+    // ── Prince Ali Rescue: the disguise, the key copy and the guard's beer
+    /**
+     * Water used on clay (pottery.rs2 make_softclay). A jug from the Lumbridge
+     * kitchen, so a bucket of water bought for something else is not used up.
+     */
+    'soft clay': {
+        inputs: (count) => [
+            { item: 'clay', count },
+            { item: 'jug of water', count },
+        ],
+        get: async (q, count) => {
+            for (let misses = 0; misses < 3 && q.count('soft clay') < count; ) {
+                const before = q.count('soft clay');
+                await q.ensure('clay', 1);
+                await q.ensure('jug of water', 1);
+                await useUntil(q, 'jug of water', 'clay', 'soft clay', before + 1);
+                misses = q.count('soft clay') > before ? 0 : misses + 1;
+            }
+        },
+    },
+    'bronze bar': {
+        inputs: (count) => [{ item: 'coins', count: 20 * count + SHANTAY_TOLLS }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, SHANTAY, 'bronze bar', count);
+        },
+    },
+    'pink skirt': {
+        inputs: (count) => [{ item: 'coins', count: 5 * count }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, THESSALIA, 'pink skirt', count);
+        },
+    },
+    /** Imps always drop ashes (wiki/items/ashes.md); the spot west of Draynor first. */
+    ashes: {
+        get: async (q, count) => {
+            for (let visit = 0; visit < ASHES_IMP_SPOTS.length && q.count('ashes') < count; visit++) {
+                await huntDrop(q, ASHES_IMP_SPOTS[visit]!, 'ashes', count);
+            }
+        },
+    },
+    /** Ned, Draynor (ned.rs2): 15 coins a coil. */
+    rope: {
+        inputs: (count) => [{ item: 'coins', count: 15 * count }],
+        get: async (q, count) => {
+            for (let misses = 0; misses < 3 && q.count('rope') < count; ) {
+                const before = q.count('rope');
+                await q.ensure('coins', 15);
+                await q.talk(/^ned$/i, [/i would like some rope/i, /please sell me some rope/i], NED);
+                await untilTicks(q.sdk, () => q.count('rope') > before, 5);
+                misses = q.count('rope') > before ? 0 : misses + 1;
+            }
+        },
+    },
+
 };
+
+// ── Prince Ali Rescue helpers
+
+/** Shantay's shop, by the desert pass (shantaypass.inv: bucket of water, bronze bar). */
+const SHANTAY = { x: 3304, z: 3127, npc: /^shantay$/i };
+/** Shantay is behind the Al Kharid toll: 10gp in, 10gp out. */
+const SHANTAY_TOLLS = 20;
+/** Thessalia's clothes shop, Varrock (varrock.inv: pink skirt). */
+const THESSALIA = { x: 3207, z: 3416, npc: /^thessalia$/i };
+/** Ned's house, Draynor. */
+const NED = { x: 3101, z: 3258 };
 
 // ── Goblin Diplomacy helpers
 
@@ -804,6 +886,8 @@ const IMP_SPOTS: HuntSpot[] = [
     { x: 2941, z: 3236, npc: /^imp$/i },
 ];
 const IMP_BEADS = ['black', 'red', 'white', 'yellow'];
+/** Imp spots for ashes, nearest the Draynor hub first. */
+const ASHES_IMP_SPOTS: HuntSpot[] = [IMP_SPOTS[1]!, IMP_SPOTS[0]!, IMP_SPOTS[2]!];
 /** A bead is ~25 kills on average; a spot gets this long without any bead before the next one. */
 const IMP_SPOT_PATIENCE_TICKS = 1_200;
 const IMP_SPOT_VISITS = 6;

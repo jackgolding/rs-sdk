@@ -1,489 +1,291 @@
 /**
- * Prince Ali Rescue — replayable, checkpoint-gated.
+ * Prince Ali Rescue — a disguise, a copied key, a drunk guard and a tied-up Keli.
  *
- *   bun bots/quests/prince-ali-rescue.ts qlprince2
+ *   bun bots/quests/prince-ali-rescue.ts {botname}
  *
- * State machine (server/content/scripts/quests/quest_prince/...):
- *   bank (Al-Kharid 3269,3167) -> Hassan (3302,3163, start) -> Osman
- *   (3286,3180) -> Leela checklist (3113,3263: key copy / rope / skin paste /
- *   pink skirt / wig) -> Guard Joe (3123,3245, beer) -> Lady Keli (3128,3244,
- *   tie with rope) -> Prince Ali (3123,3242, disguise + free) -> Hassan
- *   (return) -> journal complete.
+ * Journal rules from quest_prince/scripts/prince_journal.rs2 (the complete text
+ * restates the started sentence, so `started` excludes the later ones). Dialog
+ * from area_alkharid/scripts/{hassan,osman}.rs2 and area_draynor/scripts/
+ * {leela,lady_keli,ned,aggie,joe_guard,prince_ali}.rs2:
  *
- * Label note (verified, not assumed): the quest LIST label is
- * `Prince Ali Rescue` (questlist.if option=, key `prince`) while the journal
- * HEADING is `The Rescue Of Prince Ali` (prince_journal.rs2 L97:
- * `~quest_journal("The Rescue Of Prince Ali", $text)`). The journal reader
- * needs `{ label: 'Prince Ali Rescue', title: 'The Rescue Of Prince Ali' }` —
- * a wrong label finds no button and fails every rule as 'unknown'.
- *
- * Every step that matters is gated on QUEST JOURNAL evidence, never on XP,
- * chat or a successful packet. The journal is the only client-visible record
- * of quest state: general quest varps are not exposed and most are never
- * transmitted, so it is the portable checkpoint channel. Completion is
- * `%princequest = ^prince_complete` (110, quests.rs2); the journal renders it
- * as QUEST COMPLETE. No prerequisites.
- *
- * Key copy: the duplicate cell key (princeskey) is made via Oskarl from a
- * bronze bar + key print — so the bank leg carries a bronze bar; the
- * checklist stage still verifies the copy in the journal/inventory.
- * Wig: blondwig is dyed from plainwig + yellowdye (quest_prince.rs2
- * make_blonde_wig); the bank leg accepts either.
- *
- * Route handling:
- *   - waypoints computed offline from the repo's collision data
- *     (`findLongPath`), single plane per leg
- *   - each leg is walked one waypoint at a time with displacement verified;
- *     a leg that moves nothing is an obstacle, not something to retry
+ *   - Ned's wig, Aggie's skin paste and Keli's key print only open once Osman
+ *     has briefed you (spoken_osman), so they are steps of that stage, not
+ *     sources. Their inputs (wool, dye, paste ingredients, soft clay, bronze
+ *     bar) are sources, made in prepare.
+ *   - Osman (Al Kharid) turns the print and a bronze bar into a key that Leela
+ *     hands over; Leela moves the stage once key, blond wig, skirt and paste are held.
+ *   - Joe takes three beers at once; Keli is tied with a rope (a spare covers
+ *     her respawn); the prison door opens with the key from the north side.
+ *   - Plain and blond wigs are both "Wig": told apart by obj id.
  */
-import { existsSync, readFileSync, appendFileSync } from 'fs';
-import { dirname, join } from 'path';
+import type { Quest } from './lib/run-quest';
+import { runQuest } from './lib/run-quest';
+import { driveDialog } from './lib/dialog';
+import { ticksToMs, untilTicks } from './lib/ticks';
 
-import { BotSDK, deriveGatewayUrl } from '../../sdk/index';
-import { BotActions } from '../../sdk/actions';
-import { initPathfinding, findLongPath, isTileWalkable } from '../../sdk/pathfinding';
-import { ActivitySession } from '../../sdk/activity';
-import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
-import { createRun, appendCheckpoint, summarizeRun, safeRunId } from '../../quest-lab/records';
-import type { JournalRule } from '../../quest-lab/evidence';
-
-// ── args / env ──────────────────────────────────────────────────────────────
-const argv = process.argv.slice(2);
-const botArg = argv.find(a => !a.startsWith('-'));
-const envPath = botArg
-    ? join(process.cwd(), 'bots', botArg, 'bot.env')
-    : join(dirname(import.meta.path), 'bot.env');
-if (!existsSync(envPath)) throw new Error(`bot.env not found at ${envPath}. Usage: bun bots/quests/prince-ali-rescue.ts <botname>`);
-for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
-    const t = line.trim();
-    if (!t || t.startsWith('#')) continue;
-    const eq = t.indexOf('=');
-    if (eq > 0) process.env[t.slice(0, eq)] = t.slice(eq + 1);
-}
-const username = process.env.BOT_USERNAME!;
-const password = process.env.PASSWORD!;
-const GRIND_LOG = join(process.cwd(), 'bots', username, 'grind.log');
-const log = (msg: string) => {
-    console.log(msg);
-    try { appendFileSync(GRIND_LOG, `${new Date().toISOString()} ${msg}\n`); } catch { /* ignore */ }
-};
-
-// ── constants ───────────────────────────────────────────────────────────────
-const ALKHARID_BANK = { x: 3269, z: 3167 };
-const HASSAN = { x: 3302, z: 3163 };
-const OSMAN = { x: 3286, z: 3180 };
-const LEELA = { x: 3113, z: 3263 };
-const JOE = { x: 3123, z: 3245 };
-const KELI = { x: 3128, z: 3244 };
-const PRINCE = { x: 3123, z: 3242 };
-
-const WAYPOINT_SPACING = 10;
-
-function planWaypoints(from: { x: number; z: number }, to: { x: number; z: number }): { x: number; z: number }[] {
-    const raw = findLongPath(0, from.x, from.z, to.x, to.z);
-    if (raw.length === 0) return [to];
-    const way: { x: number; z: number }[] = [{ x: raw[0]!.x, z: raw[0]!.z }];
-    let last = raw[0]!;
-    for (let i = 1; i < raw.length; i++) {
-        const p = raw[i]!;
-        if (Math.hypot(p.x - last.x, p.z - last.z) >= WAYPOINT_SPACING || i === raw.length - 1) {
-            way.push({ x: p.x, z: p.z });
-            last = p;
-        }
-    }
-    return way;
-}
-
-/** Somewhere beside the target that can actually be stood on. */
-function approach(candidates: { x: number; z: number }[], fallback: { x: number; z: number }): { x: number; z: number } {
-    for (const cand of candidates) {
-        if (isTileWalkable(0, cand.x, cand.z)) return cand;
-    }
-    return fallback;
-}
-
-/** Supplies withdrawn from the bank; the journal checklist verifies them. */
-const NEEDED = [
-    { name: 'bronze_bar', pattern: /^bronze bar$/i }, // key copy via Oskarl
-    { name: 'rope', pattern: /^rope$/i }, // tie up Lady Keli
-    { name: 'skinpaste', pattern: /^(paste|skin paste)$/i }, // disguise
-    { name: 'pink_skirt', pattern: /^pink skirt$/i }, // disguise
-    { name: 'wig', pattern: /^wig$/i }, // blondwig (or plainwig + yellowdye)
-    { name: 'beer', pattern: /^beer$/i }, // guard Joe
-];
-
-const KEY_COPY = { name: 'princeskey', pattern: /^bronze key$/i };
-
-const JOURNAL = { label: 'Prince Ali Rescue', title: 'The Rescue Of Prince Ali' };
-
-// Journal rules, read from the quest's own journal script
-// (server/content/scripts/quests/quest_prince/scripts/prince_journal.rs2).
-// Each rule keys on a sentence UNIQUE to its stage — the stages share long
-// prefix prose, so a shared sentence would PASS for several stages at once.
-const RULES: Record<string, JournalRule> = {
-    unstarted: { id: 'prince:unstarted', kind: 'unstarted', all: ['speaking to Hassan'] },
-    started: { id: 'prince:started', kind: 'active', all: ['speak to Osman for details'] },
-    spoken_osman: { id: 'prince:spoken_osman', kind: 'active', all: ['Talk to Leela near Draynor Village for advice'] },
-    prep_finished: { id: 'prince:prep_finished', kind: 'active', all: ['determine any weaknesses'] },
-    guard_drunk: { id: 'prince:guard_drunk', kind: 'active', all: ['use some Rope to tie her up'] },
-    tied_keli: { id: 'prince:tied_keli', kind: 'active', all: ['I can now free Prince Ali'] },
-    saved: { id: 'prince:saved', kind: 'active', all: ['return to Hassan to claim my reward'] },
-    complete: { id: 'prince:complete', kind: 'complete', all: ['QUEST COMPLETE'] },
-};
-type Stage = keyof typeof RULES;
-const STAGE_ORDER: Stage[] = ['unstarted', 'started', 'spoken_osman', 'prep_finished', 'guard_drunk', 'tied_keli', 'saved', 'complete'];
-
-// ── setup ───────────────────────────────────────────────────────────────────
-console.log('Warming pathfinder...');
-initPathfinding();
-
-const sdk = new BotSDK({
-    botUsername: username,
-    password,
-    gatewayUrl: deriveGatewayUrl(process.env.SERVER),
-    autoLaunchBrowser: true,
-    browserLaunchTimeout: 90_000,
-    readyTimeout: 45_000,
-    connectTimeout: 60_000,
-    showChat: false,
-});
-
-console.log('Opening/attaching the game client...');
-await sdk.connect();
-const bot = new BotActions(sdk);
-
-// ActivitySession needs the live sdk + bot, so it is built here, not up front.
-const session = new ActivitySession(sdk, bot, {
-    name: 'prince ali rescue',
-    grindLogPath: GRIND_LOG,
-    maxRecoveryTactics: 8,
-});
-
-await session.setPhase('start');
-
-const pos = () => {
-    const p = sdk.getState()?.player;
-    return { x: p?.worldX ?? 0, z: p?.worldZ ?? 0, level: p?.level ?? 0 };
-};
-const distTo = (t: { x: number; z: number }) => Math.hypot(pos().x - t.x, pos().z - t.z);
-const invCount = (pattern: RegExp) =>
-    sdk.getInventory().filter(i => pattern.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0);
-
-// ── durable run record ──────────────────────────────────────────────────────
-const MODE = process.env.QUEST_LAB_MODE === 'staging' ? 'staging' : 'development';
-const run = createRun(join(process.cwd(), 'quest-lab', 'runs'), safeRunId('prince', username, new Date().toISOString()), {
-    questId: 'prince',
-    account: username,
-    mode: MODE,
-    scriptHash: Bun.hash(await Bun.file(import.meta.path).text()).toString(16),
-    fixtureHash: process.env.QUEST_LAB_FIXTURE_HASH ?? 'unrecorded',
-    contentHash: process.env.QUEST_LAB_CONTENT_HASH ?? 'unrecorded',
-    requiredCheckpoints: STAGE_ORDER,
-});
-log(`Run record: ${run.directory} (mode=${MODE})`);
-
-/** Checkpoint gate. UNKNOWN is a failure like any other here: proceed on nothing. */
-async function checkpoint(name: Stage, label: string): Promise<boolean> {
-    const read = await readJournalCheckpoint(sdk, JOURNAL, RULES[name]!);
-    const verdict = read.verdict?.verdict ?? 'UNKNOWN';
-    appendCheckpoint(run.directory, {
-        checkpointId: name,
-        verdict,
-        reason: read.reason,
-        kind: RULES[name]!.kind,
-        rawLines: read.rawLines,
-    });
-    if (verdict !== 'PASS') {
-        log(`CHECKPOINT ${name} ${verdict}: ${read.reason}`);
-        if (read.rawLines.length) {
-            for (const line of read.rawLines) log(`    raw: ${JSON.stringify(line.rawText)}`);
-        }
-        session.log('warn', `checkpoint ${name} ${verdict}`);
-        return false;
-    }
-    log(`CHECKPOINT ${name} PASS (${label}) — ${read.reason}`);
-    session.log('log', `checkpoint ${name} PASS: ${label}`);
-    return true;
-}
-
-// ── 1. what stage is this account actually at? ──────────────────────────────
-// Read the journal BEFORE banking. A finished quest has nothing left to do,
-// and a bot resumed mid-quest should bank only for what it still lacks.
-// Banking first made a completed quest report "insufficient stock" instead
-// of "already complete" — and walked to the bank to do it.
-await session.setPhase('inspect');
-
-/** The first stage rule that PASSes is the account's real stage. */
-async function readStage(): Promise<Stage | 'unknown'> {
-    for (const name of [...STAGE_ORDER].reverse()) {
-        const read = await readJournalCheckpoint(sdk, JOURNAL, RULES[name]!);
-        log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
-        if (read.verdict?.verdict === 'PASS') return name;
-    }
-    return 'unknown';
-}
-
-/** True once the account's journal has reached at least the given stage. */
-async function atLeast(stage: Stage): Promise<boolean> {
-    const cur = await readStage();
-    if (cur === 'unknown') return false;
-    return STAGE_ORDER.indexOf(cur) >= STAGE_ORDER.indexOf(stage);
-}
-
-const STAGE = await readStage();
-log(`Quest stage at start: ${STAGE}`);
-if (STAGE === 'complete') {
-    log('Prince Ali Rescue is already complete — nothing to do');
-    session.log('log', 'quest already complete; nothing to do');
-    sdk.disconnect();
-    process.exit(0);
-}
-if (STAGE === 'unknown') throw new Error('could not determine the quest stage from the journal');
-
-// ── 2. bank, but only for supplies we still lack ────────────────────────────
-await session.setPhase('bank');
-const needsBanking = STAGE === 'unstarted' || STAGE === 'started' || STAGE === 'spoken_osman'
-    ? NEEDED.some(n => invCount(n.pattern) === 0) && invCount(KEY_COPY.pattern) === 0
-    : STAGE === 'prep_finished'
-      ? invCount(/^beer$/i) === 0
-      : false;
-await bot.dismissBlockingUI();
-if (needsBanking) await bankForSupplies();
-else log('Supplies already carried (or no longer needed at this stage); skipping the bank leg');
-
-/** Withdraw whatever quest supplies are missing. Never buys food. */
-async function bankForSupplies(): Promise<void> {
-    // A bot may be anywhere on restart, so travel to the bank first rather
-    // than assuming the start tile.
-    if (distTo(ALKHARID_BANK) > 8) await travelTo(ALKHARID_BANK, 'Al-Kharid bank');
-
-    if (!(await bot.openBank()).success) {
-        await bot.closeInterface();
-        await bot.walkTo(ALKHARID_BANK.x - 1, ALKHARID_BANK.z, 1);
-        if (!(await bot.openBank()).success) throw new Error('could not open Al-Kharid bank for withdrawal');
-    }
-    await sdk.waitForTicks(2);
-
-    const bankItems = sdk.getState()?.bank?.items ?? [];
-    const have = (re: RegExp) => bankItems.filter(i => re.test(i.name)).reduce((n, i) => n + (i.count ?? 0), 0);
-    const shortfall = NEEDED.filter(n => invCount(n.pattern) + have(n.pattern) < 1);
-    if (shortfall.length) {
-        const detail = shortfall.map(n => `${n.name}(inv=${invCount(n.pattern)} bank=${have(n.pattern)} need=1)`).join(' ');
-        log(`INSUFFICIENT STOCK: ${detail} — idling instead of crash-looping`);
-        session.log('warn', `insufficient stock: ${detail}`);
-        process.exit(0);
-    }
-
-    for (const need of NEEDED) {
-        if (invCount(need.pattern) > 0) continue;
-        // The interface can drop between the open check and the withdraw.
-        if (!sdk.getState()?.bank?.isOpen && !(await bot.openBank()).success) {
-            throw new Error(`bank closed before withdrawing ${need.name}`);
-        }
-        const res = await bot.withdrawItem(need.pattern, 1);
-        log(`withdrew ${need.name}: ${res.success}${res.success ? '' : ` (${res.message ?? '?'})`}`);
-        if (!res.success) throw new Error(`could not withdraw ${need.name}`);
-    }
-    await bot.closeInterface();
-    log(`Bag: ${NEEDED.map(n => `${n.name}x${invCount(n.pattern)}`).join(' ')} keycopyx${invCount(KEY_COPY.pattern)}`);
-}
-
-// ── travel ──────────────────────────────────────────────────────────────────
+const HASSAN = { x: 3302, z: 3164 };
+const OSMAN = { x: 3286, z: 3181 };
+const LEELA = { x: 3113, z: 3264 };
+const NED = { x: 3101, z: 3258 };
+const AGGIE = { x: 3086, z: 3259 };
 /**
- * Walk to a destination via planned waypoints. Each leg is verified: a leg
- * that moves nothing is an obstacle, and retrying the same bearing cannot
- * help.
+ * Inside the jail, by Joe and Keli. From outside (3128,3248) talkTo spent the
+ * dialog's first-page wait opening the jail door, and Keli's and Joe's talks
+ * came back empty; walk in first.
  */
-async function travelTo(dest: { x: number; z: number }, what: string): Promise<void> {
-    const waypoints = planWaypoints(pos(), dest);
-    log(`Route to ${what}: ${waypoints.length} waypoint(s) from (${pos().x},${pos().z}) to (${dest.x},${dest.z})`);
-    for (let i = 0; i < waypoints.length; i++) {
-        const wp = waypoints[i]!;
-        const before = pos();
-        if (Math.hypot(before.x - wp.x, before.z - wp.z) <= 3) continue;
+const JAIL = { x: 3125, z: 3244 };
+/** North of the prison door (alidoor, 3123,3243): the key only works from z > 3243. */
+const CELL_NORTH = { x: 3123, z: 3244 };
+const CELL_DOOR = { x: 3123, z: 3243 };
 
-        let moved = false;
-        for (let attempt = 0; attempt < 3 && !moved; attempt++) {
-            const res = await bot.walkTo(wp.x, wp.z, 3);
-            await sdk.waitForTicks(2);
-            const after = pos();
-            const step = Math.hypot(after.x - before.x, after.z - before.z);
-            moved = step >= 1 || Math.hypot(after.x - wp.x, after.z - wp.z) <= 3;
-            log(`leg ${i + 1}/${waypoints.length} -> (${wp.x},${wp.z}) moved=${step.toFixed(1)} at (${after.x},${after.z}) l${after.level} ok=${res.success}`);
+const KELI = /^lady keli$/i;
+const PLAIN_WIG = 2421;
+const BLOND_WIG = 2419;
+
+/**
+ * Jail guards are aggressive (draynor.npc: huntmode=aggressive_melee, huntrange=5,
+ * lineofsight) and every swing, hit or miss, runs if_close (npc_combat_melee.rs2
+ * playerhit_n_melee): a guard on you ends any dialog after its first page. Keli's
+ * key-print talk did that nine times running in the 2026-10-28 gate. The four guards
+ * live outside the jail house (x 3121-3130, z 3240-3246); they get in, and see in, only
+ * through its north door (3128,3246), which our own way in leaves open. So: put down
+ * any guard already inside, shut that door, then talk. Killing every guard around
+ * instead (2026-10-29) just pulled in respawns.
+ */
+const JAIL_DOOR = { x: 3128, z: 3246 };
+const inHouse = (x: number, z: number) => x >= 3121 && x <= 3130 && z >= 3240 && z <= 3246;
+
+async function quietJail(q: Quest): Promise<void> {
+    await q.goTo(JAIL, 1);
+    const me = () => q.sdk.getState()?.player;
+    let kills = 0;
+    for (let i = 0; i < 4; i++) {
+        const guard = q.sdk
+            .getNearbyNpcs()
+            .filter((n) => /^jail guard$/i.test(n.name) && (n.hp ?? 1) > 0 && n.reachable !== false && (inHouse(n.tileX ?? n.x, n.tileZ ?? n.z) || (n.inCombat && n.distance <= 2)))
+            .sort((a, b) => a.distance - b.distance)[0];
+        if (!guard) break;
+        const res = await q.bot.attack(guard, ticksToMs(15));
+        if (!res.success) {
+            q.log(`jail guard: ${res.message}`);
+            break;
         }
-        if (!moved) {
-            const now = pos();
-            throw new Error(`BLOCKED leg ${i + 1} to ${what}: no progress at (${now.x},${now.z}) l${now.level}, ${Math.round(distTo(wp))} tiles short of (${wp.x},${wp.z})`);
-        }
+        if (await untilTicks(q.sdk, () => !q.sdk.getNearbyNpcs().some((n) => n.index === guard.index && (n.hp ?? 1) > 0), 40)) kills++;
     }
-    const at = pos();
-    if (distTo(dest) > 6) throw new Error(`did not reach ${what}: at (${at.x},${at.z}) l${at.level}, ${Math.round(distTo(dest))} tiles short`);
-    log(`Arrived ${what} at (${at.x},${at.z}) l${at.level}`);
+    await q.sdk.scanNearbyLocs(8).catch(() => undefined);
+    const door = (q.sdk.getNearbyLocs() ?? []).find((l) => /^door$/i.test(l.name) && Math.abs(l.x - JAIL_DOOR.x) <= 1 && Math.abs(l.z - JAIL_DOOR.z) <= 1);
+    const open = !!door && door.options.some((o) => /close/i.test(o));
+    if (door && open) {
+        await q.bot.interactLoc(door, /close/i);
+        await q.sdk.waitForTicks(2).catch(() => undefined);
+    }
+    await q.goTo(JAIL, 1);
+    const p = me();
+    q.log(`jail: ${kills} guard(s) inside put down, door ${!door ? 'not seen' : open ? 'closed' : 'already shut'}, combat ${p?.combat?.inCombat}`);
 }
 
 /**
- * Talk to an NPC and drain the dialog fully. The option list fills only as
- * the NPC's opening lines are clicked through, so a single sample reads an
- * empty set; after picking, keep clicking until the dialog closes so the
- * server reaches its stage-advance line.
+ * Joe wanders outside the house, among the guards (z 3247-3249, by spawns 3121,3249 and
+ * 3127,3248): shutting the door does not cover him. Put down the guards within their
+ * hunt range of him, then talk while they respawn (60 ticks; his beer talk is ~8 pages).
  */
-async function talkDrain(npc: RegExp, what: string, picks: RegExp[]): Promise<void> {
-    const talked = await bot.talkTo(npc);
-    if (!talked.success) throw new Error(`could not talk to ${what}: ${talked.message ?? '?'}`);
-    const used = new Set<number>();
-    for (let i = 0; i < 40; i++) {
-        const dialog = sdk.getDialog();
-        if (!dialog?.isOpen) {
-            await sdk.waitForTicks(1);
-            if (!sdk.getDialog()?.isOpen && i > 2) break;
-            continue;
+async function quietAroundJoe(q: Quest): Promise<void> {
+    let kills = 0;
+    for (let i = 0; i < 4; i++) {
+        const joe = q.sdk.findNearbyNpc(/^joe$/i);
+        if (!joe) break;
+        const jx = joe.tileX ?? joe.x;
+        const jz = joe.tileZ ?? joe.z;
+        const guard = q.sdk
+            .getNearbyNpcs()
+            .filter((n) => /^jail guard$/i.test(n.name) && (n.hp ?? 1) > 0 && n.reachable !== false && Math.max(Math.abs((n.tileX ?? n.x) - jx), Math.abs((n.tileZ ?? n.z) - jz)) <= 6)
+            .sort((a, b) => Number(b.inCombat) - Number(a.inCombat) || a.distance - b.distance)[0];
+        if (!guard) break;
+        const res = await q.bot.attack(guard, ticksToMs(15));
+        if (!res.success) {
+            q.log(`jail guard by Joe: ${res.message}`);
+            break;
         }
-        const options = dialog.options ?? [];
-        const pick = picks.map(re => options.find(o => !used.has(o.index) && re.test(o.text))).find(Boolean)
-            ?? options.find(o => !used.has(o.index));
-        if (pick) {
-            used.add(pick.index);
-            log(`dialog (${what}) -> ${pick.text}`);
-            await sdk.sendClickDialog(pick.index);
-        } else {
-            await sdk.sendClickDialog(dialog.continueIndex ?? 0);
+        if (await untilTicks(q.sdk, () => !q.sdk.getNearbyNpcs().some((n) => n.index === guard.index && (n.hp ?? 1) > 0), 40)) kills++;
+    }
+    q.log(`Joe: ${kills} guard(s) near him put down, combat ${q.sdk.getState()?.player?.combat?.inCombat}`);
+}
+
+/** Run `fn` from inside the jail. */
+async function inJail(q: Quest, fn: () => Promise<void>): Promise<void> {
+    await q.goTo(JAIL, 1);
+    await fn();
+}
+
+const wigs = (q: Quest, id: number) => q.sdk.getInventory().filter((i) => i.id === id).length;
+
+/** Talk, then wait for the item to show up; logs when it does not. */
+async function talkFor(q: Quest, npc: RegExp, choices: RegExp[], at: { x: number; z: number }, got: () => boolean, what: string): Promise<boolean> {
+    await q.talk(npc, choices, at);
+    if (!(await untilTicks(q.sdk, got, 6))) q.log(`${what}: not received`);
+    return got();
+}
+
+/** Blond wig: Ned knits a plain one from three balls of wool, yellow dye on it. */
+async function blondWig(q: Quest): Promise<void> {
+    if (wigs(q, BLOND_WIG) > 0) return;
+    if (wigs(q, PLAIN_WIG) < 1) {
+        const ok = await talkFor(q, /^ned$/i, [/other things from wool/i, /some sort of wig/i, /please, make me a wig/i], NED, () => wigs(q, PLAIN_WIG) > 0, 'Ned wig');
+        if (!ok) return;
+    }
+    await q.ensure('yellow dye', 1);
+    const dye = q.sdk.findInventoryItem(/^yellow dye$/i);
+    const wig = q.sdk.getInventory().find((i) => i.id === PLAIN_WIG);
+    if (dye && wig) await q.sdk.sendUseItemOnItem(dye.slot, wig.slot);
+    if (await untilTicks(q.sdk, () => wigs(q, BLOND_WIG) > 0, 5)) q.log('dyed the wig blond');
+    else q.log('wig: yellow dye did not take');
+}
+
+/** Keli shows the key; touching it with soft clay takes the print. */
+async function keyPrint(q: Quest): Promise<void> {
+    await inJail(q, () => keyPrintTalk(q));
+}
+
+async function keyPrintTalk(q: Quest): Promise<void> {
+    for (let i = 0; i < 4 && q.count('key print') < 1; i++) {
+        await quietJail(q);
+        const seen = await q.talk(KELI, [/famous in runescape/i, /latest plan/i, /not try to get him out/i, /see the key/i, /touch the key/i]);
+        if (await untilTicks(q.sdk, () => q.count('key print') > 0, 6)) return;
+        const p = q.sdk.getState()?.player;
+        q.log(`Keli key print: none (soft clay ${q.count('soft clay')}, at ${p?.worldX},${p?.worldZ}, combat ${p?.combat?.inCombat ?? '?'}); dialog: …${seen.slice(-200)}`);
+    }
+}
+
+/** Tie Keli up with a rope (lady_keli opnpcu: mesbox, then npc_del). */
+async function tieKeli(q: Quest): Promise<void> {
+    await inJail(q, () => tieKeliRope(q));
+}
+
+async function tieKeliRope(q: Quest): Promise<void> {
+    const start = q.count('rope');
+    // A guard's hit cancelled the use once (2026-10-29: ropes 2 -> 2).
+    for (let i = 0; i < 3 && q.count('rope') >= start && q.count('rope') > 0; i++) {
+        await quietJail(q);
+        await untilTicks(q.sdk, () => !!q.sdk.findNearbyNpc(KELI), 10);
+        const before = q.count('rope');
+        const res = await q.bot.useItemOnNpc(/^rope$/i, KELI, { timeout: ticksToMs(30) });
+        if (!res.success) q.log(`rope on Keli: ${res.message}`);
+        await driveDialog(q.sdk, [], { ticks: 20, log: q.log });
+        await untilTicks(q.sdk, () => q.count('rope') < before, 5);
+        const p = q.sdk.getState()?.player;
+        q.log(`rope on Keli: ropes ${before} -> ${q.count('rope')} (combat ${p?.combat?.inCombat ?? '?'}, Keli ${q.sdk.findNearbyNpc(KELI) ? 'seen' : 'not seen'})`);
+    }
+}
+
+/** Through the prison door with the key, from its north side, and hand the prince his disguise. */
+async function freePrince(q: Quest): Promise<void> {
+    await q.goTo(CELL_NORTH, 1);
+    // The door tile itself is inside: its wall is on the north edge (alidoor: locked when z > 3243).
+    const inCell = () => (q.sdk.getState()?.player?.worldZ ?? 99_999) <= CELL_DOOR.z;
+    const cursor = () => Math.max(0, ...(q.sdk.getState()?.gameMessages ?? []).map((m) => m.observationId ?? m.tick));
+    const since = (c: number, re: RegExp) => (q.sdk.getState()?.gameMessages ?? []).some((m) => (m.observationId ?? m.tick) > c && re.test(m.text));
+    for (let i = 0; i < 3 && !inCell(); i++) {
+        await q.sdk.scanNearbyLocs(6).catch(() => undefined);
+        const door = (q.sdk.getNearbyLocs() ?? []).find((l) => /prison door/i.test(l.name) && Math.abs(l.x - CELL_DOOR.x) <= 1 && Math.abs(l.z - CELL_DOOR.z) <= 1);
+        if (!door) return q.log('prison door not in view');
+        const c = cursor();
+        await q.bot.useItemOnLoc(/^bronze key$/i, door, { timeout: ticksToMs(20) });
+        await untilTicks(q.sdk, () => inCell() || since(c, /lady keli|door is locked/i), 10);
+        if (since(c, /get rid of lady keli/i)) {
+            q.log('Keli is back by the cell: tying her up again');
+            if (q.count('rope') < 1) return q.log('no spare rope for Keli');
+            await tieKeliRope(q);
+            await q.goTo(CELL_NORTH, 1);
         }
-        await sdk.waitForTicks(2);
     }
-    await bot.dismissBlockingUI();
-}
-
-// ── 3. start the quest via Hassan, only from the unstarted stage ────────────
-await session.setPhase('travel');
-if (STAGE === 'unstarted') {
-    // Gate BEFORE acting: the quest must really be unstarted, or the dialog
-    // below acts on an assumption.
-    if (!(await checkpoint('unstarted', 'quest not yet started'))) {
-        throw new Error('unstarted checkpoint failed before starting the quest');
+    if (!inCell()) return q.log('prison door did not let us in');
+    await q.talk(/^prince ali$/i);
+    // Out again: walkTo blacklisted the locked door on the way in and finds no path out
+    // of the cell. From inside, the door's Open works (quest_prince oploc1,alidoor).
+    for (let i = 0; i < 3 && inCell(); i++) {
+        await q.bot.walkTo(CELL_DOOR.x, CELL_DOOR.z, 0);
+        await q.sdk.scanNearbyLocs(4).catch(() => undefined);
+        const door = (q.sdk.getNearbyLocs() ?? []).find((l) => /prison door/i.test(l.name) && Math.abs(l.x - CELL_DOOR.x) <= 1 && Math.abs(l.z - CELL_DOOR.z) <= 1);
+        if (door) await q.bot.interactLoc(door, /open/i);
+        await untilTicks(q.sdk, () => !inCell(), 8);
     }
-    await travelTo(approach(
-        [{ x: 3302, z: 3164 }, { x: 3301, z: 3163 }, { x: 3303, z: 3163 }, { x: 3302, z: 3162 }],
-        HASSAN,
-    ), 'Hassan');
-    await session.setPhase('start-quest');
-    await talkDrain(/^hassan$/i, 'Hassan', [/can i help|need some help|desert/i]);
-    if (!(await checkpoint('started', 'accepted the quest, Osman requested'))) {
-        throw new Error('started checkpoint failed after speaking to Hassan');
-    }
-} else {
-    log('Resuming mid-quest: Hassan start already journal-confirmed');
+    if (inCell()) q.log('still inside the cell after freeing the prince');
 }
 
-// ── 4. Osman for the briefing ───────────────────────────────────────────────
-if (!(await atLeast('spoken_osman'))) {
-    await session.setPhase('osman');
-    await travelTo(approach(
-        [{ x: 3286, z: 3181 }, { x: 3285, z: 3180 }, { x: 3287, z: 3180 }, { x: 3286, z: 3179 }],
-        OSMAN,
-    ), 'Osman');
-    await talkDrain(/^osman$/i, 'Osman', [/first thing i must do|what is the first/i]);
-    if (!(await checkpoint('spoken_osman', 'Osman briefed, Leela checklist open'))) {
-        throw new Error('spoken_osman checkpoint failed after speaking to Osman');
-    }
-} else {
-    log('Resuming: Osman briefing already journal-confirmed');
-}
-
-// ── 5. Leela checklist: key copy / rope / paste / skirt / wig ──────────────
-if (!(await atLeast('prep_finished'))) {
-    await session.setPhase('leela');
-    await travelTo(approach(
-        [{ x: 3113, z: 3264 }, { x: 3112, z: 3263 }, { x: 3114, z: 3263 }, { x: 3113, z: 3262 }],
-        LEELA,
-    ), 'Leela');
-    await talkDrain(/^leela$/i, 'Leela', [/advice|disguise|prince/i]);
-    // The journal checklist flips each line struck-through as items arrive;
-    // prep_finished is the journal proof the set is accepted. Log what the
-    // bag holds so a stall names its missing piece.
-    log(`Checklist bag: keycopyx${invCount(KEY_COPY.pattern)} ropex${invCount(/^rope$/i)} pastex${invCount(/paste/i)} skirtx${invCount(/skirt/i)} wigx${invCount(/wig/i)} beerx${invCount(/^beer$/i)}`);
-    if (!(await checkpoint('prep_finished', 'Leela prep accepted, guard weakness known'))) {
-        throw new Error('prep_finished checkpoint failed: checklist incomplete — restock and resume');
-    }
-} else {
-    log('Resuming: Leela checklist already journal-confirmed');
-}
-
-// ── 6. Guard Joe: beer ──────────────────────────────────────────────────────
-if (!(await atLeast('guard_drunk'))) {
-    await session.setPhase('guard');
-    await travelTo(approach(
-        [{ x: 3123, z: 3246 }, { x: 3122, z: 3245 }, { x: 3124, z: 3245 }, { x: 3123, z: 3244 }],
-        JOE,
-    ), 'Guard Joe');
-    await talkDrain(/^joe$/i, 'Guard Joe', [/beer here, fancy one|beer/i]);
-    if (!(await checkpoint('guard_drunk', 'guard drunk, Keli tie-up open'))) {
-        throw new Error('guard_drunk checkpoint failed after plying the guard');
-    }
-} else {
-    log('Resuming: guard already drunk per journal');
-}
-
-// ── 7. Lady Keli: tie with rope ─────────────────────────────────────────────
-if (!(await atLeast('tied_keli'))) {
-    await session.setPhase('keli');
-    await travelTo(approach(
-        [{ x: 3128, z: 3245 }, { x: 3127, z: 3244 }, { x: 3129, z: 3244 }, { x: 3128, z: 3243 }],
-        KELI,
-    ), 'Lady Keli');
-    // Gate on resulting state: useItemOnNpc success is weak (idle ticks read
-    // as success), so the journal stage is the proof, not the result flag.
-    const tie = await bot.useItemOnNpc(/^rope$/i, /^lady keli$/i);
-    log(`tie Keli: ok=${tie.success}${tie.success ? '' : ` (${tie.message ?? tie.reason ?? '?'})`}`);
-    await bot.dismissBlockingUI();
-    if (!(await checkpoint('tied_keli', 'Keli tied, Prince freeing open'))) {
-        throw new Error('tied_keli checkpoint failed after tying Keli');
-    }
-} else {
-    log('Resuming: Keli already tied per journal');
-}
-
-// ── 8. Prince Ali: disguise + free ──────────────────────────────────────────
-if (!(await atLeast('saved'))) {
-    await session.setPhase('free');
-    await travelTo(approach(
-        [{ x: 3123, z: 3243 }, { x: 3122, z: 3242 }, { x: 3124, z: 3242 }, { x: 3123, z: 3241 }],
-        PRINCE,
-    ), 'Prince Ali');
-    // Disguise handoff + cell unlock run through the Prince dialog; the
-    // journal (not the click result) proves the rescue took.
-    await talkDrain(/^prince ali$/i, 'Prince Ali', [/disguise|escape|free/i]);
-    await bot.dismissBlockingUI();
-    if (!(await checkpoint('saved', 'Prince disguised and freed, return to Hassan'))) {
-        throw new Error('saved checkpoint failed after freeing the Prince');
-    }
-} else {
-    log('Resuming: Prince already freed per journal');
-}
-
-// ── 9. Return to Hassan, verify completion by the journal ───────────────────
-await session.setPhase('return');
-await travelTo(approach(
-    [{ x: 3302, z: 3164 }, { x: 3301, z: 3163 }, { x: 3303, z: 3163 }, { x: 3302, z: 3162 }],
-    HASSAN,
-), 'Hassan (return)');
-await talkDrain(/^hassan$/i, 'Hassan', [/reward|prince|rescued/i]);
-await bot.dismissBlockingUI();
-
-await session.setPhase('verify');
-if (!(await checkpoint('complete', 'journal reports QUEST COMPLETE'))) {
-    throw new Error('completion checkpoint failed: journal does not report the quest complete');
-}
-
-session.log('log', 'Prince Ali Rescue verified complete');
-session.noteProgress('inventory', 'quest complete (journal-verified)');
-const summary = summarizeRun(run.directory);
-if (!summary.ok) {
-    // Every declared checkpoint must carry a PASS before this counts as done.
-    throw new Error(`promotion gate failed: missing/unpassed ${JSON.stringify(summary.missing)}`);
-}
-log(`Run record verified: ${summary.ok} (${summary.missing.length} outstanding)`);
-log(`DONE Prince Ali Rescue verified via journal at (${pos().x},${pos().z})`);
-log(`Metrics: ${JSON.stringify(session.metrics())}`);
-
-sdk.disconnect();
-process.exit(0);
+await runQuest({
+    id: 'prince',
+    hub: 'draynor',
+    journal: { label: 'Prince Ali Rescue', title: 'The Rescue Of Prince Ali' },
+    stages: [
+        { id: 'unstarted', rule: { id: 'prince:unstarted', kind: 'unstarted', all: ['start this quest by speaking to Hassan'] } },
+        { id: 'started', rule: { id: 'prince:started', kind: 'active', all: ['speak to Osman for details'], none: ['QUEST COMPLETE', 'kidnapped'] } },
+        { id: 'spoken_osman', rule: { id: 'prince:spoken_osman', kind: 'active', all: ['Talk to Leela near Draynor Village for advice'] } },
+        { id: 'prep_finished', rule: { id: 'prince:prep_finished', kind: 'active', all: ['determine any weaknesses'] } },
+        { id: 'guard_drunk', rule: { id: 'prince:guard_drunk', kind: 'active', all: ['use some Rope to tie her up'] } },
+        { id: 'tied_keli', rule: { id: 'prince:tied_keli', kind: 'active', all: ['I can now free Prince Ali'] } },
+        { id: 'saved', rule: { id: 'prince:saved', kind: 'active', all: ['return to Hassan to claim my reward'] } },
+        { id: 'complete', rule: { id: 'prince:complete', kind: 'complete', all: ['QUEST COMPLETE'] } },
+    ],
+    transitions: [
+        // Coins for the quest's own toll crossings (four paid at 10gp; free once the prince
+        // is saved) and a lost key (15gp). Checked again after prepare spent its share.
+        { from: 'unstarted', to: 'started', at: HASSAN, needs: [{ item: 'coins', count: 60 }], talk: { npc: /^hassan$/i, choices: [/can i help you/i] } },
+        { from: 'started', to: 'spoken_osman', at: OSMAN, talk: { npc: /^osman$/i, choices: [/what is the first thing/i, /better go find some things/i] } },
+        {
+            from: 'spoken_osman',
+            to: 'prep_finished',
+            needs: [
+                { item: 'soft clay', count: 1, or: 'bronze key' },
+                { item: 'bronze bar', count: 1, or: 'bronze key' },
+                { item: 'bucket of water', count: 1, or: 'paste' },
+                { item: 'ball of wool', count: 3, or: 'wig', orCount: 1 },
+                { item: 'yellow dye', count: 1, or: 'wig' },
+                { item: 'pink skirt', count: 1 },
+                { item: 'ashes', count: 1, or: 'paste' },
+                { item: 'redberries', count: 1, or: 'paste' },
+                { item: 'pot of flour', count: 1, or: 'paste' },
+            ],
+            run: async (q) => {
+                const key = () => q.count('bronze key') > 0;
+                // A key Osman already made waits with Leela (a resumed run).
+                if (!key() && q.count('key print') < 1) await q.talk(/^leela$/i, [/rest of the escape equipment/i], LEELA);
+                if (!key() && q.count('key print') < 1) await keyPrint(q);
+                await blondWig(q);
+                if (q.count('paste') < 1) {
+                    await talkFor(q, /^aggie$/i, [/way to make skin paste/i, /mix me some skin paste/i], AGGIE, () => q.count('paste') > 0, 'Aggie paste');
+                }
+                if (!key() && q.count('key print') > 0) await q.talk(/^osman$/i, [/thank you\. i will try/i], OSMAN);
+                // Leela hands over the key (once Osman has made it) and, with the kit, moves the stage.
+                await q.talk(/^leela$/i, [/rest of the escape equipment/i], LEELA);
+                q.log(`kit: key ${q.count('bronze key')}, blond wig ${wigs(q, BLOND_WIG)}, skirt ${q.count('pink skirt')}, paste ${q.count('paste')}`);
+            },
+        },
+        {
+            from: 'prep_finished',
+            to: 'guard_drunk',
+            needs: [{ item: 'beer', count: 3 }],
+            run: async (q) => {
+                await inJail(q, async () => {
+                    await quietAroundJoe(q);
+                    const seen = await q.talk(/^joe$/i, [/i have some beer here/i]);
+                    if (q.count('beer') >= 3) q.log(`Joe kept the beer (beer ${q.count('beer')}); dialog: …${seen.slice(-200)}`);
+                });
+            },
+        },
+        // Two ropes: Keli respawns, and the cell door refuses while she is back.
+        { from: 'guard_drunk', to: 'tied_keli', needs: [{ item: 'rope', count: 2 }], run: tieKeli },
+        {
+            from: 'tied_keli',
+            to: 'saved',
+            needs: [
+                { item: 'bronze key', count: 1 },
+                { item: 'wig', count: 1 },
+                { item: 'pink skirt', count: 1 },
+                { item: 'paste', count: 1 },
+            ],
+            run: (q) => inJail(q, () => freePrince(q)),
+        },
+        // queue(prince_complete) runs after the dialog; the runner settles on the journal.
+        { from: 'saved', to: 'complete', at: HASSAN, talk: { npc: /^hassan$/i } },
+    ],
+});

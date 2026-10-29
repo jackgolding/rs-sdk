@@ -42,6 +42,7 @@ import { readJournalCheckpoint } from '../../../quest-lab/journal-reader';
 import { appendCheckpoint, createRun, safeRunId, summarizeRun, type RunHandle } from '../../../quest-lab/records';
 import type { JournalRule } from '../../../quest-lab/evidence';
 import { travelTo, type Tile } from '../travel';
+import { crossAlKharidToll, TOLL_X } from '../alkharid-toll';
 import { closeUi } from '../movement';
 import { countItems, requireSkills } from '../quest-lib';
 import { depositAllInventory, type SupplyCtx } from '../quest-supplies';
@@ -129,6 +130,11 @@ export function runTask(def: { id: string; hub: SafeBankName; needs?: Need[]; ta
     return runQuest({ id: def.id, hub: def.hub, stages: [], transitions: def.needs ? [{ from: '', to: '', needs: def.needs }] : [], task: def.task });
 }
 
+/** Al Kharid, behind the toll fence (x >= 3268) and south of the Varrock road. */
+const inAlKharid = (t: Tile) => t.x >= TOLL_X && t.z > 3080 && t.z < 3300;
+
+/** Dungeons and cellars are mapped at z + 6400. */
+const UNDERGROUND_Z = 6400;
 /** Arrival radius goTo asks travelTo for before bot.walkTo finishes the approach. */
 const APPROACH = 15;
 /** Where goTo lets travelTo stop: on the road, before a fenced or walled destination. */
@@ -180,6 +186,22 @@ export async function runQuest(def: QuestDef): Promise<void> {
             return { x: p?.worldX ?? 0, z: p?.worldZ ?? 0, level: p?.level ?? 0 };
         };
         const away = (tile: Tile) => Math.hypot(pos().x - tile.x, pos().z - tile.z);
+
+        /** Up the nearest reachable ladder/stairs until above ground; logs and returns if there is none in view. */
+        async function climbOutOfUnderground(): Promise<void> {
+            for (let i = 0; i < 4 && pos().z >= UNDERGROUND_Z; i++) {
+                await sdk.scanNearbyLocs(15).catch(() => undefined);
+                const loc = (sdk.getNearbyLocs() ?? [])
+                    .filter((l) => /stair|ladder/i.test(l.name) && l.options?.some((o) => /climb-up|climb up|walk-up/i.test(o)) && l.reachable !== false)
+                    .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+                if (!loc) {
+                    log(`underground at (${pos().x},${pos().z}): no reachable ladder/stairs up in view`);
+                    return;
+                }
+                await bot.interactLoc(loc, /climb-up|climb up|walk-up/i).catch(() => undefined);
+                if (await untilTicks(sdk, () => pos().z < UNDERGROUND_Z, 30)) log(`climbed ${loc.name} out of the underground to (${pos().x},${pos().z})`);
+            }
+        }
 
         /** The last stage whose rule PASSes is the account's real stage. */
         async function readStage(): Promise<string | null> {
@@ -280,8 +302,19 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // the ground-floor target "unroutable" and travelTo's fallback took ~270t
                 // (druid, 2026-10-28). Change plane where we stand, then walk.
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0);
+                // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
+                // and travelTo re-plans on the spot forever. A Witch's House run resumed in
+                // the cellar after a client drop looped on the prologue's walk to the bank
+                // (ABGARMY08, 2026-10-29). Climb the ladder/stairs beside us first.
+                if (pos().z >= UNDERGROUND_Z && tile.z < UNDERGROUND_Z) await climbOutOfUnderground();
                 // Buildings whose doorway the client map gets wrong (lib/doors.ts).
                 if (away(tile) > tolerance) (await leaveStuckArea(sdk, bot, tile, log)) || (await enterStuckArea(sdk, bot, tile, log));
+                // Lumbridge side <-> Al Kharid: pay the border guard first. walkTo at the toll
+                // gate blacklists it and detours around the fence (alkharid-toll.ts).
+                const here = pos();
+                if (away(tile) > tolerance && inAlKharid(here) !== inAlKharid(tile) && Math.min(here.x, tile.x) < TOLL_X) {
+                    if (!(await crossAlKharidToll(bot, sdk, inAlKharid(tile), { log }))) log('toll: could not cross; walking around');
+                }
                 const viaTravel = async () => {
                     const res = await travelTo(sdk, bot, tile, { log, tolerance: TRAVEL_ARRIVAL });
                     if (!res.ok) log(`travel stopped ${Math.round(away(tile))} tiles short (${res.reason})`);

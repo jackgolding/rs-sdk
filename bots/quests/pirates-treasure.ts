@@ -1,500 +1,247 @@
 /**
- * Pirate's Treasure — reusable.
+ * Pirate's Treasure — Redbeard Frank's Karamjan rum, smuggled in a banana crate.
  *
  *   bun bots/quests/pirates-treasure.ts {botname}
  *
- * Frank → Karamja rum → smuggle via banana crate → Wydin → chest → Falador dig.
+ * Journal rules from quest_hunt/scripts/hunt_journal.rs2; dialog and mechanics
+ * from redbeard_frank.rs2, luthas.rs2, banana_crate.rs2, food_store.rs2, dig.rs2,
+ * area_port_sarim/scripts/{sailors,wydin}.rs2 and area_karamja/scripts/customs_officer.rs2.
+ * Tiles are content placements (maps m45_49, m46_49, m47_50, m50_53, m46_52).
+ * Items:
+ *   - coins (two fares, the rum), white apron, spade   lib/sources.ts
+ *   - Karamjan rum (Zambo, Karamja only), bananas (plantation trees), chest key,
+ *     pirate message: taken in this script
+ *
+ * The customs officer confiscates rum from anyone boarding off Karamja, so the
+ * rum rides in Luthas's banana crate to Wydin's back room (crate_rum 1 -> 2).
+ * The Falador park gardener stands 3 tiles from the X; dig.rs2 aborts the dig
+ * when he is within 10, so he is knocked out first (respawnrate 50).
  */
-import { appendFileSync } from 'fs';
-import { join } from 'path';
-import { runScript } from '../../sdk/runner';
-import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
-import type { JournalRule } from '../../quest-lab/evidence';
-import { appendCheckpoint, createRun, safeRunId, summarizeRun } from '../../quest-lab/records';
-import {
-    buyAtShop,
-    ensureCoins,
-    ensureItem,
-    pickupGround,
-    SHOPS,
-    type SupplyCtx
-} from './quest-supplies';
+import type { Quest } from './lib/run-quest';
+import { runQuest } from './lib/run-quest';
+import { buyWaitingForRestock } from './lib/sources';
+import { tickNow, ticksToMs, untilTicks } from './lib/ticks';
 
 const FRANK = { x: 3053, z: 3250 };
-const SAILOR = { x: 3028, z: 3216 };
-const ZAMBO = { x: 2925, z: 3143 };
+const FRANK_NPC = /^redbeard frank$/i;
+/** Port Sarim seamen to Karamja (sailors.rs2), on the jetty. */
+const SEAMEN = { x: 3028, z: 3216 };
+/** Karamja customs officers (2953,3147)/(2955,3146), sailing back to Port Sarim. */
+const CUSTOMS = { x: 2954, z: 3147 };
+/** Zambo's bar, Musa Point; he wanders the bar floor around (2925,3143). */
+const ZAMBO = { x: 2925, z: 3143, npc: /^zambo$/i };
 const LUTHAS = { x: 2939, z: 3154 };
-const PLANTATION = { x: 2935, z: 3150 };
-const CUSTOMS = { x: 2956, z: 3143 };
+/** Luthas's export crate (bananacrate). */
+const BANANA_CRATE = { x: 2943, z: 3151 };
+/** Banana trees of the plantation (bananatreefull placements, x 2906-2927, z 3155-3170). */
+const PLANTATION = { x: 2916, z: 3162 };
 const WYDIN = { x: 3014, z: 3204 };
-const BLUE_MOON = { x: 3222, z: 3398 };
+/** Wydin's back room crate (grocerycrate), behind the employees-only door (3012,3204). */
+const BACK_ROOM = { x: 3010, z: 3207 };
+const GROCERY_CRATE = 2071;
+/** Blue Moon Inn, Varrock: stairs, then Hector's chest (3218,3396) on plane 1. */
 const BLUE_MOON_STAIRS = { x: 3222, z: 3396 };
+const CHEST = { x: 3218, z: 3396, level: 1 };
+/** spade.rs2: distance(coord, 0_46_52_55_55) <= 1. */
 const DIG = { x: 2999, z: 3383 };
 
-const RUM = /karamja rum/i;
-const KEY = /chest key/i;
-const MESSAGE = /pirate message/i;
-const APRON = /^white apron$/i;
-const BANANA = /^banana$/i;
-const SPADE = /^spade$/i;
-const COINS = /^coins$/i;
+const RUM = 'karamjan rum';
+/** bananatreefull, four, three, two, one (loc ids 2073-2077); 2078 is the empty stage. */
+const BANANA_TREES = new Set([2073, 2074, 2075, 2076, 2077]);
+const BANANAS = 10;
 
-const botName = process.argv.slice(2).find((a) => !a.startsWith('-')) ?? '';
-const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
+const pos = (q: Quest) => {
+    const p = q.sdk.getState()?.player;
+    return { x: p?.worldX ?? 0, z: p?.worldZ ?? 0, level: p?.level ?? 0 };
+};
+const onKaramja = (q: Quest) => {
+    const p = pos(q);
+    return p.x >= 2880 && p.x <= 2990 && p.z >= 3120 && p.z <= 3200;
+};
+function cursor(q: Quest): number {
+    return Math.max(0, ...(q.sdk.getState()?.gameMessages ?? []).map((m) => m.observationId ?? m.tick));
+}
+function linesSince(q: Quest, since: number): string[] {
+    return (q.sdk.getState()?.gameMessages ?? []).filter((m) => (m.observationId ?? m.tick) > since).map((m) => m.text);
+}
 
-await runScript(async ({ bot, sdk }) => {
-    const log = (msg: string) => {
-        console.log(msg);
-        try {
-            appendFileSync(GRIND_LOG, `${new Date().toISOString()} ${msg}\n`);
-        } catch {
-            /* ignore */
+/** Pay a fare (set_sail lands on the ship's deck, plane 1) and walk down the gangplank. */
+async function sail(q: Quest, toKaramja: boolean): Promise<void> {
+    if (onKaramja(q) === toKaramja && pos(q).level === 0) return;
+    if (onKaramja(q) !== toKaramja) {
+        const t0 = tickNow(q.sdk);
+        for (let i = 0; i < 3 && onKaramja(q) !== toKaramja; i++) {
+            if (toKaramja) await q.talk(/^(captain tobias|seaman \w+)$/i, [/yes please/i], SEAMEN);
+            else await q.talk(/^customs officer$/i, [/can i journey on this ship/i, /search away/i, /^ok\.?$/i], CUSTOMS);
+            await untilTicks(q.sdk, () => onKaramja(q) === toKaramja, 30);
         }
-    };
-
-    let lastIntent = '';
-    function intent(msg: string): void {
-        if (msg === lastIntent) return;
-        lastIntent = msg;
-        console.log(`> ${msg}`);
-        void sdk.showIntent(msg);
+        if (onKaramja(q) !== toKaramja) throw new Error(`the boat to ${toKaramja ? 'Karamja' : 'Port Sarim'} never sailed (at ${pos(q).x},${pos(q).z})`);
+        q.log(`sailed to ${toKaramja ? 'Karamja' : 'Port Sarim'} in ${tickNow(q.sdk) - t0}t`);
     }
-
-    function pos() {
-        const p = sdk.getState()?.player;
-        return { x: p?.worldX ?? 0, z: p?.worldZ ?? 0, level: p?.level ?? 0 };
+    for (let i = 0; i < 4 && pos(q).level !== 0; i++) {
+        await q.sdk.scanNearbyLocs(8).catch(() => undefined);
+        const plank = q.sdk.findNearbyLoc(/gangplank/i, { withOption: /cross/i });
+        if (!plank) {
+            await q.sdk.waitForTicks(2);
+            continue;
+        }
+        await q.bot.interactLoc(plank, /cross/i);
+        await untilTicks(q.sdk, (s) => (s.player?.level ?? 1) === 0, 10);
     }
+    if (pos(q).level !== 0) throw new Error(`stuck on the ship deck at (${pos(q).x},${pos(q).z})`);
+}
 
-    function distTo(x: number, z: number): number {
-        return Math.hypot(pos().x - x, pos().z - z);
+/** Use `item` on the loc matching `loc` near the player; wait for `effect`. */
+async function useOn(q: Quest, item: RegExp, loc: RegExp, effect: () => boolean, ticks = 10): Promise<boolean> {
+    await q.sdk.scanNearbyLocs(8).catch(() => undefined);
+    await q.bot.useItemOnLoc(item, loc, { timeout: ticksToMs(20) });
+    const ok = await untilTicks(q.sdk, effect, ticks);
+    await q.bot.dismissBlockingUI();
+    return ok;
+}
+
+/** Karamja: rum from Zambo, a job from Luthas, rum + 10 bananas in his crate, then ship it. */
+async function smuggle(q: Quest): Promise<void> {
+    await sail(q, true);
+    if (q.count(RUM) < 1) await buyWaitingForRestock(q, ZAMBO, RUM, 1);
+    if (q.count(RUM) < 1) throw new Error('no Karamjan rum from Zambo');
+    await q.talk(/^luthas$/i, [/offer me employment/i], LUTHAS);
+
+    await q.goTo(BANANA_CRATE, 2);
+    let since = cursor(q);
+    await useOn(q, /^karamjan rum$/i, /^crate$/i, () => q.count(RUM) === 0, 10);
+    const stash = linesSince(q, since);
+    if (q.count(RUM) > 0) throw new Error(`rum not stashed in the crate (${stash.join(' / ') || 'no messages'})`);
+
+    // Pick the bananas (each pick changes the tree's stage; empty trees regrow in 500t).
+    const t0 = tickNow(q.sdk);
+    while (q.count('banana') < BANANAS && tickNow(q.sdk) - t0 < 1200) {
+        const locs = await q.sdk.scanNearbyLocs(15).catch(() => q.sdk.getNearbyLocs() ?? []);
+        // Op1 is "Search" on every stage (plantation.loc); only full..one still hold a banana.
+        const tree = locs
+            .filter((l) => BANANA_TREES.has(l.id) && l.reachable !== false)
+            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+        if (!tree) {
+            q.log(`no banana tree to search near (${pos(q).x},${pos(q).z})`);
+            await q.goTo(PLANTATION, 3);
+            await q.sdk.waitForTicks(10);
+            continue;
+        }
+        const before = q.count('banana');
+        await q.bot.interactLoc(tree, /^search$/i);
+        await untilTicks(q.sdk, () => q.count('banana') > before, 10);
     }
+    q.log(`picked ${q.count('banana')} bananas in ${tickNow(q.sdk) - t0}t`);
 
-    function count(pattern: RegExp): number {
-        return sdk.getInventory().reduce((n, i) => n + (pattern.test(i.name) ? (i.count ?? 1) : 0), 0);
+    await q.goTo(BANANA_CRATE, 2);
+    for (let misses = 0; misses < 3 && q.count('banana') > 0; ) {
+        const before = q.count('banana');
+        since = cursor(q);
+        await useOn(q, /^banana$/i, /^crate$/i, () => q.count('banana') < before, 8);
+        if (linesSince(q, since).some((t) => /already full/i.test(t))) break;
+        misses = q.count('banana') < before ? 0 : misses + 1;
     }
+    q.log(`packed the crate; ${q.count('banana')} bananas left over`);
+    // "I've filled a crate with bananas." -> 30 coins, crate shipped.
+    await q.talk(/^luthas$/i, [/i'll be on my way/i], LUTHAS);
+}
 
-    function coinCount(): number {
-        return sdk.findInventoryItem(COINS)?.count ?? 0;
+/** Wydin's back room: apron on, through the door, search the crate (decline the banana). */
+async function fetchRum(q: Quest): Promise<void> {
+    if (!q.sdk.getEquipment().some((i) => /^white apron$/i.test(i.name))) {
+        await q.bot.equipItem(/^white apron$/i);
+        await untilTicks(q.sdk, () => q.sdk.getEquipment().some((i) => /^white apron$/i.test(i.name)), 5);
     }
-
-    function onKaramja(): boolean {
-        const p = pos();
-        return p.x >= 2880 && p.x <= 2980 && p.z >= 3120 && p.z <= 3200;
+    await q.goTo(BACK_ROOM, 1);
+    for (let i = 0; i < 3 && q.count(RUM) < 1; i++) {
+        // The shop is full of "Crate"s; only grocerycrate (2071) holds the rum.
+        const locs = await q.sdk.scanNearbyLocs(8).catch(() => q.sdk.getNearbyLocs() ?? []);
+        const crate = locs.find((l) => l.id === GROCERY_CRATE);
+        if (!crate) throw new Error(`no back-room crate in view at (${pos(q).x},${pos(q).z})`);
+        if (crate.reachable === false) q.log(`back-room crate at (${crate.x},${crate.z}) not reachable from (${pos(q).x},${pos(q).z})`);
+        await q.bot.interactLoc(crate, /search/i);
+        await untilTicks(q.sdk, () => q.count(RUM) > 0 || !!q.sdk.getDialog()?.isOpen, 12);
+        await untilTicks(q.sdk, () => !!q.sdk.getDialog()?.isOpen, 4);
+        if (q.sdk.getDialog()?.isOpen) await q.sdk.clickDialogByText(/^no$/i).catch(() => undefined);
+        await q.bot.dismissBlockingUI();
     }
+    if (q.count(RUM) < 1) throw new Error('no rum in Wydin\'s back-room crate');
+    await q.bot.unequipItem(/^white apron$/i).catch(() => undefined);
+}
 
-    /**
-     * Pirate's Treasure stage and completion, read from the QUEST JOURNAL.
-     *
-     * This used to be `coinCount() >= coinsBefore + 400` plus a
-     * `/completed the.*pirate/i` game-message regex. Coin gain is this quest's
-     * REWARD, so ANY coin pickup — selling loot, a random drop — read as
-     * completion, and the chat regex fired on any similarly-worded message.
-     *
-     * Rules come from the quest's own handler
-     * (quest_hunt/scripts/hunt_journal.rs2), each on a sentence unique to its
-     * stage. Journal label verified from the quest list
-     * (questlist.if: `text=Pirate's Treasure`).
-     */
-    const HUNT_JOURNAL = { label: "Pirate's Treasure", title: "Pirate's Treasure" };
-    const HUNT_STAGES: Record<string, JournalRule> = {
-        not_started: {
-            id: 'hunt:not_started',
-            kind: 'unstarted',
-            all: ['I can start this quest by speaking to Redbeard Frank'],
+/** Hector's chest upstairs at the Blue Moon: key on chest, then read the message. */
+async function openChest(q: Quest): Promise<void> {
+    if (q.count('pirate message') < 1) {
+        if (pos(q).level === 0) await q.goTo(BLUE_MOON_STAIRS, 2);
+        await q.goTo(CHEST, 1);
+        // p_delay(1) + p_delay(7) before the message lands.
+        if (!(await useOn(q, /^chest key$/i, /^chest$/i, () => q.count('pirate message') > 0, 20))) {
+            throw new Error('the chest gave no pirate message');
+        }
+    }
+    const msg = q.sdk.findInventoryItem(/^pirate message$/i)!;
+    await q.sdk.sendUseItem(msg.slot, 1);
+    await q.sdk.waitForTicks(3);
+    await q.bot.closeInterface().catch(() => undefined);
+}
+
+/** Falador park: knock the gardener out (he stops any dig within 10 tiles), then dig on the X. */
+async function dig(q: Quest): Promise<void> {
+    const since = cursor(q);
+    const done = () => linesSince(q, since).some((t) => /little bag of treasure/i.test(t));
+    for (let attempt = 0; attempt < 4 && !done(); attempt++) {
+        await q.goTo(DIG, 1);
+        const gardener = q.sdk.findNearbyNpc(/^gardener$/i);
+        if (gardener && gardener.distance <= 12) {
+            await q.bot.attack(gardener, ticksToMs(10));
+            await untilTicks(q.sdk, (s) => !(s.nearbyNpcs ?? []).some((n) => n.index === gardener.index && (n.hp ?? 1) > 0), 60);
+            await q.sdk.waitForTicks(2);
+            await q.goTo(DIG, 1);
+        }
+        const spade = q.sdk.findInventoryItem(/^spade$/i);
+        if (!spade) throw new Error('no spade to dig with');
+        await q.sdk.sendUseItem(spade.slot, 1);
+        await untilTicks(q.sdk, done, 15);
+        if (!done()) q.log(`dig ${attempt + 1} at (${pos(q).x},${pos(q).z}): ${linesSince(q, since).slice(-3).join(' / ') || 'no messages'}`);
+    }
+    if (!done()) throw new Error('no treasure from the dig');
+    // queue(hunt_quest_complete) then the quest scroll: let it land before the journal read.
+    await q.sdk.waitForTicks(4);
+}
+
+await runQuest({
+    id: 'hunt',
+    hub: 'draynor',
+    journal: { label: "Pirate's Treasure", title: "Pirate's Treasure" },
+    stages: [
+        { id: 'unstarted', rule: { id: 'hunt:unstarted', kind: 'unstarted', all: ['I can start this quest by speaking to'] } },
+        { id: 'fetch_rum', rule: { id: 'hunt:fetch_rum', kind: 'active', all: ['agreed to tell me the location'], none: ['QUEST COMPLETE'] } },
+        { id: 'shipped', rule: { id: 'hunt:shipped', kind: 'active', all: ['crate has been shipped'], none: ['QUEST COMPLETE'] } },
+        { id: 'store', rule: { id: 'hunt:store', kind: 'active', all: ["taken a job at Wydin's store"], none: ['QUEST COMPLETE'] } },
+        { id: 'rum', rule: { id: 'hunt:rum', kind: 'active', all: ['I should take it to Redbeard Frank'], none: ['QUEST COMPLETE'] } },
+        { id: 'key', rule: { id: 'hunt:key', kind: 'active', all: ['He has told me that the'], none: ['QUEST COMPLETE'] } },
+        { id: 'note', rule: { id: 'hunt:note', kind: 'active', all: ['The note reads'], none: ['QUEST COMPLETE'] } },
+        { id: 'complete', rule: { id: 'hunt:complete', kind: 'complete', all: ['QUEST COMPLETE'] } },
+    ],
+    transitions: [
+        { from: 'unstarted', to: 'fetch_rum', at: FRANK, talk: { npc: FRANK_NPC, choices: [/in search of treasure/i] } },
+        // Fare 30 + the rum 30; Luthas pays 30, the fare back.
+        { from: 'fetch_rum', to: 'shipped', needs: [{ item: 'coins', count: 60 }], run: smuggle },
+        {
+            from: 'shipped',
+            to: 'store',
+            needs: [
+                { item: 'white apron', count: 1 },
+                { item: 'coins', count: 30 },
+            ],
+            run: async (q) => {
+                await sail(q, false);
+                await q.talk(/^wydin$/i, [/can i get a job/i], WYDIN);
+            },
         },
-        fetch_rum: {
-            id: 'hunt:fetch_rum',
-            kind: 'active',
-            all: ['He has agreed to tell me the location of some treasure for some Karamja Rum'],
-        },
-        received_key: {
-            id: 'hunt:received_key',
-            kind: 'active',
-            all: ['the treasure is hidden in the chest in the upstairs room of the Blue Moon Inn'],
-        },
-        read_note: {
-            id: 'hunt:read_note',
-            kind: 'active',
-            all: ['Visit the city of the White Knights'],
-        },
-        complete: { id: 'hunt:complete', kind: 'complete', all: ['QUEST COMPLETE'] },
-    };
-
-    // Durable run record: checkpoint evidence is written verbatim as the run
-    // proceeds, so an audit does not depend on stdout or sampled telemetry.
-    const MODE = process.env.QUEST_LAB_MODE === 'staging' ? 'staging' : 'development';
-    const run = createRun(join(process.cwd(), 'quest-lab', 'runs'), safeRunId('hunt', botName, new Date().toISOString()), {
-        questId: 'hunt',
-        account: botName,
-        mode: MODE,
-        scriptHash: Bun.hash(await Bun.file(import.meta.path).text()).toString(16),
-        fixtureHash: process.env.QUEST_LAB_FIXTURE_HASH ?? 'unrecorded',
-        contentHash: process.env.QUEST_LAB_CONTENT_HASH ?? 'unrecorded',
-        requiredCheckpoints: ['not_started', 'fetch_rum', 'received_key', 'read_note', 'complete'],
-    });
-    log(`Run record: ${run.directory} (mode=${MODE})`);
-
-    function record(checkpointId: string, verdict: 'PASS' | 'FAIL' | 'UNKNOWN', reason: string, kind?: string): void {
-        try {
-            appendCheckpoint(run.directory, { checkpointId, verdict, reason, kind });
-        } catch (err) {
-            log(`record ${checkpointId} failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-    }
-
-    /** The first stage rule that passes is the account's real stage. */
-    async function readStage(): Promise<string> {
-        for (const name of ['complete', 'read_note', 'received_key', 'fetch_rum', 'not_started']) {
-            const read = await readJournalCheckpoint(sdk, HUNT_JOURNAL, HUNT_STAGES[name]!);
-            const verdict = read.verdict?.verdict ?? 'UNKNOWN';
-            log(`  stage probe ${name}: ${verdict} (${read.reason})`);
-            record(name, verdict, read.reason, HUNT_STAGES[name]!.kind);
-            if (verdict === 'PASS') return name;
-        }
-        return 'unknown';
-    }
-
-    let journalComplete = false;
-    let lastJournalCheck = 0;
-    /** Journal-backed completion, throttled: opening the journal is not free. */
-    async function questDone(): Promise<boolean> {
-        if (Date.now() - lastJournalCheck < 5_000) return journalComplete;
-        lastJournalCheck = Date.now();
-        const read = await readJournalCheckpoint(sdk, HUNT_JOURNAL, HUNT_STAGES.complete!);
-        journalComplete = read.verdict?.verdict === 'PASS';
-        if (journalComplete) record('complete', 'PASS', read.reason, 'complete');
-        return journalComplete;
-    }
-
-    async function closeUi(): Promise<void> {
-        for (let i = 0; i < 8; i++) {
-            await bot.dismissBlockingUI();
-            const dialog = sdk.getDialog();
-            const opts = dialog?.options ?? [];
-            if (dialog?.isOpen && (opts.length <= 1 || opts.every((o) => /click here to continue/i.test(o.text)))) {
-                await sdk.sendClickDialog(opts[0]?.index ?? 0);
-                await sdk.waitForTicks(1);
-                continue;
-            }
-            if (sdk.getState()?.shop?.isOpen || sdk.getState()?.bank?.isOpen || sdk.getState()?.interface?.isOpen) {
-                await bot.closeInterface();
-                await sdk.waitForTicks(1);
-                continue;
-            }
-            break;
-        }
-    }
-
-    async function chat(choices: RegExp[] = [], max = 36): Promise<string[]> {
-        const seen: string[] = [];
-        for (let i = 0; i < max; i++) {
-            const dialog = sdk.getDialog();
-            if (!dialog?.isOpen) {
-                await sdk.waitForTicks(1);
-                if (!sdk.getDialog()?.isOpen) break;
-            }
-            const opts = sdk.getDialog()?.options ?? [];
-            for (const o of opts) seen.push(o.text);
-            if (opts.length <= 1 || opts.every((o) => /click here to continue/i.test(o.text))) {
-                await sdk.sendClickDialog(opts[0]?.index ?? 0);
-                await sdk.waitForTicks(1);
-                continue;
-            }
-            let picked = false;
-            for (const c of choices) {
-                const match = opts.find((o) => c.test(o.text));
-                if (match) {
-                    await sdk.sendClickDialog(match.index);
-                    picked = true;
-                    break;
-                }
-            }
-            if (!picked) break;
-            await sdk.waitForTicks(1);
-        }
-        return seen;
-    }
-
-    async function walkNear(x: number, z: number, tolerance = 4): Promise<boolean> {
-        if (distTo(x, z) <= tolerance) return true;
-        const r = await bot.walkTo(x, z, Math.min(tolerance, 3));
-        return r.success || distTo(x, z) <= tolerance + 2;
-    }
-
-    async function climbTo(targetLevel: number): Promise<boolean> {
-        for (let i = 0; i < 8 && pos().level !== targetLevel; i++) {
-            const wantUp = pos().level < targetLevel;
-            const opt = wantUp ? /climb-up|climb.up|go-up|go.up/i : /climb-down|climb.down|go-down|go.down/i;
-            await sdk.scanNearbyLocs(8).catch(() => {});
-            const stairs = (sdk.getNearbyLocs() ?? [])
-                .filter((l) => /stair|ladder/i.test(l.name) && l.optionsWithIndex.some((o) => opt.test(o.text)))
-                .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
-            if (!stairs) return false;
-            const before = pos().level;
-            await bot.interactLoc(stairs, opt);
-            await sdk.waitForCondition((s) => (s.player?.level ?? before) !== before, 8_000).catch(() => {});
-            await closeUi();
-        }
-        return pos().level === targetLevel;
-    }
-
-    const supplyCtx = (): SupplyCtx => ({ bot, sdk, log, intent, walkNear, closeUi });
-
-    async function ensureSupplies(): Promise<void> {
-        const ctx = supplyCtx();
-        await ensureCoins(ctx, 100);
-        await ensureItem(ctx, APRON, 1, {
-            label: 'white apron',
-            shop: SHOPS.THESSALIA,
-            coinsNeeded: 15
-        });
-        if (count(SPADE) < 1) {
-            if (onKaramja()) {
-                await ensureItem(ctx, SPADE, 1, {
-                    label: 'spade',
-                    shop: SHOPS.JIMINUA,
-                    coinsNeeded: 15
-                });
-            }
-            if (count(SPADE) < 1) {
-                await pickupGround(ctx, SPADE);
-            }
-            if (count(SPADE) < 1) {
-                await ensureItem(ctx, SPADE, 1, {
-                    label: 'spade',
-                    shop: SHOPS.FALADOR_GEN,
-                    coinsNeeded: 15
-                });
-            }
-            if (count(SPADE) < 1) {
-                await ensureItem(ctx, SPADE, 1, {
-                    label: 'spade',
-                    shop: SHOPS.VARROCK_GEN,
-                    coinsNeeded: 15
-                });
-            }
-        }
-    }
-
-    async function ensureTools(): Promise<void> {
-        await ensureSupplies();
-    }
-
-    async function startFrank(): Promise<void> {
-        intent('Talking to Redbeard Frank');
-        await walkNear(FRANK.x, FRANK.z, 3);
-        const frank = sdk.findNearbyNpc(/redbeard|frank/i);
-        if (!frank) return;
-        await bot.talkTo(frank);
-        const seen = await chat([/search of treasure/i, /in search of treasure/i]);
-        log(`Frank: ${seen.join(' | ')}`);
-        await chat([/search of treasure/i]);
-    }
-
-    async function sailToKaramja(): Promise<void> {
-        if (onKaramja()) return;
-        intent('Sailing to Karamja');
-        await walkNear(SAILOR.x, SAILOR.z, 3);
-        const sailor = sdk.findNearbyNpc(/tobias|sailor/i);
-        if (!sailor) return;
-        await bot.talkTo(sailor);
-        await chat([/yes please/i]);
-        await sdk.waitForCondition(() => onKaramja(), 20_000).catch(() => {});
-    }
-
-    async function sailToSarim(): Promise<void> {
-        if (!onKaramja()) return;
-        intent('Returning to Port Sarim');
-        await walkNear(CUSTOMS.x, CUSTOMS.z, 3);
-        const officer = sdk.findNearbyNpc(/customs/i);
-        if (!officer) return;
-        await bot.talkTo(officer);
-        await chat([/journey on this ship/i, /can i journey/i, /^ok\.?$/i]);
-        await sdk.waitForCondition(() => !onKaramja(), 20_000).catch(() => {});
-    }
-
-    async function buyRum(): Promise<void> {
-        if (count(RUM) > 0) return;
-        await ensureCoins(supplyCtx(), 40);
-        intent('Buying Karamja rum from Zambo');
-        await walkNear(ZAMBO.x, ZAMBO.z, 3);
-        const shop = await bot.openShop(/zambo/i);
-        if (!shop.success) {
-            log(`Zambo shop: ${shop.message}`);
-            return;
-        }
-        await bot.buyFromShop(RUM, 1);
-        await bot.closeShop();
-    }
-
-    async function employLuthas(): Promise<void> {
-        intent('Getting plantation work from Luthas');
-        await walkNear(LUTHAS.x, LUTHAS.z, 3);
-        const luthas = sdk.findNearbyNpc(/luthas/i);
-        if (!luthas) return;
-        await bot.talkTo(luthas);
-        await chat([/offer me employment/i, /employment on your plantation/i]);
-    }
-
-    async function pickBananas(need: number): Promise<void> {
-        while (count(BANANA) < need) {
-            intent(`Picking bananas (${count(BANANA)}/${need})`);
-            await walkNear(PLANTATION.x, PLANTATION.z, 6);
-            await sdk.scanNearbyLocs(12).catch(() => {});
-            const tree = sdk.findNearbyLoc(/banana/i);
-            if (!tree) break;
-            await bot.interactLoc(tree, /pick/i);
-            await sdk.waitForTicks(2);
-        }
-    }
-
-    async function smuggleRum(): Promise<void> {
-        if (count(RUM) < 1) return;
-        intent('Hiding rum in banana crate');
-        await walkNear(PLANTATION.x, PLANTATION.z, 4);
-        await sdk.scanNearbyLocs(10).catch(() => {});
-        const crate = sdk.findNearbyLoc(/crate/i);
-        const rum = sdk.findInventoryItem(RUM);
-        if (crate && rum) {
-            await bot.useItemOnLoc(rum, crate);
-            await sdk.waitForTicks(2);
-        }
-        await pickBananas(10);
-        const luthas = sdk.findNearbyNpc(/luthas/i);
-        if (luthas) {
-            await bot.talkTo(luthas);
-            await chat([/filled a crate/i, /have you completed/i]);
-        }
-    }
-
-    async function getRumFromWydin(): Promise<void> {
-        if (count(RUM) > 0) return;
-        intent('Retrieving smuggled rum from Wydin\'s store');
-        const apron = sdk.findInventoryItem(APRON);
-        if (apron) await bot.equipItem(apron);
-        await walkNear(WYDIN.x, WYDIN.z, 2);
-        await sdk.scanNearbyLocs(8).catch(() => {});
-        const crate = sdk.findNearbyLoc(/crate/i);
-        if (crate) {
-            await bot.interactLoc(crate, /search/i);
-            await sdk.waitForTicks(4);
-        }
-    }
-
-    async function handRumToFrank(): Promise<void> {
-        if (count(RUM) < 1) return;
-        intent('Giving rum to Redbeard Frank');
-        await walkNear(FRANK.x, FRANK.z, 3);
-        const frank = sdk.findNearbyNpc(/redbeard|frank/i);
-        if (!frank) return;
-        const rum = sdk.findInventoryItem(RUM);
-        if (rum) await bot.useItemOnNpc(rum, frank);
-        else await bot.talkTo(frank);
-        await chat();
-    }
-
-    async function openChest(): Promise<void> {
-        if (count(MESSAGE) > 0) return;
-        intent('Opening chest at Blue Moon Inn');
-        await walkNear(BLUE_MOON_STAIRS.x, BLUE_MOON_STAIRS.z, 2);
-        if (pos().level < 1) await climbTo(1);
-        await sdk.scanNearbyLocs(8).catch(() => {});
-        const chest = sdk.findNearbyLoc(/chest/i);
-        const key = sdk.findInventoryItem(KEY);
-        if (chest && key) {
-            await bot.useItemOnLoc(key, chest);
-            await sdk.waitForTicks(4);
-        }
-        const msg = sdk.findInventoryItem(MESSAGE);
-        if (msg) await sdk.sendUseItem(msg.slot);
-    }
-
-    async function digTreasure(): Promise<void> {
-        if (count(SPADE) < 1) await ensureTools();
-        intent('Digging in Falador Park');
-        await walkNear(DIG.x, DIG.z, 1);
-        const spade = sdk.findInventoryItem(SPADE);
-        if (spade) {
-            await sdk.sendUseItem(spade.slot);
-            await sdk.waitForTicks(6);
-        }
-    }
-
-    const coinsBefore = coinCount();
-    await bot.skipTutorial();
-    await closeUi();
-    // Ask the journal BEFORE shopping: an account that already finished must
-    // not be sent to buy aprons and spades first.
-    const startStage = await readStage();
-    log(`Pirate's Treasure journal stage at start: ${startStage}`);
-    if (startStage === 'unknown') {
-        throw new Error('could not determine the Pirate\'s Treasure stage from the journal');
-    }
-    if (startStage === 'complete') {
-        log('Pirate\'s Treasure is already complete — nothing to do');
-        return;
-    }
-    await ensureTools();
-    log(`Pirate's Treasure start coins=${coinsBefore} @ ${pos().x},${pos().z}`);
-
-    const until = Date.now() + 25 * 60_000;
-    while (Date.now() < until && !(await questDone())) {
-        await closeUi();
-        if (count(APRON) < 1 || count(SPADE) < 1) await ensureSupplies();
-
-        if (count(KEY) > 0 && count(MESSAGE) === 0) {
-            await openChest();
-            if (count(MESSAGE) > 0) await digTreasure();
-            continue;
-        }
-
-        if (count(MESSAGE) > 0 || /dig a hole|little bag of treasure/i.test((sdk.getState()?.gameMessages ?? []).map((m) => m.text).join(' '))) {
-            await digTreasure();
-            if (await questDone()) break;
-            continue;
-        }
-
-        if (count(KEY) > 0) {
-            await openChest();
-            continue;
-        }
-
-        if (count(RUM) > 0 && !onKaramja()) {
-            await handRumToFrank();
-            continue;
-        }
-
-        if (!onKaramja() && count(RUM) === 0 && count(KEY) === 0) {
-            const smuggled = /shipped|wydin|crate/i.test((sdk.getState()?.gameMessages ?? []).map((m) => m.text).join(' '));
-            if (smuggled) {
-                await getRumFromWydin();
-                continue;
-            }
-        }
-
-        if (onKaramja()) {
-            if (count(RUM) < 1) await buyRum();
-            else {
-                await ensureSupplies();
-                await employLuthas();
-                await smuggleRum();
-                await sailToSarim();
-            }
-            continue;
-        }
-
-        if (count(RUM) === 0 && count(KEY) === 0) {
-            await startFrank();
-            await sailToKaramja();
-            continue;
-        }
-
-        log(`rum=${count(RUM)} key=${count(KEY)} msg=${count(MESSAGE)} karamja=${onKaramja()} @ ${pos().x},${pos().z}`);
-        await sdk.waitForTicks(2);
-    }
-
-    if (!(await questDone())) throw new Error(`Pirate's Treasure unfinished @ ${pos().x},${pos().z}`);
-    const summary = summarizeRun(run.directory);
-    log(`Run checkpoints ok=${summary.ok} missing=[${summary.missing.join(',')}] failed=[${summary.failed.join(',')}]`);
-    log(`QUEST COMPLETE Pirate's Treasure (+${coinCount() - coinsBefore} gp)`);
+        { from: 'store', to: 'rum', needs: [{ item: 'white apron', count: 1 }], run: fetchRum },
+        { from: 'rum', to: 'key', at: FRANK, needs: [{ item: RUM, count: 1 }], talk: { npc: FRANK_NPC, choices: [/i'll go and get it/i] } },
+        { from: 'key', to: 'note', needs: [{ item: 'chest key', count: 1 }], run: openChest },
+        { from: 'note', to: 'complete', needs: [{ item: 'spade', count: 1 }], run: dig },
+    ],
 });
