@@ -1,837 +1,148 @@
 /**
- * Druidic Ritual — reusable.
+ * Druidic Ritual — four raw meats dipped in the Cauldron of Thunder for Sanfew.
  *
  *   bun bots/quests/druidic-ritual.ts {botname}
  *
- * Needs all four raw meats (beef, chicken, rat, bear). Dips them in the
- * Cauldron of Thunder in Taverley dungeon, then hands the enchanted meats
- * to Sanfew and finishes with Kaqemeex.
+ * Journal rules come from quest_druid/scripts/druid_journal.rs2; dialog from
+ * area_taverly/scripts/{kaqemeex,sanfew}.rs2. The raw meats are prepare-phase
+ * sources (lib/sources.ts). Dipping is quest-tracked: the cauldron only
+ * enchants at druid_spoken_sanfew, so it lives in that transition.
  */
-import { appendFileSync, readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
-import { runScript } from '../../sdk/runner';
-import { ActivitySession } from '../../sdk/activity';
-import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
-import type { JournalRule } from '../../quest-lab/evidence';
-import { appendCheckpoint, createRun, safeRunId, summarizeRun } from '../../quest-lab/records';
-import { closestFleetBank } from './tiles';
+import type { Quest } from './lib/run-quest';
+import { runQuest } from './lib/run-quest';
+import { ticksToMs, untilTicks } from './lib/ticks';
 
 const KAQEMEEX = { x: 2925, z: 3486 };
-const SANFEW = { x: 2899, z: 3428 };
-const DUNGEON = { x: 2884, z: 3397 };
-const DUNGEON_UNDER = { x: 2884, z: 9798 };
-const CAULDRON = { x: 2893, z: 9831 };
-const PRISON = { x: 2888, z: 9830 };
-
-const COW_FARM = { x: 3027, z: 3307 };
-const CHICKEN_FARM = { x: 3015, z: 3287 };
-const RATS = { x: 2995, z: 3191 };
-const BEAR = { x: 2965, z: 3465 };
-
-const EDGE_TO_CIRCLE = [
-    { x: 3072, z: 3455 },
-    { x: 3018, z: 3452 },
-    { x: 2965, z: 3465 },
-    KAQEMEEX
-];
-const TO_FARM = [{ x: 3060, z: 3315 }, COW_FARM];
-const FARM_TO_RATS = [{ x: 3020, z: 3250 }, { x: 3010, z: 3210 }, RATS];
-const RATS_TO_BEAR = [
-    { x: 3012, z: 3230 },
-    { x: 3012, z: 3275 },
-    { x: 3008, z: 3355 },
-    { x: 2964, z: 3435 },
-    BEAR
-];
-const BEAR_TO_CIRCLE = [KAQEMEEX];
-const CIRCLE_TO_SANFEW = [{ x: 2910, z: 3455 }, SANFEW];
-const SANFEW_TO_DUNGEON = [{ x: 2890, z: 3410 }, DUNGEON];
-
-const RAW_BEEF = /^raw beef$/i;
-const RAW_CHICKEN = /^raw chicken$/i;
-const RAW_RAT = /^raw rat meat$/i;
-const RAW_BEAR = /^raw bear meat$/i;
-const ENC_BEEF = /^enchanted beef$/i;
-const ENC_CHICKEN = /^enchanted chicken$/i;
-const ENC_RAT = /^enchanted rat$/i;
-const ENC_BEAR = /^enchanted bear$/i;
+/** Sanfew is upstairs (plane 1) in his house in Taverley. */
+const SANFEW_HOUSE = { x: 2899, z: 3428 };
+const DUNGEON_LADDER = { x: 2884, z: 3397 };
+const DUNGEON_LADDER_BELOW = { x: 2884, z: 9798 };
+/** Outside the cauldron room's prison doors. */
+const PRISON_DOORS = { x: 2888, z: 9830 };
 
 const MEATS = [
-    { raw: RAW_BEEF, enchanted: ENC_BEEF, npc: /^cow$/i, spot: COW_FARM, label: 'raw beef' },
-    { raw: RAW_CHICKEN, enchanted: ENC_CHICKEN, npc: /^chicken$/i, spot: CHICKEN_FARM, label: 'raw chicken' },
-    { raw: RAW_RAT, enchanted: ENC_RAT, npc: /^giant rat$/i, spot: RATS, label: 'raw rat meat' },
-    { raw: RAW_BEAR, enchanted: ENC_BEAR, npc: /^bear$/i, spot: BEAR, label: 'raw bear meat' }
-] as const;
+    { raw: 'raw beef', enchanted: 'enchanted beef' },
+    { raw: 'raw chicken', enchanted: 'enchanted chicken' },
+    { raw: 'raw rat meat', enchanted: 'enchanted rat' },
+    { raw: 'raw bear meat', enchanted: 'enchanted bear' },
+];
 
-const botName = process.argv.slice(2).find((a) => !a.startsWith('-')) ?? '';
-const GRIND_LOG = join(process.cwd(), 'bots', botName, 'grind.log');
+const underground = (q: Quest) => (q.sdk.getState()?.player?.worldZ ?? 0) > 6400;
 
-await runScript(async ({ bot, sdk }) => {
-    const log = (msg: string) => {
-        console.log(msg);
-        try {
-            appendFileSync(GRIND_LOG, `${new Date().toISOString()} ${msg}\n`);
-        } catch {
-            /* ignore */
-        }
+/** Taverley dungeon's entrance ladder, either way. */
+async function useDungeonLadder(q: Quest, down: boolean): Promise<void> {
+    const opt = down ? /climb-down/i : /climb-up/i;
+    for (let i = 0; i < 4 && underground(q) !== down; i++) {
+        await q.goTo(down ? DUNGEON_LADDER : DUNGEON_LADDER_BELOW, 3);
+        await q.sdk.scanNearbyLocs(10).catch(() => undefined);
+        const ladder = q.sdk.findNearbyLoc(/ladder/i, { withOption: opt });
+        if (!ladder) throw new Error(`no dungeon ladder to ${down ? 'climb down' : 'climb up'} near the player`);
+        await q.bot.interactLoc(ladder, opt);
+        await untilTicks(q.sdk, (s) => ((s.player?.worldZ ?? 0) > 6400) === down, 15);
+    }
+    if (underground(q) !== down) throw new Error(`could not ${down ? 'enter' : 'leave'} Taverley dungeon`);
+}
+
+/** Up to Sanfew, waiting for the new plane's npcs to stream in before talking. */
+async function goToSanfew(q: Quest): Promise<void> {
+    if (underground(q)) await useDungeonLadder(q, false);
+    if ((q.sdk.getState()?.player?.level ?? 0) !== 1) {
+        await q.goTo(SANFEW_HOUSE, 3);
+        await q.climbTo(1);
+    }
+    // nearbyNpcs is empty for a few ticks after a climb; talking then skipped his dialog
+    // and the cauldron refused every dip (old script, jacklove7 2026-10-27).
+    await untilTicks(q.sdk, (s) => (s.nearbyNpcs ?? []).some((n) => /^sanfew$/i.test(n.name)), 15);
+}
+
+async function killSuitsOfArmour(q: Quest): Promise<void> {
+    for (let i = 0; i < 4; i++) {
+        const suit = q.sdk.findNearbyNpc(/^suit of armour$/i);
+        if (!suit) return;
+        await q.bot.attack(suit, ticksToMs(20));
+        await untilTicks(q.sdk, (s) => !(s.nearbyNpcs ?? []).some((n) => n.index === suit.index), 60);
+    }
+}
+
+/**
+ * Past the cauldron room's prison doors. Opening them from outside first wakes
+ * each suit of armour beside them (prison_doors.rs2); the doors only open once
+ * both have woken, and close behind the player.
+ */
+async function enterCauldronRoom(q: Quest): Promise<void> {
+    const cauldronReachable = async () => {
+        await q.sdk.scanNearbyLocs(12).catch(() => undefined);
+        return q.sdk.findNearbyLoc(/^cauldron of thunder$/i)?.reachable === true;
     };
-
-    let lastIntent = '';
-    function intent(msg: string): void {
-        if (msg === lastIntent) return;
-        lastIntent = msg;
-        console.log(`> ${msg}`);
-        void sdk.showIntent(msg);
+    await q.goTo(PRISON_DOORS, 2);
+    for (let i = 0; i < 6 && !(await cauldronReachable()); i++) {
+        await killSuitsOfArmour(q);
+        const door = q.sdk.findNearbyLoc(/^prison door$/i, { withOption: /^open$/i });
+        if (!door) throw new Error('no prison door outside the cauldron room');
+        await q.bot.interactLoc(door, /^open$/i);
+        await q.sdk.waitForTicks(3);
     }
+    await killSuitsOfArmour(q);
+    if (!(await cauldronReachable())) throw new Error('could not get into the cauldron room');
+}
 
-    function pos() {
-        const p = sdk.getState()?.player;
-        return {
-            x: p?.worldX ?? 0,
-            z: p?.worldZ ?? 0,
-            level: p?.level ?? 0,
-            hp: p?.hp ?? 10,
-            maxHp: p?.maxHp ?? 10,
-            isDead: p?.isDead ?? false
-        };
+/** Dip each raw meat still held; skips meats already enchanted. */
+async function dipMeats(q: Quest): Promise<void> {
+    for (const m of MEATS) {
+        if (q.count(m.enchanted) > 0) continue;
+        const before = q.count(m.enchanted);
+        await q.bot.useItemOnLoc(new RegExp(`^${m.raw}$`, 'i'), /^cauldron of thunder$/i, { timeout: ticksToMs(25) });
+        await untilTicks(q.sdk, () => q.count(m.enchanted) > before, 10);
+        if (q.count(m.enchanted) <= before) throw new Error(`the cauldron did not enchant the ${m.raw}`);
     }
+}
 
-    function distTo(x: number, z: number): number {
-        return Math.hypot(pos().x - x, pos().z - z);
-    }
-
-    function count(pattern: RegExp): number {
-        return sdk
-            .getInventory()
-            .filter((i) => pattern.test(i.name))
-            .reduce((n, i) => n + (i.count ?? 1), 0);
-    }
-
-    function herbXp(): number {
-        return sdk.getSkill('Herblore')?.experience ?? 0;
-    }
-
-    /**
-     * Completion comes from the QUEST JOURNAL — never from XP, and never from a
-     * chat line.
-     *
-     * This used to be `herbXp() >= 250`, which made the quest read as DONE for
-     * any account with Herblore levelled: the best-case maxed fixture finished
-     * instantly without doing anything, and a mid-quest restart could not be
-     * told apart from a finished one.
-     *
-     * Rules are read from the quest's own journal script
-     * (server/content/scripts/quests/quest_druid/scripts/druid_journal.rs2).
-     */
-    const JOURNAL = { label: 'Druidic Ritual', title: 'Druidic Ritual' };
-    // Every stage the journal can be in (druid_journal.rs2), each keyed on a
-    // sentence UNIQUE to that stage. Recognising only the two endpoints made a
-    // mid-quest account read as 'unknown' and threw, even though the loop below
-    // already knows how to resume from any of them.
-    const STAGE_ORDER = ['not_started', 'started', 'spoken_sanfew', 'given_ingredients', 'complete'] as const;
-    type Stage = (typeof STAGE_ORDER)[number];
-    const STAGE_RULES: Record<Stage, JournalRule> = {
-        not_started: {
-            id: 'druid:not_started',
-            kind: 'unstarted',
-            all: ['I can start this quest by speaking to Kaqemeex'],
-        },
-        started: {
-            id: 'druid:started',
-            kind: 'active',
-            all: ['I should speak to Sanfew in the village to the South'],
-        },
-        spoken_sanfew: {
-            id: 'druid:spoken_sanfew',
-            kind: 'active',
-            all: ['Sanfew told me for the ritual they would need me to place'],
-        },
-        given_ingredients: {
-            id: 'druid:given_ingredients',
-            kind: 'active',
-            all: ['I should speak to Kaqemeex again and claim my reward'],
-        },
-        complete: { id: 'druid:complete', kind: 'complete', all: ['QUEST COMPLETE'] },
-    };
-
-    /** The first stage rule that passes is the account's real stage. */
-    async function readStage(): Promise<Stage | 'unknown'> {
-        for (const name of [...STAGE_ORDER].reverse()) {
-            const read = await readJournalCheckpoint(sdk, JOURNAL, STAGE_RULES[name]!);
-            log(`  stage probe ${name}: ${read.verdict?.verdict ?? 'UNKNOWN'} (${read.reason})`);
-            if (read.verdict?.verdict === 'PASS') return name;
-        }
-        return 'unknown';
-    }
-
-    let complete = false;
-    let lastCompleteCheck = 0;
-    /** Journal-backed completion, throttled: opening the journal is not free. */
-    async function questDone(): Promise<boolean> {
-        if (Date.now() - lastCompleteCheck < 5_000) return complete;
-        lastCompleteCheck = Date.now();
-        const read = await readJournalCheckpoint(sdk, JOURNAL, STAGE_RULES.complete!);
-        complete = read.verdict?.verdict === 'PASS';
-        if (complete) log(`Journal confirms completion: ${read.reason}`);
-        return complete;
-    }
-
-    function hasType(raw: RegExp, enchanted: RegExp): boolean {
-        return count(raw) > 0 || count(enchanted) > 0;
-    }
-
-    function allRawOrEnchanted(): boolean {
-        return MEATS.every((m) => hasType(m.raw, m.enchanted));
-    }
-
-    function allEnchanted(): boolean {
-        return MEATS.every((m) => count(m.enchanted) > 0);
-    }
-
-    function underground(): boolean {
-        return pos().z > 6400;
-    }
-
-    function inCauldronRoom(): boolean {
-        const p = pos();
-        return underground() && p.x >= 2889 && p.z >= 9826 && p.z <= 9836;
-    }
-
-    async function closeUi(): Promise<void> {
-        for (let i = 0; i < 8; i++) {
-            await bot.dismissBlockingUI();
-            const dialog = sdk.getDialog();
-            const opts = dialog?.options ?? [];
-            if (dialog?.isOpen && opts.length === 1) {
-                await sdk.sendClickDialog(opts[0]?.index ?? 0);
-                await sdk.waitForTicks(1);
-                continue;
-            }
-            if (sdk.getState()?.shop?.isOpen || sdk.getState()?.bank?.isOpen || sdk.getState()?.interface?.isOpen) {
-                await bot.closeInterface();
-                await sdk.waitForTicks(1);
-                continue;
-            }
-            break;
-        }
-    }
-
-    async function chat(choices: RegExp[] = [], max = 28): Promise<string[]> {
-        const seen: string[] = [];
-        for (let i = 0; i < max; i++) {
-            const dialog = sdk.getDialog();
-            if (!dialog?.isOpen) {
-                await sdk.waitForTicks(1);
-                if (!sdk.getDialog()?.isOpen) break;
-            }
-            const opts = sdk.getDialog()?.options ?? [];
-            for (const o of opts) seen.push(o.text);
-            if (opts.length === 0) {
-                await sdk.waitForTicks(1);
-                continue;
-            }
-            if (opts.length === 1 || opts.every((o) => /click here to continue/i.test(o.text))) {
-                await sdk.sendClickDialog(opts[0]?.index ?? 0);
-                await sdk.waitForTicks(1);
-                continue;
-            }
-            let picked = false;
-            for (const c of choices) {
-                const match = opts.find((o) => c.test(o.text));
-                if (match) {
-                    await sdk.sendClickDialog(match.index);
-                    picked = true;
-                    break;
-                }
-            }
-            if (!picked) break;
-            await sdk.waitForTicks(1);
-        }
-        return seen;
-    }
-
-    async function walkNear(x: number, z: number, tolerance = 4): Promise<boolean> {
-        if (distTo(x, z) <= tolerance) return true;
-        const r = await bot.walkTo(x, z, Math.min(tolerance, 3));
-        return r.success || distTo(x, z) <= tolerance + 2;
-    }
-
-    async function openNearbyGate(): Promise<void> {
-        const gate = (sdk.getNearbyLocs() ?? [])
-            .filter(
-                (l) =>
-                    /gate|door/i.test(l.name) &&
-                    l.reachable !== false &&
-                    l.optionsWithIndex.some((o) => /^open$/i.test(o.text))
-            )
-            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
-        if (!gate || (gate.distance ?? 99) > 6) return;
-        await bot.openDoor(gate);
-    }
-
-    async function walkRoute(points: Array<{ x: number; z: number }>): Promise<void> {
-        for (const p of points) {
-            await closeUi();
-            await openNearbyGate();
-            await walkNear(p.x, p.z, 5);
-        }
-    }
-
-    async function climbTo(targetLevel: number): Promise<boolean> {
-        for (let i = 0; i < 8 && pos().level !== targetLevel; i++) {
-            const wantUp = pos().level < targetLevel;
-            const opt = wantUp ? /climb-up|climb.up|go-up|go.up/i : /climb-down|climb.down|go-down|go.down/i;
-            await sdk.scanNearbyLocs(8).catch(() => {});
-            const stairs = (sdk.getNearbyLocs() ?? [])
-                .filter((l) => /stair|ladder/i.test(l.name) && l.optionsWithIndex.some((o) => opt.test(o.text)))
-                .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
-            if (!stairs) {
-                await walkNear(SANFEW.x, SANFEW.z, 2);
-                await openNearbyGate();
-                continue;
-            }
-            const before = pos().level;
-            intent(`Climb ${wantUp ? 'up' : 'down'} ${stairs.name}`);
-            await bot.interactLoc(stairs, opt);
-            await sdk.waitForCondition((s) => (s.player?.level ?? before) !== before, 8_000).catch(() => {});
-            await closeUi();
-        }
-        return pos().level === targetLevel;
-    }
-
-    async function openPrisonDoor(): Promise<void> {
-        await sdk.scanNearbyLocs(8).catch(() => {});
-        const door = sdk.findNearbyLoc(/^prison door$/i) ?? sdk.findNearbyLoc(/prison door/i);
-        if (!door) return;
-        intent('Opening prison door');
-        await bot.interactLoc(door, /open/i);
-        await sdk.waitForTicks(2);
-    }
-
-    async function climbDungeon(down: boolean): Promise<boolean> {
-        const wantUnder = down;
-        for (let i = 0; i < 8 && underground() !== wantUnder; i++) {
-            if (!underground()) {
-                await walkNear(DUNGEON.x, DUNGEON.z, 2);
-            } else {
-                if (inCauldronRoom()) {
-                    await openPrisonDoor();
-                    await walkNear(2878, 9828, 3);
-                }
-                await walkNear(DUNGEON_UNDER.x, DUNGEON_UNDER.z, 2);
-            }
-            await sdk.scanNearbyLocs(8).catch(() => {});
-            const opt = down ? /climb-down|climb.down/i : /climb-up|climb.up/i;
-            const ladder = (sdk.getNearbyLocs() ?? [])
-                .filter((l) => /ladder/i.test(l.name) && l.optionsWithIndex.some((o) => opt.test(o.text)))
-                .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
-            if (!ladder) {
-                log(`No dungeon ladder @ ${pos().x},${pos().z} under=${underground()}`);
-                continue;
-            }
-            intent(`${down ? 'Entering' : 'Leaving'} Taverley dungeon`);
-            const beforeZ = pos().z;
-            await bot.interactLoc(ladder, opt);
-            await sdk
-                .waitForCondition((s) => Math.abs((s.player?.worldZ ?? beforeZ) - beforeZ) > 8, 8_000)
-                .catch(() => {});
-            await closeUi();
-        }
-        return underground() === wantUnder;
-    }
-
-    async function lootMeat(pattern: RegExp): Promise<boolean> {
-        const ground = sdk.findGroundItem(pattern);
-        if (!ground) return count(pattern) > 0;
-        const r = await bot.pickupItem(ground);
-        if (!r.success) log(`pickup: ${r.message}`);
-        return count(pattern) > 0;
-    }
-
-    async function hunt(npcPat: RegExp, meat: RegExp, spot: { x: number; z: number }, label: string): Promise<void> {
-        if (count(meat) > 0) return;
-        for (let attempt = 0; attempt < 8 && count(meat) < 1; attempt++) {
-            await closeUi();
-            if (await lootMeat(meat)) return;
-            if (distTo(spot.x, spot.z) > 12) {
-                intent(`Walking to ${label}`);
-                await walkNear(spot.x, spot.z, 5);
-                await openNearbyGate();
-            }
-            if (await lootMeat(meat)) return;
-            const npc = sdk.findNearbyNpc(npcPat, { reachable: true });
-            if (!npc) {
-                log(`No ${label} npc @ ${pos().x},${pos().z} try=${attempt}`);
-                await walkNear(spot.x + ((attempt % 3) - 1) * 6, spot.z + (attempt % 2 === 0 ? 4 : -4), 3);
-                continue;
-            }
-            intent(`Killing ${npc.name} for ${label}`);
-            const atk = await bot.attack(npc, 15_000);
-            if (!atk.success) log(`attack ${npc.name}: ${atk.message}`);
-            await sdk.waitForCondition(() => !!sdk.findGroundItem(meat), 12_000).catch(() => null);
-            await lootMeat(meat);
-        }
-        if (count(meat) < 1) log(`Still missing ${label} @ ${pos().x},${pos().z}`);
-    }
-
-    async function gatherMeats(): Promise<void> {
-        if (allRawOrEnchanted()) return;
-        if (!hasType(RAW_BEEF, ENC_BEEF) || !hasType(RAW_CHICKEN, ENC_CHICKEN)) {
-            if (distTo(COW_FARM.x, COW_FARM.z) > 40) await walkRoute(TO_FARM);
-        }
-        if (!hasType(RAW_BEEF, ENC_BEEF)) await hunt(/^cow$/i, RAW_BEEF, COW_FARM, 'raw beef');
-        if (!hasType(RAW_CHICKEN, ENC_CHICKEN)) await hunt(/^chicken$/i, RAW_CHICKEN, CHICKEN_FARM, 'raw chicken');
-        if (!hasType(RAW_RAT, ENC_RAT)) {
-            if (distTo(RATS.x, RATS.z) > 20) await walkRoute(FARM_TO_RATS);
-            await hunt(/^giant rat$/i, RAW_RAT, RATS, 'raw rat meat');
-        }
-        if (!hasType(RAW_BEAR, ENC_BEAR)) {
-            if (distTo(BEAR.x, BEAR.z) > 20) await walkRoute(RATS_TO_BEAR);
-            await hunt(/^bear$/i, RAW_BEAR, BEAR, 'raw bear meat');
-        }
-        log(
-            `meats beef=${count(RAW_BEEF)} chicken=${count(RAW_CHICKEN)} rat=${count(RAW_RAT)} bear=${count(RAW_BEAR)} @ ${pos().x},${pos().z}`
-        );
-    }
-
-    async function goKaqemeex(): Promise<void> {
-        await closeUi();
-        if (pos().level > 0) await climbTo(0);
-        if (underground()) await climbDungeon(false);
-        if (distTo(KAQEMEEX.x, KAQEMEEX.z) <= 10) return;
-        intent('Walking to Kaqemeex');
-        if (pos().x > 3000 || pos().z > 3500) await walkRoute(EDGE_TO_CIRCLE);
-        else if (pos().z < 3400 && !underground()) await walkRoute(RATS_TO_BEAR);
-        if (distTo(KAQEMEEX.x, KAQEMEEX.z) > 12) await walkRoute(BEAR_TO_CIRCLE);
-        await walkNear(KAQEMEEX.x, KAQEMEEX.z, 4);
-    }
-
-    async function talkKaqemeex(): Promise<string[]> {
-        await goKaqemeex();
-        const npc = sdk.findNearbyNpc(/^kaqemeex$/i) ?? sdk.findNearbyNpc(/kaqemeex/i);
-        if (!npc) {
-            log(`Kaqemeex missing @ ${pos().x},${pos().z}`);
-            return [];
-        }
-        const talk = await bot.talkTo(npc);
-        if (!talk.success) {
-            log(`talk Kaqemeex: ${talk.message}`);
-            return [];
-        }
-        await sdk.waitForTicks(1);
-        return chat([
-            /search of a quest/i,
-            /what about the stone circle/i,
-            /ok, i will try and help/i,
-            /ok, i will try to help/i,
-            /ok, i will try and help/i,
-            /is there anything in this for me/i
-        ]);
-    }
-
-    async function goSanfew(): Promise<void> {
-        await closeUi();
-        if (underground()) await climbDungeon(false);
-        if (distTo(SANFEW.x, SANFEW.z) <= 12 && pos().level === 1) return;
-        intent('Walking to Sanfew');
-        if (pos().level > 0 && distTo(SANFEW.x, SANFEW.z) > 20) await climbTo(0);
-        if (distTo(SANFEW.x, SANFEW.z) > 12) {
-            if (distTo(KAQEMEEX.x, KAQEMEEX.z) < 30) await walkRoute(CIRCLE_TO_SANFEW);
-            else await walkNear(SANFEW.x, SANFEW.z, 3);
-        }
-        await openNearbyGate();
-        await walkNear(SANFEW.x, SANFEW.z, 3);
-        if (pos().level !== 1) await climbTo(1);
-        await walkNear(SANFEW.x, SANFEW.z, 3);
-    }
-
-    /**
-     * Find Sanfew once the scene has actually caught up.
-     *
-     * Climbing a staircase rebuilds the client scene asynchronously and
-     * `nearbyNpcs` stays EMPTY for the new plane until it lands. Scanning once
-     * straight after the climb reported "Sanfew missing" while the bot stood a
-     * tile from him — which skipped his dialog, so the quest varp never reached
-     * `druid_spoken_sanfew`, so the Cauldron of Thunder then silently refused
-     * every dip. The whole quest hung off this one one-shot scan.
-     */
-    async function findSanfew(settleMs = 8_000) {
-        const deadline = Date.now() + settleMs;
-        for (;;) {
-            const npc = sdk.findNearbyNpc(/^sanfew$/i) ?? sdk.findNearbyNpc(/sanfew/i);
-            if (npc) return npc;
-            if (Date.now() >= deadline) return null;
-            await sdk.waitForTicks(4);
-        }
-    }
-
-    async function talkSanfew(): Promise<string[]> {
-        await goSanfew();
-        const npc = await findSanfew();
-        if (!npc) {
-            log(`Sanfew missing @ ${pos().x},${pos().z} floor=${pos().level} (after settling)`);
-            return [];
-        }
-        const talk = await bot.talkTo(npc);
-        if (!talk.success) {
-            log(`talk Sanfew: ${talk.message}`);
-            return [];
-        }
-        await sdk.waitForTicks(1);
-        return chat([
-            /sent to help purify/i,
-            /sent to help purify/i,
-            /ok, i['’]?ll do that then/i,
-            /i['’]?ll get on with it then/i,
-            /i['’]?ll do that then/i
-        ]);
-    }
-
-    async function killSuits(): Promise<void> {
-        for (let i = 0; i < 4; i++) {
-            const suit =
-                sdk.findNearbyNpc(/^suit of armour$/i, { reachable: true }) ??
-                sdk.findNearbyNpc(/suit of armour/i);
-            if (!suit) return;
-            intent(`Killing ${suit.name}`);
-            await bot.attack(suit, 15_000);
-            await sdk.waitForCondition(() => !sdk.findNearbyNpc(/^suit of armour$/i), 12_000).catch(() => null);
-            await sdk.waitForTicks(1);
-        }
-    }
-
-    async function enterPrison(): Promise<boolean> {
-        for (let i = 0; i < 8; i++) {
-            if (allEnchanted() || inCauldronRoom()) return inCauldronRoom();
-            await walkNear(PRISON.x, PRISON.z, 2);
-            await killSuits();
-            const door = sdk.findNearbyLoc(/^prison door$/i) ?? sdk.findNearbyLoc(/prison door/i);
-            if (!door) {
-                log(`No prison door @ ${pos().x},${pos().z}`);
-                continue;
-            }
-            intent('Opening prison door');
-            await bot.interactLoc(door, /open/i);
-            await sdk.waitForTicks(2);
-            await killSuits();
-        }
-        return inCauldronRoom();
-    }
-
-    async function dipMeats(): Promise<void> {
-        if (allEnchanted()) return;
-        intent('Going to the Cauldron of Thunder');
-        if (!underground()) {
-            if (pos().level > 0) await climbTo(0);
-            if (distTo(DUNGEON.x, DUNGEON.z) > 8) await walkRoute(SANFEW_TO_DUNGEON);
-            if (!(await climbDungeon(true))) {
-                log(`Failed to enter dungeon @ ${pos().x},${pos().z}`);
-                return;
-            }
-        }
-        await walkNear(PRISON.x, PRISON.z, 3);
-        if (!(await enterPrison())) {
-            log(`Could not pass prison door @ ${pos().x},${pos().z}`);
-            return;
-        }
-        await walkNear(CAULDRON.x, CAULDRON.z, 2);
-        for (const m of MEATS) {
-            if (count(m.enchanted) > 0 || count(m.raw) < 1) continue;
-            const pot =
-                sdk.findNearbyLoc(/^cauldron of thunder$/i) ?? sdk.findNearbyLoc(/cauldron of thunder/i);
-            if (!pot) {
-                log(`No cauldron @ ${pos().x},${pos().z}`);
-                break;
-            }
-            intent(`Dipping ${m.label}`);
-            const before = count(m.enchanted);
-            const r = await bot.useItemOnLoc(m.raw, pot);
-            if (!r.success) log(`dip ${m.label}: ${r.message}`);
-            await sdk.waitForCondition(() => count(m.enchanted) > before, 8_000).catch(() => null);
-        }
-        log(
-            `enchanted beef=${count(ENC_BEEF)} chicken=${count(ENC_CHICKEN)} rat=${count(ENC_RAT)} bear=${count(ENC_BEAR)}`
-        );
-    }
-
-    const startXp = herbXp();
-    log(
-        `Druidic Ritual start @ ${pos().x},${pos().z} floor=${pos().level} herbXp=${startXp} gp=${count(/^coins$/i)}`
-    );
-    await closeUi();
-
-    // ActivitySession carries grindLogPath so fleet verdicts can see this run at
-    // all; without it the bot reads as silent however well it plays.
-    const session = new ActivitySession(sdk, bot, {
-        name: 'druidic ritual',
-        grindLogPath: GRIND_LOG,
-        maxRecoveryTactics: 8
-    });
-    await session.setPhase('inspect');
-
-    // ── durable run record ──────────────────────────────────────────────────
-    // quest-eval scores `no-run-record` as a FAIL. This script finished the
-    // quest and printed `Druidic Ritual complete (journal-verified)` on three
-    // green runs, but wrote no evidence, so the gate read 0/3 and the canary
-    // tier could never grade it. Checkpoint evidence is appended verbatim as
-    // the run proceeds, so an audit never depends on this script's stdout or on
-    // sampled telemetry.
-    const account = botName || 'unknown';
-    const MODE = process.env.QUEST_LAB_MODE === 'staging' ? 'staging' : 'development';
-    const run = createRun(
-        join(process.cwd(), 'quest-lab', 'runs'),
-        safeRunId('druid', account, new Date().toISOString()),
+await runQuest({
+    id: 'druid',
+    hub: 'falador-east',
+    journal: { label: 'Druidic Ritual', title: 'Druidic Ritual' },
+    stages: [
+        { id: 'unstarted', rule: { id: 'druid:unstarted', kind: 'unstarted', all: ['I can start this quest by speaking to Kaqemeex'] } },
+        { id: 'started', rule: { id: 'druid:started', kind: 'active', all: ['I should speak to Sanfew in the village to the South'] } },
+        { id: 'spoken_sanfew', rule: { id: 'druid:spoken_sanfew', kind: 'active', all: ['Sanfew told me for the ritual they would need me to place'] } },
+        { id: 'given', rule: { id: 'druid:given', kind: 'active', all: ['I should speak to Kaqemeex again and claim my reward'] } },
+        { id: 'complete', rule: { id: 'druid:complete', kind: 'complete', all: ['QUEST COMPLETE'] } },
+    ],
+    transitions: [
         {
-            questId: 'druid',
-            account,
-            mode: MODE,
-            scriptHash: Bun.hash(await Bun.file(import.meta.path).text()).toString(16),
-            fixtureHash: process.env.QUEST_LAB_FIXTURE_HASH ?? 'unrecorded',
-            contentHash: process.env.QUEST_LAB_CONTENT_HASH ?? 'unrecorded',
-            requiredCheckpoints: ['complete']
-        }
-    );
-    log(`Run record: ${run.directory} (mode=${MODE})`);
-
-    const proved = new Set<Stage>();
-
-    /** Checkpoint gate. UNKNOWN is a failure like any other here: proceed on nothing. */
-    async function checkpoint(name: Stage, label: string): Promise<boolean> {
-        const read = await readJournalCheckpoint(sdk, JOURNAL, STAGE_RULES[name]!);
-        const verdict = read.verdict?.verdict ?? 'UNKNOWN';
-        appendCheckpoint(run.directory, {
-            checkpointId: name,
-            verdict,
-            reason: read.reason,
-            kind: STAGE_RULES[name]!.kind,
-            rawLines: read.rawLines
-        });
-        if (verdict !== 'PASS') {
-            log(`CHECKPOINT ${name} ${verdict}: ${read.reason}`);
-            return false;
-        }
-        proved.add(name);
-        log(`CHECKPOINT ${name} PASS (${label}) — ${read.reason}`);
-        session.log('log', `checkpoint ${name} PASS: ${label}`);
-        return true;
-    }
-
-    /**
-     * Prove the furthest live stage the journal currently shows. Called at
-     * conversation boundaries ONLY: opening the journal is a MAIN modal, so
-     * polling it mid-chain destroys the grant the chain is about to make.
-     *
-     * The terminal 'complete' stage is deliberately absent — `questDone()` owns
-     * it, and sweeping it here would burn a journal open on every boundary.
-     */
-    const LIVE_STAGES = STAGE_ORDER.filter(s => s !== 'complete');
-    async function proveCurrentStage(label: string): Promise<string> {
-        for (let i = LIVE_STAGES.length - 1; i >= 0; i--) {
-            const name = LIVE_STAGES[i]!;
-            if (proved.has(name)) return name;
-            if (await checkpoint(name, label)) return name;
-        }
-        log(`journal stage after ${label}: UNKNOWN (journal not ready)`);
-        return 'unknown';
-    }
-
-    // Ask the journal what state this account is in BEFORE acting. Right after
-    // login the quest-tab side interface has not streamed in, so an early
-    // UNKNOWN is not-ready, not a verdict: retry bounded before the first side
-    // effect, so an already-complete account still exits before banking.
-    let stage = await readStage();
-    for (let i = 0; i < 12 && stage === 'unknown'; i++) {
-        await sdk.waitForTicks(5);
-        stage = await readStage();
-    }
-    log(`Druidic Ritual stage at start: ${stage}`);
-
-    // Rule 59: the promotion gate may require only what THIS run can
-    // demonstrate. A resume at 'spoken_sanfew' can never re-prove
-    // 'not_started', so the required list starts at the probed stage; a static
-    // all-stages list fails every resume even on the run that completes.
-    const REQUIRED_FROM: Record<string, string[]> = {
-        not_started: ['not_started', 'complete'],
-        started: ['started', 'complete'],
-        spoken_sanfew: ['spoken_sanfew', 'complete'],
-        given_ingredients: ['given_ingredients', 'complete'],
-        complete: ['complete']
-    };
-    const required = REQUIRED_FROM[stage] ?? ['complete'];
-    const runFile = join(run.directory, 'run.json');
-    writeFileSync(
-        runFile,
-        JSON.stringify(
-            { ...(JSON.parse(readFileSync(runFile, 'utf-8')) as object), requiredCheckpoints: required },
-            null,
-            2
-        )
-    );
-    log(`required checkpoints: ${required.join(', ')} (probed stage=${stage})`);
-
-    if (stage !== 'unknown') await checkpoint(stage as Stage, `stage at start (${stage})`);
-
-    if (stage === 'complete') {
-        // A finished account: write the complete checkpoint and exit 0 at once —
-        // no bank-out, no supply trek. The journal is the only proof either way.
-        log('Druidic Ritual is already complete — nothing to do');
-        session.log('log', 'already complete: nothing to do');
-        await session.setPhase('done');
-        session.stop('done', 'already complete', { restartable: false });
-        return;
-    }
-    if (stage === 'unknown') {
-        session.log('warn', 'could not determine quest stage from the journal');
-        throw new Error('could not determine the Druidic Ritual stage from the journal');
-    }
-    session.log('log', `stage=${stage} herbXp=${startXp}`);
-
-    // ── start bank ──────────────────────────────────────────────────────────
-    // Bank-first, and the leg must actually RUN on a live account: all four meats
-    // are NPC drops this script farms in-quest, so the walk is only worth it when
-    // the bag needs clearing — but that is exactly the case a fleet account is in.
-    // A 40-tile cap around a hardcoded Falador west made the leg a no-op for every
-    // fisher/cooker account (they park at Catherby/Ardougne), so the bag stayed
-    // full and the hunt died on inventory space. The dev fixture starts at Falador
-    // west bank, which is why the gate never saw this.
-    async function settleBank(): Promise<void> {
-        // Two reasons to bank, and the second one used to be ignored: a full bag
-        // cannot hold the four meats, so a fisher parked at Catherby (104 tiles
-        // from Falador west) skipped this leg and then logged "not enough
-        // inventory space" ten times with the bear meat on the ground — fatpig
-        // canary 2026-10-27T13:57Z ran 28/28 slots of shark. Bank the nearest
-        // named bank whenever the bag is nearly full, distance be damned.
-        const used = sdk.getInventory().filter(i => (i.count ?? 0) > 0).length;
-        const free = 28 - used;
-        const mustBank = free < 8;
-        const near = closestFleetBank(pos().x, pos().z);
-        const away = Math.round(near.distance);
-        const bank = near.bank;
-        if (pos().level !== 0 || (!mustBank && away > 40)) {
-            log(
-                `start bank skipped: ${free} free slot(s), nearest ${bank.name} ${away} tiles — farming the meats in-quest`
-            );
-            return;
-        }
-        log(`start bank: ${free} free slot(s) — walking to ${bank.name} (${away} tiles)`);
-        if (away > 4) await walkNear(bank.x, bank.z, 3);
-        const opened = await bot.openBank();
-        if (!opened?.success) {
-            log(`bank did not open: ${opened?.message ?? '?'}`);
-            return;
-        }
-        // Bank items stream in a tick or two AFTER isOpen flips: settle, then
-        // read fresh state, or an instant read sees an empty bank.
-        await sdk.waitForCondition(s => (s.bank?.items?.length ?? 0) > 0, 8_000).catch(() => {});
-        await sdk.waitForTicks(2);
-        const keep = (name: string) =>
-            /^coins$/i.test(name) || MEATS.some(m => m.raw.test(name) || m.enchanted.test(name));
-        let deposited = 0;
-        for (const item of sdk.getInventory()) {
-            if ((item.count ?? 0) <= 0 || keep(item.name)) continue;
-            const res = await bot.depositItem(item);
-            if (res.success) deposited++;
-        }
-        const bankedLabels = MEATS.filter(m => sdk.getBankItems().some(b => m.raw.test(b.name))).map(
-            m => m.label
-        );
-        for (const m of MEATS) {
-            if (count(m.raw) > 0 || count(m.enchanted) > 0) continue;
-            // A park between runs banks whatever the account was carrying, so a
-            // resume legitimately finds ENCHANTED meats in the bank and no raw
-            // ones. Withdrawing only raw made that account re-farm the whole list
-            // (fatpig canary 2026-10-27T16:32Z ended with 4/4 enchanted banked).
-            if (sdk.getBankItems().some(b => m.enchanted.test(b.name))) {
-                await bot.withdrawItem(m.enchanted, 1);
-                log(`withdrew ${m.label} (enchanted): ${count(m.enchanted)}`);
-                continue;
-            }
-            if (!sdk.getBankItems().some(b => m.raw.test(b.name))) continue;
-            const before = count(m.raw);
-            await bot.withdrawItem(m.raw, 1);
-            log(`withdrew ${m.label}: ${before} -> ${count(m.raw)}`);
-        }
-        log(
-            `start bank (${bank.name}): deposited ${deposited} stack(s); bank held [${bankedLabels.join(',') || 'no meats'}]`
-        );
-        await bot.closeBank();
-    }
-
-    if (!allRawOrEnchanted()) await settleBank();
-
-    // 12 minutes was a dev-world budget: the fixture starts at Falador west bank
-    // with the route already walked. A live account spends 13 minutes on the
-    // Kaqemeex walk alone, so fatpig dipped all four meats at 16:55 and then fell
-    // out of this loop and threw "Quest unfinished" with the enchanted meats in
-    // hand (canary 2026-10-27T16:32Z). 30 minutes matches the canary TTL's useful
-    // half, and a run that already holds the enchanted meats ignores the clock
-    // entirely — finishing is two conversations, never a new hunt.
-    const until = Date.now() + 30 * 60_000;
-    while ((Date.now() < until || allEnchanted()) && !(await questDone())) {
-        await closeUi();
-        if (pos().isDead) {
-            await sdk.waitForTicks(3);
-            continue;
-        }
-
-        if (allEnchanted()) {
-            const seen = (await talkSanfew()).join(' | ');
-            log(`Sanfew: ${seen || '(no dialog)'}`);
-            await chat();
-            await closeUi();
-            await sdk.waitForTicks(8);
-            await proveCurrentStage('Sanfew took the enchanted meats');
-            if (await questDone()) break;
-        }
-
-        if (!allRawOrEnchanted()) {
-            const fin = (await talkKaqemeex()).join(' | ');
-            log(`Kaqemeex: ${fin || '(no dialog)'}`);
-            await chat();
-            await closeUi();
-            await sdk.waitForTicks(8);
-            await proveCurrentStage('Kaqemeex briefing');
-            if (await questDone()) break;
-            await gatherMeats();
-            continue;
-        }
-
-        const startSeen = (await talkKaqemeex()).join(' | ');
-        log(`Kaqemeex: ${startSeen || '(no dialog)'}`);
-        await chat();
-        await closeUi();
-        await sdk.waitForTicks(8);
-        await proveCurrentStage('accepted the quest at the Druids Circle');
-        if (await questDone()) break;
-
-        const san = (await talkSanfew()).join(' | ');
-        log(`Sanfew: ${san || '(no dialog)'}`);
-        await chat();
-        await closeUi();
-        await sdk.waitForTicks(8);
-        await proveCurrentStage('Sanfew named the ingredients');
-        if (await questDone()) break;
-
-        await dipMeats();
-    }
-
-    if (await questDone()) {
-        // The journal write LAGS the finishing message: settle, then re-read, so
-        // the terminal checkpoint is evidence and not a race.
-        await sdk.waitForTicks(8);
-        if (!(await checkpoint('complete', 'journal reports QUEST COMPLETE'))) {
-            throw new Error('quest finished but the complete checkpoint did not pass');
-        }
-        const gate = summarizeRun(run.directory);
-        log(`Druidic Ritual complete (journal-verified) herbloreXp=${herbXp()} (+${herbXp() - startXp})`);
-        log(
-            `Run record: ${gate.ok ? 'COMPLETE' : 'INCOMPLETE'} at ${run.directory} missing=[${gate.missing.join(',')}]`
-        );
-        // Exit 0 at once: the pipeline grades the complete checkpoint, and this
-        // quest leaves no worn kit — the next task's start-bank owns the hand-off.
-        await session.setPhase('done');
-        session.stop('done', 'Druidic Ritual complete', { restartable: false });
-        return;
-    }
-    throw new Error(`Quest unfinished @ ${pos().x},${pos().z} herbXp=${herbXp()}`);
+            from: 'unstarted',
+            to: 'started',
+            at: KAQEMEEX,
+            talk: { npc: /^kaqemeex$/i, choices: [/in search of a quest/i, /ok, i will try and help/i] },
+        },
+        {
+            from: 'started',
+            to: 'spoken_sanfew',
+            run: async (q) => {
+                await goToSanfew(q);
+                await q.talk(/^sanfew$/i, [/sent to help purify/i, /ok, i'll do that then/i]);
+            },
+        },
+        {
+            from: 'spoken_sanfew',
+            to: 'given',
+            needs: MEATS.map((m) => ({ item: m.raw, count: 1, or: m.enchanted })),
+            run: async (q) => {
+                if (MEATS.some((m) => q.count(m.enchanted) === 0)) {
+                    await useDungeonLadder(q, true);
+                    await enterCauldronRoom(q);
+                    await dipMeats(q);
+                }
+                // Holding all four enchanted meats, Sanfew takes them as soon as he is spoken to.
+                await goToSanfew(q);
+                await q.talk(/^sanfew$/i);
+            },
+        },
+        {
+            from: 'given',
+            to: 'complete',
+            at: KAQEMEEX,
+            talk: { npc: /^kaqemeex$/i },
+        },
+    ],
 });
