@@ -40,6 +40,9 @@ const stage = (id: string, kind: 'unstarted' | 'active' | 'complete', text: stri
 await runQuest({
     id: 'death',
     hub: 'falador-east',
+    // Denulth only finishes the quest with the map in the pack (death_ig_commander.rs2): a resumed
+    // run had banked it and talked to him three times for nothing (ABGARMY08, 2026-10-30).
+    carry: ['secret way map', 'combination'],
     journal: { label: 'Death Plateau', title: 'Death Plateau' },
     stages: [
         stage('unstarted', 'unstarted', 'I can start this quest by speaking to'),
