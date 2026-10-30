@@ -122,6 +122,10 @@ const ZAFF = { x: 3203, z: 3433, npc: /^zaff$/i };
 const LUMBRIDGE_KNIFE = { x: 3224, z: 3202 };
 /** Dommik's Crafting Store, Al Kharid: needle and thread 1gp. */
 const DOMMIK = { x: 3322, z: 3194, npc: /^dommik$/i };
+/** Arhein's store, Catherby: tinderbox. */
+const ARHEIN = { x: 2803, z: 3430, npc: /^arhein$/i };
+/** Rellekka's potato patch, south of the longhall (maps m41_57 potato locs 2674-2680,3653). */
+const RELLEKKA_POTATOES = [{ x: 2677, z: 3652 }];
 /** Betty's Magic Emporium, Port Sarim: elemental and chaos runes. */
 const BETTY = { x: 3012, z: 3259, npc: /^betty$/i };
 const LUMBRIDGE_CASTLE_STAIRS = { x: 3205, z: 3208 };
@@ -463,6 +467,19 @@ export const SOURCES: Record<string, Source> = {
         ],
         get: (q) => dramenStaff(q),
     },
+
+    // ── The Fremennik Trials
+    tinderbox: {
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 5 }],
+        get: async (q) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, ARHEIN, 'tinderbox', 1);
+        },
+    },
+    potato: { get: (q, count) => pickLocs(q, 'potato', /^potato$/i, RELLEKKA_POTATOES, count) },
+    /** Lalli's altar step (raw shark on the Strange altar): Fishing 76 to catch, so a mule stocks it. */
+    'raw shark': { mule: true },
 
     shears: {
         tool: true,
