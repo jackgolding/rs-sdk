@@ -214,9 +214,9 @@
       "args": [
         "jacklove7",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/fishing-route.ts",
         "jacklove7",
-        "--fletch"
+        "--bignet"
       ],
       "noEffectMinutes": 60
     },
@@ -409,9 +409,9 @@
         "bots/quests/lost-city-prep.ts",
         "ABGARMY01",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/fishing-route.ts",
         "ABGARMY01",
-        "--fletch"
+        "--bignet"
       ],
       "noEffectMinutes": 60
     },
@@ -425,9 +425,9 @@
         "bots/quests/lost-city-prep.ts",
         "ABGARMY02",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/fishing-route.ts",
         "ABGARMY02",
-        "--fletch"
+        "--bignet"
       ],
       "noEffectMinutes": 60
     },
@@ -594,9 +594,9 @@
       "args": [
         "ABGARMY15",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/fishing-route.ts",
         "ABGARMY15",
-        "--fletch"
+        "--bignet"
       ],
       "noEffectMinutes": 60
     },
