@@ -18,11 +18,13 @@ import type { BotActions } from '../../sdk/actions';
 import type { BotSDK } from '../../sdk/index';
 import { readParkRecord, type ParkRecord } from '../../sdk/index';
 import {
+    AL_KHARID_BANK,
     ARDOUGNE_BANK,
     ARDY_TO_CATHERBY,
     CATHERBY_BANK,
     DRAYNOR_BANK,
     FALADOR_EAST_BANK,
+    SEERS_BANK,
     VARROCK_WEST_BANK,
     YANILLE_BANK,
     type Tile,
@@ -32,7 +34,7 @@ import { walkSendHops } from './movement';
 /** Local copies in thieving-route.ts / lost-city.ts agree on this stand. */
 const EDGEVILLE_BANK: Tile = { x: 3094, z: 3492 };
 
-export type SafeBankName = 'draynor' | 'catherby' | 'ardougne' | 'yanille' | 'falador-east' | 'edgeville' | 'varrock-west';
+export type SafeBankName = 'draynor' | 'catherby' | 'ardougne' | 'yanille' | 'falador-east' | 'edgeville' | 'varrock-west' | 'seers' | 'al-kharid';
 
 /** The stops nearestBank() chooses between — fixed, so new quest hubs don't move fleet banking. */
 const FLEET_BANKS: SafeBankName[] = ['draynor', 'catherby', 'ardougne', 'yanille', 'falador-east', 'edgeville'];
@@ -46,6 +48,10 @@ export const SAFE_BANKS: Record<SafeBankName, Tile> = {
     edgeville: EDGEVILLE_BANK,
     /** Romeo & Juliet's hub: Juliet's house, Romeo and the Apothecary are all within ~60 tiles. */
     'varrock-west': VARROCK_WEST_BANK,
+    /** buy-fremennik-helms.ts: the bank nearest Rellekka. */
+    seers: SEERS_BANK,
+    /** process-bank.ts: the furnace (3272,3185) and the kebab shop range (3271,3180) are steps away. */
+    'al-kharid': AL_KHARID_BANK,
 };
 
 export interface RouteLeg {
