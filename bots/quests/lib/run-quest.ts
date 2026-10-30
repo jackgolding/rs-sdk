@@ -43,7 +43,9 @@ import { readJournalCheckpoint } from '../../../quest-lab/journal-reader';
 import { appendCheckpoint, createRun, safeRunId, summarizeRun, type RunHandle } from '../../../quest-lab/records';
 import type { JournalRule } from '../../../quest-lab/evidence';
 import { travelTo, type Tile } from '../travel';
-import { crossAlKharidToll, TOLL_FEE, TOLL_X } from '../alkharid-toll';
+import { crossAlKharidToll, TOLL_X } from '../alkharid-toll';
+/** The Al Kharid border toll. Local: the fleet's alkharid-toll.ts does not export TOLL_FEE. */
+const TOLL_FEE = 10;
 import { closeUi } from '../movement';
 import { countItems, requireSkills } from '../quest-lib';
 import { depositAllInventory, type SupplyCtx } from '../quest-supplies';
