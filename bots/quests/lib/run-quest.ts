@@ -60,7 +60,7 @@ import { inSeerHouse, leaveSeerHouse } from './fremennik';
 import { inEssenceMine, leaveEssenceMine } from './mining';
 import { inDungeon as inEntranaDungeon, teleportOut as teleportOutOfEntranaDungeon } from './lost-city';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
-import { fmtTile, pickConnector } from './floors';
+import { fmtTile } from './floors';
 import { acquireQuestSlot, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
 
 export type { Need } from './sources';
@@ -90,7 +90,7 @@ export interface Quest {
      */
     reach: (loc: RegExp, withOption?: RegExp) => Promise<void>;
     /** Climb stairs/ladders near the player until on `level`. Throws on failure. */
-    /** Up or down to `level`; with `toward`, by the staircase whose landing connects to it. */
+    /** Up or down to `level` by the nearest stairs/ladder; `toward` is the destination, for the log. */
     climbTo: (level: number, toward?: { x: number; z: number }) => Promise<void>;
     /** Get near `at` if given, then talk (talkTo walks the rest) and pick `choices` in order. Returns all text seen. */
     talk: (npc: RegExp, choices?: Array<RegExp | string>, at?: Tile) => Promise<string>;
@@ -544,19 +544,11 @@ export async function runQuest(def: QuestDef): Promise<void> {
                         (sdk.getNearbyLocs() ?? [])
                             .filter((l) => /stair|ladder/i.test(l.name) && l.options?.some((o) => opt.test(o)) && (l.distance ?? 99) <= radius)
                             .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99));
+                    // Nearest stairs first. Judging staircases by the pathfinder's view of the next
+                    // plane does not work: open air on upper planes reads as walkable, so a ladder in
+                    // another building "connected" and the Blue Moon Inn's own stairs did not
+                    // (jacklove3, Pirate's Treasure, 2026-10-30). goTo's wrong-floor check catches a miss.
                     let loc: NearbyLoc | undefined;
-                    if (toward) {
-                        // With a destination, the staircase whose landing on the next plane connects to
-                        // it: the nearest one put ABGARMY05 on the floor below Vyvin's cupboard, at the
-                        // right x,z, searching a junk cupboard (2026-10-30).
-                        await sdk.scanNearbyLocs(25).catch(() => undefined);
-                        loc = pickConnector(climbable(25).filter((l) => l.reachable !== false), next, toward);
-                        if (!loc) {
-                            await q.reach(/stair|ladder/i, opt).catch(() => undefined);
-                            await sdk.scanNearbyLocs(25).catch(() => undefined);
-                            loc = pickConnector(climbable(25).filter((l) => l.reachable !== false), next, toward);
-                        }
-                    }
                     if (!loc) {
                         // Only stairs/ladders beside us, reachable first. Opening doors toward
                         // "the nearest" one let the bot pick a ladder 24 tiles off and climb a

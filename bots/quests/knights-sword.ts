@@ -163,6 +163,9 @@ async function searchForPortrait(q: Quest): Promise<void> {
 await runQuest({
     id: 'squire',
     hub: 'falador-east',
+    // The cupboard gives no portrait while one sits in the bank (cupboards.rs2): the prologue
+    // banked ABGARMY05's, and it searched in silence 30 times (2026-10-30).
+    carry: ['portrait'],
     journal: { label: "The Knight's Sword", title: "The Knight's Sword" },
     stages: [
         { id: 'unstarted', rule: rule('not_started', 'unstarted', 'I can start this quest by talking to the Squire') },
