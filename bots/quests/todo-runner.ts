@@ -27,6 +27,12 @@
  * TODO_RECHECK_MIN (default 20) by pausing the grind, so a fleet-wide rollout of
  * a newly proven quest is a todo.json append — no deploy, no restart.
  *
+ * A quest whose concurrency slots are all taken is DEFERRED, not waited on: the
+ * child runs with QUEST_SLOT_NOWAIT=1 and exits SLOTS_FULL_EXIT at once, the list
+ * moves on (no failure counted), and the deferred quest is retried on the next
+ * pass, or after the grind's next live-list check. 21 accounts used to stand idle
+ * waiting on Knight's Sword's 3 slots (2026-10-30).
+ *
  * Exit codes: 2 bad usage · 143 stopped by signal · otherwise the --then script's code.
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, readdirSync, writeFileSync } from 'node:fs';
@@ -50,12 +56,15 @@ interface TodoFile {
 interface ItemState {
   done?: { at: string; runId: string; alreadyComplete?: boolean };
   failures?: number;
+  deferredAt?: string;
   lastError?: string;
   lastAt?: string;
 }
 type StateFile = Record<string, ItemState>;
 
 const MAX_FAILURES = 2;
+/** lib/no-client-waits.ts SLOTS_FULL_EXIT: the quest's slots were full and it did nothing. */
+const SLOTS_FULL_EXIT = 75;
 const QUEST_CAP_MS = Number(process.env.TODO_QUEST_CAP_MIN ?? 180) * 60_000;
 const argv = process.argv.slice(2);
 const thenAt = argv.indexOf('--then');
@@ -164,7 +173,7 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
 
 /** Run a script as a child, streaming its output; keep a tail for verdict hints. */
 async function runChild(cmd: string[], capMs = 0): Promise<{ code: number; tail: string }> {
-  const proc = Bun.spawn(['bun', ...cmd], { stdout: 'pipe', stderr: 'inherit' });
+  const proc = Bun.spawn(['bun', ...cmd], { stdout: 'pipe', stderr: 'inherit', env: { ...process.env, QUEST_SLOT_NOWAIT: '1' } });
   child = proc;
   // A wedged quest must not hold the account forever: past the cap it is a
   // failure like any other and the list moves on.
@@ -204,6 +213,12 @@ async function runItem(item: TodoItem): Promise<void> {
   const startedAt = Date.now();
   const { code, tail } = await runChild([item.script, account!, ...(item.args ?? [])], QUEST_CAP_MS);
   if (stopping) return;
+  if (code === SLOTS_FULL_EXIT) {
+    st.deferredAt = stamp();
+    saveState();
+    log(`${item.questId} deferred: its quest slots are full — on to the next item`);
+    return;
+  }
   if (code !== 0) return fail(`exited ${code}`);
 
   const dir = newestRunFor(item.questId, startedAt - 60_000);
@@ -224,6 +239,7 @@ async function runItem(item: TodoItem): Promise<void> {
 
   st.done = { at: stamp(), runId: grade.runId ?? dir };
   delete st.lastError;
+  delete st.deferredAt;
   saveState();
   mirrorDone(item.questId, st.done);
   log(`${item.questId} PASS — ${grade.reason}`);
@@ -252,8 +268,8 @@ async function drain(): Promise<void> {
     }
   }
   const doneN = queue.filter(isDone).length;
-  const gaveUp = queue.filter(i => !isDone(i)).map(i => `${i.questId}(${state[i.questId]?.lastError ?? 'skipped'})`);
-  log(`list finished: ${doneN}/${queue.length} done${gaveUp.length ? ` · gave up: ${gaveUp.join('; ')}` : ''}`);
+  const gaveUp = queue.filter(i => !isDone(i)).map(i => `${i.questId}(${state[i.questId]?.lastError ?? (state[i.questId]?.deferredAt ? 'deferred: slots full' : 'skipped')})`);
+  log(`list finished: ${doneN}/${queue.length} done${gaveUp.length ? ` · not done: ${gaveUp.join('; ')}` : ''}`);
 }
 
 /** True when the shared list gained work for this account since the last drain. */

@@ -11,6 +11,8 @@ export const sleepWithoutClient = (ms: number) => new Promise<void>((r) => setTi
 
 /** Default accounts per quest at once; the fleet's containers share bots/, so the slots are files there. */
 export const QUEST_SLOTS = 3;
+/** Exit code of a quest skipped because its slots are full (QUEST_SLOT_NOWAIT=1): todo-runner defers it. */
+export const SLOTS_FULL_EXIT = 75;
 const SLOT_DIR = join(process.cwd(), 'bots', '.quest-slots');
 /** A slot not refreshed this long belongs to a run that died without releasing it. */
 const SLOT_STALE_MS = 10 * 60_000;
@@ -82,6 +84,19 @@ export async function acquireQuestSlot(id: string, max: number, account: string,
             } catch {
                 /* taken */
             }
+        }
+        // Under todo-runner, a full quest is skipped, not waited on: the account does its next
+        // quest or its grind and comes back (21 accounts sat idle on Knight's Sword, 2026-10-30).
+        if (process.env.QUEST_SLOT_NOWAIT === '1') {
+            const who = readdirSync(dir).map((f) => {
+                try {
+                    return readFileSync(join(dir, f), 'utf-8').split(' ')[0];
+                } catch {
+                    return '?';
+                }
+            });
+            note(`all ${max} quest slots taken (${who.join(', ')}) — deferring`);
+            process.exit(SLOTS_FULL_EXIT);
         }
         if (Date.now() - lastNote > 5 * 60_000) {
             const who = readdirSync(dir).map((f) => {
