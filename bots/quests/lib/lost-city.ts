@@ -253,7 +253,13 @@ export async function enterZanaris(q: Quest): Promise<void> {
  * jacklove6 sat at staff_made with no staff anywhere (2026-10-30).
  */
 export async function dramenStaff(q: Quest): Promise<void> {
+    // The staff is not spawnable, so prepare never gathered its inputs: a banked branch
+    // went straight to carving without a knife (jacklove18, 2026-10-30).
+    await q.ensure('knife', 1);
     if (q.count('dramen branch') === 0) {
+        await q.ensure('air rune', 3);
+        await q.ensure('earth rune', 1);
+        await q.ensure('law rune', 1);
         await toDungeon(q);
         await spiritAndBranch(q, true);
     }
