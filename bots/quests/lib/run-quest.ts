@@ -463,7 +463,19 @@ export async function runQuest(def: QuestDef): Promise<void> {
                     // A naked prologue reaches the gate with no coins: Jackpoo5 sat at 3267,3227 for an
                     // hour on its way to the Al Kharid hub (2026-10-30). Get the fee, then try again.
                     if (!crossed && q.count('coins') < TOLL_FEE) {
-                        await q.ensure('coins', TOLL_FEE);
+                        // The fee from a bank on our side of the gate: the coin source pickpockets
+                        // Lumbridge men, out of reach from the Al Kharid side (jacklove10 looped at
+                        // 3269,3226 with 0 coins, 2026-10-30).
+                        const sideBank = inAlKharid(here) ? SAFE_BANKS['al-kharid'] : SAFE_BANKS.draynor;
+                        await q.goTo(sideBank, 4);
+                        await bot.openBank().catch(() => undefined);
+                        const banked = sdk.findBankItem(/^coins$/i);
+                        if (banked && banked.count >= TOLL_FEE - q.count('coins')) {
+                            if (sdk.getInventory().length >= 28) for (const it of sdk.getInventory()) await bot.depositItem(it.name, -1).catch(() => undefined);
+                            await bot.withdrawItem(banked, TOLL_FEE - q.count('coins'));
+                        }
+                        await bot.closeBank().catch(() => undefined);
+                        if (q.count('coins') < TOLL_FEE && !inAlKharid(here)) await q.ensure('coins', TOLL_FEE);
                         crossed = await crossAlKharidToll(bot, sdk, inAlKharid(tile), { log });
                     }
                     if (!crossed) log('toll: could not cross; walking around');
