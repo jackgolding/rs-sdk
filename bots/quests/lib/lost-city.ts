@@ -47,7 +47,9 @@ const pos = (q: Quest) => {
     return { x: p?.worldX ?? 0, z: p?.worldZ ?? 0, level: p?.level ?? 0 };
 };
 const where = (q: Quest) => `(${pos(q).x},${pos(q).z})`;
-export const inDungeon = (q: Quest) => pos(q).z > 9700 && pos(q).z < 9800 && pos(q).x >= 2800 && pos(q).x <= 2890;
+/** Map square 44,151-152 (x 2816-2879). Taverley dungeon starts at x 2880: the old 2890 bound took a
+ * Druidic Ritual run at the cauldron (2885,9797) for the Entrana dungeon and tried to teleport out. */
+export const inDungeon = (q: Quest) => pos(q).z > 9700 && pos(q).z < 9800 && pos(q).x >= 2816 && pos(q).x <= 2879;
 const onEntrana = (q: Quest) => pos(q).x >= 2800 && pos(q).x <= 2880 && pos(q).z >= 3320 && pos(q).z <= 3400;
 
 /** Op on the loc named `name` near `at` (nearest such loc to it) until `done`, driving dialogs with `choices`. */

@@ -36,6 +36,7 @@ import { appendFileSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
 import type { BotActions } from '../../../sdk/actions';
 import type { BotSDK } from '../../../sdk/index';
+import type { NearbyLoc } from '../../../sdk/types';
 import { runScript } from '../../../sdk/runner';
 import { ActivitySession } from '../../../sdk/activity';
 import { readJournalCheckpoint } from '../../../quest-lab/journal-reader';
@@ -59,6 +60,7 @@ import { inSeerHouse, leaveSeerHouse } from './fremennik';
 import { inEssenceMine, leaveEssenceMine } from './mining';
 import { inDungeon as inEntranaDungeon, teleportOut as teleportOutOfEntranaDungeon } from './lost-city';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
+import { fmtTile, pickConnector } from './floors';
 import { acquireQuestSlot, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
 
 export type { Need } from './sources';
@@ -88,7 +90,8 @@ export interface Quest {
      */
     reach: (loc: RegExp, withOption?: RegExp) => Promise<void>;
     /** Climb stairs/ladders near the player until on `level`. Throws on failure. */
-    climbTo: (level: number) => Promise<void>;
+    /** Up or down to `level`; with `toward`, by the staircase whose landing connects to it. */
+    climbTo: (level: number, toward?: { x: number; z: number }) => Promise<void>;
     /** Get near `at` if given, then talk (talkTo walks the rest) and pick `choices` in order. Returns all text seen. */
     talk: (npc: RegExp, choices?: Array<RegExp | string>, at?: Tile) => Promise<string>;
     /** Hold `count` of `item`: inventory, then its source procedure (assisted: spawn). Throws when it cannot. */
@@ -234,6 +237,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
             return { x: p?.worldX ?? 0, z: p?.worldZ ?? 0, level: p?.level ?? 0 };
         };
         const away = (tile: Tile) => Math.hypot(pos().x - tile.x, pos().z - tile.z);
+        /** Where we stand, plane included: a right-x,z-wrong-floor bug reads as (2984,3336,L1). */
+        const whereAt = () => fmtTile(pos());
 
         /** Customs boat back to Port Sarim, then over the gangplank (pirates-treasure.ts sail). */
         async function sailFromKaramja(): Promise<void> {
@@ -424,7 +429,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inArenaCompound(pos()) && !inArenaCompound({ ...tile, level: tile.level ?? 0 })) await leaveArena(q);
                 // Restarted inside Peer the Seer's house (pigfat, mid-puzzle in the mural room, 2026-10-30).
                 if (inSeerHouse(pos()) && !inSeerHouse({ ...tile, level: tile.level ?? 0 })) await leaveSeerHouse(q);
-                if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0);
+                if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0, tile);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in
                 // the cellar after a client drop looped on the prologue's walk to the bank
@@ -441,7 +446,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (pos().level === 0 && onEntrana(pos()) && !onEntrana(tile) && tile.z < UNDERGROUND_Z) await sailFromEntrana();
                 // The Entrana dungeon's ladder is one-way: Lumbridge Teleport out (lib/lost-city.ts), as
                 // the quest does. jacklove18 sat at (2860,9730) failing every quest's first walk.
-                if (inEntranaDungeon(q) && !(tile.z > 9700 && tile.z < 9800 && tile.x >= 2800 && tile.x <= 2890)) {
+                if (inEntranaDungeon(q) && !(tile.z > 9700 && tile.z < 9800 && tile.x >= 2816 && tile.x <= 2879)) {
                     log(`in the Entrana dungeon at (${pos().x},${pos().z}): Lumbridge Teleport out`);
                     await teleportOutOfEntranaDungeon(q);
                 }
@@ -502,7 +507,11 @@ export async function runQuest(def: QuestDef): Promise<void> {
                     }
                     if (!res.success) throw new Error(`approach to (${tile.x},${tile.z}) failed: ${res.message}`);
                 }
-                log(`goTo (${tile.x},${tile.z}) from (${from.x},${from.z}): ${tickNow(sdk) - t0}t`);
+                // Right x,z on the wrong floor is not there: say so here, not 15 junk searches later.
+                if (tile.level !== undefined && pos().level !== tile.level) {
+                    throw new Error(`goTo ${fmtTile(tile)} arrived on the wrong floor: ${whereAt()}`);
+                }
+                log(`goTo ${fmtTile(tile)} from ${fmtTile(from)}: ${tickNow(sdk) - t0}t`);
                 session.noteProgress('location', `${tile.x},${tile.z}`);
             },
             async reach(pattern, withOption) {
@@ -524,32 +533,55 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 }
                 if ((await find())?.reachable === false) throw new Error(`${pattern} is not reachable`);
             },
-            async climbTo(level) {
+            async climbTo(level, toward) {
                 for (let i = 0; i < 6; i++) {
                     const now = pos().level;
                     if (now === level) return;
+                    const next = now + (now < level ? 1 : -1);
                     // Draynor Manor's staircases say Walk-up / Walk-down.
                     const opt = now < level ? /climb-up|climb up|walk-up/i : /climb-down|climb down|walk-down/i;
-                    // Only stairs/ladders beside us, reachable first. Opening doors toward
-                    // "the nearest" one let the bot pick a ladder 24 tiles off and climb a
-                    // castle tower instead of the stairs it stood at (sheep, 2026-10-28).
-                    const near = async () => {
-                        await sdk.scanNearbyLocs(12).catch(() => undefined);
-                        return (sdk.getNearbyLocs() ?? [])
-                            .filter((l) => /stair|ladder/i.test(l.name) && l.options?.some((o) => opt.test(o)) && (l.distance ?? 99) <= 12)
+                    const climbable = (radius: number) =>
+                        (sdk.getNearbyLocs() ?? [])
+                            .filter((l) => /stair|ladder/i.test(l.name) && l.options?.some((o) => opt.test(o)) && (l.distance ?? 99) <= radius)
                             .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99));
-                    };
-                    let loc = (await near()).find((l) => l.reachable !== false);
+                    let loc: NearbyLoc | undefined;
+                    if (toward) {
+                        // With a destination, the staircase whose landing on the next plane connects to
+                        // it: the nearest one put ABGARMY05 on the floor below Vyvin's cupboard, at the
+                        // right x,z, searching a junk cupboard (2026-10-30).
+                        await sdk.scanNearbyLocs(25).catch(() => undefined);
+                        loc = pickConnector(climbable(25).filter((l) => l.reachable !== false), next, toward);
+                        if (!loc) {
+                            await q.reach(/stair|ladder/i, opt).catch(() => undefined);
+                            await sdk.scanNearbyLocs(25).catch(() => undefined);
+                            loc = pickConnector(climbable(25).filter((l) => l.reachable !== false), next, toward);
+                        }
+                    }
+                    if (!loc) {
+                        // Only stairs/ladders beside us, reachable first. Opening doors toward
+                        // "the nearest" one let the bot pick a ladder 24 tiles off and climb a
+                        // castle tower instead of the stairs it stood at (sheep, 2026-10-28).
+                        await sdk.scanNearbyLocs(12).catch(() => undefined);
+                        loc = climbable(12).find((l) => l.reachable !== false);
+                    }
                     if (!loc) {
                         // From a closed room (the castle wheel room) the stairs are behind a door.
                         await q.reach(/stair|ladder/i, opt).catch(() => undefined);
-                        loc = (await near()).find((l) => l.reachable !== false);
+                        await sdk.scanNearbyLocs(12).catch(() => undefined);
+                        loc = climbable(12).find((l) => l.reachable !== false);
                     }
-                    if (!loc) throw new Error(`no stairs/ladder to climb ${now < level ? 'up' : 'down'} near the player`);
+                    if (!loc && now > level) {
+                        // Down only: the White Knights' tower ladder is 15 tiles from Vyvin's
+                        // corridor on level 1 (ABGARMY05 stuck at 2984,3336, 2026-10-30).
+                        await sdk.scanNearbyLocs(25).catch(() => undefined);
+                        loc = climbable(25).find((l) => l.reachable !== false);
+                    }
+                    if (!loc) throw new Error(`no stairs/ladder to climb ${now < level ? 'up' : 'down'} near ${whereAt()}`);
+                    log(`climb ${loc.name} at (${loc.x},${loc.z},L${now}) toward L${level}${toward ? ` (${toward.x},${toward.z})` : ''}`);
                     await bot.interactLoc(loc, opt);
                     await untilTicks(sdk, (s) => (s.player?.level ?? now) !== now, 30);
                 }
-                if (pos().level !== level) throw new Error(`could not reach plane ${level}`);
+                if (pos().level !== level) throw new Error(`could not reach plane ${level} (at ${whereAt()})`);
             },
             async talk(npc, choices = [], at) {
                 await closeUi(bot, sdk);

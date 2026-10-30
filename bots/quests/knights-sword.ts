@@ -35,12 +35,11 @@ const TOWER_LADDER = { x: 2983, z: 3351 };
 const TOWER_STAIRS_L1 = { x: 2984, z: 3337, level: 1 };
 const VYVIN_ROOM = { x: 2983, z: 3335, level: 2 };
 const CUPBOARD = { x: 2984, z: 3336 };
-/** Tiles beside the cupboard the search can be made from. */
+/** Tiles the search can be made from: the cupboard opens west. From (2984,3335) and (2985,3335)
+ * the game says "I can't reach that!" (ABGARMY05 searched 15 times from the east, 2026-10-30). */
 const CUPBOARD_SIDES = [
-    { x: 2983, z: 3335 },
-    { x: 2984, z: 3335 },
-    { x: 2985, z: 3335 },
     { x: 2983, z: 3336 },
+    { x: 2983, z: 3335 },
 ];
 /** Back down: the staircase beside the room, then the level-1 end of the courtyard ladder. */
 const TOWER_DOWN_L2 = { x: 2983, z: 3339, level: 2 };
@@ -73,10 +72,17 @@ async function takePortrait(q: Quest): Promise<void> {
 }
 
 async function searchForPortrait(q: Quest): Promise<void> {
-    await q.goTo(TOWER_LADDER, 1);
-    await q.climbTo(1);
-    await q.goTo(TOWER_STAIRS_L1, 1);
-    await q.climbTo(2);
+    // A run restarted up the tower resumes there: walking to the courtyard ladder first meant
+    // climbing down out of Vyvin's shut room, and no stairs were in view (ABGARMY09, 2026-10-30).
+    const level = q.sdk.getState()?.player?.level ?? 0;
+    if (level < 1) {
+        await q.goTo(TOWER_LADDER, 1);
+        await q.climbTo(1);
+    }
+    if (level < 2) {
+        await q.goTo(TOWER_STAIRS_L1, 1);
+        await q.climbTo(2);
+    }
     await q.goTo(VYVIN_ROOM, 1);
 
     const me = () => {
@@ -85,6 +91,20 @@ async function searchForPortrait(q: Quest): Promise<void> {
     };
     const vyvin = () => q.sdk.findNearbyNpc(/^sir vyvin$/i);
     for (let attempt = 1; attempt <= SEARCH_ATTEMPTS && q.count(PORTRAIT) < 1; attempt++) {
+        // The floor below has a cupboard at the same x,z that only holds junk: ABGARMY05 searched
+        // it 15 times from level 1 (2026-10-30). Vyvin's cupboard is on level 2.
+        const plane = q.sdk.getState()?.player?.level ?? -1;
+        if (plane !== 2) {
+            q.log(`cupboard #${attempt}: on level ${plane}, not Vyvin's floor; back up the tower stairs`);
+            if (plane < 1) {
+                await q.goTo(TOWER_LADDER, 1);
+                await q.climbTo(1);
+            }
+            await q.goTo(TOWER_STAIRS_L1, 1);
+            await q.climbTo(2);
+            await q.goTo(VYVIN_ROOM, 1);
+            if ((q.sdk.getState()?.player?.level ?? -1) !== 2) throw new Error(`could not get to Vyvin's floor (level ${q.sdk.getState()?.player?.level})`);
+        }
         const v0 = vyvin();
         const side = v0 ? [...CUPBOARD_SIDES].sort((a, b) => cheb(b, v0) - cheb(a, v0))[0]! : CUPBOARD_SIDES[0]!;
         if (cheb(me(), side) > 0) {
@@ -106,13 +126,14 @@ async function searchForPortrait(q: Quest): Promise<void> {
         if (!op) throw new Error(`cupboard offers ${cupboard.options.join('/')}`);
         const v = vyvin();
         q.log(`cupboard ${op} #${attempt} from (${me().x},${me().z}); Vyvin ${v ? `(${v.x},${v.z}) gap ${cheb(me(), v)}` : 'not in view'}`);
-        await q.bot.interactLoc(cupboard, new RegExp(`^${op}$`, 'i'));
+        const t0 = q.sdk.getState()?.tick ?? 0;
+        const res = await q.bot.interactLoc(cupboard, new RegExp(`^${op}$`, 'i'));
         await untilTicks(q.sdk, () => q.count(PORTRAIT) > 0 || !!q.sdk.getState()?.dialog?.isOpen, 6);
         if (q.count(PORTRAIT) < 1) {
             // ABGARMY05 searched 15 times with Vyvin 3-4 tiles off and got nothing: say what the game said.
             const s = q.sdk.getState();
-            const said = (s?.gameMessages ?? []).filter((m) => m.type === 0).slice(-2).map((m) => m.text).join(' | ');
-            q.log(`cupboard #${attempt}: no portrait; dialog "${s?.dialog?.text ?? ''}" messages "${said}" at (${me().x},${me().z})`);
+            const said = (s?.gameMessages ?? []).filter((m) => m.type === 0 && m.tick >= t0).slice(-3).map((m) => m.text).join(' | ');
+            q.log(`cupboard #${attempt}: no portrait; op ${res.success ? 'ok' : `failed (${res.message})`}; dialog "${s?.dialog?.text ?? ''}" messages "${said}" at (${me().x},${me().z})`);
         }
         await q.bot.dismissBlockingUI();
         await untilTicks(q.sdk, () => q.count(PORTRAIT) > 0, 3);
