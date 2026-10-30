@@ -43,7 +43,7 @@ import { readJournalCheckpoint } from '../../../quest-lab/journal-reader';
 import { appendCheckpoint, createRun, safeRunId, summarizeRun, type RunHandle } from '../../../quest-lab/records';
 import type { JournalRule } from '../../../quest-lab/evidence';
 import { travelTo, type Tile } from '../travel';
-import { crossAlKharidToll, TOLL_X } from '../alkharid-toll';
+import { crossAlKharidToll, TOLL_FEE, TOLL_X } from '../alkharid-toll';
 import { closeUi } from '../movement';
 import { countItems, requireSkills } from '../quest-lib';
 import { depositAllInventory, type SupplyCtx } from '../quest-supplies';
@@ -457,7 +457,14 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // gate blacklists it and detours around the fence (alkharid-toll.ts).
                 const here = pos();
                 if (away(tile) > tolerance && inAlKharid(here) !== inAlKharid(tile) && Math.min(here.x, tile.x) < TOLL_X) {
-                    if (!(await crossAlKharidToll(bot, sdk, inAlKharid(tile), { log }))) log('toll: could not cross; walking around');
+                    let crossed = await crossAlKharidToll(bot, sdk, inAlKharid(tile), { log });
+                    // A naked prologue reaches the gate with no coins: Jackpoo5 sat at 3267,3227 for an
+                    // hour on its way to the Al Kharid hub (2026-10-30). Get the fee, then try again.
+                    if (!crossed && q.count('coins') < TOLL_FEE) {
+                        await q.ensure('coins', TOLL_FEE);
+                        crossed = await crossAlKharidToll(bot, sdk, inAlKharid(tile), { log });
+                    }
+                    if (!crossed) log('toll: could not cross; walking around');
                 }
                 const viaTravel = async () => {
                     const res = await travelTo(sdk, bot, tile, { log, tolerance: TRAVEL_ARRIVAL });
