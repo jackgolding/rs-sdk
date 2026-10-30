@@ -14,6 +14,8 @@
  */
 import { runQuest, type Quest } from './lib/run-quest';
 import { untilTicks } from './lib/ticks';
+import { acquireQuestSlot } from './lib/no-client-waits';
+import { join } from 'node:path';
 
 const SQUIRE = { x: 2977, z: 3342 };
 const RELDO = { x: 3209, z: 3495 };
@@ -44,7 +46,10 @@ const CUPBOARD_SIDES = [
 const TOWER_DOWN_L2 = { x: 2983, z: 3339, level: 2 };
 const TOWER_DOWN_L1 = { x: 2983, z: 3350, level: 1 };
 const PORTRAIT = /^(knights )?portrait$/i;
-const SEARCH_ATTEMPTS = 10;
+const SEARCH_ATTEMPTS = 15;
+/** One account in Sir Vyvin's room at a time: each refused search freezes him by the cupboard in his
+ * "HEY!" dialog, so two accounts kept him there for each other (jacklove17, jacklove20, 2026-10-30). */
+const ACCOUNT = process.argv[2] ?? process.env.BOT_USERNAME ?? 'unknown';
 
 const rule = (id: string, kind: 'unstarted' | 'active' | 'complete', text: string) => ({ id: `squire:${id}`, kind, all: [text] });
 
@@ -59,6 +64,15 @@ const cheb = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.
  */
 async function takePortrait(q: Quest): Promise<void> {
     if (q.count(PORTRAIT) > 0) return;
+    const release = await acquireQuestSlot('squire-portrait', 1, ACCOUNT, join(process.cwd(), 'bots', ACCOUNT, 'grind.log'));
+    try {
+        await searchForPortrait(q);
+    } finally {
+        release();
+    }
+}
+
+async function searchForPortrait(q: Quest): Promise<void> {
     await q.goTo(TOWER_LADDER, 1);
     await q.climbTo(1);
     await q.goTo(TOWER_STAIRS_L1, 1);
@@ -76,10 +90,15 @@ async function takePortrait(q: Quest): Promise<void> {
         if (cheb(me(), side) > 0) {
             await q.bot.walkTo(side.x, side.z, 0);
         }
-        await untilTicks(q.sdk, () => {
+        const clear = await untilTicks(q.sdk, () => {
             const v = vyvin();
             return !v || cheb(me(), v) > 1;
-        }, 20);
+        }, 60);
+        if (!clear) {
+            // Searching beside him only starts his dialog, which holds him there.
+            q.log(`cupboard #${attempt}: Sir Vyvin still beside (${me().x},${me().z}); waiting for him to wander`);
+            continue;
+        }
         await q.sdk.scanNearbyLocs(6).catch(() => undefined);
         const cupboard = (q.sdk.getNearbyLocs() ?? []).find((l) => /cupboard/i.test(l.name) && l.x === CUPBOARD.x && l.z === CUPBOARD.z);
         if (!cupboard) throw new Error(`no cupboard at (${CUPBOARD.x},${CUPBOARD.z}) from (${me().x},${me().z})`);
