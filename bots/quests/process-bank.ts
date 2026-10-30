@@ -7,8 +7,15 @@
  *   herbs    Identify grimy herbs at the bank (guam 3 … torstol 75)
  *   cooking  raw food on the kebab shop range (3271,3180), burnt food banked
  *   smelting ore at the furnace (3272,3185): bronze, silver, steel, gold, mithril,
- *            adamant, rune, ore used on the furnace bar by bar. Coal goes to the highest bar the account will reach
- *            (lib/processing.ts planSmelting); iron ore with no coal stays banked.
+ *            adamant, rune, ore used on the furnace bar by bar. Coal goes to the
+ *            highest bar the account will reach (lib/processing.ts planSmelting);
+ *            iron ore with no coal stays banked.
+ *   rings    gold bar + emerald (cut and smelted above count) at the furnace with a ring
+ *            mould (banked, else Dommik's), Crafting 27; then Enchant Lvl-2 at the bank
+ *            into rings of dueling, Magic 27, 3 air + 1 cosmic from the bank. Short runes:
+ *            the rest stay banked as emerald rings. Runes are never bought.
+ *   tanning  Ellis ("Tanner"): cowhide -> soft leather 1gp, dragonhides -> dragon leather
+ *            20gp, coins from the bank; hides the coins do not cover stay banked.
  *
  * Each activity takes the lowest-level material first and re-picks after every pack,
  * so a level gained on one pack unlocks the next tier. Materials above the account's
@@ -26,8 +33,8 @@
  */
 import { runTask, type Quest } from './lib/run-quest';
 import { SAFE_BANKS } from './safe-stops';
-import { tickNow } from './lib/ticks';
-import { BARS, COAL_ID, FOODS, GEMS, HERBS, planSmelting, slotsPerBar, type Bar, type Material } from './lib/processing';
+import { tickNow, untilTicks } from './lib/ticks';
+import { BARS, COAL_ID, DUELING, FOODS, GEMS, HERBS, HIDES, planSmelting, slotsPerBar, type Bar, type Material } from './lib/processing';
 import type { InventoryItem, NearbyLoc } from '../../sdk/types';
 
 const HUB = SAFE_BANKS['al-kharid'];
@@ -229,6 +236,19 @@ async function findLoc(q: Quest, name: RegExp, option?: RegExp): Promise<NearbyL
  * reopen of the interface costs ~10t; ore-on-furnace does not care about level-ups.
  */
 async function useLoop(q: Quest, loc: NearbyLoc, item: number, more: () => boolean, progress: () => number): Promise<boolean> {
+    return progressLoop(q, async () => {
+        const it = q.sdk.getInventory().find((i) => i.id === item);
+        if (it) await q.sdk.sendUseItemOnLoc(it.slot, loc.x, loc.z, loc.id);
+        trace(q, `use #${item} on ${loc.name}`);
+    }, more, progress);
+}
+
+/**
+ * `fire` until `more()` is false: again `quiet` ticks after `progress()` moves (1 for a
+ * one-product action), or REFIRE_TICKS after the last fire with nothing. Level-ups are
+ * clicked away and the next fire sent with them. False after STALL_TICKS without progress.
+ */
+async function progressLoop(q: Quest, fire: () => Promise<unknown>, more: () => boolean, progress: () => number, quiet = 1): Promise<boolean> {
     let seen = progress();
     let fired = Number.NEGATIVE_INFINITY;
     let lastProgress = tickNow(q.sdk);
@@ -238,7 +258,7 @@ async function useLoop(q: Quest, loc: NearbyLoc, item: number, more: () => boole
         if (p !== seen) {
             seen = p;
             lastProgress = t;
-            fired = t + 1 - REFIRE_TICKS; // next use one tick after the product shows
+            fired = t + quiet - REFIRE_TICKS;
         } else if (t - lastProgress > STALL_TICKS) {
             return false;
         }
@@ -246,11 +266,9 @@ async function useLoop(q: Quest, loc: NearbyLoc, item: number, more: () => boole
             trace(q, 'level-up dismissed');
             fired = Number.NEGATIVE_INFINITY;
         }
-        if (t - fired >= REFIRE_TICKS) {
-            const it = q.sdk.getInventory().find((i) => i.id === item);
-            if (it) await q.sdk.sendUseItemOnLoc(it.slot, loc.x, loc.z, loc.id);
-            trace(q, `use #${item} on ${loc.name}`);
-            fired = t;
+        if (tickNow(q.sdk) - fired >= REFIRE_TICKS) {
+            fired = tickNow(q.sdk);
+            await fire();
         }
         await q.sdk.waitForTicks(1);
     }
@@ -326,6 +344,163 @@ async function smelting(q: Quest): Promise<void> {
     }
 }
 
+// ── rings of dueling: gold bar + emerald at the furnace, then Enchant Lvl-2 at the bank
+const D = DUELING;
+/** Up to 13 pairs a pack: mould + 13 bars + 13 emeralds = 27 slots. */
+const PAIRS_PER_PACK = 13;
+
+/** Hold one of a tool: the bank's, else its source (bought with banked coins). */
+async function ensureTool(q: Quest, id: number, item: string): Promise<void> {
+    if (invCount(q, id) > 0) return;
+    await openBank(q);
+    if ((await withdraw(q, id, 1)) > 0) return;
+    q.log(`no ${item} banked — getting one`);
+    await withdraw(q, COINS, 10);
+    await closeBank(q);
+    await q.ensure(item, 1);
+    await depositAll(q, [id]);
+}
+
+async function makeRings(q: Quest): Promise<void> {
+    const t0 = tickNow(q.sdk);
+    const xp0 = xpOf(q, 'crafting');
+    let total = 0;
+    for (;;) {
+        await openBank(q);
+        const bank = bankCounts(q);
+        const pairs = Math.min(bank.get(D.goldBar) ?? 0, bank.get(D.emerald) ?? 0);
+        if (!pairs || q.level('crafting') < D.craftingLevel || failed.has(D.emeraldRing)) break;
+        await ensureTool(q, D.mould, 'ring mould');
+        await depositAll(q, [D.mould]);
+        const n = Math.min(pairs, PAIRS_PER_PACK);
+        await withdraw(q, D.goldBar, n);
+        await withdraw(q, D.emerald, n);
+        await closeBank(q);
+        const tp = tickNow(q.sdk);
+        if (awayFrom(q, FURNACE_STAND) > 2) await q.goTo(FURNACE_STAND, 1);
+        const furnace = await findLoc(q, /furnace/i, /smelt/i);
+        if (!furnace) throw new Error('process-bank: no furnace with a Smelt option in view');
+        const ringsHeld = () => invCount(q, D.emeraldRing);
+        // Bar on furnace opens the jewellery interface; "Make 10" emerald rings runs one
+        // p_delay(2) chain (a ring every 3t). Fired again only once the chain has gone quiet.
+        const ok = await progressLoop(
+            q,
+            async () => {
+                const bar = q.sdk.getInventory().find((i) => i.id === D.goldBar);
+                if (!bar) return;
+                await q.sdk.sendUseItemOnLoc(bar.slot, furnace.x, furnace.z, furnace.id);
+                if (await untilTicks(q.sdk, (s) => !!s.interface?.isOpen && s.interface.interfaceId === D.jewelleryInterface, 8)) {
+                    await q.sdk.sendClickComponentWithOption(D.ringsInv, 3, D.emeraldSlot);
+                    trace(q, 'make 10 emerald rings');
+                }
+            },
+            () => invCount(q, D.goldBar) > 0 && invCount(q, D.emerald) > 0,
+            ringsHeld,
+            REFIRE_TICKS,
+        );
+        const made = ringsHeld();
+        total += made;
+        q.log(`rings: ${made} emerald rings in ${tickNow(q.sdk) - tp}t (Crafting ${q.level('crafting')})`);
+        if (!ok) {
+            failed.add(D.emeraldRing);
+            q.log('WARN rings: emerald rings stalled; leaving the gold bars and emeralds banked');
+        }
+        await depositAll(q, [D.mould]);
+    }
+    if (total > 0) {
+        const ticks = tickNow(q.sdk) - t0;
+        const line = `rings: ${total} emerald rings in ${ticks}t (${(ticks / total).toFixed(1)}t each), +${xpOf(q, 'crafting') - xp0} crafting xp`;
+        summary.push(line);
+        q.log(line);
+    }
+}
+
+async function enchantRings(q: Quest): Promise<void> {
+    const t0 = tickNow(q.sdk);
+    let total = 0;
+    for (;;) {
+        await openBank(q);
+        const bank = bankCounts(q);
+        const n = Math.min(bank.get(D.emeraldRing) ?? 0, Math.floor((bank.get(D.air) ?? 0) / 3), bank.get(D.cosmic) ?? 0, 26);
+        if (!n || q.level('magic') < D.magicLevel || failed.has(D.dueling)) break;
+        await depositAll(q);
+        await withdraw(q, D.air, 3 * n);
+        await withdraw(q, D.cosmic, n);
+        await withdraw(q, D.emeraldRing, n);
+        await closeBank(q);
+        const tp = tickNow(q.sdk);
+        const ringsLeft = () => invCount(q, D.emeraldRing);
+        const ok = await progressLoop(
+            q,
+            async () => {
+                const ring = q.sdk.getInventory().find((i) => i.id === D.emeraldRing);
+                if (ring) await q.sdk.sendSpellOnItem(ring.slot, D.enchantSpell);
+                trace(q, 'enchant');
+            },
+            () => ringsLeft() > 0 && invCount(q, D.air) >= 3 && invCount(q, D.cosmic) >= 1,
+            ringsLeft,
+        );
+        const made = invCount(q, D.dueling);
+        total += made;
+        q.log(`enchant: ${made} rings of dueling in ${tickNow(q.sdk) - tp}t (Magic ${q.level('magic')})`);
+        if (!ok) {
+            failed.add(D.dueling);
+            q.log('WARN enchant: stalled; leaving the emerald rings banked');
+        }
+        await depositAll(q);
+    }
+    if (total > 0) {
+        const ticks = tickNow(q.sdk) - t0;
+        const line = `enchant: ${total} rings of dueling in ${ticks}t (${(ticks / total).toFixed(1)}t each)`;
+        summary.push(line);
+        q.log(line);
+    }
+}
+
+// ── tanning: Ellis (npc "Tanner", spawn 3276,3193), tan-All per hide type
+const TANNER = { x: 3275, z: 3192 };
+
+async function tanHides(q: Quest): Promise<void> {
+    const t0 = tickNow(q.sdk);
+    let total = 0;
+    for (const hide of HIDES) {
+        while (!failed.has(hide.id)) {
+            await openBank(q);
+            const bank = bankCounts(q);
+            const n = Math.min(bank.get(hide.id) ?? 0, 27, Math.floor((bank.get(COINS) ?? 0) / hide.cost));
+            if (!n) break;
+            await depositAll(q);
+            await withdraw(q, COINS, n * hide.cost);
+            const got = await withdraw(q, hide.id, n);
+            await closeBank(q);
+            const tp = tickNow(q.sdk);
+            if (awayFrom(q, TANNER) > 4) await q.goTo(TANNER, 3);
+            const tanner = q.sdk.findNearbyNpc(/^tanner$/i);
+            if (!tanner) throw new Error('process-bank: no tanner in Al Kharid');
+            for (let i = 0; i < 3 && invCount(q, hide.id) > 0; i++) {
+                await q.bot.interactNpc(tanner, /trade/i);
+                if (!(await untilTicks(q.sdk, (s) => !!s.interface?.isOpen, 15))) continue;
+                await q.sdk.sendClickComponent(hide.button);
+                await untilTicks(q.sdk, () => invCount(q, hide.id) === 0, 8);
+            }
+            await q.bot.closeInterface().catch(() => undefined);
+            const tanned = got - invCount(q, hide.id);
+            total += tanned;
+            q.log(`tanning: ${tanned} ${hide.name} in ${tickNow(q.sdk) - tp}t`);
+            if (tanned < got) {
+                failed.add(hide.id);
+                q.log(`WARN tanning: ${hide.name} did not all tan; leaving the rest banked`);
+            }
+            await depositAll(q);
+        }
+    }
+    if (total > 0) {
+        const line = `tanning: ${total} hides in ${tickNow(q.sdk) - t0}t`;
+        summary.push(line);
+        q.log(line);
+    }
+}
+
 /** What stays banked and why, read from the open bank. */
 function leftovers(q: Quest): string[] {
     const bank = bankCounts(q);
@@ -353,6 +528,17 @@ function leftovers(q: Quest): string[] {
     }
     const coal = bank.get(COAL_ID) ?? 0;
     if (coal) out.push(`${coal} coal`);
+    const bars = bank.get(D.goldBar) ?? 0;
+    const gems = bank.get(D.emerald) ?? 0;
+    const ringGate = q.level('crafting') < D.craftingLevel ? ` (rings: Crafting ${D.craftingLevel})` : ' (no partner for a ring)';
+    if (bars) out.push(`${bars} gold bar${ringGate}`);
+    if (gems) out.push(`${gems} emerald${ringGate}`);
+    const rings = bank.get(D.emeraldRing) ?? 0;
+    if (rings) out.push(`${rings} emerald ring (${q.level('magic') < D.magicLevel ? `enchant: Magic ${D.magicLevel}` : 'enchant: runes short'})`);
+    for (const hide of HIDES) {
+        const n = bank.get(hide.id) ?? 0;
+        if (n) out.push(`${n} ${hide.name} (${failed.has(hide.id) ? 'stalled' : `tanning: ${hide.cost}gp each, coins short`})`);
+    }
     return out;
 }
 
@@ -365,6 +551,9 @@ await runTask({
         await activity(q, 'herbs', 'herblore', HERBS, (m) => herbPack(q, m));
         await activity(q, 'cooking', 'cooking', FOODS, (m) => cookPack(q, m));
         await smelting(q);
+        await makeRings(q);
+        await enchantRings(q);
+        await tanHides(q);
         await depositAll(q);
         const left = leftovers(q);
         await closeBank(q);

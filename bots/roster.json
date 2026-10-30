@@ -143,9 +143,8 @@
       "args": [
         "jacklove4",
         "--then",
-        "bots/quests/quest-mule.ts",
-        "jacklove4",
-        "--serve-only"
+        "bots/quests/seers-wc-fm.ts",
+        "jacklove4"
       ],
       "noEffectMinutes": 60
     },

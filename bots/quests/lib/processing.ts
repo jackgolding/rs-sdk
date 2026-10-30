@@ -164,3 +164,45 @@ export function planSmelting(bank: Map<number, number>, xp: number, rate: number
     }
     return new Map();
 }
+
+/**
+ * Hides Ellis tans (area_alkharid tanner.rs2), cheapest first. `button` is the
+ * interface's tan-"All" component (tanner:com_93/103/108/113/118 in interface.pack);
+ * `cost` per hide from tanner.constant. Cowhide goes to soft leather.
+ */
+export interface Hide {
+    id: number;
+    name: string;
+    cost: number;
+    button: number;
+}
+export const HIDES: Hide[] = [
+    { id: 1739, name: 'cowhide', cost: 1, button: 8686 },
+    { id: 1753, name: 'green dragonhide', cost: 20, button: 8695 },
+    { id: 1751, name: 'blue dragonhide', cost: 20, button: 8700 },
+    { id: 1749, name: 'red dragonhide', cost: 20, button: 8705 },
+    { id: 1747, name: 'black dragonhide', cost: 20, button: 8710 },
+];
+
+/**
+ * Rings of dueling: gold bar + emerald + ring mould at a furnace (jewellery.rs2, Crafting
+ * 27, 3t a ring in one p_delay chain of up to 10), then Enchant Lvl-2 (magic_spells.dbrow:
+ * emerald_ring -> ring_of_dueling_8, Magic 27, 3 air + 1 cosmic; enchant.rs2 p_delay(1)).
+ */
+export const DUELING = {
+    goldBar: 2357,
+    emerald: 1605,
+    mould: 1592,
+    emeraldRing: 1639,
+    dueling: 2552,
+    air: 556,
+    cosmic: 564,
+    craftingLevel: 27,
+    magicLevel: 27,
+    /** The gold-jewellery interface (crafting_jewelry), its rings inv and the emerald ring's slot in it. */
+    jewelleryInterface: 4161,
+    ringsInv: 4233,
+    emeraldSlot: 2,
+    /** magic:enchant_lvl2 (sdk/spells.ts ENCHANT_LVL2; that module is not on the fleet image). */
+    enchantSpell: 1165,
+};

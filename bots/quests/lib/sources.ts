@@ -462,6 +462,15 @@ export const SOURCES: Record<string, Source> = {
             await buyWaitingForRestock(q, DOMMIK, 'chisel', 1);
         },
     },
+    /** process-bank.ts: emerald rings. Dommik stocks four (alkharid.inv craftingshop2). */
+    'ring mould': {
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 5 }],
+        get: async (q) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, DOMMIK, 'ring mould', 1);
+        },
+    },
     thread: {
         inputs: (count) => [{ item: 'coins', count }],
         get: async (q, count) => {
@@ -576,8 +585,8 @@ export const SOURCES: Record<string, Source> = {
     },
     /** Smithed from steel bars only (Smithing 34, two a bar): the Jackpoo2 mule smiths and serves them. */
     nails: { mule: true, muleSupply: 'Jackpoo2' },
-    /** Attack 60 and Lost City complete to wield; no shop sells it. Asked of jacklove4 first. */
-    'dragon longsword': { obj: 'dragon_longsword', mule: true, muleSupply: 'jacklove4' },
+    /** Attack 60 and Lost City complete to wield; no shop sells it. Asked of the Jackpoo2 mule first. */
+    'dragon longsword': { obj: 'dragon_longsword', mule: true, muleSupply: 'Jackpoo2' },
 
     shears: {
         tool: true,
@@ -644,9 +653,9 @@ export const SOURCES: Record<string, Source> = {
 
     // ── Goblin Diplomacy: goblin mail and the dyes for it
     'goblin mail': {
-        // Asked of the jacklove4 mule first (jackquests' stock moved there, 21 mail,
-        // 2026-10-29): bots crowding the goblin camps got no drop. Killed for if it does not trade.
-        muleSupply: 'jacklove4',
+        // Asked of the Jackpoo2 mule first (jackquests' stock moved to jacklove4, 2026-10-29,
+        // then everything to Jackpoo2, the one mule, 2026-10-30): bots crowding the goblin camps got no drop. Killed for if it does not trade.
+        muleSupply: 'Jackpoo2',
         get: async (q, count) => {
             await killForDrop(q, 'goblin mail', count, GOBLIN_CAMPS, /^goblin$/i);
         },
@@ -1234,9 +1243,10 @@ const IMP_SPOT_VISITS = 6;
 function impBead(colour: string): Source {
     const item = `${colour} bead`;
     return {
-        // jacklove4 banks hundreds of each colour and serves them at Draynor bank (2026-10-29).
+        // Jackpoo2 (the one mule) banks hundreds of each colour and serves them at Draynor bank
+        // (moved from jacklove4, 2026-10-30).
         // Inline: SOURCES calls impBead before a module const down here is initialised.
-        muleSupply: 'jacklove4',
+        muleSupply: 'Jackpoo2',
         get: async (q, count) => {
             for (let visit = 0; visit < IMP_SPOT_VISITS && q.count(item) < count; visit++) {
                 const missing = IMP_BEADS.filter((c) => c !== colour && q.count(`${c} bead`) === 0);
