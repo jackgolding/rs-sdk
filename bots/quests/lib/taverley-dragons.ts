@@ -24,6 +24,14 @@ export interface Tile {
 export const LADDER_SURFACE: Tile = { x: 2884, z: 3397 };
 export const LADDER_DUNGEON: Tile = { x: 2884, z: 9797 };
 
+/**
+ * The cauldron room's Prison door (cauldrondoor, prison_doors.rs2), on the ladder-to-gate
+ * route. The waypoint at this tile in the routes below means "cross the door". From the
+ * ladder side the first opens wake the two suits of armour (0_45_153_7_37 / 7_40, back as
+ * scenery after 500 ticks); the open after that lets you through.
+ */
+export const PRISON_DOOR: Tile = { x: 2889, z: 9830 };
+
 export const JAILER_SPAWN: Tile = { x: 2933, z: 9693 };
 export const VELRAK_CELL_DOOR: Tile = { x: 2931, z: 9690 };
 export const VELRAK: Tile = { x: 2933, z: 9686 };
@@ -46,6 +54,7 @@ export const SCALE_SPAWNS: Tile[] = [
 export const LADDER_TO_JAIL: Tile[] = [
     { x: 2885, z: 9808 },
     { x: 2887, z: 9823 },
+    { x: 2889, z: 9830 },
     { x: 2896, z: 9831 },
     { x: 2912, z: 9827 },
     { x: 2928, z: 9831 },
@@ -96,7 +105,11 @@ export const GATE_TO_LADDER: Tile[] = [
     { x: 2936, z: 9833 },
     { x: 2928, z: 9831 },
     { x: 2912, z: 9827 },
+    { x: 2903, z: 9829 },
     { x: 2896, z: 9831 },
+    // PRISON_DOOR. Without it walkTo stuck at (2886,9830) and fell back to a ~300-tick
+    // travelTo (qlbds1, 2026-10-30).
+    { x: 2889, z: 9830 },
     { x: 2887, z: 9823 },
     { x: 2885, z: 9808 },
     { x: 2885, z: 9796 },
