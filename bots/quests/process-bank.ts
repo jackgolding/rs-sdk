@@ -92,11 +92,19 @@ const bankCounts = (q: Quest) => new Map(q.sdk.getBankItems().map((b) => [b.id, 
 /** Bank everything carried except `keep` (ids). Bank must be reachable. */
 async function depositAll(q: Quest, keep: number[] = []): Promise<void> {
     await openBank(q);
+    let misses = 0;
     for (let i = 0; i < 30; i++) {
         const item = q.sdk.getInventory().find((it) => !keep.includes(it.id));
         if (!item) return;
         const r = await q.bot.depositItem(item, -1);
-        if (!r.success && !r.partial) throw new Error(`process-bank: deposit ${item.name}: ${r.message}`);
+        if (r.success || r.partial) continue;
+        // A deposit can land after depositItem stops waiting (jacklove6's Diamonds, ABGARMY17's
+        // Sapphires, 2026-10-30): look again before calling it a failure, and retry a few times.
+        await q.sdk.waitForTicks(2);
+        if (!q.sdk.getInventory().some((it) => it.id === item.id)) continue;
+        if (++misses > 3) throw new Error(`process-bank: deposit ${item.name}: ${r.message}`);
+        q.log(`process-bank: deposit ${item.name} missed (${r.message}); retrying`);
+        await openBank(q);
     }
 }
 
