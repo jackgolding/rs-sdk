@@ -215,6 +215,12 @@ async function goldenKey(q: Quest): Promise<void> {
     for (let i = 0; i < 8 && q.count('golden key') < 1; i++) {
         const loot = q.sdk.findGroundItem(/^golden key$/i);
         if (loot) {
+            // A full bag cannot take the key: jacklove20 sat at 28/28 for three attempts on prod
+            // (2026-10-30). Drop one essence; the hand-in trips top essence back up.
+            if (q.sdk.getInventory().length >= 28) {
+                await q.bot.dropItem(/^rune essence$/i, 1).catch(() => undefined);
+                await q.sdk.waitForTicks(1);
+            }
             await q.bot.pickupItem(loot);
             await untilTicks(q.sdk, () => q.count('golden key') > 0, 8);
             continue;
