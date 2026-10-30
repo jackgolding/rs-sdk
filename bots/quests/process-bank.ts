@@ -28,8 +28,9 @@
  * (uncut_gem.rs2, identify.rs2), so a whole pack's ops go out at once (burst); cooking
  * and smelting send the next use the tick the last input leaves the pack (useLoop).
  *
- * A task writes no run record, so a clean finish logs "already complete", the line
- * todo-runner marks done; materials still above the account's level do not stop that.
+ * A task writes no run record, so a finish logs "already complete", the line todo-runner
+ * marks done. Materials above the account's level, and any that stalled, stay banked and
+ * are listed as leftovers; neither fails the run.
  */
 import { runTask, type Quest } from './lib/run-quest';
 import { SAFE_BANKS } from './safe-stops';
@@ -47,12 +48,16 @@ const COINS = 995;
 const RESEND_TICKS = 12;
 /** Ticks after a use (cook, smelt) with no progress before it is sent again. */
 const REFIRE_TICKS = 5;
-/** Ticks with no progress before a pack is given up on. */
+/** Ticks with no progress before a pack of delay-free ops (burst) is given up on. */
 const STALL_TICKS = 30;
+/** Fires in a row that produce nothing before a pack is given up on (progressLoop). */
+const MAX_DRY_FIRES = 4;
+/** Ticks a furnace fire for rings gets to show a ring before the next (a ring every 3t once going). */
+const RING_REFIRE_TICKS = 12;
 /** NODE_XPRATE default (WorldConfig.ts); replaced by the rate measured on the first smelting pack. */
 const DEFAULT_XP_RATE = 25;
 
-/** Materials that stalled this run: not retried, and the run does not report complete. */
+/** Materials that stalled this run: not retried this run, left banked and listed as leftovers. */
 const failed = new Set<number>();
 const summary: string[] = [];
 let xpRate: number | null = null;
@@ -233,7 +238,7 @@ async function findLoc(q: Quest, name: RegExp, option?: RegExp): Promise<NearbyL
 /**
  * Use `item` on `loc` until `more()` is false: the next use goes out one tick after
  * `progress()` moves (or REFIRE_TICKS after the last), a level-up is clicked away and
- * the next use sent with it. False after STALL_TICKS without progress.
+ * the next use sent with it. False when progressLoop gives up.
  *
  * Measured on the 400ms gate engine behind 150ms lag (2026-10-30): a use sent the tick
  * a bar shows at the furnace often got "Nothing interesting happens" and cost a refire
@@ -253,30 +258,40 @@ async function useLoop(q: Quest, loc: NearbyLoc, item: number, more: () => boole
 
 /**
  * `fire` until `more()` is false: again `quiet` ticks after `progress()` moves (1 for a
- * one-product action), or REFIRE_TICKS after the last fire with nothing. Level-ups are
- * clicked away and the next fire sent with them. False after STALL_TICKS without progress.
+ * one-product action), or `refire` ticks after the last fire finished with nothing.
+ * Level-ups are clicked away and the next fire sent with them.
+ *
+ * Gives up (false) only after both STALL_TICKS without progress and MAX_DRY_FIRES fires
+ * in a row with nothing, each given its `refire` ticks to show. Ticks alone were not
+ * enough: a furnace fire (bar on, wait for the interface, click) can take 15+ ticks to
+ * show its first ring under heavy lag, and a tick budget alone ran out before it did.
  */
-async function progressLoop(q: Quest, fire: () => Promise<unknown>, more: () => boolean, progress: () => number, quiet = 1): Promise<boolean> {
+async function progressLoop(q: Quest, fire: () => Promise<unknown>, more: () => boolean, progress: () => number, quiet = 1, refire = REFIRE_TICKS): Promise<boolean> {
     let seen = progress();
     let fired = Number.NEGATIVE_INFINITY;
+    let dry = 0;
     let lastProgress = tickNow(q.sdk);
     while (more()) {
         const t = tickNow(q.sdk);
         const p = progress();
         if (p !== seen) {
             seen = p;
+            dry = 0;
             lastProgress = t;
-            fired = t + quiet - REFIRE_TICKS;
-        } else if (t - lastProgress > STALL_TICKS) {
-            return false;
+            fired = t + quiet - refire;
         }
         if (await dismissLevelUp(q)) {
             trace(q, 'level-up dismissed');
             fired = Number.NEGATIVE_INFINITY;
         }
-        if (tickNow(q.sdk) - fired >= REFIRE_TICKS) {
-            fired = tickNow(q.sdk);
+        if (tickNow(q.sdk) - fired >= refire) {
+            if (dry >= MAX_DRY_FIRES && t - lastProgress > STALL_TICKS) return false;
             await fire();
+            dry++;
+            // From when the fire finished: a fire that waits on an interface must not be
+            // followed at once by another (a second bar on the furnace closes the first's
+            // interface before it is clicked; ABGARMY04 made 0 rings in 114t, 2026-10-30).
+            fired = tickNow(q.sdk);
         }
         await q.sdk.waitForTicks(1);
     }
@@ -354,6 +369,8 @@ async function smelting(q: Quest): Promise<void> {
 
 // ── rings of dueling: gold bar + emerald at the furnace, then Enchant Lvl-2 at the bank
 const D = DUELING;
+/** Ticks to wait for the jewellery interface after a bar goes on the furnace (3t locally; prod is slower). */
+const JEWELLERY_OPEN_TICKS = 20;
 /** Up to 13 pairs a pack: mould + 13 bars + 13 emeralds = 27 slots. */
 const PAIRS_PER_PACK = 13;
 
@@ -391,21 +408,48 @@ async function makeRings(q: Quest): Promise<void> {
         const ringsHeld = () => invCount(q, D.emeraldRing);
         // Bar on furnace opens the jewellery interface; "Make 10" emerald rings runs one
         // p_delay(2) chain (a ring every 3t). Fired again only once the chain has gone quiet.
+        const jewelleryOpen = () => {
+            const i = q.sdk.getState()?.interface;
+            return !!i?.isOpen && i.interfaceId === D.jewelleryInterface;
+        };
+        let opens = 0;
+        let clicks = 0;
+        let clicked = false; // a Make-10 already went to the interface that is up now
         const ok = await progressLoop(
             q,
             async () => {
-                const bar = q.sdk.getInventory().find((i) => i.id === D.goldBar);
-                if (!bar) return;
-                await q.sdk.sendUseItemOnLoc(bar.slot, furnace.x, furnace.z, furnace.id);
-                if (await untilTicks(q.sdk, (s) => !!s.interface?.isOpen && s.interface.interfaceId === D.jewelleryInterface, 8)) {
-                    await q.sdk.sendClickComponentWithOption(D.ringsInv, 3, D.emeraldSlot);
-                    trace(q, 'make 10 emerald rings');
+                // Interface up and not yet clicked (it opened late): click it. Up and already
+                // clicked with nothing made: it is stale (seen under 900ms lag on the gate
+                // engine, 2026-10-30), so close it and start again with a bar on the furnace.
+                if (jewelleryOpen() && clicked) {
+                    await q.sdk.sendCloseModal();
+                    await untilTicks(q.sdk, () => !jewelleryOpen(), 5);
                 }
+                if (!jewelleryOpen()) {
+                    const bar = q.sdk.getInventory().find((i) => i.id === D.goldBar);
+                    if (!bar) return;
+                    await q.sdk.sendUseItemOnLoc(bar.slot, furnace.x, furnace.z, furnace.id);
+                    opens++;
+                    clicked = false;
+                    if (!(await untilTicks(q.sdk, jewelleryOpen, JEWELLERY_OPEN_TICKS))) return;
+                    await q.sdk.waitForTicks(1); // the rings inv lands with the interface; let the client have it
+                }
+                await q.sdk.sendClickComponentWithOption(D.ringsInv, 3, D.emeraldSlot);
+                clicks++;
+                clicked = true;
+                trace(q, 'make 10 emerald rings');
             },
             () => invCount(q, D.goldBar) > 0 && invCount(q, D.emerald) > 0,
             ringsHeld,
-            REFIRE_TICKS,
+            RING_REFIRE_TICKS,
+            RING_REFIRE_TICKS,
         );
+        if (!ok) {
+            // What prod could not tell us last time.
+            const st = q.sdk.getState();
+            const msgs = (st?.gameMessages ?? []).slice(-6).map((m) => m.text).join(' | ');
+            q.log(`WARN rings: stalled after ${opens} bar uses / ${clicks} make-10 clicks; furnace ${furnace.id} at (${furnace.x},${furnace.z}), player (${st?.player?.worldX},${st?.player?.worldZ}), interface ${st?.interface?.isOpen ? st.interface.interfaceId : 'closed'}, dialog ${st?.dialog?.isOpen ? st.dialog.options.map((o) => o.text).join('/') || 'open' : 'closed'}, held ${q.sdk.getInventory().map((i) => `${i.id}x${i.count}`).join(' ')}; last messages: ${msgs}`);
+        }
         const made = ringsHeld();
         total += made;
         q.log(`rings: ${made} emerald rings in ${tickNow(q.sdk) - tp}t (Crafting ${q.level('crafting')})`);
@@ -538,11 +582,11 @@ function leftovers(q: Quest): string[] {
     if (coal) out.push(`${coal} coal`);
     const bars = bank.get(D.goldBar) ?? 0;
     const gems = bank.get(D.emerald) ?? 0;
-    const ringGate = q.level('crafting') < D.craftingLevel ? ` (rings: Crafting ${D.craftingLevel})` : ' (no partner for a ring)';
+    const ringGate = q.level('crafting') < D.craftingLevel ? ` (rings: Crafting ${D.craftingLevel})` : failed.has(D.emeraldRing) ? ' (rings: stalled)' : ' (no partner for a ring)';
     if (bars) out.push(`${bars} gold bar${ringGate}`);
     if (gems) out.push(`${gems} emerald${ringGate}`);
     const rings = bank.get(D.emeraldRing) ?? 0;
-    if (rings) out.push(`${rings} emerald ring (${q.level('magic') < D.magicLevel ? `enchant: Magic ${D.magicLevel}` : 'enchant: runes short'})`);
+    if (rings) out.push(`${rings} emerald ring (${q.level('magic') < D.magicLevel ? `enchant: Magic ${D.magicLevel}` : failed.has(D.dueling) ? 'enchant: stalled' : 'enchant: runes short'})`);
     for (const hide of HIDES) {
         const n = bank.get(hide.id) ?? 0;
         if (n) out.push(`${n} ${hide.name} (${failed.has(hide.id) ? 'stalled' : `tanning: ${hide.cost}gp each, coins short`})`);
@@ -569,7 +613,10 @@ await runTask({
         await closeBank(q);
         q.log(`process-bank: ${summary.length ? summary.join('; ') : 'nothing processed'} — ${tickNow(q.sdk) - t0}t`);
         if (left.length) q.log(`process-bank: left banked: ${left.join(', ')}`);
-        if (failed.size) throw new Error(`process-bank: ${failed.size} material(s) stalled (see WARN lines); not complete`);
+        // A stalled material is a leftover, not a failed run: it stays banked (listed above as
+        // "stalled") and the next run tries it again. Failing here charged the account a
+        // failure every run for one bad furnace (ABGARMY04, 2026-10-30).
+        if (failed.size) q.log(`WARN process-bank: ${failed.size} material(s) stalled this run and stay banked (see WARN lines)`);
         q.log('process-bank: already complete — nothing left this account can process');
     },
 });
