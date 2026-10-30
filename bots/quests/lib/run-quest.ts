@@ -55,6 +55,7 @@ import { enterStuckArea, leaveStuckArea } from './doors';
 import { escapeMaze, inLeverMaze, leaveManor, onManorGround } from './draynor-manor';
 import { fortressRoom, leaveFortress } from './fortress';
 import { inArenaCompound, leaveArena } from './fight-arena';
+import { inSeerHouse, leaveSeerHouse } from './fremennik';
 import { inEssenceMine, leaveEssenceMine } from './mining';
 import { inDungeon as inEntranaDungeon, teleportOut as teleportOutOfEntranaDungeon } from './lost-city';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
@@ -421,6 +422,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (room && room !== 'outside' && (Math.abs(tile.x - 3022) > 15 || Math.abs(tile.z - 3512) > 15)) await leaveFortress(q);
                 // Fight Arena's pen, cells and corridor: out by their own doors first.
                 if (inArenaCompound(pos()) && !inArenaCompound({ ...tile, level: tile.level ?? 0 })) await leaveArena(q);
+                // Restarted inside Peer the Seer's house (pigfat, mid-puzzle in the mural room, 2026-10-30).
+                if (inSeerHouse(pos()) && !inSeerHouse({ ...tile, level: tile.level ?? 0 })) await leaveSeerHouse(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in

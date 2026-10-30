@@ -33,8 +33,16 @@ export async function runStage(q: Quest, id: string): Promise<void> {
     if (!stage) throw new Error(`fremennik: no stage ${id}`);
     await refreshProgress(id);
     const ctx = { sdk, bot, log } as unknown as QuestContext;
-    await stage.run(ctx);
+    trialRunning = true;
+    try {
+        await stage.run(ctx);
+    } finally {
+        trialRunning = false;
+    }
 }
+
+/** Set while a trial body runs: its own walks inside Peer's house (the key door's outside side) must not trip leaveSeerHouse. */
+let trialRunning = false;
 
 type TrialId = 'peer' | 'olaf' | 'sigli' | 'reveller' | 'swensen' | 'sigmund' | 'thorvald';
 const TRIALS: TrialId[] = ['peer', 'olaf', 'sigli', 'reveller', 'swensen', 'sigmund', 'thorvald'];
@@ -527,6 +535,29 @@ async function exitSeerHouseIfInside(): Promise<void> {
         }
         log(`house exit round ${round}: ${here()}`);
     }
+}
+
+/** Peer the Seer's house (all three rooms, planes 0 and 2), not its door line (z 3667). */
+export function inSeerHouse(p: { x: number; z: number; level?: number }): boolean {
+    return (p.level === 0 || p.level === 2) && Math.abs(p.x - 2633) <= 9 && p.z < 3667 && p.z >= 3655;
+}
+
+/**
+ * q.goTo's hook: a run restarted mid-puzzle (pigfat in the mural room, 2026-10-30) cannot
+ * walk out — the mural room's own door takes the Seers' key. Out the way the trial does:
+ * up, the western trapdoor, the combination door (its leave page clears the trial items).
+ */
+export async function leaveSeerHouse(q: Quest): Promise<void> {
+    if (trialRunning) return;
+    Q = q;
+    sdk = q.sdk;
+    bot = q.bot;
+    await closeUi(bot, sdk).catch(() => undefined);
+    for (let attempt = 1; attempt <= 3 && inSeerHouse(pos()); attempt++) {
+        await exitSeerHouseIfInside();
+        if (inSeerHouse(pos())) log(`house exit: still inside at ${here()} (attempt ${attempt})`);
+    }
+    if (inSeerHouse(pos())) throw new Error(`fremennik: could not leave the Seer's house (at ${here()})`);
 }
 
 /** Anything long-range starts from the mainland: descend, then leave the house. */
