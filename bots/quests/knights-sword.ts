@@ -108,6 +108,12 @@ async function searchForPortrait(q: Quest): Promise<void> {
         q.log(`cupboard ${op} #${attempt} from (${me().x},${me().z}); Vyvin ${v ? `(${v.x},${v.z}) gap ${cheb(me(), v)}` : 'not in view'}`);
         await q.bot.interactLoc(cupboard, new RegExp(`^${op}$`, 'i'));
         await untilTicks(q.sdk, () => q.count(PORTRAIT) > 0 || !!q.sdk.getState()?.dialog?.isOpen, 6);
+        if (q.count(PORTRAIT) < 1) {
+            // ABGARMY05 searched 15 times with Vyvin 3-4 tiles off and got nothing: say what the game said.
+            const s = q.sdk.getState();
+            const said = (s?.gameMessages ?? []).filter((m) => m.type === 0).slice(-2).map((m) => m.text).join(' | ');
+            q.log(`cupboard #${attempt}: no portrait; dialog "${s?.dialog?.text ?? ''}" messages "${said}" at (${me().x},${me().z})`);
+        }
         await q.bot.dismissBlockingUI();
         await untilTicks(q.sdk, () => q.count(PORTRAIT) > 0, 3);
     }

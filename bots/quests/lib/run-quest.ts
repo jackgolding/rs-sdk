@@ -625,7 +625,9 @@ export async function runQuest(def: QuestDef): Promise<void> {
             const banked = typeof item === 'number' ? sdk.getBankItems().find((b) => b.id === item) : sdk.findBankItem(itemPattern(item));
             const held = typeof item === 'number' ? sdk.getInventory().some((i) => i.id === item) : q.count(item) > 0;
             if (!banked || held) continue;
-            await bot.withdrawItem(banked, banked.count);
+            // One: carried items are single quest items, and a whole stack of unstackables
+            // fills the pack (jacklove6 withdrew 16 Dragonfire shields, 2026-10-30).
+            await bot.withdrawItem(banked, 1);
             await sdk.waitForTicks(2);
             log(`withdrew ${banked.name}${typeof item === 'number' ? ` #${item}` : ''} (quest item from an earlier run)`);
         }
