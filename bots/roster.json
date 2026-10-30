@@ -33,7 +33,8 @@
         "bots/quests/thieving-route.ts",
         "Jackpoo1",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "Jackpoo2",
@@ -45,7 +46,8 @@
         "bots/quests/quest-mule.ts",
         "Jackpoo2",
         "--serve-only"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "Jackpoo3",
@@ -57,7 +59,8 @@
         "bots/quests/thieving-route.ts",
         "Jackpoo3",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "Jackpoo4",
@@ -69,7 +72,8 @@
         "bots/quests/fishing-route.ts",
         "Jackpoo4",
         "--bignet"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "Jackpoo5",
@@ -81,7 +85,8 @@
         "bots/quests/thieving-route.ts",
         "Jackpoo5",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "fatpig",
@@ -93,7 +98,8 @@
         "bots/quests/thieving-route.ts",
         "fatpig",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove1",
@@ -108,7 +114,8 @@
         "bots/quests/thieving-route.ts",
         "jacklove1",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove2",
@@ -120,7 +127,8 @@
         "bots/quests/thieving-route.ts",
         "jacklove2",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove3",
@@ -141,7 +149,8 @@
         "bots/quests/quest-mule.ts",
         "jacklove4",
         "--serve-only"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove5",
@@ -153,7 +162,8 @@
         "bots/quests/fishing-route.ts",
         "jacklove5",
         "--bignet"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jackthief",
@@ -165,7 +175,8 @@
         "bots/quests/thieving-route.ts",
         "jackthief",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "pigfat",
@@ -206,7 +217,8 @@
         "bots/quests/seers-wc-fm.ts",
         "jacklove7",
         "--fletch"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove8",
@@ -218,7 +230,8 @@
         "bots/quests/thieving-route.ts",
         "jacklove8",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove9",
@@ -233,7 +246,8 @@
         "bots/quests/thieving-route.ts",
         "jacklove9",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove10",
@@ -244,7 +258,8 @@
         "--then",
         "bots/quests/edgeville-bank-all.ts",
         "jacklove10"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove11",
@@ -255,7 +270,8 @@
         "--then",
         "bots/quests/edgeville-bank-all.ts",
         "jacklove11"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove12",
@@ -267,7 +283,8 @@
         "bots/quests/thieving-route.ts",
         "jacklove12",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove13",
@@ -279,7 +296,8 @@
         "bots/quests/fishing-route.ts",
         "jacklove13",
         "--bignet"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove14",
@@ -291,7 +309,8 @@
         "bots/quests/thieving-route.ts",
         "jacklove14",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove15",
@@ -303,7 +322,8 @@
         "bots/quests/thieving-route.ts",
         "jacklove15",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove16",
@@ -315,7 +335,8 @@
         "bots/quests/thieving-route.ts",
         "jacklove16",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove17",
@@ -330,7 +351,8 @@
         "bots/quests/seers-wc-fm.ts",
         "jacklove17",
         "--fletch"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove18",
@@ -345,7 +367,8 @@
         "bots/quests/seers-wc-fm.ts",
         "jacklove18",
         "--fletch"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove19",
@@ -357,7 +380,8 @@
         "bots/quests/thieving-route.ts",
         "jacklove19",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "jacklove20",
@@ -372,7 +396,8 @@
         "bots/quests/seers-wc-fm.ts",
         "jacklove20",
         "--fletch"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY01",
@@ -387,7 +412,8 @@
         "bots/quests/seers-wc-fm.ts",
         "ABGARMY01",
         "--fletch"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY02",
@@ -402,7 +428,8 @@
         "bots/quests/seers-wc-fm.ts",
         "ABGARMY02",
         "--fletch"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY03",
@@ -414,7 +441,8 @@
         "bots/quests/fishing-route.ts",
         "ABGARMY03",
         "--bignet"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY04",
@@ -426,7 +454,8 @@
         "bots/quests/fishing-route.ts",
         "ABGARMY04",
         "--bignet"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY05",
@@ -438,7 +467,8 @@
         "bots/quests/fishing-route.ts",
         "ABGARMY05",
         "--bignet"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY06",
@@ -450,7 +480,8 @@
         "bots/quests/thieving-route.ts",
         "ABGARMY06",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY07",
@@ -462,7 +493,8 @@
         "bots/quests/fishing-route.ts",
         "ABGARMY07",
         "--bignet"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY08",
@@ -474,7 +506,8 @@
         "bots/quests/thieving-route.ts",
         "ABGARMY08",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY09",
@@ -486,7 +519,8 @@
         "bots/quests/thieving-route.ts",
         "ABGARMY09",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY10",
@@ -498,7 +532,8 @@
         "bots/quests/fishing-route.ts",
         "ABGARMY10",
         "--bignet"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY11",
@@ -510,7 +545,8 @@
         "bots/quests/thieving-route.ts",
         "ABGARMY11",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY12",
@@ -522,7 +558,8 @@
         "bots/quests/thieving-route.ts",
         "ABGARMY12",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY13",
@@ -534,7 +571,8 @@
         "bots/quests/thieving-route.ts",
         "ABGARMY13",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY14",
@@ -546,7 +584,8 @@
         "bots/quests/thieving-route.ts",
         "ABGARMY14",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY15",
@@ -558,7 +597,8 @@
         "bots/quests/seers-wc-fm.ts",
         "ABGARMY15",
         "--fletch"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY16",
@@ -570,7 +610,8 @@
         "bots/quests/fishing-route.ts",
         "ABGARMY16",
         "--bignet"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY17",
@@ -582,7 +623,8 @@
         "bots/quests/fishing-route.ts",
         "ABGARMY17",
         "--bignet"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY18",
@@ -594,7 +636,8 @@
         "bots/quests/fishing-route.ts",
         "ABGARMY18",
         "--bignet"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY19",
@@ -606,7 +649,8 @@
         "bots/quests/thieving-route.ts",
         "ABGARMY19",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 60
     },
     {
       "name": "ABGARMY20",
@@ -637,7 +681,8 @@
         "bots/quests/quest-mule.ts",
         "jackquests",
         "--serve-only"
-      ]
+      ],
+      "noEffectMinutes": 60
     }
   ]
 }
