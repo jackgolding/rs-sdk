@@ -410,10 +410,11 @@ export const SOURCES: Record<string, Source> = {
      * Harold only gets drunk on this (death_guard_equiproom.rs2 harold_drink2). The
      * premade one is what a bank holds; the bar is in the Gnome Stronghold, so a mule stocks it.
      */
-    'blurberry special': { obj: 'premade_blurberry_special', mule: true },
-    /** Tenzing's winter supplies; no shop near Burthorpe sells either, so a mule stocks them. */
-    bread: { mule: true },
-    trout: { mule: true },
+    'blurberry special': { obj: 'premade_blurberry_special', mule: true, muleSupply: 'Jackpoo2' },
+    /** Tenzing's winter supplies; no shop near Burthorpe sells either, so the mule stocks them
+     * (jacklove4 gathered 50 of each with death-plateau-stock.ts, 2026-10-30). */
+    bread: { mule: true, muleSupply: 'Jackpoo2' },
+    trout: { mule: true, muleSupply: 'Jackpoo2' },
 
     // ── Fight Arena: the pen fights (ogre 63, scorpion 44, Bouncer 137) are ranged; a mule stocks the kit
     'magic shortbow': { mule: true },
