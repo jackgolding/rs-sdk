@@ -193,7 +193,8 @@
         "bots/quests/thieving-route.ts",
         "jacklove6",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 90
     },
     {
       "name": "jacklove7",
@@ -620,7 +621,8 @@
         "bots/quests/thieving-route.ts",
         "ABGARMY20",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 90
     },
     {
       "name": "jackquests",
