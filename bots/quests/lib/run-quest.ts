@@ -638,6 +638,21 @@ export async function runQuest(def: QuestDef): Promise<void> {
         // ── prologue: naked at the hub, bank stock withdrawn toward the quest's needs
         const hub = SAFE_BANKS[def.hub];
         if (pos().level !== 0) await q.climbTo(0);
+        // Naked before the walk, not only at the hub: a run that starts with a pack from the last
+        // job banks it at the nearest bank first. jacklove10 set off from Al Kharid to Falador with
+        // a pack of herbs, reached the toll with no coins and could not pickpocket the fee with a
+        // full pack (2026-10-30).
+        if (sdk.getInventory().length > 0 && away(hub) > 30) {
+            const nearest = (Object.keys(SAFE_BANKS) as SafeBankName[])
+                .map((name) => ({ name, d: away(SAFE_BANKS[name]) }))
+                .sort((a, b) => a.d - b.d)[0]!;
+            if (nearest.name !== def.hub && nearest.d < away(hub)) {
+                log(`prologue: carrying ${describeInventory(sdk)} — banking at ${nearest.name} before the walk to ${def.hub}`);
+                await q.goTo(SAFE_BANKS[nearest.name], 4);
+                await depositAllInventory(q.supply);
+                await bot.closeBank().catch(() => undefined);
+            }
+        }
         await q.goTo(hub, 4);
         const startAt = pos();
         await depositAllInventory(q.supply);
