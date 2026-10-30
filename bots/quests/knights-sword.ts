@@ -35,11 +35,20 @@ const TOWER_LADDER = { x: 2983, z: 3351 };
 const TOWER_STAIRS_L1 = { x: 2984, z: 3337, level: 1 };
 const VYVIN_ROOM = { x: 2983, z: 3335, level: 2 };
 const CUPBOARD = { x: 2984, z: 3336 };
-/** Tiles the search can be made from: the cupboard opens west. From (2984,3335) and (2985,3335)
- * the game says "I can't reach that!" (ABGARMY05 searched 15 times from the east, 2026-10-30). */
+/** Tiles beside the cupboard the search can be made from. (An "I can't reach that!" blamed on the
+ * east side was a stale message; ABGARMY05's real problem was the floor and a shut cupboard.) */
 const CUPBOARD_SIDES = [
-    { x: 2983, z: 3336 },
     { x: 2983, z: 3335 },
+    { x: 2984, z: 3335 },
+    { x: 2985, z: 3335 },
+    { x: 2983, z: 3336 },
+];
+/** Room corners to step back to while Vyvin hangs beside us (room 2982-2985 x 3334-3336). */
+const ROOM_CORNERS = [
+    { x: 2982, z: 3334 },
+    { x: 2985, z: 3334 },
+    { x: 2985, z: 3336 },
+    { x: 2982, z: 3336 },
 ];
 /** Back down: the staircase beside the room, then the level-1 end of the courtyard ladder. */
 const TOWER_DOWN_L2 = { x: 2983, z: 3339, level: 2 };
@@ -115,8 +124,17 @@ async function searchForPortrait(q: Quest): Promise<void> {
             return !v || cheb(me(), v) > 1;
         }, 60);
         if (!clear) {
-            // Searching beside him only starts his dialog, which holds him there.
-            q.log(`cupboard #${attempt}: Sir Vyvin still beside (${me().x},${me().z}); waiting for him to wander`);
+            // Searching beside him only starts his dialog, which holds him there; standing at the
+            // cupboard keeps him there too (ABGARMY04 waited 15 rounds at 2983,3336). Step back to
+            // the corner farthest from him and let him wander.
+            const v = vyvin();
+            const corner = v ? [...ROOM_CORNERS].sort((a, b) => cheb(b, v) - cheb(a, v))[0]! : ROOM_CORNERS[0]!;
+            q.log(`cupboard #${attempt}: Sir Vyvin beside (${me().x},${me().z}); stepping back to (${corner.x},${corner.z})`);
+            await q.bot.walkTo(corner.x, corner.z, 0);
+            await untilTicks(q.sdk, () => {
+                const w = vyvin();
+                return !w || CUPBOARD_SIDES.some((t) => cheb(t, w) > 1);
+            }, 30);
             continue;
         }
         const findCupboard = async () => {

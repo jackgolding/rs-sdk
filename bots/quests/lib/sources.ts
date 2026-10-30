@@ -438,7 +438,8 @@ export const SOURCES: Record<string, Source> = {
     axe: {
         obj: 'bronze_axe',
         tool: true,
-        inputs: () => [{ item: 'coins', count: 16 }],
+        // Bob asks more than the 16 base as his stock falls: 15-16 coins bought nothing (jackquests, 2026-10-30).
+        inputs: () => [{ item: 'coins', count: 50 }],
         get: async (q) => {
             await q.ensure('coins', 1);
             await buyWaitingForRestock(q, BOBS_AXES, 'bronze axe', 1);
