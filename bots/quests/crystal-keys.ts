@@ -10,18 +10,21 @@
  *     Both halves are named "Half of a key", so they are told apart by id.
  *   - crystal_chest.rs2: the key used on crystal_chestclosed (loc 172, 2914,3452) opens it.
  *     Every opening gives an uncut dragonstone plus one roll; the widest roll is 11 rune
- *     stacks, so a key is only used with 12 slots free. Up to 10 keys a trip, as the
+ *     stacks, so a key is used only with room for the worst roll given what is held
+ *     (12 slots before any runes, 7 once they are stacked). Up to 10 keys a trip, as the
  *     operator does. One roll gives a key half back: the next trip joins it.
  * Queued in todo.json like a quest; every finish logs "already complete" for todo-runner.
  */
 import { runTask, type Quest } from './lib/run-quest';
-import { untilTicks } from './lib/ticks';
+import { tickNow, untilTicks } from './lib/ticks';
 import { SAFE_BANKS } from './safe-stops';
 
 const HALF_TOOTH = 985;
 const HALF_LOOP = 987;
 const KEY = 989;
 const CHEST = { x: 2914, z: 3452 };
+/** Where the operator stood for every opening: inside the house, south of the chest. */
+const STAND = { x: 2914, z: 3451 };
 /** Into the chest's house the way the operator walked it (demo trail): round to the west side, in. */
 const INTO_HOUSE = [
     { x: 2912, z: 3447 },
@@ -32,12 +35,23 @@ const INTO_HOUSE = [
 ];
 const CHEST_CLOSED = 172;
 const KEYS_PER_TRIP = 10;
-/** The rune roll adds 11 stacks next to the dragonstone. */
-const SLOTS_PER_OPENING = 12;
+const COINS = 995;
+/** The rune roll's 11 stacks: air, water, earth, fire, body, mind, chaos, death, cosmic, nature, law. */
+const RUNES = [556, 555, 557, 554, 559, 558, 562, 560, 564, 561, 563];
 
 const held = (q: Quest, id: number) => q.sdk.getInventory().filter((i) => i.id === id).reduce((n, i) => n + (i.count ?? 1), 0);
 const banked = (q: Quest, id: number) => q.sdk.getBankItems().find((b) => b.id === id);
 const freeSlots = (q: Quest) => 28 - q.sdk.getInventory().length;
+/**
+ * Slots the worst roll (crystal_chest.rs2) can take now, dragonstone included: the rune
+ * stacks not yet held, or 5 swordfish and coins, 2 rubies and 2 diamonds, 3 runite bars.
+ * The first rune roll used to end a 10-key trip after one key (12 slots, fixed).
+ */
+const worstOpening = (q: Quest) => {
+    const has = (id: number) => q.sdk.getInventory().some((i) => i.id === id);
+    const coins = has(COINS) ? 0 : 1;
+    return 1 + Math.max(RUNES.filter((id) => !has(id)).length, 5 + coins, 4, 3, 1 + coins);
+};
 
 async function bankAll(q: Quest): Promise<void> {
     await q.goTo(SAFE_BANKS['falador-west'], 3);
@@ -82,11 +96,15 @@ await runTask({
             if (!keys) break;
             await q.bot.withdrawItem(keys, Math.min(keys.count, KEYS_PER_TRIP));
             await q.bot.closeBank();
-            q.log(`keys: trip ${trip}, carrying ${held(q, KEY)} crystal keys`);
+            const carried = held(q, KEY);
+            const t0 = tickNow(q.sdk);
+            q.log(`keys: trip ${trip}, carrying ${carried} crystal keys`);
             // goTo(CHEST) stopped outside the house and the chest refused the key (ABGARMY18).
+            // In by the west door (2896,3450), which walkTo opens.
             for (const wp of INTO_HOUSE) await q.goTo(wp, 1);
             let unseen = 0;
-            while (held(q, KEY) > 0 && freeSlots(q) + 1 >= SLOTS_PER_OPENING) {
+            // The key's own slot is free again before the loot lands (inv_del before inv_add).
+            while (held(q, KEY) > 0 && freeSlots(q) + 1 >= worstOpening(q)) {
                 await q.sdk.scanNearbyLocs(8).catch(() => undefined);
                 const chest = (q.sdk.getNearbyLocs() ?? []).find((l) => l.x === CHEST.x && l.z === CHEST.z && l.id === CHEST_CLOSED);
                 if (!chest) {
@@ -105,12 +123,15 @@ await runTask({
                     if (!took) {
                         const said = (q.sdk.getState()?.gameMessages ?? []).slice(-2).map((m) => m.text).join(' | ');
                         q.log(`keys: chest refused a key (attempt ${attempt}): ${res.message}; game: "${said}" at (${q.sdk.getState()?.player?.worldX},${q.sdk.getState()?.player?.worldZ})`);
-                        await q.reach(/chest/i).catch(() => undefined);
+                        // To the operator's tile, not q.reach(/chest/i): that opened the next
+                        // building's door at (2899,3441) and the search loop spun (ABGARMY18).
+                        await q.goTo(STAND, 0).catch((e) => q.log(`keys: to (${STAND.x},${STAND.z}): ${e instanceof Error ? e.message : e}`));
                     }
                 }
                 if (!took) throw new Error('keys: the chest did not take a key');
                 opened++;
             }
+            q.log(`keys: trip ${trip} opened ${carried - held(q, KEY)} of ${carried} at the chest in ${tickNow(q.sdk) - t0}t; ${freeSlots(q)} slots free`);
         }
         await q.bot.closeBank();
         q.log(`keys: joined ${joined}, opened the chest ${opened} times — already complete for this account`);
