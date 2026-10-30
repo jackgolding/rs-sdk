@@ -453,6 +453,15 @@ export const SOURCES: Record<string, Source> = {
             await buyWaitingForRestock(q, DOMMIK, 'needle', 1);
         },
     },
+    /** process-bank.ts: gem cutting. Dommik stocks two (alkharid.inv craftingshop2). */
+    chisel: {
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 5 }],
+        get: async (q) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, DOMMIK, 'chisel', 1);
+        },
+    },
     thread: {
         inputs: (count) => [{ item: 'coins', count }],
         get: async (q, count) => {
