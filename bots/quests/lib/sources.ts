@@ -145,6 +145,17 @@ const WAYNE_CHAINS = { x: 2973, z: 3312, npc: /^wayne$/i };
 const MONASTERY_CABBAGES = [{ x: 3051, z: 3506 }];
 /** Tostig, behind the Toad and Chicken's ground-floor bar (Burthorpe). */
 const TOSTIG_BAR = { x: 2906, z: 3540, npc: /^tostig$/i };
+const GERRANT = { x: 3013, z: 3225, npc: /^gerrant$/i };
+/** Barbarian Village (m48_53: potterywheel at 3087,3409 and 3087,3410). */
+const POTTERS_WHEEL = { x: 3087, z: 3409 };
+/** Barbarian Outpost plank spawns (m39_55 obj 960). */
+const PLANK_SPAWNS = [
+    { x: 2553, z: 3574 },
+    { x: 2552, z: 3574 },
+    { x: 2553, z: 3575 },
+    { x: 2554, z: 3574 },
+    { x: 2556, z: 3573 },
+];
 /** Pie dish ground spawn in the Varrock palace kitchen. */
 const PIE_DISH_SPAWN = { x: 3222, z: 3494 };
 /** Redberry pie burns often near Cooking 10; each attempt costs one dough + one berry portion. */
@@ -480,6 +491,84 @@ export const SOURCES: Record<string, Source> = {
     potato: { get: (q, count) => pickLocs(q, 'potato', /^potato$/i, RELLEKKA_POTATOES, count) },
     /** Lalli's altar step (raw shark on the Strange altar): Fishing 76 to catch, so a mule stocks it. */
     'raw shark': { mule: true },
+
+    // ── Dragon Slayer: the Ice Mountain door's four items, the ship's repairs, Elvarg's sword
+    // (all QUEST_STOCK lines in bots/quests/supply.ts: a mule stocks them)
+    /** Burthorpe's Toad and Chicken (burthorpe.inv death_pub) is the only shop that stocks it. */
+    "wizard's mind bomb": {
+        obj: 'wizards_mind_bomb',
+        inputs: (count) => [{ item: 'coins', count: 10 * count }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, TOSTIG_BAR, "wizard's mind bomb", count);
+        },
+    },
+    /** Gerrant's Fishy Business, Port Sarim (port_sarim.inv fishingshop). */
+    'lobster pot': {
+        obj: 'lobster_pot',
+        inputs: (count) => [{ item: 'coins', count: 40 * count }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, GERRANT, 'lobster pot', count);
+        },
+    },
+    /** Thessalia, Varrock (varrock.inv clotheshop). */
+    silk: {
+        inputs: (count) => [{ item: 'coins', count: 50 * count }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, THESSALIA_CLOTHES, 'silk', count);
+        },
+    },
+    /** Soft clay on Barbarian Village's potter's wheel (pottery.rs2 skill_multi3: the "Bowl" button). */
+    'unfired bowl': {
+        obj: 'bowl_unfired',
+        levels: { crafting: 8 },
+        inputs: (count) => [{ item: 'soft clay', count }],
+        get: async (q, count) => {
+            for (let misses = 0; misses < 3 && q.count('unfired bowl') < count; ) {
+                const before = q.count('unfired bowl');
+                await q.ensure('soft clay', 1);
+                await q.goTo({ x: POTTERS_WHEEL.x + 1, z: POTTERS_WHEEL.z }, 2);
+                await q.sdk.scanNearbyLocs(8).catch(() => undefined);
+                const wheel = q.sdk.findNearbyLoc(/potter'?s wheel/i);
+                const clay = q.sdk.findInventoryItem(/^soft clay$/i);
+                if (wheel && clay) {
+                    await q.bot.useItemOnLoc(clay, wheel);
+                    await untilTicks(q.sdk, (s) => !!s.dialog?.isOpen, 10);
+                    await driveDialog(q.sdk, [/^bowl$/i, /bowl/i], { done: () => q.count('unfired bowl') > before, ticks: 30, log: q.log });
+                    await untilTicks(q.sdk, () => q.count('unfired bowl') > before, 10);
+                }
+                misses = q.count('unfired bowl') > before ? 0 : misses + 1;
+            }
+        },
+    },
+    /**
+     * No shop sells planks (Razmire's needs Shades of Mort'ton): the Barbarian Outpost's four
+     * spawns (m39_55), waited on when another account has taken them. The deep-wilderness
+     * spawns are left alone.
+     */
+    plank: {
+        obj: 'woodplank',
+        get: async (q, count) => {
+            const t0 = tickNow(q.sdk);
+            await q.goTo(PLANK_SPAWNS[0]!, 3);
+            while (q.count('plank') < count && tickNow(q.sdk) - t0 < 1500) {
+                const plank = q.sdk.findGroundItem(/^plank$/i, { reachable: true });
+                if (!plank || plank.distance > 10) {
+                    await q.sdk.waitForTicks(5);
+                    continue;
+                }
+                const before = q.count('plank');
+                await q.bot.pickupItem(plank);
+                await untilTicks(q.sdk, () => q.count('plank') > before, 10);
+            }
+        },
+    },
+    /** Smithed from steel bars only (Smithing 34, two a bar): the Jackpoo2 mule smiths and serves them. */
+    nails: { mule: true, muleSupply: 'Jackpoo2' },
+    /** Attack 60 and Lost City complete to wield; no shop sells it. Asked of jacklove4 first. */
+    'dragon longsword': { obj: 'dragon_longsword', mule: true, muleSupply: 'jacklove4' },
 
     shears: {
         tool: true,
