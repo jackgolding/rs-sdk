@@ -128,7 +128,8 @@
       "script": "bots/quests/todo-runner.ts",
       "args": [
         "jacklove3"
-      ]
+      ],
+      "noEffectMinutes": 90
     },
     {
       "name": "jacklove4",
@@ -176,7 +177,8 @@
         "bots/quests/thieving-route.ts",
         "pigfat",
         "--knights"
-      ]
+      ],
+      "noEffectMinutes": 90
     },
     {
       "name": "jacklove6",
