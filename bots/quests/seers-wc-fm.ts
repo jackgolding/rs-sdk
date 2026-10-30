@@ -317,8 +317,24 @@ let lastLoggedWc = 0;
 let lastLoggedFm = 0;
 let lastLoggedFl = 0;
 let lastIntent = '';
+/**
+ * Where fires go: the open ground east of the bank path (collision-mapped 2026-10-30).
+ * Every account used to burn down the same two columns from SEERS_FIRE_START, so 25
+ * firemakers kept reaching for each other's tiles. Each inventory now starts on a random
+ * lane in this field and walks south, skipping blocked tiles, then re-picks a lane.
+ */
+const FIRE_FIELD = { minX: 2731, maxX: 2746, minZ: 3446, maxZ: 3478 };
 let fireCol = SEERS_FIRE_START.x;
 let fireZ = SEERS_FIRE_START.z;
+
+function pickFireLane(): void {
+    for (let i = 0; i < 20; i++) {
+        fireCol = FIRE_FIELD.minX + Math.floor(Math.random() * (FIRE_FIELD.maxX - FIRE_FIELD.minX + 1));
+        // Start in the north half so a full inventory (27 fires) still has room southward.
+        fireZ = FIRE_FIELD.maxZ - Math.floor(Math.random() * 10);
+        if (isTileWalkable(0, fireCol, fireZ)) return;
+    }
+}
 
 /** Contention ladder bookkeeping (see CONTENTION_* above). */
 const contention = {
@@ -923,20 +939,18 @@ async function dropStrayLogs(p: Phase, alsoKeep?: RegExp): Promise<void> {
 
 async function stepForFire(): Promise<void> {
     fireZ -= 1;
-    if (fireZ < 3458) {
-        fireZ = SEERS_FIRE_START.z;
-        fireCol = fireCol === SEERS_FIRE_START.x ? SEERS_FIRE_START.x - 2 : SEERS_FIRE_START.x;
-    }
+    while (fireZ >= FIRE_FIELD.minZ && !isTileWalkable(0, fireCol, fireZ)) fireZ -= 1;
+    if (fireZ < FIRE_FIELD.minZ) pickFireLane();
     await sdk.sendWalk(fireCol, fireZ, true);
     await sdk.waitForTicks(2);
 }
 
 async function goToFireLine(): Promise<void> {
-    if (Math.abs(pos().x - fireCol) <= 2 && pos().z <= SEERS_FIRE_START.z && pos().z >= 3458) return;
-    fireCol = SEERS_FIRE_START.x;
-    fireZ = SEERS_FIRE_START.z;
-    intent('Walking to the firemaking strip south of the bank');
-    await walkNear(fireCol, fireZ, 2);
+    const p = pos();
+    if (p.x >= FIRE_FIELD.minX && p.x <= FIRE_FIELD.maxX && p.z >= FIRE_FIELD.minZ && p.z <= FIRE_FIELD.maxZ && Math.abs(p.x - fireCol) <= 1) return;
+    pickFireLane();
+    intent(`Walking to fire lane x ${fireCol} (field east of the bank path)`);
+    await walkNear(fireCol, fireZ, 1);
 }
 
 async function burnInventory(p: Phase): Promise<void> {
