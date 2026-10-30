@@ -119,13 +119,27 @@ async function searchForPortrait(q: Quest): Promise<void> {
             q.log(`cupboard #${attempt}: Sir Vyvin still beside (${me().x},${me().z}); waiting for him to wander`);
             continue;
         }
-        await q.sdk.scanNearbyLocs(6).catch(() => undefined);
-        const cupboard = (q.sdk.getNearbyLocs() ?? []).find((l) => /cupboard/i.test(l.name) && l.x === CUPBOARD.x && l.z === CUPBOARD.z);
-        if (!cupboard) throw new Error(`no cupboard at (${CUPBOARD.x},${CUPBOARD.z}) from (${me().x},${me().z})`);
-        const op = cupboard.options.find((o) => /^search$/i.test(o)) ?? cupboard.options.find((o) => /^open$/i.test(o));
-        if (!op) throw new Error(`cupboard offers ${cupboard.options.join('/')}`);
+        const findCupboard = async () => {
+            await q.sdk.scanNearbyLocs(6).catch(() => undefined);
+            const c = (q.sdk.getNearbyLocs() ?? []).find((l) => /cupboard/i.test(l.name) && l.x === CUPBOARD.x && l.z === CUPBOARD.z);
+            if (!c) throw new Error(`no cupboard at (${CUPBOARD.x},${CUPBOARD.z}) from (${me().x},${me().z})`);
+            return c;
+        };
+        let cupboard = await findCupboard();
+        // Search only works on the open cupboard. Others shut it, and a Search sent on the shut one
+        // does nothing at all: ABGARMY05 sent 15 into silence on level 2 (2026-10-30). Open it first.
+        if (cupboard.options.some((o) => /^open$/i.test(o))) {
+            await q.bot.interactLoc(cupboard, /^open$/i).catch(() => undefined);
+            await q.sdk.waitForTicks(3);
+            cupboard = await findCupboard();
+        }
+        const op = cupboard.options.find((o) => /^search$/i.test(o));
+        if (!op) {
+            q.log(`cupboard #${attempt}: offers ${cupboard.options.join('/')} after opening; trying again`);
+            continue;
+        }
         const v = vyvin();
-        q.log(`cupboard ${op} #${attempt} from (${me().x},${me().z}); Vyvin ${v ? `(${v.x},${v.z}) gap ${cheb(me(), v)}` : 'not in view'}`);
+        q.log(`cupboard ${op} #${attempt} from (${me().x},${me().z},L${q.sdk.getState()?.player?.level}); Vyvin ${v ? `(${v.x},${v.z}) gap ${cheb(me(), v)}` : 'not in view'}`);
         const t0 = q.sdk.getState()?.tick ?? 0;
         const res = await q.bot.interactLoc(cupboard, new RegExp(`^${op}$`, 'i'));
         await untilTicks(q.sdk, () => q.count(PORTRAIT) > 0 || !!q.sdk.getState()?.dialog?.isOpen, 6);
