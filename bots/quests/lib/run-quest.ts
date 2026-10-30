@@ -159,8 +159,8 @@ export interface QuestDef {
 }
 
 /** A unit of work that is not a quest: same hub prologue/epilogue, no journal. */
-export function runTask(def: { id: string; hub: SafeBankName; needs?: Need[]; task: (q: Quest) => Promise<void> }): Promise<void> {
-    return runQuest({ id: def.id, hub: def.hub, stages: [], transitions: def.needs ? [{ from: '', to: '', needs: def.needs }] : [], task: def.task });
+export function runTask(def: { id: string; hub: SafeBankName; needs?: Need[]; maxConcurrent?: number; task: (q: Quest) => Promise<void> }): Promise<void> {
+    return runQuest({ id: def.id, hub: def.hub, stages: [], transitions: def.needs ? [{ from: '', to: '', needs: def.needs }] : [], maxConcurrent: def.maxConcurrent, task: def.task });
 }
 
 /** Al Kharid, behind the toll fence (x >= 3268) and south of the Varrock road. */

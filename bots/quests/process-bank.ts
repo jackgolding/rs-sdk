@@ -545,6 +545,8 @@ function leftovers(q: Quest): string[] {
 await runTask({
     id: 'process-bank',
     hub: 'al-kharid',
+    // Bank, furnace and range take a crowd; the quest default of 3 queued 46 accounts for hours.
+    maxConcurrent: 8,
     task: async (q) => {
         const t0 = tickNow(q.sdk);
         await activity(q, 'gems', 'crafting', GEMS, (m) => gemPack(q, m), [CHISEL]);
