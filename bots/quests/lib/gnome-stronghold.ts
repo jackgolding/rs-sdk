@@ -69,6 +69,8 @@ function dialogText(q: Quest): string {
 export async function crossGnomeGate(q: Quest, inward: boolean): Promise<void> {
     const crossed = () => inStronghold(here(q)) === inward;
     if (crossed()) return;
+    // From the tree's L1 or its shut trunk: climbTo and walkTo have no way out of either.
+    if (!inward) await leaveGrandTree(q);
     if (here(q).level !== 0) await q.climbTo(0);
     const side = inward ? GATE_SOUTH : GATE_NORTH;
     let refused = '';

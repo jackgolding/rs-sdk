@@ -61,7 +61,7 @@ import { inArenaCompound, leaveArena } from './fight-arena';
 import { inSeerHouse, leaveSeerHouse } from './fremennik';
 import { inEssenceMine, leaveEssenceMine } from './mining';
 import { inDungeon as inEntranaDungeon, teleportOut as teleportOutOfEntranaDungeon } from './lost-city';
-import { crossGnomeGate, inStronghold } from './gnome-stronghold';
+import { crossGnomeGate, inStronghold, leaveGrandTree } from './gnome-stronghold';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -688,6 +688,9 @@ export async function runQuest(def: QuestDef): Promise<void> {
 
         // ── prologue: naked at the hub, bank stock withdrawn toward the quest's needs
         const hub = SAFE_BANKS[def.hub];
+        // Up in the Grand Tree: climbTo finds no way down from its L1 (jacklove4 after a restart
+        // mid-stock-run, 2026-10-31).
+        if (inStronghold(pos()) && pos().level !== 0) await leaveGrandTree(q);
         if (pos().level !== 0) await q.climbTo(0);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.
         if (pos().z >= UNDERGROUND_Z) await climbOutOfUnderground(hub);
