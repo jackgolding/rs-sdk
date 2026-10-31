@@ -103,12 +103,16 @@ const SHIELD = /dragonfire shield|anti-?dragon/i;
 /** Any axe gets through the vines (karam_dungeon.rs2 cross_vines); the best one chops fastest. */
 const AXES = [/^rune axe$/i, /^adamant axe$/i, /^mithril axe$/i, /^black axe$/i, /^steel axe$/i, /^iron axe$/i, /^bronze axe$/i];
 const WEAPONS = [/^dragon longsword$/i, /^dragon scimitar$/i, /^rune scimitar$/i, /^rune longsword$/i];
+/** Best first in each slot. The user's tested kit: black d'hide, glory, dragon longsword. */
 const ARMOUR = [
     /^(dragon|rune|adamant) (full helm|med helm)$/i,
-    /^(rune|adamant) (platebody|chainbody)$/i,
-    /^(dragon|rune|adamant) (platelegs|plateskirt)$/i,
-    /^amulet of (power|strength|glory(\(\d\))?)$/i
+    /^black d'?hide body$|^(rune|adamant) (platebody|chainbody)$/i,
+    /^black d'?hide chaps$|^(dragon|rune|adamant) (platelegs|plateskirt)$/i,
+    /^black d'?hide vamb(race)?s?$/i,
+    /^amulet of glory\([1-4]\)$|^amulet of (power|strength)$/i
 ];
+const SUPER_ATTACK = /^super attack\(\d\)$/i;
+const SUPER_STRENGTH = /^super strength\(\d\)$/i;
 const LOOT =
     /^(dragon (platelegs|plateskirt|med helm|spear|chainbody)|soul rune|law rune|death rune|blood rune|nature rune|rune .*|adamant(ite)? .*|steel bar|iron bar|runite bar|coal|uncut (sapphire|emerald|ruby|diamond|dragonstone)|clue scroll.*|half of a key|.*half of a key)$/i;
 
@@ -260,6 +264,8 @@ function keep(name: string): boolean {
         COINS.test(name) ||
         foodHeal(name) > 0 ||
         PRAYER_POT.test(name) ||
+        SUPER_ATTACK.test(name) ||
+        SUPER_STRENGTH.test(name) ||
         SHIELD.test(name) ||
         AXES.some((p) => p.test(name)) ||
         WEAPONS.some((p) => p.test(name)) ||
@@ -318,6 +324,8 @@ async function bankTrip(): Promise<boolean> {
     await withdrawFirst([SHIELD]);
     for (const piece of ARMOUR) await withdrawFirst([piece]);
     await withdrawUpTo(PRAYER_POT, PRAYER_POTS_WANT);
+    await withdrawUpTo(SUPER_ATTACK, 1);
+    await withdrawUpTo(SUPER_STRENGTH, 1);
     if (count(PRAYER_POT) < PRAYER_POTS_WANT) await brewPrayerPotions(PRAYER_POTS_WANT - count(PRAYER_POT));
     const sharks = sdk.findBankItem(/^shark$/i) ? /^shark$/i : /^(swordfish|lobster)$/i;
     await withdrawUpTo(sharks, FOOD_WANT - (foodCount() - count(sharks)));
@@ -593,6 +601,20 @@ async function buryBones(): Promise<void> {
     }
 }
 
+/** A dose of super attack / super strength when the boost has worn off: shorter kills, less prayer. */
+async function boost(): Promise<void> {
+    for (const [pot, skill] of [[SUPER_ATTACK, 'Attack'], [SUPER_STRENGTH, 'Strength']] as const) {
+        const sk = sdk.getSkill(skill);
+        if (!sk || sk.level > sk.baseLevel + 3) continue;
+        const item = sdk.findInventoryItem(pot);
+        const drink = item?.optionsWithIndex.find((o) => /drink/i.test(o.text));
+        if (item && drink) {
+            await sdk.sendUseItem(item.slot, drink.opIndex);
+            await sdk.waitForTicks(2).catch(() => {});
+        }
+    }
+}
+
 async function fightOne(): Promise<void> {
     const target = pickDragon();
     if (!target) {
@@ -603,6 +625,7 @@ async function fightOne(): Promise<void> {
         return;
     }
     await protectMelee(true);
+    await boost();
     const attack = target.optionsWithIndex.find((o) => /attack/i.test(o.text))!;
     const xp0 = sdk.getSkill('Hitpoints')?.experience ?? 0;
     const started = Date.now();
