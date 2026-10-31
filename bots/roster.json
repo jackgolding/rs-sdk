@@ -106,9 +106,6 @@
       "args": [
         "jacklove1",
         "--then",
-        "bots/quests/lost-city-prep.ts",
-        "jacklove1",
-        "--then",
         "bots/quests/kbd-range.ts",
         "jacklove1",
         "--melee",
@@ -335,9 +332,6 @@
       "view": "loves",
       "script": "bots/quests/todo-runner.ts",
       "args": [
-        "jacklove17",
-        "--then",
-        "bots/quests/lost-city-prep.ts",
         "jacklove17",
         "--then",
         "bots/quests/kbd-range.ts",
@@ -643,9 +637,6 @@
       "view": "army",
       "script": "bots/quests/todo-runner.ts",
       "args": [
-        "ABGARMY20",
-        "--then",
-        "bots/quests/lost-city-prep.ts",
         "ABGARMY20",
         "--then",
         "bots/quests/kbd-range.ts",
