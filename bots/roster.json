@@ -334,10 +334,9 @@
       "args": [
         "jacklove17",
         "--then",
-        "bots/quests/kbd-range.ts",
+        "bots/quests/fishing-route.ts",
         "jacklove17",
-        "--melee",
-        "--team-min=4"
+        "--bignet"
       ],
       "noEffectMinutes": 60
     },

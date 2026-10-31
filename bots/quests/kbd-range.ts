@@ -764,6 +764,15 @@ async function pullArdyLever(): Promise<boolean> {
         await leaveAdjacentClosedDoor(sdk);
         await walkNear(bot, sdk, ARDOUGNE_WILDY_LEVER.x, ARDOUGNE_WILDY_LEVER.z, 1);
     }
+    // One pull at a time: four raid accounts pulling inside one 7-tick lever swap all logged
+    // "→ keep" and three were back at the Ardougne lever seconds later (prod, 2026-10-31).
+    if (MELEE && TEAM_MIN > 1) {
+        const order = Math.max(0, teamPresent().sort().indexOf(username));
+        if (order > 0) {
+            log(`Lever queue: ${order} ahead — waiting ${order * 10} ticks`);
+            await sdk.waitForTicks(order * 10).catch(() => {});
+        }
+    }
     for (let i = 0; i < 6 && !northOfDitch(); i++) {
         await leaveAdjacentClosedDoor(sdk);
         await dismissLeverWarning();
@@ -778,8 +787,13 @@ async function pullArdyLever(): Promise<boolean> {
             }, 10_000)
             .catch(() => {});
         if (insideKeep() || nearKeepLever()) {
-            log(`Ardy lever → keep (${pos().x},${pos().z})`);
-            return true;
+            // A landing that does not hold is not a landing.
+            await sdk.waitForTicks(3).catch(() => {});
+            if (insideKeep() || nearKeepLever()) {
+                log(`Ardy lever → keep (${pos().x},${pos().z})`);
+                return true;
+            }
+            log(`Lever landing did not hold — back at ${pos().x},${pos().z}`);
         }
     }
     return insideKeep() || nearKeepLever();
@@ -1122,7 +1136,15 @@ async function bankTrip(): Promise<boolean> {
             `dfs=${!!sdk.findEquipmentItem(FIRE_SHIELD)} glory=${sdk.findEquipmentItem(ANY_GLORY)?.name ?? 'none'} ` +
             `style=${wantedStyle()} slots=${occupied()}`
     );
-    if (MELEE) return sharkSlots() > 0 && !!sdk.findEquipmentItem(MELEE_WEAPON) && !!sdk.findEquipmentItem(FIRE_SHIELD);
+    if (MELEE) {
+        const armed = !!sdk.findEquipmentItem(MELEE_WEAPON);
+        if (!armed) {
+            // No melee weapon worn or banked: jacklove17 re-banked 140 times in 20 minutes.
+            session.noteFailure('kit', 'no melee weapon in the bank (dragon longsword, rune scimitar, ...)');
+            await sdk.waitForTicks(200).catch(() => {});
+        }
+        return sharkSlots() > 0 && armed && !!sdk.findEquipmentItem(FIRE_SHIELD);
+    }
     return sharkSlots() > 0 && count(KNIVES) > 0 && !!sdk.findEquipmentItem(FIRE_SHIELD);
 }
 
