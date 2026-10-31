@@ -347,9 +347,6 @@
       "args": [
         "jacklove18",
         "--then",
-        "bots/quests/lost-city-prep.ts",
-        "jacklove18",
-        "--then",
         "bots/quests/brimhaven-dragons.ts",
         "jacklove18"
       ],
