@@ -72,6 +72,9 @@ async function stealPack(q: Quest): Promise<number> {
     const bread0 = count(q, BREAD);
     await q.goTo(STAND, 1);
     let lastTheft = tickNow(q.sdk);
+    const t0 = tickNow(q.sdk);
+    let thefts = 0;
+    let tries = 0;
     while (freeSlots(q) > 0 && !q.stopRequested()) {
         if (tickNow(q.sdk) - lastTheft > STALL_TIMEOUT_TICKS) throw new Error(`stall: nothing stolen in ${STALL_TIMEOUT_TICKS}t at (${me(q)?.worldX},${me(q)?.worldZ})`);
         if (me(q)?.combat?.inCombat) await fightOff(q);
@@ -93,7 +96,14 @@ async function stealPack(q: Quest): Promise<number> {
         const op = stall.optionsWithIndex.find((o) => /steal/i.test(o.text))!;
         const before = q.sdk.getInventory().length;
         await q.sdk.sendInteractLoc(stall.x, stall.z, stall.id, op.opIndex);
-        if (await untilTicks(q.sdk, () => q.sdk.getInventory().length !== before, 5)) lastTheft = tickNow(q.sdk);
+        tries++;
+        if (await untilTicks(q.sdk, () => q.sdk.getInventory().length !== before, 5)) {
+            lastTheft = tickNow(q.sdk);
+            if (++thefts % 10 === 0) {
+                const pack = ['bread', 'cake', 'chocolate slice'].map((n) => `${n} ${count(q, new RegExp(`^${n}$`, 'i'))}`).join(', ');
+                q.log(`stall: ${thefts} thefts / ${tries} tries in ${tickNow(q.sdk) - t0}t; pack ${pack}, ${freeSlots(q)} free`);
+            }
+        }
     }
     for (const slice of q.sdk.getInventory().filter((i) => CHOCOLATE.test(i.name))) await q.sdk.sendDropItem(slice.slot).catch(() => undefined);
     return count(q, BREAD) - bread0;
