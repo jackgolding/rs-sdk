@@ -1061,11 +1061,15 @@ async function bankTrip(): Promise<boolean> {
         if (!(await leaveWildy())) return false;
     }
     if (pos().isDead) return false;
-    const banks = [ARDOUGNE_BANK, YANILLE_BANK, EDGEVILLE];
+    // Melee teams bank together at Ardougne, by the lever they all leave from: nearest-bank
+    // split ABGARMY13 (Varrock) off to Edgeville while ABGARMY11 waited at Ardougne.
+    const banks = MELEE ? [ARDOUGNE_BANK] : [ARDOUGNE_BANK, YANILLE_BANK, EDGEVILLE];
     const bankTile = banks.reduce((best, tile) => (distTo(tile.x, tile.z) < distTo(best.x, best.z) ? tile : best));
     intent(`Banking at ${bankTile.x},${bankTile.z}`);
     if (distTo(bankTile.x, bankTile.z) > 8) {
         const r = await bot.walkTo(bankTile.x, bankTile.z, 3);
+        // Across the map (Varrock to Ardougne) walkTo can give up part way; hop the rest.
+        if (!r.success && distTo(bankTile.x, bankTile.z) > 10) await walkNear(bot, sdk, bankTile.x, bankTile.z, 3);
         if (!r.success && distTo(bankTile.x, bankTile.z) > 10) {
             session.noteFailure('bank', `walkTo bank: ${r.message}`);
             return false;
