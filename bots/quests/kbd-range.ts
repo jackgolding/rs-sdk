@@ -42,7 +42,8 @@ import {
     KEEP_WEB_NORTH,
     KEEP_WEB_SOUTH,
     YANILLE_BANK,
-    YANILLE_TO_ARDY_LEVER
+    YANILLE_TO_ARDY_LEVER,
+    SEERS_BANK
 } from './tiles';
 import { closeUi, leaveAdjacentClosedDoor, walkNear } from './movement';
 import { foodHeal, needsBankHeal } from './food-heal';
@@ -89,6 +90,10 @@ const AIR = /^air rune$/i;
 const EARTH = /^earth rune$/i;
 const MAGIC_TAB = 6;
 const LUMBRIDGE_TELEPORT = 1167;
+/** sdk/spells.ts CAMELOT_TELEPORT: Magic 45, 1 law + 5 air. First choice (user, 2026-11-01). */
+const CAMELOT_TELEPORT = 1174;
+/** Seers' Village church altar (loc 409, maps/m42_54): prayer back before the next trip. */
+const SEERS_ALTAR = { x: 2694, z: 3462 };
 /** Melee: Protect from Melee for the whole fight, ~1 point a tick-pair at 43+. */
 const MELEE_PRAYER_POTS = 4;
 /** Lair floor west of the spawn: every melee account converges on the dragon from here. */
@@ -1103,6 +1108,11 @@ async function goToLair(): Promise<boolean> {
         // Gather at the bank, then go: waiting in the lever room cost 7-11 sharks each to the
         // poison spiders before the first breath (qlck1/2), and the same route from the same
         // bank lands the team in the lair within seconds of each other.
+        // Regroup at the Ardougne bank, by the lever, whatever bank the last trip ended at.
+        if (MELEE && distTo(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z) > 12) {
+            intent('To Ardougne to regroup');
+            await walkNear(bot, sdk, ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 4);
+        }
         await waitForTeam();
         if (!(await pullArdyLever())) return false;
     }
@@ -1126,13 +1136,33 @@ async function withdrawCount(pattern: RegExp, want: number): Promise<void> {
     log(`Withdraw ${bank.name} ${short}: ${r.success ? 'ok' : r.message}`);
 }
 
-/** True when out of the lair by ring or spell. */
+async function prayAtSeersAltar(): Promise<void> {
+    const st = sdk.getPrayerState();
+    if (!st || st.prayerPoints >= st.prayerLevel) return;
+    await walkNear(bot, sdk, SEERS_ALTAR.x + 1, SEERS_ALTAR.z, 2);
+    await sdk.scanNearbyLocs(6).catch(() => {});
+    const altar = sdk.findNearbyLoc(/^altar$/i, { withOption: /pray/i });
+    const op = altar?.optionsWithIndex.find((o) => /pray/i.test(o.text));
+    if (altar && op) {
+        await sdk.sendInteractLoc(altar.x, altar.z, altar.id, op.opIndex);
+        await sdk.waitForCondition((s) => (s.skills.find((k) => k.name === 'Prayer')?.level ?? 0) >= st.prayerLevel, 10_000).catch(() => {});
+    }
+    log(`Seers altar: prayer ${sdk.getPrayerState()?.prayerPoints}/${st.prayerLevel}`);
+}
+
+/** True when out of the lair by spell or ring (Camelot, Castle Wars, Lumbridge). */
 async function teleportOutOfLair(): Promise<boolean> {
     if (!inKbdLair()) return false;
     await protectMelee(false);
     const ring = sdk.findInventoryItem(DUELING_RING);
     const rub = ring?.optionsWithIndex.find((o) => /rub/i.test(o.text));
-    if (ring && rub) {
+    const magic = sdk.getSkill('Magic')?.level ?? 1;
+    if (magic >= 45 && count(LAW) >= 1 && count(AIR) >= 5) {
+        // Camelot: Seers bank and the Seers church altar are a short walk, then Ardougne to regroup.
+        await sdk.sendSetTab(MAGIC_TAB).catch(() => {});
+        await sdk.waitForTicks(1).catch(() => {});
+        await sdk.sendClickComponent(CAMELOT_TELEPORT);
+    } else if (ring && rub) {
         await sdk.sendUseItem(ring.slot, rub.opIndex);
         for (let i = 0; i < 10 && inKbdLair(); i++) {
             const d = sdk.getDialog();
@@ -1160,7 +1190,8 @@ async function bankTrip(): Promise<boolean> {
     if (pos().isDead) return false;
     // Melee teams bank together at Ardougne, by the lever they all leave from: nearest-bank
     // split ABGARMY13 (Varrock) off to Edgeville while ABGARMY11 waited at Ardougne.
-    const banks = MELEE ? [ARDOUGNE_BANK] : [ARDOUGNE_BANK, YANILLE_BANK, EDGEVILLE];
+    const nearSeers = distTo(SEERS_BANK.x, SEERS_BANK.z) < 60;
+    const banks = MELEE ? [nearSeers ? SEERS_BANK : ARDOUGNE_BANK] : [ARDOUGNE_BANK, YANILLE_BANK, EDGEVILLE];
     const bankTile = banks.reduce((best, tile) => (distTo(tile.x, tile.z) < distTo(best.x, best.z) ? tile : best));
     intent(`Banking at ${bankTile.x},${bankTile.z}`);
     if (distTo(bankTile.x, bankTile.z) > 8) {
@@ -1196,12 +1227,11 @@ async function bankTrip(): Promise<boolean> {
     if (!sdk.findInventoryItem(KITCHEN_KNIFE)) await withdrawCount(KITCHEN_KNIFE, 1);
     if (MELEE) {
         await withdrawCount(PRAYER_POT, MELEE_PRAYER_POTS);
+        // Camelot Teleport runes first (Magic 45), a ring of dueling and Lumbridge runes as backups.
+        await withdrawCount(LAW, 2);
+        await withdrawCount(AIR, 8);
+        await withdrawCount(EARTH, 1);
         if (!sdk.findInventoryItem(DUELING_RING)) await withdrawCount(DUELING_RING, 1);
-        if (!sdk.findInventoryItem(DUELING_RING)) {
-            await withdrawCount(LAW, 1);
-            await withdrawCount(AIR, 3);
-            await withdrawCount(EARTH, 1);
-        }
         if (!sdk.findEquipmentItem(MELEE_WEAPON) && !sdk.findInventoryItem(MELEE_WEAPON)) {
             const weapon = MELEE_WEAPONS.map((p) => sdk.findBankItem(p)).find(Boolean);
             if (weapon) await bot.withdrawItem(weapon, 1);
@@ -1218,6 +1248,7 @@ async function bankTrip(): Promise<boolean> {
         if (bankItem) await bot.withdrawItem(bankItem, 1);
     }
     await bot.closeBank();
+    if (MELEE && nearSeers) await prayAtSeersAltar();
     // None banked: the Duke replaces it for any Dragon Slayer finisher (duke-shield.ts).
     if (MELEE && !sdk.findEquipmentItem(FIRE_SHIELD) && !sdk.findInventoryItem(FIRE_SHIELD)) await fetchDukeShield(bot, sdk, log);
     await equipLoadout();
