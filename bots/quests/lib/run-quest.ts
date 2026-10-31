@@ -184,6 +184,8 @@ const onEntrana = (t: Tile) => t.x >= 2800 && t.x <= 2880 && t.z >= 3320 && t.z 
 const ENTRANA_DOCK = { x: 2835, z: 3336 };
 /** Dungeons and cellars are mapped at z + 6400. */
 const UNDERGROUND_Z = 6400;
+const MAGIC_TAB = 6;
+const FALADOR_TELEPORT = 1170;
 /** Arrival radius goTo asks travelTo for before bot.walkTo finishes the approach. */
 const APPROACH = 15;
 /** Where goTo lets travelTo stop: on the road, before a fenced or walled destination. */
@@ -292,6 +294,21 @@ export async function runQuest(def: QuestDef): Promise<void> {
             log(`sailed back from Entrana to (${pos().x},${pos().z})`);
         }
 
+        /** Falador Teleport (Magic 37: 1 law, 3 air, 1 water) when the pack holds the runes; true once above ground. */
+        async function faladorTeleport(): Promise<boolean> {
+            const runes = q.count('law rune') >= 1 && q.count('air rune') >= 3 && q.count('water rune') >= 1;
+            if (!runes || (sdk.getSkill('magic')?.level ?? 1) < 37) return false;
+            for (let attempt = 1; attempt <= 3 && pos().z >= UNDERGROUND_Z; attempt++) {
+                await sdk.sendSetTab(MAGIC_TAB).catch(() => undefined);
+                await sdk.waitForTicks(1);
+                await sdk.sendClickComponent(FALADOR_TELEPORT);
+                await untilTicks(sdk, () => pos().z < UNDERGROUND_Z, 7);
+            }
+            if (pos().z >= UNDERGROUND_Z) return false;
+            log(`teleported out of the underground to Falador (${pos().x},${pos().z})`);
+            return true;
+        }
+
         /** Up the nearest reachable ladder/stairs until above ground; logs and returns if there is none in view. */
         async function climbOutOfUnderground(dest: Tile): Promise<void> {
             const up = /climb-up|climb up|walk-up/i;
@@ -312,6 +329,10 @@ export async function runQuest(def: QuestDef): Promise<void> {
                     loc = await ladderUp();
                 }
                 if (!loc) {
+                    // A job restarted mid-dungeon with its teleport runes still packed: cast out
+                    // rather than walk a cave with no way up in view (jacklove10, Taverley
+                    // dungeon after a deploy restart, 2026-10-31).
+                    if (await faladorTeleport()) return;
                     log(`underground at (${pos().x},${pos().z}): no reachable ladder/stairs up in view`);
                     return;
                 }
@@ -650,6 +671,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         // ── prologue: naked at the hub, bank stock withdrawn toward the quest's needs
         const hub = SAFE_BANKS[def.hub];
         if (pos().level !== 0) await q.climbTo(0);
+        if (pos().z >= UNDERGROUND_Z) await faladorTeleport();
         // Naked before the walk, not only at the hub: a run that starts with a pack from the last
         // job banks it at the nearest bank first. jacklove10 set off from Al Kharid to Falador with
         // a pack of herbs, reached the toll with no coins and could not pickpocket the fee with a
