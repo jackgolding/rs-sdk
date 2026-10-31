@@ -143,15 +143,16 @@ export interface SupplyRequest {
 }
 
 /**
- * Parse a mule DM: `quest-supply <label> x<count>, <label> x<count>`.
- * Returns null when the text is not a supply request.
+ * Parse a mule DM: `quest-supply <label>=<count> | <label>=<count>` (the old
+ * `<label> x<count>, …` form is still read). Returns null when the text is not a
+ * supply request.
  */
 export function parseSupplyRequest(from: string, text: string): SupplyRequest | null {
     const match = /quest-supply\s+(.+)/i.exec(text.trim());
     if (!match) return null;
     const needs: Array<{ label: string; count: number }> = [];
-    for (const part of match[1]!.split(',')) {
-        const item = /(.+?)\s*x\s*(\d+)\s*$/i.exec(part.trim());
+    for (const part of match[1]!.split(/[|,]/)) {
+        const item = /(.+?)\s*(?:=|x)\s*(\d+)\s*$/i.exec(part.trim());
         if (!item) continue;
         needs.push({ label: item[1]!.trim(), count: Number(item[2]) });
     }
@@ -174,7 +175,11 @@ export async function requestFromMule(
     if (pending.length === 0) return true;
     try {
         await walkSendHops(sdk, [MULE_BANK], MULE_BANK, 4);
-        const detail = pending.map((n) => `${n.label} x${n.count - countItems(sdk, n.pattern)}`).join(', ');
+        // The server's word filter reads digits as letters and skips spaces and commas:
+        // "nails x12, dragon longsword" arrived as "na**********ragon longsword" and the
+        // mule served nothing (ABGARMY01, 2026-10-31). `label=count | …` passes it for every
+        // stocked label and count tested (WordEnc.filter, server/engine/src/cache/wordenc).
+        const detail = pending.map((n) => `${n.label}=${n.count - countItems(sdk, n.pattern)}`).join(' | ');
         await sdk.dm(opts.mule, `quest-supply ${detail}`).catch(() => undefined);
         ctx.log(`supply: requested from ${opts.mule}: ${detail}`);
         const want = pending.map((n) => ({ item: n.pattern, amount: n.count - countItems(sdk, n.pattern) }));
