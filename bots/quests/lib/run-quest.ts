@@ -189,6 +189,8 @@ const ENTRANA_DOCK = { x: 2835, z: 3336 };
 const UNDERGROUND_Z = 6400;
 const MAGIC_TAB = 6;
 const FALADOR_TELEPORT = 1170;
+/** Ladders up that are out of view from much of their dungeon: the Taverley dungeon's (lib/taverley-dragons.ts). */
+const KNOWN_LADDERS_UP: Tile[] = [{ x: 2884, z: 9797 }];
 /** Arrival radius goTo asks travelTo for before bot.walkTo finishes the approach. */
 const APPROACH = 15;
 /** Where goTo lets travelTo stop: on the road, before a fenced or walled destination. */
@@ -336,6 +338,15 @@ export async function runQuest(def: QuestDef): Promise<void> {
                     // rather than walk a cave with no way up in view (jacklove10, Taverley
                     // dungeon after a deploy restart, 2026-10-31).
                     if (await faladorTeleport()) return;
+                    // Out of runes: walk to a known way up on this level, then look again (jacklove10
+                    // restarted at the Dusty-key gate with no teleport runes, 2026-10-31).
+                    const known = KNOWN_LADDERS_UP.filter((t) => Math.hypot(t.x - pos().x, t.z - pos().z) < 250)
+                        .sort((a, b) => Math.hypot(a.x - pos().x, a.z - pos().z) - Math.hypot(b.x - pos().x, b.z - pos().z))[0];
+                    if (known && Math.hypot(known.x - pos().x, known.z - pos().z) > 3) {
+                        log(`underground at (${pos().x},${pos().z}): no ladder up in view — walking to the known one at (${known.x},${known.z})`);
+                        await q.goTo(known, 2).catch((e) => log(`walk to the ladder at (${known.x},${known.z}): ${(e as Error).message}`));
+                        continue;
+                    }
                     log(`underground at (${pos().x},${pos().z}): no reachable ladder/stairs up in view`);
                     return;
                 }
@@ -678,7 +689,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
         // ── prologue: naked at the hub, bank stock withdrawn toward the quest's needs
         const hub = SAFE_BANKS[def.hub];
         if (pos().level !== 0) await q.climbTo(0);
-        if (pos().z >= UNDERGROUND_Z) await faladorTeleport();
+        // Out of a dungeon first: the nearest bank below is measured on surface coordinates.
+        if (pos().z >= UNDERGROUND_Z) await climbOutOfUnderground(hub);
         // Naked before the walk, not only at the hub: a run that starts with a pack from the last
         // job banks it at the nearest bank first. jacklove10 set off from Al Kharid to Falador with
         // a pack of herbs, reached the toll with no coins and could not pickpocket the fee with a

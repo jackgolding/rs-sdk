@@ -383,7 +383,14 @@ async function intoPen(q: Quest): Promise<void> {
         await q.sdk.scanNearbyLocs(4).catch(() => undefined);
         const gate = (q.sdk.getNearbyLocs() ?? []).find((l) => l.x === DUSTY_GATE.x && l.z === DUSTY_GATE.z);
         const key = q.sdk.findInventoryItem(DUSTY_KEY);
-        if (!gate || !key) throw new Error(`scales: gate ${gate ? 'found' : 'missing'}, key ${key ? 'held' : 'missing'}`);
+        if (!key) throw new Error('scales: no Dusty key held at the gate');
+        if (!gate) {
+            // Someone else is mid-crossing: the gate is swapped for its open model for a few ticks
+            // (jacklove10, 2026-10-31).
+            q.log(`scales: no gate in view at ${where(q)} (attempt ${attempt}); waiting for it to shut`);
+            await q.sdk.waitForTicks(6);
+            continue;
+        }
         // The raw send, gated on being inside: bot.useItemOnLoc sat out its 10 s timeout after the
         // gate had already let us through (167 ticks at 60 ms, qlbds1 2026-10-30).
         const used = await q.sdk.sendUseItemOnLoc(key.slot, gate.x, gate.z, gate.id);
