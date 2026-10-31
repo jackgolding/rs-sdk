@@ -77,6 +77,18 @@ const PRAYER_POT_WITHDRAW = MELEE_MODE() ? 4 : 2;
 const KNIFE_RESTOCK_BELOW = 80;
 /** Melee: leave the lair with this many sharks left (no armour; three-account kills ate ~12 each). */
 const MELEE_LEAVE_FOOD = 6;
+/**
+ * Out of the lair by teleport, not the walk back past the PKers. The lair (2709,9818) is in no
+ * wilderness_zones row, so ~wilderness_level is 0 there and ring_of_dueling.rs2 / standard
+ * teleports work (user suggestion, 2026-11-01). Castle Wars is the ring's nearer stop to
+ * Ardougne; without a ring, Lumbridge Teleport (Magic 31: 1 law, 3 air, 1 earth), by the Duke.
+ */
+const DUELING_RING = /^ring of dueling\(\d\)$/i;
+const LAW = /^law rune$/i;
+const AIR = /^air rune$/i;
+const EARTH = /^earth rune$/i;
+const MAGIC_TAB = 6;
+const LUMBRIDGE_TELEPORT = 1167;
 /** Melee: Protect from Melee for the whole fight, ~1 point a tick-pair at 43+. */
 const MELEE_PRAYER_POTS = 4;
 /** Lair floor west of the spawn: every melee account converges on the dragon from here. */
@@ -342,6 +354,7 @@ function shouldKeep(name: string): boolean {
     if (ANTIPOISON.test(name) || PRAYER_POT.test(name)) return true;
     if (KITCHEN_KNIFE.test(name)) return true;
     if (MELEE && isMeleeGear(name)) return true;
+    if (MELEE && (DUELING_RING.test(name) || LAW.test(name) || AIR.test(name) || EARTH.test(name))) return true;
     return GEAR.test(name);
 }
 
@@ -1113,8 +1126,34 @@ async function withdrawCount(pattern: RegExp, want: number): Promise<void> {
     log(`Withdraw ${bank.name} ${short}: ${r.success ? 'ok' : r.message}`);
 }
 
+/** True when out of the lair by ring or spell. */
+async function teleportOutOfLair(): Promise<boolean> {
+    if (!inKbdLair()) return false;
+    await protectMelee(false);
+    const ring = sdk.findInventoryItem(DUELING_RING);
+    const rub = ring?.optionsWithIndex.find((o) => /rub/i.test(o.text));
+    if (ring && rub) {
+        await sdk.sendUseItem(ring.slot, rub.opIndex);
+        for (let i = 0; i < 10 && inKbdLair(); i++) {
+            const d = sdk.getDialog();
+            const cw = d?.options.find((o) => /castle wars/i.test(o.text));
+            if (cw) await sdk.sendClickDialog(cw.index);
+            await sdk.waitForTicks(1).catch(() => {});
+        }
+    } else if (count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1) {
+        await sdk.sendSetTab(MAGIC_TAB).catch(() => {});
+        await sdk.waitForTicks(1).catch(() => {});
+        await sdk.sendClickComponent(LUMBRIDGE_TELEPORT);
+    }
+    await sdk.waitForCondition((st) => (st.player?.worldZ ?? 9999) < 9000, 12_000).catch(() => {});
+    const out = !inKbdLair();
+    log(out ? `Teleported out of the lair to ${pos().x},${pos().z}` : 'No teleport out of the lair (no ring, no runes) — walking');
+    return out;
+}
+
 async function bankTrip(): Promise<boolean> {
     if (session.metrics().phase !== 'bank') await session.setPhase('bank');
+    if (MELEE) await teleportOutOfLair();
     if (northOfDitch() || inKbdLair() || inLeverDungeon()) {
         if (!(await leaveWildy())) return false;
     }
@@ -1157,6 +1196,12 @@ async function bankTrip(): Promise<boolean> {
     if (!sdk.findInventoryItem(KITCHEN_KNIFE)) await withdrawCount(KITCHEN_KNIFE, 1);
     if (MELEE) {
         await withdrawCount(PRAYER_POT, MELEE_PRAYER_POTS);
+        if (!sdk.findInventoryItem(DUELING_RING)) await withdrawCount(DUELING_RING, 1);
+        if (!sdk.findInventoryItem(DUELING_RING)) {
+            await withdrawCount(LAW, 1);
+            await withdrawCount(AIR, 3);
+            await withdrawCount(EARTH, 1);
+        }
         if (!sdk.findEquipmentItem(MELEE_WEAPON) && !sdk.findInventoryItem(MELEE_WEAPON)) {
             const weapon = MELEE_WEAPONS.map((p) => sdk.findBankItem(p)).find(Boolean);
             if (weapon) await bot.withdrawItem(weapon, 1);
