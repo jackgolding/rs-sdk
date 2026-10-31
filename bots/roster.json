@@ -30,7 +30,7 @@
       "args": [
         "Jackpoo1",
         "--then",
-        "bots/quests/essence.ts",
+        "bots/quests/brimhaven-dragons.ts",
         "Jackpoo1"
       ],
       "noEffectMinutes": 60
@@ -120,7 +120,7 @@
       "args": [
         "jacklove2",
         "--then",
-        "bots/quests/process-bank.ts",
+        "bots/quests/brimhaven-dragons.ts",
         "jacklove2"
       ],
       "noEffectMinutes": 60
@@ -613,9 +613,8 @@
       "args": [
         "ABGARMY18",
         "--then",
-        "bots/quests/fishing-route.ts",
-        "ABGARMY18",
-        "--bignet"
+        "bots/quests/brimhaven-dragons.ts",
+        "ABGARMY18"
       ],
       "noEffectMinutes": 60
     },
