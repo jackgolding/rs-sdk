@@ -37,7 +37,7 @@ const ENTRY_FEE = 875;
 const BOAT_GP = 30;
 const COINS_WANT = 1_000;
 const FOOD_WANT = 18;
-const PRAYER_POTS_WANT = 2;
+const PRAYER_POTS_WANT = 4;
 const LEAVE_FOOD = 4;
 
 /** One obstacle on the way in, crossed both ways. `inSide` is true on the dungeon-entry side. */
@@ -577,7 +577,7 @@ async function fightOne(): Promise<void> {
         await eatIfNeeded();
         await drinkPrayerIfLow();
         await protectMelee(true);
-        if ((foodCount() <= 2 && pos().hp < pos().maxHp * 0.6) || ((sdk.getPrayerState()?.prayerPoints ?? 0) === 0 && !sdk.findInventoryItem(PRAYER_POT) && pos().hp < pos().maxHp * 0.7)) {
+        if ((foodCount() <= 2 && pos().hp < pos().maxHp * 0.6) || ((sdk.getPrayerState()?.prayerPoints ?? 0) === 0 && !sdk.findInventoryItem(PRAYER_POT))) {
             session.log('warn', `Low on food (${foodCount()}) at ${pos().hp}/${pos().maxHp} — leaving`);
             return;
         }
@@ -604,7 +604,9 @@ function shouldBank(): boolean {
     // Without prayer the headbutts land, and an iron kill costs ~90 points (qlck1: 99 -> 9).
     // Out before starting a fight the bar cannot finish: a second fight at 7 points died.
     const st = sdk.getPrayerState();
-    if (inPit() && st && st.prayerPoints < Math.max(40, st.prayerLevel * 0.6) && !sdk.findInventoryItem(PRAYER_POT)) return true;
+    // On prod a dragon-longsword iron kill takes 120-180s, past a 79-point bar (ABGARMY18 died
+    // with prayer 0 after kill #2): without a potion, only a near-full bar starts a fight.
+    if (inPit() && st && st.prayerPoints < st.prayerLevel * 0.9 && !sdk.findInventoryItem(PRAYER_POT)) return true;
     if (occupied() >= 27) return true;
     return false;
 }
