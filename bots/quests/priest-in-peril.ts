@@ -319,6 +319,8 @@ async function leaveCell(q: Quest): Promise<void> {
 
 /** Murky water blessed by Drezel (opnpcu), poured on the coffin (vampire_coffin.rs2). */
 async function blessAndPour(q: Quest): Promise<void> {
+    // The `or` need passes on a plain bucket of water, which the well will not fill.
+    if (held(q, MURKY) + held(q, BLESSED) < 1 && q.count('bucket') < 1) await q.ensure('bucket', 1);
     if (held(q, MURKY) + held(q, BLESSED) < 1) await underTheTemple(q);
     if (held(q, BLESSED) < 1) {
         const bucket = q.sdk.getInventory().find((i) => i.id === MURKY);
@@ -401,7 +403,10 @@ await runQuest({
         {
             from: 'find_drezel_key',
             to: 'unlocked_drezel',
-            needs: [{ item: 'bucket', count: 1, or: 'bucket of water' }],
+            // An EMPTY bucket: the Salve well fills only bucket_empty (area_mausoleum/well.rs2), and a
+            // bucket of water cannot be emptied (jackquests, 2026-10-31). Murky and blessed water are
+            // both named "Bucket of water" too, hence the `or` on the next transition only.
+            needs: [{ item: 'bucket', count: 1 }],
             run: async (q) => {
                 await goldenKey(q);
                 await underTheTemple(q);
