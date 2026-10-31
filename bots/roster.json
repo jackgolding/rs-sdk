@@ -109,7 +109,7 @@
         "bots/quests/kbd-range.ts",
         "jacklove1",
         "--melee",
-        "--team-min=3"
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
@@ -521,7 +521,7 @@
         "bots/quests/kbd-range.ts",
         "ABGARMY11",
         "--melee",
-        "--team-min=3"
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
@@ -544,8 +544,10 @@
       "args": [
         "ABGARMY13",
         "--then",
-        "bots/quests/essence.ts",
-        "ABGARMY13"
+        "bots/quests/kbd-range.ts",
+        "ABGARMY13",
+        "--melee",
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
@@ -559,7 +561,7 @@
         "bots/quests/kbd-range.ts",
         "ABGARMY14",
         "--melee",
-        "--team-min=3"
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
@@ -586,7 +588,7 @@
         "bots/quests/kbd-range.ts",
         "ABGARMY16",
         "--melee",
-        "--team-min=3"
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
@@ -634,8 +636,10 @@
       "args": [
         "ABGARMY20",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
-        "ABGARMY20"
+        "bots/quests/kbd-range.ts",
+        "ABGARMY20",
+        "--melee",
+        "--team-min=4"
       ],
       "noEffectMinutes": 90
     },
