@@ -35,7 +35,7 @@
  *
  * Exit codes: 2 bad usage · 143 stopped by signal · otherwise the --then script's code.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 // Self-contained on purpose: a container mounts only /srv/fleet/bots, so
 // ../../quest-lab/* is unreachable at runtime. run-grade.ts keeps the verdict rules.
@@ -59,6 +59,9 @@ interface ItemState {
   done?: { at: string; runId: string; alreadyComplete?: boolean };
   failures?: number;
   deferredAt?: string;
+  /** Slot dir (bots/.quest-slots/<id>) and its size, from the deferring child's `[slots id/max]` line. */
+  slotId?: string;
+  slotMax?: number;
   lastError?: string;
   lastAt?: string;
 }
@@ -218,6 +221,11 @@ async function runItem(item: TodoItem): Promise<void> {
   if (stopping) return;
   if (code === SLOTS_FULL_EXIT) {
     st.deferredAt = stamp();
+    const slots = /deferring \[slots ([\w.-]+)\/(\d+)\]/.exec(tail);
+    if (slots) {
+      st.slotId = slots[1];
+      st.slotMax = Number(slots[2]);
+    }
     saveState();
     log(`${item.questId} deferred: its quest slots are full — on to the next item`);
     return;
@@ -275,10 +283,36 @@ async function drain(): Promise<void> {
   log(`list finished: ${doneN}/${queue.length} done${gaveUp.length ? ` · not done: ${gaveUp.join('; ')}` : ''}`);
 }
 
-/** True when the shared list gained work for this account since the last drain. */
+/** Matches lib/no-client-waits.ts SLOT_STALE_MS: an older slot file belongs to a dead run. */
+const SLOT_STALE_MS = 10 * 60_000;
+
+/**
+ * A deferred quest whose slots are still all held by live runs: stopping the grind
+ * for it would only defer it again. 20 accounts waiting on Priest in Peril's 3 slots
+ * each drained and restarted their grind every RECHECK_MS for nothing (2026-10-31).
+ */
+function stillFull(item: TodoItem): boolean {
+  const st = state[item.questId];
+  if (!st?.deferredAt || !st.slotId || !st.slotMax) return false;
+  try {
+    const dir = join(process.cwd(), 'bots', '.quest-slots', st.slotId);
+    const live = readdirSync(dir).filter((f) => {
+      try {
+        return Date.now() - statSync(join(dir, f)).mtimeMs <= SLOT_STALE_MS;
+      } catch {
+        return false;
+      }
+    });
+    return live.length >= st.slotMax;
+  } catch {
+    return false;
+  }
+}
+
+/** True when the shared list has work this account can start now (new, retryable, or a freed slot). */
 function listGrew(): boolean {
   queue = loadQueue();
-  return pending().length > 0;
+  return pending().some((i) => !stillFull(i));
 }
 
 // The list is LIVE: promoting a new quest only appends to todo.json, and every

@@ -95,7 +95,8 @@ export async function acquireQuestSlot(id: string, max: number, account: string,
                     return '?';
                 }
             });
-            note(`all ${max} quest slots taken (${who.join(', ')}) — deferring`);
+            // todo-runner reads `[slots id/max]` to leave its grind alone until a slot frees.
+            note(`all ${max} quest slots taken (${who.join(', ')}) — deferring [slots ${id}/${max}]`);
             process.exit(SLOTS_FULL_EXIT);
         }
         if (Date.now() - lastNote > 5 * 60_000) {
