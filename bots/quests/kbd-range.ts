@@ -16,12 +16,21 @@
  * web; wait for a kitchen knife (`^knife$`, not "Mithril knife").
  *
  *   bun bots/quests/kbd-range.ts jacklove1
+ *
+ * --melee: a team of 99-melee accounts, no safespot. The lair is multiway
+ * (maps/multiway.csv 0_42_153 16-31,8-39), so every account running --melee
+ * hits the same dragon. Protect from Melee blanks its melee third; the
+ * dragonfire shield caps fiery breath at 15 and the special breaths at 10
+ * (king_black_dragon.rs2 kbd_*_maxhit), and drops the poison/freeze/shock
+ * chance to 1/8. Prayer is only on while the dragon is up.
+ *
+ *   bun bots/quests/kbd-range.ts ABGARMY12 --melee
  */
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { ActivitySession, BotSDK, deriveGatewayUrl, inWilderness } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
-import { initPathfinding } from '../../sdk/pathfinding';
+import { findLongPath, initPathfinding } from '../../sdk/pathfinding';
 import {
     ARDOUGNE_BANK,
     ARDOUGNE_LEVER_DOOR,
@@ -41,6 +50,10 @@ import { LAVA_MAZE_EAST, southOfLavaMaze } from './rune-rocks-route';
 import { installGracefulShutdown } from '../../sdk/runner';
 
 /** Stalagmite loc_542 is (2707, 9818). Stand one tile west — KBD is east. */
+function MELEE_MODE(): boolean {
+    return process.argv.includes('--melee');
+}
+
 const SAFESPOT = { x: 2706, z: 9818 };
 /** East of the pillar, in knife range of a west-walking KBD. */
 const LURE = { x: 2711, z: 9818 };
@@ -50,10 +63,16 @@ const KBD_LADDER = { x: 3017, z: 3849 };
 const GATE = { x: 3008, z: 3849 };
 const SPIDER_GATE = { x: 3224, z: 3904 };
 const TREE_HOP = 3;
-const FOOD_WITHDRAW = 12;
+const FOOD_WITHDRAW = MELEE_MODE() ? 20 : 12;
 const ANTIPOISON_WITHDRAW = 2;
-const PRAYER_POT_WITHDRAW = 2;
+const PRAYER_POT_WITHDRAW = MELEE_MODE() ? 4 : 2;
 const KNIFE_RESTOCK_BELOW = 80;
+/** Melee: leave the lair with this many sharks left (no armour; three-account kills ate ~12 each). */
+const MELEE_LEAVE_FOOD = 6;
+/** Melee: Protect from Melee for the whole fight, ~1 point a tick-pair at 43+. */
+const MELEE_PRAYER_POTS = 4;
+/** Lair floor west of the spawn: every melee account converges on the dragon from here. */
+const LAIR_MIDDLE = { x: 2709, z: 9818 };
 
 /** Keep (north) → lesser-demon gate. Stay on x=3135 until south of the members fence. */
 const KEEP_TO_LADDER = [
@@ -86,13 +105,37 @@ const CHARGED_GLORY = /amulet of glory\([1-4]\)/i;
 const ANY_GLORY = /amulet of glory/i;
 const ARROW = /arrows?$/i;
 const SHORTBOW = /shortbow/i;
+/** Best first: the first one held, worn or banked is the weapon. */
+const MELEE_WEAPONS = [
+    /^dragon longsword$/i,
+    /^dragon scimitar$/i,
+    /^dragon battleaxe$/i,
+    /^rune scimitar$/i,
+    /^rune longsword$/i,
+    /^rune battleaxe$/i,
+    /^adamant scimitar$/i
+];
+const MELEE_WEAPON = /^(dragon (longsword|scimitar|battleaxe)|rune (scimitar|longsword|battleaxe)|adamant scimitar)$/i;
+const MELEE_ARMOUR = [
+    /^(dragon|rune|adamant) (full helm|med helm)$/i,
+    /^(rune|adamant) (platebody|chainbody)$/i,
+    /^(rune|adamant) (platelegs|plateskirt)$/i,
+    /^amulet of (power|strength|glory(\([1-4]\))?)$/i,
+    /^(leather|climbing) boots$/i,
+    /^leather gloves$/i
+];
 const RARE =
     /rune longsword|adamant platebody|dragon med|rune axe|adamant axe|runite bar|adamantite bar|amulet of strength|shark|clue scroll|half of a key|left half|shield left half|^(uncut )?(sapphire|emerald|ruby|diamond|dragonstone)$/i;
 const GEAR =
     /mithril kni|dragonfire shield|anti-?dragon|dragonhide (body|chaps)|dragon vambraces|(adamant|rune) (full helm|med helm)|amulet of glory|(leather|climbing) boots/i;
 
+function isMeleeGear(name: string): boolean {
+    return MELEE_WEAPON.test(name) || MELEE_ARMOUR.some((p) => p.test(name));
+}
+
 const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-'));
+const MELEE = MELEE_MODE();
 
 function loadBotEnv(): void {
     const envPath = botArg
@@ -115,6 +158,16 @@ const username = process.env.BOT_USERNAME!;
 const password = process.env.PASSWORD!;
 const server = process.env.SERVER;
 const GRIND_LOG = join(process.cwd(), 'bots', username, 'grind.log');
+/**
+ * Melee team rendezvous. Every --melee account checks in here (one file each, on the
+ * shared bots/ mount) and waits at the bank until --team-min of them are there or
+ * already in the lair: the first to arrive used to fight alone and eat a trip's food in
+ * one kill (qlck1 solo: 22 sharks, no kill). --team-min=1 turns the wait off.
+ */
+const TEAM_DIR = join(process.cwd(), 'bots', '.kbd-team');
+const TEAM_MIN = Number(argv.find((a) => a.startsWith('--team-min='))?.split('=')[1] ?? 4);
+const TEAM_FRESH_MS = 120_000;
+const TEAM_WAIT_MS = 15 * 60_000;
 
 initPathfinding();
 
@@ -280,6 +333,7 @@ function shouldKeep(name: string): boolean {
     if (SHARK.test(name)) return true;
     if (ANTIPOISON.test(name) || PRAYER_POT.test(name)) return true;
     if (KITCHEN_KNIFE.test(name)) return true;
+    if (MELEE && isMeleeGear(name)) return true;
     return GEAR.test(name);
 }
 
@@ -370,7 +424,25 @@ async function setThrownStyle(): Promise<void> {
     log(`Style ${want} (ranged ${rangedLevel()} def ${defenceLevel()})`);
 }
 
+async function equipMeleeLoadout(): Promise<void> {
+    if (!sdk.findEquipmentItem(MELEE_WEAPON)) {
+        for (const pattern of MELEE_WEAPONS) {
+            const item = sdk.findInventoryItem(pattern);
+            if (item) {
+                await bot.equipItem(item);
+                break;
+            }
+        }
+    }
+    for (const pattern of [FIRE_SHIELD, ...MELEE_ARMOUR]) {
+        if (sdk.findEquipmentItem(pattern)) continue;
+        const item = sdk.findInventoryItem(pattern);
+        if (item) await bot.equipItem(item);
+    }
+}
+
 async function equipLoadout(): Promise<void> {
+    if (MELEE) return equipMeleeLoadout();
     const wornArrows = sdk.findEquipmentItem(ARROW);
     if (wornArrows) await bot.unequipItem(wornArrows);
     const pieces = [KNIVES, FIRE_SHIELD, DHIDE_BODY, DHIDE_CHAPS, VAMBRACES, HELM, BOOTS, CHARGED_GLORY, ANY_GLORY];
@@ -387,6 +459,8 @@ async function eatIfNeeded(): Promise<void> {
     if (p.hp >= p.maxHp) return;
     const foods = edible().sort((a, b) => foodHeal(b.name) - foodHeal(a.name));
     const danger = p.hp <= Math.max(50, Math.floor(p.maxHp * 0.55));
+    // Melee: no topping up 98 -> 99 between breaths ("Ate Shark +1" burned a trip's food).
+    if (MELEE && !danger && p.hp > p.maxHp - 25) return;
     const food = foods.find((f) => p.hp + foodHeal(f.name) <= p.maxHp) ?? (danger ? foods[0] : null);
     if (!food) return;
     const r = await bot.eatFood(food);
@@ -409,7 +483,7 @@ async function drinkPrayerIfLow(): Promise<void> {
 }
 
 async function drinkAntipoison(): Promise<void> {
-    const msgs = sdk.getState()?.recentMessages ?? [];
+    const msgs = sdk.getState()?.gameMessages ?? [];
     const poisoned = msgs.some((m) => /poison/i.test(m.text ?? ''));
     if (!poisoned) return;
     const pot = sdk.findInventoryItem(ANTIPOISON);
@@ -600,6 +674,14 @@ async function slashOrWaitForWeb(stand: { x: number; z: number }): Promise<boole
             await sdk.waitForTicks(3);
             continue;
         }
+        // web.rs2 oploc1: Slash cuts with the worn weapon when it slashes (scimitar, longsword).
+        const slash = web?.optionsWithIndex.find((o) => /^slash$/i.test(o.text));
+        if (web && slash && sdk.findEquipmentItem(MELEE_WEAPON)) {
+            intent('Slash keep web with the worn weapon');
+            await sdk.sendInteractLoc(web.x, web.z, web.id, slash.opIndex);
+            await sdk.waitForTicks(3);
+            continue;
+        }
         if (i % 4 === 0) {
             log(`Web up @ ${pos().x},${pos().z} — waiting for kitchen knife slash`);
             intent('Waiting at keep web for slash');
@@ -724,9 +806,55 @@ async function pullKeepLeverToArdy(): Promise<boolean> {
     return inArdougne();
 }
 
+/** North of the keep fence (z 3903/3904, wall from x=3135 east to the spider gate at 3224). */
+function northOfKeepFence(): boolean {
+    const p = pos();
+    return p.z >= 3904 && p.z < 3960 && p.x >= 3120 && p.x <= 3230;
+}
+
+/**
+ * Southbound through the spider gate: the road at x=3135 is walled off at z=3903
+ * (findLongPath 3135,3904 → 3135,3903 goes via 3224,3904), and hopToward sat at
+ * 3135,3904 for 15 minutes (qlck1, 2026-10-31). learnings/wildy-lever.md has the
+ * northbound half of this detour.
+ */
+async function crossKeepFenceSouth(): Promise<void> {
+    if (!northOfKeepFence()) return;
+    intent('Keep fence — east to the spider gate, then south');
+    // Round the keep, never through it: a straight hop from the web walks into the keep's
+    // walls (qlck1 stuck at 3160,3917). The road west of it, then the fence's north side.
+    if (pos().x > KEEP_ROAD_X + 5 && pos().z > SPIDER_GATE.z + 10) await hopToward(KEEP_ROAD_X, Math.max(pos().z, 3954), 3);
+    if (pos().z > SPIDER_GATE.z + 4) await hopToward(KEEP_ROAD_X, SPIDER_GATE.z + 2, 2);
+    await hopToward(SPIDER_GATE.x, SPIDER_GATE.z + 2, 1);
+    // Through means clear of the gate line: standing in the gateway at z=3903 with the gate
+    // shut, a walk south routes back north round the fence (qlck1 went 3224,3903 → 3167,3933).
+    const through = () => pos().z <= SPIDER_GATE.z - 3;
+    for (let i = 0; i < 6 && !through() && !pos().isDead; i++) {
+        if (pos().z > SPIDER_GATE.z) await openNearbyGate();
+        await sdk.sendWalk(SPIDER_GATE.x, SPIDER_GATE.z - 4, true);
+        await sdk.waitForCondition((st) => (st.player?.worldZ ?? 9999) <= SPIDER_GATE.z - 3, 6_000).catch(() => {});
+    }
+    log(`Keep fence ${through() ? 'crossed' : 'not crossed'} @ ${pos().x},${pos().z}`);
+}
+
 async function walkKeepRoadToLadder(): Promise<boolean> {
+    await crossKeepFenceSouth();
     if (inMembersGateCorridor()) await leaveMembersCorridor(false);
-    await walkWaypointsSend(KEEP_TO_LADDER, { x: KBD_LADDER.x, z: KBD_LADDER.z - 1 });
+    if (pos().z < SPIDER_GATE.z) {
+        // South of the fence: the pathfinder's legs, not the old hop list. (3078,3848) and
+        // (3040,3848) have no route (lava and rock), and the road's northern waypoints sit
+        // behind the fence (qlck1 jittered at 3120,3847, then walked back through the gate).
+        // The route runs south-west round the rocks and in through the lesser-demon gate.
+        const legs = findLongPath(0, pos().x, pos().z, GATE.x - 1, GATE.z);
+        log(`ladder route ${pos().x},${pos().z}: ${legs.length} legs via ${legs.map((w) => `${w.x},${w.z}`).join(' ')}`);
+        for (const leg of legs) {
+            if (pos().isDead) break;
+            await eatIfNeeded();
+            await hopToward(leg.x, leg.z, 2);
+        }
+    } else {
+        await walkWaypointsSend(KEEP_TO_LADDER, { x: KBD_LADDER.x, z: KBD_LADDER.z - 1 });
+    }
     if (distTo(GATE.x, GATE.z) <= 8) await openNearbyGate();
     if (distTo(KBD_LADDER.x, KBD_LADDER.z) > 3) await hopToward(KBD_LADDER.x, KBD_LADDER.z - 1, 2);
     return distTo(KBD_LADDER.x, KBD_LADDER.z) <= 6;
@@ -800,11 +928,111 @@ async function pullEntryLever(): Promise<boolean> {
     return inKbdLair();
 }
 
+async function protectMelee(on: boolean): Promise<void> {
+    const active = sdk.isPrayerActive('protect_from_melee');
+    if (on && !active && (sdk.getPrayerState()?.prayerPoints ?? 0) > 0) await bot.activatePrayer('protect_from_melee');
+    if (!on && active) await bot.deactivatePrayer('protect_from_melee');
+}
+
+/** One dragon, start to loot. Every --melee account in the lair runs the same loop on it. */
+async function meleeKill(): Promise<void> {
+    if (!inKbdLair()) return;
+    teamCheckIn('lair');
+    if (!findKbd()) {
+        await protectMelee(false);
+        await lootAfterKill();
+        if (distTo(LAIR_MIDDLE.x, LAIR_MIDDLE.z) > 4) await bot.walkTo(LAIR_MIDDLE.x, LAIR_MIDDLE.z, 2);
+        await sdk.waitForTicks(3);
+        return;
+    }
+    await protectMelee(true);
+    log(`KBD up — protect from melee ${sdk.isPrayerActive('protect_from_melee') ? 'on' : 'OFF'} prayer=${sdk.getPrayerState()?.prayerPoints} sharks=${foodCount()} team=${(sdk.getNearbyPlayers() ?? []).length + 1}`);
+    const hpXp = () => sdk.getSkill('Hitpoints')?.experience ?? 0;
+    const xpBefore = hpXp();
+    intent('Melee KBD under Protect from Melee');
+    const started = Date.now();
+    while (findKbd() && !pos().isDead && Date.now() - started < 300_000) {
+        await bot.dismissBlockingUI();
+        await eatIfNeeded();
+        await drinkAntipoison();
+        await drinkPrayerIfLow();
+        await protectMelee(true);
+        // Two sharks for the walk to the exit lever: the far fire breath still lands on the way
+        // (qlck1 left at 0 sharks, 44 HP, and died by the lever).
+        if (foodCount() <= 3) {
+            session.log('warn', `Low on food (${foodCount()}) at ${pos().hp}/${pos().maxHp} mid-fight — leaving the lair`);
+            break;
+        }
+        if (!(pos().inCombat && pos().targetType === 'npc')) await attackFromTile(true);
+        await sdk.waitForTicks(1);
+    }
+    await protectMelee(false);
+    if (!findKbd() && !pos().isDead && hpXp() > xpBefore) {
+        session.noteProgress('xp', `hitpoints ${hpXp()}`);
+        log(`KBD dead +${hpXp() - xpBefore} hp xp in ${Math.round((Date.now() - started) / 1000)}s sharks=${sharkSlots()} prayer=${sdk.getPrayerState()?.prayerPoints}`);
+        await lootAfterKill();
+        log(`Looted bones=${count(DRAGON_BONES)} hide=${count(BLACK_HIDE)} slots=${occupied()}`);
+    }
+}
+
+function teamCheckIn(where: 'bank' | 'lair'): void {
+    try {
+        mkdirSync(TEAM_DIR, { recursive: true });
+        writeFileSync(join(TEAM_DIR, username), JSON.stringify({ at: Date.now(), where }));
+    } catch {
+        /* rendezvous is best effort */
+    }
+}
+
+/** Team members checked in at the bank or in the lair within the last two minutes. */
+function teamPresent(): string[] {
+    try {
+        return readdirSync(TEAM_DIR).filter((name) => {
+            try {
+                const t = JSON.parse(readFileSync(join(TEAM_DIR, name), 'utf8')) as { at: number };
+                return Date.now() - t.at < TEAM_FRESH_MS;
+            } catch {
+                return false;
+            }
+        });
+    } catch {
+        return [];
+    }
+}
+
+/** Wait in the lever room for the team; true when enough are here (or the wait ran out). */
+async function waitForTeam(): Promise<void> {
+    if (!MELEE || TEAM_MIN <= 1) return;
+    const started = Date.now();
+    let said = 0;
+    while (!session.isStopped() && !pos().isDead && Date.now() - started < TEAM_WAIT_MS) {
+        teamCheckIn('bank');
+        const here = teamPresent();
+        if (here.length >= TEAM_MIN) {
+            log(`Team ready (${here.length}/${TEAM_MIN}): ${here.join(', ')} — heading out`);
+            return;
+        }
+        if (Date.now() - said > 60_000) {
+            said = Date.now();
+            log(`Waiting for the team at the bank: ${here.length}/${TEAM_MIN} (${here.join(', ')})`);
+            intent(`KBD team ${here.length}/${TEAM_MIN} at the bank`);
+        }
+        await eatIfNeeded();
+        session.noteProgress('phase', `team ${here.length}`);
+        await sdk.waitForTicks(5).catch(() => {});
+    }
+    log(`Team wait ran out with ${teamPresent().length}/${TEAM_MIN} — going in`);
+}
+
 async function goToLair(): Promise<boolean> {
     if (inKbdLair()) return true;
     if (session.metrics().phase !== 'travel') await session.setPhase('travel');
     if (inLeverDungeon()) return pullEntryLever();
     if (!northOfDitch()) {
+        // Gather at the bank, then go: waiting in the lever room cost 7-11 sharks each to the
+        // poison spiders before the first breath (qlck1/2), and the same route from the same
+        // bank lands the team in the lair within seconds of each other.
+        await waitForTeam();
         if (!(await pullArdyLever())) return false;
     }
     if (insideKeep() || nearKeepLever() || (atKeepWeb() && pos().z < 3952)) {
@@ -865,11 +1093,19 @@ async function bankTrip(): Promise<boolean> {
     await withdrawCount(ANTIPOISON, ANTIPOISON_WITHDRAW);
     await withdrawCount(PRAYER_POT, PRAYER_POT_WITHDRAW);
     if (!sdk.findInventoryItem(KITCHEN_KNIFE)) await withdrawCount(KITCHEN_KNIFE, 1);
-    if (count(KNIVES) < KNIFE_RESTOCK_BELOW) {
+    if (MELEE) {
+        await withdrawCount(PRAYER_POT, MELEE_PRAYER_POTS);
+        if (!sdk.findEquipmentItem(MELEE_WEAPON) && !sdk.findInventoryItem(MELEE_WEAPON)) {
+            const weapon = MELEE_WEAPONS.map((p) => sdk.findBankItem(p)).find(Boolean);
+            if (weapon) await bot.withdrawItem(weapon, 1);
+        }
+        // No armour is withdrawn: the wilderness PKers make anything beyond the three kept
+        // items (longsword, shield, one more) a loss, so the team risks only food and pots.
+    } else if (count(KNIVES) < KNIFE_RESTOCK_BELOW) {
         const bankKnives = sdk.findBankItem(KNIVES);
         if (bankKnives) await bot.withdrawItem(bankKnives, Math.min(500, bankKnives.count));
     }
-    for (const pattern of [FIRE_SHIELD, DHIDE_BODY, DHIDE_CHAPS, VAMBRACES, HELM, BOOTS, CHARGED_GLORY]) {
+    for (const pattern of MELEE ? [FIRE_SHIELD] : [FIRE_SHIELD, DHIDE_BODY, DHIDE_CHAPS, VAMBRACES, HELM, BOOTS, CHARGED_GLORY]) {
         if (sdk.findEquipmentItem(pattern) || sdk.findInventoryItem(pattern)) continue;
         const bankItem = sdk.findBankItem(pattern);
         if (bankItem) await bot.withdrawItem(bankItem, 1);
@@ -882,13 +1118,18 @@ async function bankTrip(): Promise<boolean> {
             `dfs=${!!sdk.findEquipmentItem(FIRE_SHIELD)} glory=${sdk.findEquipmentItem(ANY_GLORY)?.name ?? 'none'} ` +
             `style=${wantedStyle()} slots=${occupied()}`
     );
+    if (MELEE) return sharkSlots() > 0 && !!sdk.findEquipmentItem(MELEE_WEAPON) && !!sdk.findEquipmentItem(FIRE_SHIELD);
     return sharkSlots() > 0 && count(KNIVES) > 0 && !!sdk.findEquipmentItem(FIRE_SHIELD);
 }
 
 function shouldBank(): boolean {
-    if (count(KNIVES) < 20) return true;
+    if (MELEE) {
+        if (!sdk.findEquipmentItem(MELEE_WEAPON) && !sdk.findInventoryItem(MELEE_WEAPON)) return true;
+        if (!sdk.findInventoryItem(PRAYER_POT) && (sdk.getPrayerState()?.prayerPoints ?? 0) < 10) return true;
+        if (foodCount() <= MELEE_LEAVE_FOOD) return true;
+    } else if (count(KNIVES) < 20) return true;
     if (sharkSlots() < 2 && foodCount() < 2) return true;
-    if (occupied() >= 26) return true;
+    if (!MELEE && occupied() >= 26) return true;
     if (needsBankHeal(pos().hp, pos().maxHp) && foodCount() === 0) return true;
     if (!sdk.findEquipmentItem(FIRE_SHIELD) && !sdk.findInventoryItem(FIRE_SHIELD)) return true;
     return false;
@@ -913,7 +1154,7 @@ session.registerRecovery([
         run: async () => bankTrip()
     }
 ]);
-session.setAnchor(SAFESPOT.x, SAFESPOT.z);
+session.setAnchor(MELEE ? LAIR_MIDDLE.x : SAFESPOT.x, MELEE ? LAIR_MIDDLE.z : SAFESPOT.z);
 
 try {
     await bot.skipTutorial();
@@ -931,31 +1172,41 @@ try {
     } else {
         await equipLoadout();
     }
-    await session.run(async () => {
+    while (!session.isStopped()) {
+        if (session.needsRecovery()) {
+            if ((await session.recover()) === 'exhausted') break;
+            continue;
+        }
+        session.maybeHeartbeat();
         await ui();
         await eatIfNeeded();
         await drinkAntipoison();
         await drinkPrayerIfLow();
         if (pos().isDead) {
             await waitRespawn();
-            return;
+            continue;
         }
         if (pos().targetType === 'player' && pos().inCombat) {
             session.log('warn', `Player combat @ ${pos().x},${pos().z}`);
             await leaveWildy();
-            return;
+            continue;
         }
         if (shouldBank()) {
             await bankTrip();
-            return;
+            continue;
         }
         if (!inKbdLair()) {
-            if (!(await goToLair())) return;
+            if (!(await goToLair())) continue;
         }
-        session.setAnchor(SAFESPOT.x, SAFESPOT.z);
+        session.setAnchor(MELEE ? LAIR_MIDDLE.x : SAFESPOT.x, MELEE ? LAIR_MIDDLE.z : SAFESPOT.z);
         if (session.metrics().phase !== 'kbd') await session.setPhase('kbd');
-        await lureAndKill();
-    });
+        if (MELEE) await meleeKill();
+        else await lureAndKill();
+    }
+} catch (err) {
+    session.stop('script_error', err instanceof Error ? err.message : String(err));
+    console.error('Script error:', err);
 } finally {
+    await session.finalizeStop();
     await sdk.disconnect();
 }
