@@ -182,7 +182,7 @@
       "args": [
         "pigfat",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/brimhaven-dragons.ts",
         "pigfat"
       ],
       "noEffectMinutes": 90
@@ -350,7 +350,7 @@
         "bots/quests/lost-city-prep.ts",
         "jacklove18",
         "--then",
-        "bots/quests/agility-route.ts",
+        "bots/quests/brimhaven-dragons.ts",
         "jacklove18"
       ],
       "noEffectMinutes": 60
