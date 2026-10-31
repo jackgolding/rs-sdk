@@ -138,8 +138,44 @@ export async function climbGrandTree(q: Quest): Promise<void> {
     if (here(q).level !== 1) throw new Error(`could not climb the Grand Tree's ladder (at ${here(q).x},${here(q).z},L${here(q).level})`);
 }
 
+/**
+ * The agility course's raised platforms (gnome-course.ts STEPS): L1 above the net
+ * (2471-2476,3422-3424) and L2 either side of the balancing rope (2472-2488,3418-3421).
+ * A grind stopped mid-lap leaves the account up there, where the Grand Tree's ladder
+ * is nowhere in view (jacklove15 at 2483,3420,L2 failed Dragon Slayer twice).
+ */
+function onCoursePlatform(p: { x: number; z: number; level: number }): boolean {
+    return p.level > 0 && p.x >= 2470 && p.x <= 2490 && p.z >= 3415 && p.z <= 3426;
+}
+
+/** Finish the lap's obstacles down to the ground: branch up, rope east, branch down. */
+async function leaveCoursePlatform(q: Quest): Promise<void> {
+    for (let attempt = 0; attempt < 8 && here(q).level !== 0; attempt++) {
+        await q.sdk.scanNearbyLocs(8).catch(() => undefined);
+        const down = q.sdk.findNearbyLoc(/^tree branch$/i, { withOption: /^climb-down$/i, reachable: true });
+        const rope = q.sdk.findNearbyLoc(/^balancing rope$/i, { withOption: /walk-on/i, reachable: true });
+        const up = q.sdk.findNearbyLoc(/^tree branch$/i, { withOption: /^climb$/i, reachable: true });
+        const level = here(q).level;
+        if (down) {
+            await q.bot.interactLoc(down, /^climb-down$/i).catch(() => undefined);
+            await untilTicks(q.sdk, (s) => (s.player?.level ?? 1) === 0, 15);
+        } else if (level === 2 && rope) {
+            await q.bot.interactLoc(rope, /walk-on/i).catch(() => undefined);
+            await untilTicks(q.sdk, (s) => (s.player?.worldX ?? 0) >= 2483, 20);
+        } else if (level === 1 && up) {
+            await q.bot.interactLoc(up, /^climb$/i).catch(() => undefined);
+            await untilTicks(q.sdk, (s) => (s.player?.level ?? 1) === 2, 15);
+        } else {
+            await q.sdk.waitForTicks(2);
+        }
+    }
+    if (here(q).level !== 0) throw new Error(`could not get down off the agility course (at ${here(q).x},${here(q).z},L${here(q).level})`);
+    q.log(`gnome course: down off the platforms at ${here(q).x},${here(q).z}`);
+}
+
 /** Down from the Grand Tree's L1 and out of its door, onto the stronghold's ground. */
 export async function leaveGrandTree(q: Quest): Promise<void> {
+    if (onCoursePlatform(here(q))) return leaveCoursePlatform(q);
     if (here(q).level === 0) {
         // Inside the trunk with the door shut, walkTo has no way out.
         if (Math.abs(here(q).x - TREE_LADDER.x) <= 3 && here(q).z >= 3492 && here(q).z <= 3498) await throughTreeDoor(q, TREE_OUTSIDE);
