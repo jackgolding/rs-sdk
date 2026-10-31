@@ -109,7 +109,7 @@ export const TRAINERS: Record<string, Trainer> = {
 
 // ── Woodcutting
 
-interface TreeSpot {
+export interface TreeSpot {
     level: number;
     /** Loc name. */
     tree: RegExp;
@@ -118,7 +118,7 @@ interface TreeSpot {
     spot: { x: number; z: number };
 }
 /** Draynor (maps m48_50): trees and oaks east of the bank, willows by the water south-west of it. */
-const TREES: TreeSpot[] = [
+export const TREES: TreeSpot[] = [
     { level: 30, tree: /^willow$/i, logs: 'willow', spot: { x: 3086, z: 3233 } },
     { level: 15, tree: /^oak$/i, logs: 'oak', spot: { x: 3113, z: 3240 } },
     { level: 1, tree: /^tree$/i, logs: '', spot: { x: 3110, z: 3230 } },
@@ -166,7 +166,7 @@ async function chopUntil(q: Quest, until: () => boolean, which: () => TreeSpot):
 
 // ── Fletching
 
-const fletchFor = (fl: number, wc: number): { label: string; logs: TreeSpot['logs'] } => {
+export const fletchFor = (fl: number, wc: number): { label: string; logs: TreeSpot['logs'] } => {
     if (fl >= 40 && wc >= 30) return { label: 'willow long', logs: 'willow' };
     if (fl >= 35 && wc >= 30) return { label: 'willow short', logs: 'willow' };
     if (fl >= 25 && wc >= 15) return { label: 'oak long', logs: 'oak' };

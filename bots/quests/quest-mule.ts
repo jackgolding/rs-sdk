@@ -2,13 +2,18 @@
  * Quest-bank mule: parks at Draynor bank holding QUEST_STOCK and serves
  * `quest-supply` DM requests from questing accounts.
  *
- *   bun bots/quests/quest-mule.ts {muleName} [--stock | --serve-only]
+ *   bun bots/quests/quest-mule.ts {muleName} [--stock | --serve-only] [--train]
  *
  * Protocol: quester walks to Draynor bank, DMs
  * `quest-supply <label> x<count>, ...`, and waits in a receive trade. The
  * mule polls chat, withdraws from its own bank, and offers the trade.
  * Safe-stop native (already parked at Draynor; drain is a no-op walk).
  * Restock by trading the manifest over; low lines log WARN for top-up.
+ *
+ * --train: between requests, chop the Draynor trees beside the bank and fletch
+ * the logs (lib/training.ts TREES/fletchFor pick tree and product by level),
+ * banking the products. Chat is polled after every chop or fletch, and the
+ * pack goes into the bank before a request is withdrawn.
  */
 import { ActivitySession, BotSDK, deriveGatewayUrl } from '../../sdk/index';
 import { installGracefulShutdown } from '../../sdk/runner';
@@ -19,6 +24,7 @@ import { dirname, join } from 'path';
 import { walkSendHops } from './movement';
 import { MULE_BANK, QUEST_STOCK, ensureSupplied, parseSupplyRequest } from './supply';
 import { countItems } from './quest-lib';
+import { TREES, fletchFor } from './lib/training';
 
 const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-'));
@@ -29,6 +35,8 @@ const STOCK_MODE = argv.includes('--stock');
 // --serve-only: a mule for a few lines only (jacklove4's imp beads) — no
 // QUEST_STOCK audit, which would warn about every Dragon Slayer line it never holds.
 const SERVE_ONLY = argv.includes('--serve-only');
+// --train: Woodcutting + Fletching at the Draynor trees while no request is waiting.
+const TRAIN = argv.includes('--train');
 
 function loadBotEnv(): void {
     const envPath = botArg
@@ -176,6 +184,8 @@ async function serveOnce(from: string, needs: Array<{ label: string; count: numb
         session.log('warn', `mule: bank would not open for ${from}`);
         return false;
     }
+    // --train carries an axe, a knife and logs: bank the pack so the request fits.
+    if (TRAIN) await depositPack();
     const give: Array<{ item: RegExp; amount: number }> = [];
     for (const need of needs) {
         const pattern = new RegExp(`^${need.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
@@ -219,14 +229,126 @@ async function serveOnce(from: string, needs: Array<{ label: string; count: numb
     }
 }
 
+// ── --train ─────────────────────────────────────────────────────────────────
+
+const AXES: Array<{ name: RegExp; level: number }> = [
+    { name: /^rune axe$/i, level: 41 },
+    { name: /^adamant axe$/i, level: 31 },
+    { name: /^mithril axe$/i, level: 21 },
+    { name: /^black axe$/i, level: 11 },
+    { name: /^steel axe$/i, level: 6 },
+    { name: /^iron axe$/i, level: 1 },
+    { name: /^bronze axe$/i, level: 1 },
+];
+const KNIFE = /^knife$/i;
+const LOGS = /^(willow |oak )?logs$/i;
+/** Training stays this close to the bank, so a requester at the booth is always in view. */
+const TRAIN_RADIUS = 25;
+/** Why training stopped for this run (missing tools); serving carries on. */
+let trainOff = '';
+let fletchMisses = 0;
+
+const level = (skill: string) => sdk.getSkill(skill)?.baseLevel ?? 1;
+const isTool = (name: string) => KNIFE.test(name) || AXES.some((a) => a.name.test(name));
+const hasAxe = () => sdk.getInventory().some((i) => AXES.some((a) => a.name.test(i.name)));
+const hasKnife = () => !!sdk.findInventoryItem(KNIFE);
+const packFull = () => sdk.getInventory().length >= 28;
+
+/** Bank everything in the pack (bank already open). */
+async function depositPack(keepTools = false): Promise<void> {
+    for (const item of sdk.getInventory()) {
+        if ((item.count ?? 0) <= 0 || (keepTools && isTool(item.name))) continue;
+        await bot.depositItem(item, -1).catch(() => undefined);
+    }
+    await sdk.waitForTicks(1).catch(() => undefined);
+}
+
+/** Bank the products and logs, withdraw the best usable axe and a knife. */
+async function bankForTraining(): Promise<void> {
+    await parkAtDraynor().catch(() => undefined);
+    if (!(await openBank().catch(() => false))) return;
+    await depositPack(true);
+    const bank = sdk.getBankItems?.() ?? [];
+    if (!hasAxe()) {
+        const axe = AXES.filter((a) => level('Woodcutting') >= a.level)
+            .map((a) => bank.find((i) => a.name.test(i.name) && (i.count ?? 0) > 0))
+            .find(Boolean);
+        if (axe) await bot.withdrawItem(axe, 1).catch(() => undefined);
+    }
+    if (!hasKnife()) {
+        const knife = bank.find((i) => KNIFE.test(i.name) && (i.count ?? 0) > 0);
+        if (knife) await bot.withdrawItem(knife, 1).catch(() => undefined);
+    }
+    await sdk.waitForTicks(2).catch(() => undefined);
+    await bot.closeBank().catch(() => undefined);
+    session.noteProgress('bank', 'mule train bank');
+    if (!hasAxe() || !hasKnife()) {
+        trainOff = `no ${hasAxe() ? 'knife' : 'axe'} in the bank`;
+        session.log('warn', `mule: training off — ${trainOff}`);
+    }
+}
+
+/** One short unit of training (a chop, a fletch, or a bank trip), so chat is read between units. */
+async function trainStep(): Promise<void> {
+    if (sdk.getState()?.bank?.isOpen) await bot.closeBank().catch(() => undefined);
+    if (!hasAxe() || !hasKnife()) return bankForTraining();
+    const product = fletchFor(level('Fletching'), level('Woodcutting'));
+    const want = new RegExp(`^${product.logs ? `${product.logs} ` : ''}logs$`, 'i');
+    if (packFull()) {
+        // Shafts stack, so fletching plain logs frees the pack; bows fill it and get banked.
+        if (sdk.findInventoryItem(want) && fletchMisses < 3) {
+            const before = countItems(sdk, want);
+            const res = await bot.fletchLogs(product.label);
+            await sdk.waitForTicks(1).catch(() => undefined);
+            if (countItems(sdk, want) < before) {
+                fletchMisses = 0;
+                session.noteProgress('xp', `fletch ${product.label}`);
+            } else {
+                fletchMisses++;
+                session.log('warn', `mule: fletching ${product.label}: ${res.message}`);
+            }
+            return;
+        }
+        fletchMisses = 0;
+        return bankForTraining();
+    }
+    const spec = TREES.find((t) => t.logs === product.logs) ?? TREES[TREES.length - 1]!;
+    const p = pos();
+    if (Math.hypot(p.x - spec.spot.x, p.z - spec.spot.z) > 10) {
+        await walkSendHops(sdk, [spec.spot], spec.spot, 4).catch(() => undefined);
+    }
+    const tree = (sdk.getNearbyLocs() ?? [])
+        .filter(
+            (l) =>
+                spec.tree.test(l.name) &&
+                l.reachable !== false &&
+                l.options.some((o) => /chop/i.test(o)) &&
+                Math.max(Math.abs(l.x - MULE_BANK.x), Math.abs(l.z - MULE_BANK.z)) <= TRAIN_RADIUS
+        )
+        .sort((a, b) => a.distance - b.distance)[0];
+    if (!tree) {
+        await sdk.waitForTicks(5).catch(() => undefined);
+        return;
+    }
+    // Logs of a tier the levels have outgrown would block the pack: bank them with the products.
+    if (sdk.getInventory().some((i) => LOGS.test(i.name) && !want.test(i.name))) return bankForTraining();
+    const res = await bot.chopTree(tree);
+    if (res.success) session.noteProgress('xp', `chop ${tree.name}`);
+}
+
 try {
     while (!session.isStoppedOrRequested()) {
         if (session.stopRequested) {
+            if (TRAIN && (await openBank().catch(() => false))) {
+                await depositPack();
+                await bot.closeBank().catch(() => undefined);
+            }
             await parkAtDraynor().catch(() => undefined);
             session.stop('stopped', 'mule drained at Draynor bank', { restartable: false });
             break;
         }
-        await parkAtDraynor().catch(() => undefined);
+        // Training walks off to the trees; serveOnce's bank open brings the mule back.
+        if (!TRAIN || trainOff) await parkAtDraynor().catch(() => undefined);
         // Stock audit each round; low lines warn for operator top-up.
         if (!SERVE_ONLY && (await openBank().catch(() => false))) {
             for (const [label, target] of Object.entries(QUEST_STOCK)) {
@@ -245,10 +367,12 @@ try {
             const req = parseSupplyRequest(from, text);
             if (!req) continue;
             log(`mule: request from ${from}: ${req.needs.map((n) => `${n.label} x${n.count}`).join(', ')}`);
+            if (TRAIN) await parkAtDraynor().catch(() => undefined);
             await serveOnce(from, req.needs);
         }
         session.noteProgress('location', 'mule park');
-        await sdk.waitForTicks(20).catch(() => undefined);
+        if (TRAIN && !trainOff) await trainStep();
+        else await sdk.waitForTicks(20).catch(() => undefined);
     }
 } catch (err) {
     session.stop('script_error', err instanceof Error ? err.message : String(err), { restartable: true });

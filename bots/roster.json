@@ -30,7 +30,7 @@
       "args": [
         "Jackpoo1",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/essence.ts",
         "Jackpoo1"
       ],
       "noEffectMinutes": 60
@@ -44,7 +44,8 @@
         "--then",
         "bots/quests/quest-mule.ts",
         "Jackpoo2",
-        "--serve-only"
+        "--serve-only",
+        "--train"
       ],
       "noEffectMinutes": 60
     },
@@ -132,6 +133,9 @@
       "view": "fleet",
       "script": "bots/quests/todo-runner.ts",
       "args": [
+        "jacklove3",
+        "--then",
+        "bots/quests/agility-route.ts",
         "jacklove3"
       ],
       "noEffectMinutes": 90
@@ -208,7 +212,7 @@
       "args": [
         "jacklove7",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/agility-route.ts",
         "jacklove7"
       ],
       "noEffectMinutes": 60
@@ -220,7 +224,7 @@
       "args": [
         "jacklove8",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/agility-route.ts",
         "jacklove8"
       ],
       "noEffectMinutes": 60
@@ -259,7 +263,7 @@
       "args": [
         "jacklove11",
         "--then",
-        "bots/quests/edgeville-bank-all.ts",
+        "bots/quests/seers-wc-fm.ts",
         "jacklove11"
       ],
       "noEffectMinutes": 60
@@ -297,7 +301,7 @@
       "args": [
         "jacklove14",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/agility-route.ts",
         "jacklove14"
       ],
       "noEffectMinutes": 60
@@ -337,8 +341,9 @@
         "bots/quests/lost-city-prep.ts",
         "jacklove17",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
-        "jacklove17"
+        "bots/quests/fishing-route.ts",
+        "jacklove17",
+        "--bignet"
       ],
       "noEffectMinutes": 60
     },
@@ -352,7 +357,7 @@
         "bots/quests/lost-city-prep.ts",
         "jacklove18",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/agility-route.ts",
         "jacklove18"
       ],
       "noEffectMinutes": 60
@@ -394,7 +399,7 @@
         "bots/quests/lost-city-prep.ts",
         "ABGARMY01",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/agility-route.ts",
         "ABGARMY01"
       ],
       "noEffectMinutes": 60
@@ -460,7 +465,7 @@
       "args": [
         "ABGARMY06",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/agility-route.ts",
         "ABGARMY06"
       ],
       "noEffectMinutes": 60
@@ -535,7 +540,7 @@
       "args": [
         "ABGARMY12",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/agility-route.ts",
         "ABGARMY12"
       ],
       "noEffectMinutes": 60
@@ -547,7 +552,7 @@
       "args": [
         "ABGARMY13",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/essence.ts",
         "ABGARMY13"
       ],
       "noEffectMinutes": 60
@@ -559,7 +564,7 @@
       "args": [
         "ABGARMY14",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/agility-route.ts",
         "ABGARMY14"
       ],
       "noEffectMinutes": 60
@@ -571,8 +576,9 @@
       "args": [
         "ABGARMY15",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
-        "ABGARMY15"
+        "bots/quests/fishing-route.ts",
+        "ABGARMY15",
+        "--bignet"
       ],
       "noEffectMinutes": 60
     },
