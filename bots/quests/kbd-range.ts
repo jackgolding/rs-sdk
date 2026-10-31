@@ -791,7 +791,13 @@ async function pullArdyLever(): Promise<boolean> {
             await sdk.waitForTicks(3).catch(() => {});
             if (insideKeep() || nearKeepLever()) {
                 log(`Ardy lever → keep (${pos().x},${pos().z})`);
-                return true;
+                // Three of four raid accounts were back in Ardougne within 10s of a held landing
+                // (prod, 2026-10-31): record what the game said when it happens.
+                await sdk.waitForTicks(10).catch(() => {});
+                const said = (sdk.getState()?.gameMessages ?? []).slice(-6).map((m) => m.text).join(' | ');
+                const near = (sdk.getNearbyPlayers() ?? []).map((pl) => `${pl.name}(${pl.combatLevel ?? '?'})`).join(',');
+                log(`Keep +10t @ ${pos().x},${pos().z} hp=${pos().hp} dead=${pos().isDead} players=[${near}] :: ${said}`);
+                return insideKeep() || nearKeepLever() || northOfDitch();
             }
             log(`Lever landing did not hold — back at ${pos().x},${pos().z}`);
         }
