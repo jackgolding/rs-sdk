@@ -109,7 +109,7 @@
         "bots/quests/kbd-range.ts",
         "jacklove1",
         "--melee",
-        "--team-min=4"
+        "--team-min=3"
       ],
       "noEffectMinutes": 60
     },
@@ -524,7 +524,7 @@
         "bots/quests/kbd-range.ts",
         "ABGARMY11",
         "--melee",
-        "--team-min=4"
+        "--team-min=3"
       ],
       "noEffectMinutes": 60
     },
@@ -550,7 +550,7 @@
         "bots/quests/kbd-range.ts",
         "ABGARMY13",
         "--melee",
-        "--team-min=4"
+        "--team-min=3"
       ],
       "noEffectMinutes": 60
     },
@@ -561,8 +561,10 @@
       "args": [
         "ABGARMY14",
         "--then",
-        "bots/quests/agility-route.ts",
-        "ABGARMY14"
+        "bots/quests/kbd-range.ts",
+        "ABGARMY14",
+        "--melee",
+        "--team-min=3"
       ],
       "noEffectMinutes": 60
     },
@@ -589,7 +591,7 @@
         "bots/quests/kbd-range.ts",
         "ABGARMY16",
         "--melee",
-        "--team-min=4"
+        "--team-min=3"
       ],
       "noEffectMinutes": 60
     },
@@ -637,10 +639,8 @@
       "args": [
         "ABGARMY20",
         "--then",
-        "bots/quests/kbd-range.ts",
-        "ABGARMY20",
-        "--melee",
-        "--team-min=4"
+        "bots/quests/seers-wc-fm.ts",
+        "ABGARMY20"
       ],
       "noEffectMinutes": 90
     },
