@@ -23,6 +23,7 @@ import { initPathfinding } from '../../sdk/pathfinding';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { installGracefulShutdown } from '../../sdk/runner';
+import { fetchDukeShield } from './duke-shield';
 import { closeUi, crossGangplank, walkNear } from './movement';
 import { foodHeal } from './food-heal';
 import { ARDOUGNE_BANK, BRIMHAVEN_CUSTOMS, CAPTAIN_BARNABY } from './tiles';
@@ -317,9 +318,11 @@ async function bankTrip(): Promise<boolean> {
     await withdrawFirst([SHIELD]);
     for (const piece of ARMOUR) await withdrawFirst([piece]);
     await withdrawUpTo(PRAYER_POT, PRAYER_POTS_WANT);
+    if (count(PRAYER_POT) < PRAYER_POTS_WANT) await brewPrayerPotions(PRAYER_POTS_WANT - count(PRAYER_POT));
     const sharks = sdk.findBankItem(/^shark$/i) ? /^shark$/i : /^(swordfish|lobster)$/i;
     await withdrawUpTo(sharks, FOOD_WANT - (foodCount() - count(sharks)));
     await bot.closeBank();
+    if (!sdk.findEquipmentItem(SHIELD) && !sdk.findInventoryItem(SHIELD)) await fetchDukeShield(bot, sdk, log);
     await prayAtAltar();
     for (const pattern of [...WEAPONS, SHIELD, ...ARMOUR]) {
         if (sdk.findEquipmentItem(pattern)) continue;
@@ -335,6 +338,42 @@ async function bankTrip(): Promise<boolean> {
         await sdk.waitForTicks(200).catch(() => {});
     }
     return ready;
+}
+
+const RANARR = /^ranarr weed$/i;
+const VIAL_OF_WATER = /^vial of water$/i;
+const SNAPE = /^snape grass$/i;
+const RANARR_UNF = /^ranarr potion/i;
+
+/**
+ * Brew prayer potions from the account's own bank (brew_potion.struct 3doseprayerrestore:
+ * snape grass into a ranarr vial, Herblore 38). One kill outlasts a prayer bar on prod, so a
+ * potion is a second kill per trip; the fleet's banks hold ~1,250 ranarr and ~1,100 snape grass.
+ * Called with the bank open; leaves it open.
+ */
+async function brewPrayerPotions(want: number): Promise<void> {
+    if ((sdk.getSkill('Herblore')?.baseLevel ?? 1) < 38) return;
+    const n = Math.min(want, sdk.findBankItem(RANARR)?.count ?? 0, sdk.findBankItem(VIAL_OF_WATER)?.count ?? 0, sdk.findBankItem(SNAPE)?.count ?? 0, Math.floor((28 - occupied()) / 3));
+    if (n <= 0) return;
+    for (const p of [RANARR, VIAL_OF_WATER, SNAPE]) {
+        const item = sdk.findBankItem(p);
+        if (item) await bot.withdrawItem(item, n);
+    }
+    await bot.closeBank();
+    const combine = async (a: RegExp, b: RegExp) => {
+        for (let i = 0; i < n; i++) {
+            const x = sdk.findInventoryItem(a);
+            const y = sdk.findInventoryItem(b);
+            if (!x || !y) return;
+            const before = count(b);
+            await sdk.sendUseItemOnItem(x.slot, y.slot);
+            await sdk.waitForCondition(() => count(b) < before, 4_000).catch(() => {});
+        }
+    };
+    await combine(RANARR, VIAL_OF_WATER);
+    await combine(SNAPE, RANARR_UNF);
+    log(`Brewed ${count(PRAYER_POT)} prayer potions (herblore ${sdk.getSkill('Herblore')?.baseLevel})`);
+    await bot.openBank();
 }
 
 /** Banking does not restore prayer: the second trip fought at 13 points and died (qlck1). */
@@ -616,6 +655,7 @@ async function waitRespawn(): Promise<void> {
     log(`Died @ ${pos().x},${pos().z} — waiting respawn`);
     await sdk.waitForCondition((s) => !s.player.isDead && s.player.lifeId !== life, 60_000).catch(() => {});
     await closeUi(bot, sdk);
+    await fetchDukeShield(bot, sdk, log);
 }
 
 session.registerRecovery([

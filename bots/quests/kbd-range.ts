@@ -48,6 +48,7 @@ import { closeUi, leaveAdjacentClosedDoor, walkNear } from './movement';
 import { foodHeal, needsBankHeal } from './food-heal';
 import { LAVA_MAZE_EAST, southOfLavaMaze } from './rune-rocks-route';
 import { installGracefulShutdown } from '../../sdk/runner';
+import { fetchDukeShield } from './duke-shield';
 
 /** Stalagmite loc_542 is (2707, 9818). Stand one tile west — KBD is east. */
 function MELEE_MODE(): boolean {
@@ -1160,6 +1161,8 @@ async function bankTrip(): Promise<boolean> {
         if (bankItem) await bot.withdrawItem(bankItem, 1);
     }
     await bot.closeBank();
+    // None banked: the Duke replaces it for any Dragon Slayer finisher (duke-shield.ts).
+    if (MELEE && !sdk.findEquipmentItem(FIRE_SHIELD) && !sdk.findInventoryItem(FIRE_SHIELD)) await fetchDukeShield(bot, sdk, log);
     await equipLoadout();
     session.noteProgress('bank', `sharks ${sharkSlots()} knives ${count(KNIVES)}`);
     log(
@@ -1199,6 +1202,8 @@ async function waitRespawn(): Promise<void> {
     await sdk.waitForCondition((s) => !s.player.isDead && s.player.lifeId !== life, 60_000).catch(() => {});
     await ui();
     session.noteProgress('location', 'respawn');
+    // A death drops the shield (only 3 items kept); the respawn is in Lumbridge, by the Duke.
+    if (MELEE) await fetchDukeShield(bot, sdk, log);
 }
 
 session.registerRecovery([
