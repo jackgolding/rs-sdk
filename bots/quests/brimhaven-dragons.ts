@@ -26,6 +26,7 @@ import { installGracefulShutdown } from '../../sdk/runner';
 import { closeUi, crossGangplank, walkNear } from './movement';
 import { foodHeal } from './food-heal';
 import { ARDOUGNE_BANK, BRIMHAVEN_CUSTOMS, CAPTAIN_BARNABY } from './tiles';
+import { crossAlKharidToll, inAlKharidRegion } from './alkharid-toll';
 
 const SANIBOCH = { x: 2744, z: 3152 };
 /** East Ardougne church altar (loc 409, maps/m40_51): a full prayer bar before every trip. */
@@ -289,6 +290,8 @@ async function bankTrip(): Promise<boolean> {
         if (!(await leaveDungeon())) return false;
     }
     if (onKaramja() && !(await sailToArdougne())) return false;
+    // A grind handed over at Al Kharid (process-bank) starts east of the toll gate.
+    if (inAlKharidRegion(pos())) await crossAlKharidToll(bot, sdk, false, { log });
     intent('Banking at Ardougne');
     if (distTo(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z) > 8) {
         const r = await bot.walkTo(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 3);
@@ -471,6 +474,9 @@ async function crossLeg(leg: Leg, inward: boolean): Promise<boolean> {
 async function goToPit(): Promise<boolean> {
     await session.setPhase('travel');
     if (!inDungeon()) {
+        // From anywhere but Ardougne the docks walk fails (jacklove2 from the Al Kharid toll):
+        // bank at Ardougne first, which also tops up the kit.
+        if (!onKaramja() && !inArdougne() && !(await bankTrip())) return false;
         if (!onKaramja() && !(await sailToKaramja())) return false;
         if (!(await enterDungeon())) return false;
     }
