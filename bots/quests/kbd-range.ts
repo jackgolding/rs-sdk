@@ -167,7 +167,7 @@ const GRIND_LOG = join(process.cwd(), 'bots', username, 'grind.log');
 const TEAM_DIR = join(process.cwd(), 'bots', '.kbd-team');
 const TEAM_MIN = Number(argv.find((a) => a.startsWith('--team-min='))?.split('=')[1] ?? 4);
 const TEAM_FRESH_MS = 120_000;
-const TEAM_WAIT_MS = 15 * 60_000;
+const TEAM_WAIT_MS = 30 * 60_000;
 
 initPathfinding();
 
@@ -773,7 +773,7 @@ async function pullArdyLever(): Promise<boolean> {
     // One pull at a time: four raid accounts pulling inside one 7-tick lever swap all logged
     // "→ keep" and three were back at the Ardougne lever seconds later (prod, 2026-10-31).
     if (MELEE && TEAM_MIN > 1) {
-        const order = Math.max(0, teamPresent().sort().indexOf(username));
+        const order = Math.max(0, teamPresent('bank').sort().indexOf(username));
         if (order > 0) {
             log(`Lever queue: ${order} ahead — waiting ${order * 10} ticks`);
             await sdk.waitForTicks(order * 10).catch(() => {});
@@ -1017,13 +1017,17 @@ function teamCheckIn(where: 'bank' | 'lair'): void {
     }
 }
 
-/** Team members checked in at the bank or in the lair within the last two minutes. */
-function teamPresent(): string[] {
+/**
+ * Team members checked in within the last two minutes, at the bank only when `where` says so.
+ * Counting lair check-ins sent accounts out one at a time: the lever-to-lair walk is ~15
+ * minutes on prod, so "3 present" with one already in the lair meant arriving alone.
+ */
+function teamPresent(where?: 'bank'): string[] {
     try {
         return readdirSync(TEAM_DIR).filter((name) => {
             try {
-                const t = JSON.parse(readFileSync(join(TEAM_DIR, name), 'utf8')) as { at: number };
-                return Date.now() - t.at < TEAM_FRESH_MS;
+                const t = JSON.parse(readFileSync(join(TEAM_DIR, name), 'utf8')) as { at: number; where?: string };
+                return Date.now() - t.at < TEAM_FRESH_MS && (!where || t.where === where);
             } catch {
                 return false;
             }
@@ -1040,9 +1044,11 @@ async function waitForTeam(): Promise<void> {
     let said = 0;
     while (!session.isStopped() && !pos().isDead && Date.now() - started < TEAM_WAIT_MS) {
         teamCheckIn('bank');
-        const here = teamPresent();
+        const here = teamPresent('bank');
         if (here.length >= TEAM_MIN) {
             log(`Team ready (${here.length}/${TEAM_MIN}): ${here.join(', ')} — heading out`);
+            // Let the stagger read the departing team once, then stop counting as "at the bank".
+            setTimeout(() => teamCheckIn('lair'), 60_000);
             return;
         }
         if (Date.now() - said > 60_000) {
@@ -1054,7 +1060,13 @@ async function waitForTeam(): Promise<void> {
         session.noteProgress('phase', `team ${here.length}`);
         await sdk.waitForTicks(5).catch(() => {});
     }
-    log(`Team wait ran out with ${teamPresent().length}/${TEAM_MIN} — going in`);
+    // Never alone: a solo KBD costs a trip's food per kill and two accounts lost their only shield.
+    while (!session.isStopped() && !pos().isDead && teamPresent('bank').length < 2) {
+        teamCheckIn('bank');
+        session.noteProgress('phase', 'team 1');
+        await sdk.waitForTicks(20).catch(() => {});
+    }
+    log(`Team wait ran out with ${teamPresent('bank').length}/${TEAM_MIN} at the bank — going in`);
 }
 
 async function goToLair(): Promise<boolean> {
