@@ -787,6 +787,11 @@ async function pullArdyLever(): Promise<boolean> {
             }, 10_000)
             .catch(() => {});
         if (insideKeep() || nearKeepLever()) {
+            // Walk the moment we land: the pull is replayed on arrival and hits the keep's own
+            // lever beside the landing tile — "teleport into the wilderness ... You pull the
+            // lever... teleport out of the wilderness" (ABGARMY11, jacklove1 on prod). A walk
+            // replaces the pending interaction.
+            await sdk.sendWalk(KEEP_WEB_SOUTH.x, KEEP_WEB_SOUTH.z, true).catch(() => {});
             // A landing that does not hold is not a landing.
             await sdk.waitForTicks(3).catch(() => {});
             if (insideKeep() || nearKeepLever()) {
@@ -945,6 +950,8 @@ async function pullEntryLever(): Promise<boolean> {
         const z = s.player?.worldZ ?? 0;
         return (x >= 2688 && x < 2752 && z >= 9792 && z < 9856) || s.player?.isDead === true;
     }, 8_000).catch(() => {});
+    // Same replayed pull as the Ardougne lever: the lair's exit lever is beside the landing.
+    if (inKbdLair()) await sdk.sendWalk(LAIR_MIDDLE.x, LAIR_MIDDLE.z, true).catch(() => {});
     return inKbdLair();
 }
 
