@@ -512,9 +512,15 @@ async function attackFromTile(route: boolean): Promise<boolean> {
 }
 
 async function interactNamed(name: RegExp, option: RegExp, near: { x: number; z: number }): Promise<boolean> {
+    // Only the loc at `near`: "the nearest Lever" after a slow teleport is the keep's exit lever
+    // beside the landing, and pulling it sent 3 of 4 raid accounts straight back (prod).
     const loc =
         (sdk.getNearbyLocs() ?? []).find(
-            (l) => name.test(l.name) && (l.optionsWithIndex ?? []).some((o) => option.test(o.text)) && (l.distance ?? 99) <= 8
+            (l) =>
+                name.test(l.name) &&
+                (l.optionsWithIndex ?? []).some((o) => option.test(o.text)) &&
+                (l.distance ?? 99) <= 8 &&
+                (!/lever/i.test(l.name) || Math.max(Math.abs(l.x - near.x), Math.abs(l.z - near.z)) <= 3)
         ) ?? null;
     if (!loc) {
         if (distTo(near.x, near.z) > 2) {
@@ -773,7 +779,7 @@ async function pullArdyLever(): Promise<boolean> {
             await sdk.waitForTicks(order * 10).catch(() => {});
         }
     }
-    for (let i = 0; i < 6 && !northOfDitch(); i++) {
+    for (let i = 0; i < 6 && !northOfDitch() && !insideKeep(); i++) {
         await leaveAdjacentClosedDoor(sdk);
         await dismissLeverWarning();
         const pulled = await interactNamed(/^lever$/i, /pull/i, ARDOUGNE_WILDY_LEVER);
@@ -784,7 +790,7 @@ async function pullArdyLever(): Promise<boolean> {
                 const x = s.player?.worldX ?? 0;
                 const z = s.player?.worldZ ?? 0;
                 return (x >= 3140 && x <= 3170 && z >= 3910 && z <= 3940) || s.player?.isDead === true;
-            }, 10_000)
+            }, 20_000)
             .catch(() => {});
         if (insideKeep() || nearKeepLever()) {
             // Walk the moment we land: the pull is replayed on arrival and hits the keep's own
