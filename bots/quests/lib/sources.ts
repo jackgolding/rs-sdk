@@ -124,6 +124,15 @@ const LUMBRIDGE_KNIFE = { x: 3224, z: 3202 };
 const DOMMIK = { x: 3322, z: 3194, npc: /^dommik$/i };
 /** Arhein's store, Catherby: tinderbox. */
 const ARHEIN = { x: 2803, z: 3430, npc: /^arhein$/i };
+/** Harry's Fishing Shop, Catherby: harpoon 5gp (fishing-route.ts HARRY). */
+const HARRY = { x: 2834, z: 3445, npc: /^harry$/i };
+/** Catherby pier, where the Net/Harpoon (shark) spots move between (fishing-route.ts PIER). */
+const CATHERBY_PIER = [
+    { x: 2845, z: 3429 },
+    { x: 2837, z: 3431 },
+    { x: 2854, z: 3423 },
+    { x: 2860, z: 3426 },
+];
 /** Rellekka's potato patch, south of the longhall (maps m41_57 potato locs 2674-2680,3653). */
 const RELLEKKA_POTATOES = [{ x: 2677, z: 3652 }];
 /** Betty's Magic Emporium, Port Sarim: elemental and chaos runes. */
@@ -509,8 +518,23 @@ export const SOURCES: Record<string, Source> = {
         },
     },
     potato: { get: (q, count) => pickLocs(q, 'potato', /^potato$/i, RELLEKKA_POTATOES, count) },
-    /** Lalli's altar step (raw shark on the Strange altar): Fishing 76 to catch, so a mule stocks it. */
-    'raw shark': { mule: true },
+    /** Lalli's altar step (raw shark on the Strange altar): harpooned off Catherby's pier at Fishing 76. */
+    'raw shark': {
+        levels: { fishing: 76 },
+        inputs: () => [{ item: 'harpoon', count: 1 }],
+        get: async (q, count) => {
+            await q.ensure('harpoon', 1);
+            await harpoonSharks(q, count);
+        },
+    },
+    harpoon: {
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 5 }],
+        get: async (q) => {
+            await q.ensure('coins', 5);
+            await buyWaitingForRestock(q, HARRY, 'harpoon', 1);
+        },
+    },
 
     // ── Dragon Slayer: the Ice Mountain door's four items, the ship's repairs, Elvarg's sword
     // (all QUEST_STOCK lines in bots/quests/supply.ts: a mule stocks them)
@@ -1041,6 +1065,27 @@ async function pickLocs(q: Quest, item: string, loc: RegExp, spots: Array<{ x: n
         if (!took && q.count(item) < count) await q.sdk.waitForTicks(10);
     }
     q.log(`picked ${q.count(item)}/${count} ${item} in ${tickNow(q.sdk) - t0}t`);
+}
+
+/** Harpoon the Net/Harpoon spots off Catherby's pier until holding `count` raw sharks. */
+async function harpoonSharks(q: Quest, count: number): Promise<void> {
+    const t0 = tickNow(q.sdk);
+    let pier = 0;
+    while (q.count('raw shark') < count && tickNow(q.sdk) - t0 < 3_000) {
+        const spot = (q.sdk.getNearbyNpcs() ?? [])
+            .filter((n) => /fishing spot/i.test(n.name) && n.optionsWithIndex.some((o) => /^net$/i.test(o.text)) && n.optionsWithIndex.some((o) => /^harpoon$/i.test(o.text)))
+            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+        if (!spot || (spot.distance ?? 99) > 8) {
+            await q.goTo(CATHERBY_PIER[pier++ % CATHERBY_PIER.length]!, 2);
+            continue;
+        }
+        const op = spot.optionsWithIndex.find((o) => /^harpoon$/i.test(o.text))!;
+        const before = q.count('raw shark');
+        await q.sdk.sendInteractNpc(spot.index, op.opIndex);
+        // A catch takes many casts at 76-99; the spot moving away ends the wait early.
+        await untilTicks(q.sdk, () => q.count('raw shark') > before || !q.sdk.getNearbyNpcs()?.some((n) => n.index === spot.index), 100);
+    }
+    q.log(`harpooned ${q.count('raw shark')}/${count} raw shark in ${tickNow(q.sdk) - t0}t`);
 }
 
 /** Kill `npc` at the camps and loot `item` until holding `count`: a rare drop, so budgeted in ticks. */

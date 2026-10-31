@@ -1597,6 +1597,7 @@ async function openGnomeGate(expectInside = true): Promise<boolean> {
     // (no gate loc = the open_left/open_right swap, i.e. already open). No
     // repeat clicks: each one can lose the open-window race, and a second
     // click issued after the handler moved us is what ejects an interior bot.
+    let femiDeclined = false;
     for (let attempt = 0; attempt < 2 && !crossedOk() && !session.isStopped(); attempt++) {
         await sdk.scanNearbyLocs(6).catch(() => {});
         const gate = attempt === 0
@@ -1616,10 +1617,24 @@ async function openGnomeGate(expectInside = true): Promise<boolean> {
         }
         await sdk
             .waitForCondition(
-                (s) => (expectInside ? (s.player?.worldZ ?? 0) > GNOME_GATE.z : (s.player?.worldZ ?? 0) < GNOME_GATE.z),
+                (s) => s.dialog.isOpen || (expectInside ? (s.player?.worldZ ?? 0) > GNOME_GATE.z : (s.player?.worldZ ?? 0) < GNOME_GATE.z),
                 6_000
             )
             .catch(() => {});
+        // With %femi_help = 0, Femi beside the gate turns an inward Open into her boxes
+        // dialog and the gate never opens; closeUi dismissed it and the next click asked
+        // again (ABGARMY12 at 2460,3382 for 5 hours). "Sorry, I'm a bit busy." sets
+        // femi_help, so the click after it opens the gate (lib/gnome-stronghold.ts).
+        const busy = sdk.getDialog()?.options.find((o) => /busy/i.test(o.text));
+        if (busy && !femiDeclined && !crossedOk()) {
+            femiDeclined = true;
+            log('Femi asked for help with her boxes at the gate — declining');
+            await sdk.sendClickDialog(busy.index);
+            await sdk.waitForTicks(3).catch(() => {});
+            await closeUi();
+            attempt--;
+            continue;
+        }
         if (!crossedOk() && attempt === 0) await sdk.waitForTicks(2).catch(() => {});
     }
     log(`Gate ${side} ${crossedOk() ? 'ok' : 'blocked'} @ ${pos().x},${pos().z}`);
@@ -1745,6 +1760,9 @@ async function ensureGnomeEntrance(force = false): Promise<void> {
                 `${GNOME_ENTRANCE_TRIES + 1} entrance approaches from ${tile} without moving — quiet for ${Math.round(GNOME_ENTRANCE_COOLDOWN_MS / 1000)}s`
             );
         }
+        // The caller loops straight back here: without a wait the quiet period spun a
+        // billion "phase gnome_travel" lines (ABGARMY12, 50MB of log a minute).
+        await sdk.waitForTicks(10).catch(() => {});
         return;
     }
     const attempt = gnomeEntranceTries;

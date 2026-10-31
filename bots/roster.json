@@ -56,9 +56,8 @@
       "args": [
         "Jackpoo3",
         "--then",
-        "bots/quests/thieving-route.ts",
-        "Jackpoo3",
-        "--knights"
+        "bots/quests/process-bank.ts",
+        "Jackpoo3"
       ],
       "noEffectMinutes": 60
     },
@@ -82,9 +81,8 @@
       "args": [
         "Jackpoo5",
         "--then",
-        "bots/quests/thieving-route.ts",
-        "Jackpoo5",
-        "--knights"
+        "bots/quests/seers-wc-fm.ts",
+        "Jackpoo5"
       ],
       "noEffectMinutes": 60
     },
@@ -123,7 +121,7 @@
       "args": [
         "jacklove2",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/process-bank.ts",
         "jacklove2"
       ],
       "noEffectMinutes": 60
@@ -200,7 +198,7 @@
         "bots/quests/lost-city-prep.ts",
         "jacklove6",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/agility-route.ts",
         "jacklove6"
       ],
       "noEffectMinutes": 90
@@ -313,9 +311,8 @@
       "args": [
         "jacklove15",
         "--then",
-        "bots/quests/thieving-route.ts",
-        "jacklove15",
-        "--knights"
+        "bots/quests/agility-route.ts",
+        "jacklove15"
       ],
       "noEffectMinutes": 60
     },
@@ -414,7 +411,7 @@
         "bots/quests/lost-city-prep.ts",
         "ABGARMY02",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/agility-route.ts",
         "ABGARMY02"
       ],
       "noEffectMinutes": 60
@@ -503,7 +500,7 @@
       "args": [
         "ABGARMY09",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/essence.ts",
         "ABGARMY09"
       ],
       "noEffectMinutes": 60
@@ -628,7 +625,7 @@
       "args": [
         "ABGARMY19",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/agility-route.ts",
         "ABGARMY19"
       ],
       "noEffectMinutes": 60

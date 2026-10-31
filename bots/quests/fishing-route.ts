@@ -38,6 +38,7 @@ import {
     inHandelmortMansion
 } from './tiles';
 import { installWaitForTicksGuard, recoverGangplank, walkNear as walkNearShared } from './movement';
+import { crossAlKharidToll, inAlKharidRegion, TOLL_COST, TOLL_STAGE, TOLL_X } from './alkharid-toll';
 import { installGracefulShutdown } from '../../sdk/runner';
 
 const TARGET_FISHING_HARPOON = 50;
@@ -1375,6 +1376,7 @@ async function leaveDockedShip(): Promise<void> {
 async function bankForBoat(): Promise<void> {
     intent('Banking at Draynor before the trip');
     await bot.closeInterface().catch(() => {});
+    await leaveAlKharid();
     let opened = false;
     for (let attempt = 0; attempt < 4 && !opened; attempt++) {
         opened = await openBankAt(DRAYNOR_BANK.x, DRAYNOR_BANK.z);
@@ -1434,7 +1436,30 @@ async function pickpocketForBoatFare(): Promise<void> {
     log(`Boat fare pocket ${coins()} gp`);
 }
 
+/** Al Kharid bank booths (the toll's east side). */
+const AL_KHARID_BANK = { x: 3269, z: 3167 };
+
+/**
+ * Every way west out of Al Kharid is the 10gp toll. With an empty pack the
+ * Catherby walk and the Lumbridge men were both unreachable: Jackpoo4 sat on the
+ * fence at 3268,3227 for 5 hours, re-walking to Catherby on every restart.
+ * Take the toll from the Al Kharid bank, then cross.
+ */
+async function leaveAlKharid(): Promise<void> {
+    if (!inAlKharidRegion(pos())) return;
+    log(`In Al Kharid @ ${pos().x},${pos().z} with ${coins()}gp — crossing the toll west`);
+    // The fence tile has no pathfinder exit: step off it east first.
+    if (pos().x === TOLL_X) await sdk.sendWalk(TOLL_STAGE.east.x, TOLL_STAGE.east.z, true).then(() => sdk.waitForTicks(4)).catch(() => {});
+    if (coins() < TOLL_COST && (await openBankAt(AL_KHARID_BANK.x, AL_KHARID_BANK.z))) {
+        await bot.withdrawItem(/^coins$/i, 100).catch(() => {});
+        await bot.closeBank();
+        log(`Al Kharid bank: ${coins()}gp for the toll`);
+    }
+    if (!(await crossAlKharidToll(bot, sdk, false, { log }))) log(`Still in Al Kharid @ ${pos().x},${pos().z} (${coins()}gp)`);
+}
+
 async function pickpocketMen(): Promise<void> {
+    await leaveAlKharid();
     if (distTo(LUMBRIDGE_MEN.x, LUMBRIDGE_MEN.z) > 8) {
         intent('Walking to Lumbridge men');
         await walkNear(LUMBRIDGE_MEN.x, LUMBRIDGE_MEN.z, 4);
@@ -1787,6 +1812,7 @@ async function walkToCatherby(): Promise<void> {
     await leaveHandelmortMansion();
     await leaveHouse();
     await leaveNorthEastArdy();
+    await leaveAlKharid();
     const p = pos();
     if (p.x < 2662 && p.z >= 3320 && p.z <= 3380) {
         log(`Hopping east of Ardougne houses @ ${p.x},${p.z}`);
