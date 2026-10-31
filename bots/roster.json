@@ -544,10 +544,8 @@
       "args": [
         "ABGARMY13",
         "--then",
-        "bots/quests/kbd-range.ts",
-        "ABGARMY13",
-        "--melee",
-        "--team-min=3"
+        "bots/quests/essence.ts",
+        "ABGARMY13"
       ],
       "noEffectMinutes": 60
     },
