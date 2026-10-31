@@ -275,7 +275,15 @@ async function unlockCell(q: Quest): Promise<void> {
     if (q.count('iron key') < 1) return;
     await intoTemple(q, 2);
     await q.goTo(CELL_APPROACH, 1);
-    const door = await locNear(q, /cell door/i, CELL_DOOR, 2);
+    let door = await locNear(q, /cell door/i, CELL_DOOR, 2);
+    // Three accounts share the temple: another's use of the door swaps it for a few ticks
+    // (jacklove18, 2026-10-31).
+    for (let i = 0; i < 5 && !door; i++) {
+        q.log(`cell: no cell door in view at (${pos(q).x},${pos(q).z}) L${pos(q).level}; waiting (${i + 1}/5)`);
+        await q.sdk.waitForTicks(6);
+        await q.goTo(CELL_APPROACH, 1);
+        door = await locNear(q, /cell door/i, CELL_DOOR, 2);
+    }
     if (!door) throw new Error(`no cell door near (${pos(q).x},${pos(q).z}) L${pos(q).level}`);
     await q.bot.useItemOnLoc(/^iron key$/i, door, { timeout: ticksToMs(20) });
     await driveDialog(q.sdk, [], { ticks: 20, log: q.log });
@@ -380,6 +388,8 @@ async function handInEssence(q: Quest): Promise<void> {
 await runQuest({
     id: 'priestperil',
     hub: 'varrock-west',
+    // Mid-quest keys a retry's naked prologue banks (jacklove18 banked its iron key, 2026-10-31).
+    carry: ['golden key', 'iron key'],
     journal: { label: 'Priest in Peril', title: 'Priest in Peril' },
     stages: [
         { id: 'unstarted', rule: { id: 'priestperil:unstarted', kind: 'unstarted', all: ['start this quest by speaking to'] } },
