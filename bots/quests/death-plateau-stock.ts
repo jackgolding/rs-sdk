@@ -2,7 +2,7 @@
  * Death Plateau mule stock: 50 premade Blurberry specials, 50 bread and 50 trout, banked
  * on this account (a trade moves them to the mule, Jackpoo2, afterwards).
  *
- *   bun bots/quests/death-plateau-stock.ts {botname} [--target=50]
+ *   bun bots/quests/death-plateau-stock.ts {botname} [--target=50] [--bread=N] [--trout=N] [--specials=N]
  *
  * Starts and ends naked at the Ardougne bank (the gnome banks are all on L1, which the
  * runner's hub cannot be). Any item the bank already holds `target` of is skipped.
@@ -36,7 +36,10 @@ import {
 } from './lib/gnome-stronghold';
 import { SAFE_BANKS } from './safe-stops';
 
-const TARGET = Number(process.argv.find((a) => a.startsWith('--target='))?.split('=')[1] ?? process.env.DP_STOCK_TARGET ?? 50);
+const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split('=')[1];
+const TARGET = Number(arg('target') ?? process.env.DP_STOCK_TARGET ?? 50);
+/** Per-item targets, each defaulting to --target: Death Plateau takes 10 bread and 10 trout but one special. */
+const TARGETS = { special: Number(arg('specials') ?? TARGET), bread: Number(arg('bread') ?? TARGET), trout: Number(arg('trout') ?? TARGET) };
 const HUB = SAFE_BANKS.ardougne;
 /** Between the two Bakers (2653,3307) and (2672,3309): both trade the one shared stall. */
 const BAKERY = { x: 2662, z: 3307 };
@@ -77,8 +80,8 @@ const banked = { special: 0, bread: 0, trout: 0 };
 const count = (q: Quest, re: RegExp) => q.sdk.getInventory().filter((i) => re.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0);
 const bankCount = (q: Quest, re: RegExp) => q.sdk.getBankItems().filter((b) => re.test(b.name)).reduce((n, b) => n + b.count, 0);
 const freeSlots = (q: Quest) => 28 - q.sdk.getInventory().length;
-const short = (q: Quest, kind: keyof typeof banked, re: RegExp) => Math.max(0, TARGET - banked[kind] - count(q, re));
-const troutShort = (q: Quest) => Math.max(0, TARGET - banked.trout - count(q, TROUT) - count(q, RAW_TROUT));
+const short = (q: Quest, kind: keyof typeof banked, re: RegExp) => Math.max(0, TARGETS[kind] - banked[kind] - count(q, re));
+const troutShort = (q: Quest) => Math.max(0, TARGETS.trout - banked.trout - count(q, TROUT) - count(q, RAW_TROUT));
 const pos = (q: Quest) => {
     const p = q.sdk.getState()?.player;
     return { x: p?.worldX ?? 0, z: p?.worldZ ?? 0, level: p?.level ?? 0 };
@@ -90,7 +93,7 @@ function readBank(q: Quest): void {
     banked.trout = bankCount(q, TROUT);
 }
 
-const status = () => `specials ${banked.special}/${TARGET}, bread ${banked.bread}/${TARGET}, trout ${banked.trout}/${TARGET} banked`;
+const status = () => `specials ${banked.special}/${TARGETS.special}, bread ${banked.bread}/${TARGETS.bread}, trout ${banked.trout}/${TARGETS.trout} banked`;
 
 /** A single-button dialog (level-up, cooking message): click it away. True when one was open. */
 async function dismissOne(q: Quest): Promise<boolean> {
@@ -289,7 +292,7 @@ async function breadLeg(q: Quest, waitTicks: number): Promise<void> {
         await q.goTo(HUB, 4);
         await bankHaul(q, 'Ardougne');
         q.log(`bread leg: ${got} in ${tickNow(q.sdk) - t0}t`);
-        if (got === 0 || waitTicks <= 0) break;
+        if (got === 0 || waitTicks <= 0 || q.stopRequested()) break;
     }
 }
 
@@ -320,6 +323,10 @@ async function strongholdLeg(q: Quest): Promise<void> {
             await q.goTo(GRAND_TREE_BANK, 2);
             await bankHaul(q, 'Grand Tree');
             if (troutShort(q) > 0 && !fishing && needSpecials() === 0) break;
+            if (q.stopRequested()) {
+                q.log(`stronghold: stop requested — leaving with ${status()}`);
+                break;
+            }
         }
     } finally {
         // Out through the gate even on a failure: the epilogue's walk to Ardougne has no route from inside.
@@ -334,14 +341,14 @@ await runTask({
     hub: 'ardougne',
     task: async (q) => {
         const t0 = tickNow(q.sdk);
-        if (!(TARGET > 0)) throw new Error(`bad --target ${TARGET}`);
+        if (!Object.values(TARGETS).every((n) => n >= 0) || !Object.values(TARGETS).some((n) => n > 0)) throw new Error(`bad targets ${JSON.stringify(TARGETS)}`);
         await openBank(q, 'Ardougne');
         readBank(q);
         const want = { special: short(q, 'special', SPECIAL), bread: short(q, 'bread', BREAD), trout: troutShort(q) };
-        q.log(`death-plateau-stock: target ${TARGET}; ${status()}`);
+        q.log(`death-plateau-stock: targets ${JSON.stringify(TARGETS)}; ${status()}`);
         if (!want.special && !want.bread && !want.trout) {
             await q.bot.closeBank().catch(() => undefined);
-            return q.log(`death-plateau-stock: bank holds ${TARGET} of each — already complete`);
+            return q.log(`death-plateau-stock: bank holds every target — already complete`);
         }
         if (want.trout && (q.level('fishing') < 20 || q.level('cooking') < 15)) {
             throw new Error(`trout needs Fishing 20 and Cooking 15 (have ${q.level('fishing')}/${q.level('cooking')})`);
@@ -372,14 +379,14 @@ await runTask({
             await q.goTo(HUB, 4);
             q.log(`leg stronghold (specials + trout, there and back): ${tickNow(q.sdk) - ts}t`);
         }
-        if (short(q, 'bread', BREAD) > 0) {
+        if (short(q, 'bread', BREAD) > 0 && !q.stopRequested()) {
             const tb = tickNow(q.sdk);
             await breadLeg(q, RESTOCK_GAP_TICKS);
             q.log(`leg bread (restocks): ${tickNow(q.sdk) - tb}t`);
         }
         await q.goTo(HUB, 4);
         await bankHaul(q, 'Ardougne');
-        const done = banked.special >= TARGET && banked.bread >= TARGET && banked.trout >= TARGET;
+        const done = banked.special >= TARGETS.special && banked.bread >= TARGETS.bread && banked.trout >= TARGETS.trout;
         q.log(`death-plateau-stock: ${status()} in ${tickNow(q.sdk) - t0}t${done ? ' — already complete' : ' — SHORT, run again'}`);
         if (!done) throw new Error(`death-plateau-stock: still short: ${status()}`);
     },

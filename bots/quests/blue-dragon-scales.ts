@@ -134,6 +134,8 @@ const where = (q: Quest) => {
 class Bail extends Error {}
 const checkBail = (q: Quest, during: string) => {
     if (underground(q) && hpFrac(q) < BAIL_AT) throw new Bail(`HP ${hp(q)?.level} during ${during} at ${where(q)}`);
+    // The runner force-exits 300s after SIGTERM: leave now, while the teleport can still land.
+    if (underground(q) && q.stopRequested()) throw new Bail(`stop requested during ${during} at ${where(q)}`);
 };
 
 async function setAutoRetaliate(q: Quest, on: boolean): Promise<void> {
@@ -491,7 +493,15 @@ await runTask({
     hub: 'falador-west',
     task: async (q) => {
         let total = 0;
+        let stopped = false;
         for (let trip = 1; trip <= TRIPS; trip++) {
+            // Between trips the kit is banked: the only safe place to stop (jacklove10 was killed
+            // in the dungeon by the todo-runner's 3h cap, 2026-10-31).
+            if (q.stopRequested()) {
+                q.log(`scales: stop requested — stopping at the bank before trip ${trip}`);
+                stopped = true;
+                break;
+            }
             const t0 = tickNow(q.sdk);
             if (!(await bankAndKit(q))) break;
             const t1 = tickNow(q.sdk);
@@ -520,6 +530,7 @@ await runTask({
         await q.bot.openBank();
         for (const item of q.sdk.getInventory()) await q.bot.depositItem(item.name, -1);
         await q.bot.closeBank();
+        if (stopped) throw new Error(`scales: stopped early with ${total} scales banked`);
         q.log(`scales: ${total} blue dragon scales banked — already complete`);
     },
 });

@@ -77,6 +77,8 @@ export interface Quest {
     count: (item: string | RegExp) => number;
     /** Base level of a skill ('mining'). */
     level: (skill: string) => number;
+    /** SIGTERM seen (the todo-runner's cap, a restart): a long task stops at its next bank and lets the epilogue run. */
+    stopRequested: () => boolean;
     /** Train `skill` to `level` with its trainer (lib/training.ts) if below it. Throws when it cannot. */
     ensureLevel: (skill: string, level: number) => Promise<void>;
     /**
@@ -417,6 +419,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 return [...sdk.getInventory(), ...sdk.getEquipment()].filter((i) => usable.some((p) => p.test(i.name))).length;
             },
             level: (skill) => sdk.getSkill(skill)?.baseLevel ?? 0,
+            stopRequested: () => session.stopRequested,
             async ensureLevel(skill, level) {
                 if (q.level(skill) >= level) return;
                 const trainer = TRAINERS[skill];

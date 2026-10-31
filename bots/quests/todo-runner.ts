@@ -45,6 +45,8 @@ interface TodoItem {
   questId: string;
   script: string;
   args?: string[];
+  /** Minutes before the runner stops the item (default TODO_QUEST_CAP_MIN): long tasks like a 30-trip scale run. */
+  capMin?: number;
   addedAt: string;
   canaryRunId: string;
   done?: { at: string; runId: string };
@@ -178,9 +180,10 @@ async function runChild(cmd: string[], capMs = 0): Promise<{ code: number; tail:
   // A wedged quest must not hold the account forever: past the cap it is a
   // failure like any other and the list moves on.
   const cap = capMs > 0 ? setTimeout(() => {
-    log(`${cmd[0]} exceeded ${Math.round(capMs / 60_000)}m — killing it`);
+    log(`${cmd[0]} exceeded ${Math.round(capMs / 60_000)}m — stopping it (SIGTERM; it banks first)`);
     try { proc.kill('SIGTERM'); } catch { /* gone */ }
-    setTimeout(() => { try { proc.kill('SIGKILL'); } catch { /* gone */ } }, 30_000);
+    // Past the child's own 300s drain: a SIGKILL at 30s left jacklove10 in the Taverley dungeon (2026-10-31).
+    setTimeout(() => { try { proc.kill('SIGKILL'); } catch { /* gone */ } }, 360_000);
   }, capMs) : null;
   let tail = '';
   const reader = proc.stdout.getReader();
@@ -211,7 +214,7 @@ async function runItem(item: TodoItem): Promise<void> {
 
   log(`=== ${item.questId} on ${account} (${item.script}) ===`);
   const startedAt = Date.now();
-  const { code, tail } = await runChild([item.script, account!, ...(item.args ?? [])], QUEST_CAP_MS);
+  const { code, tail } = await runChild([item.script, account!, ...(item.args ?? [])], item.capMin ? item.capMin * 60_000 : QUEST_CAP_MS);
   if (stopping) return;
   if (code === SLOTS_FULL_EXIT) {
     st.deferredAt = stamp();
