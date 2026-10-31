@@ -30,7 +30,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join } from 'path';
 import { ActivitySession, BotSDK, deriveGatewayUrl, inWilderness } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
-import { findLongPath, initPathfinding } from '../../sdk/pathfinding';
+import { findLongPath, initPathfinding, nearestWalkableTile } from '../../sdk/pathfinding';
 import {
     ARDOUGNE_BANK,
     ARDOUGNE_LEVER_DOOR,
@@ -63,7 +63,14 @@ const ENTRY_LEVER = { x: 3067, z: 10253 };
 const KBD_LADDER = { x: 3017, z: 3849 };
 const GATE = { x: 3008, z: 3849 };
 const SPIDER_GATE = { x: 3224, z: 3904 };
-const TREE_HOP = 3;
+/**
+ * Wilderness walking hop. It was 3 tiles, waiting to arrive before the next: the account
+ * stopped every 3 tiles for a round trip and crawled along the keep fence (user screenshot,
+ * 2026-11-01). Now 12 tiles, each target snapped to a walkable tile (a dead tree there drops
+ * the walk), and the next hop is sent while still moving.
+ */
+const TREE_HOP = 12;
+const HOP_LEAD = 4;
 const FOOD_WITHDRAW = MELEE_MODE() ? 20 : 12;
 const ANTIPOISON_WITHDRAW = 2;
 const PRAYER_POT_WITHDRAW = MELEE_MODE() ? 4 : 2;
@@ -372,6 +379,11 @@ async function hopToward(x: number, z: number, tolerance = 4): Promise<boolean> 
             tx = stand.x;
             tz = stand.z;
         }
+        const snap = nearestWalkableTile(p.level, tx, tz, 3);
+        if (snap) {
+            tx = snap.x;
+            tz = snap.z;
+        }
         const sx = p.x;
         const sz = p.z;
         await sdk.sendWalk(tx, tz, true);
@@ -380,12 +392,12 @@ async function hopToward(x: number, z: number, tolerance = 4): Promise<boolean> 
                 if (s.player?.isDead) return true;
                 const px = s.player?.worldX ?? 0;
                 const pz = s.player?.worldZ ?? 0;
-                return Math.hypot(px - tx, pz - tz) <= 2 || Math.hypot(px - x, pz - z) <= tolerance;
-            }, 5_000)
+                return Math.hypot(px - tx, pz - tz) <= HOP_LEAD || Math.hypot(px - x, pz - z) <= tolerance;
+            }, 9_000)
             .catch(() => {});
         if (pos().x === sx && pos().z === sz) {
-            const ux = sx + (i % 2 === 0 ? TREE_HOP : -TREE_HOP);
-            const uz = sz + Math.sign(z - sz || -1) * TREE_HOP;
+            const ux = sx + (i % 2 === 0 ? 3 : -3);
+            const uz = sz + Math.sign(z - sz || -1) * 3;
             await sdk.sendWalk(ux, uz, true);
             await sdk.waitForTicks(2).catch(() => {});
         } else {
