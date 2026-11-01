@@ -546,6 +546,13 @@ async function crossLeg(leg: Leg, inward: boolean): Promise<boolean> {
 
 async function goToPit(): Promise<boolean> {
     await session.setPhase('travel');
+    // The vines need an axe, and a death can take it (ABGARMY18 went in without one): the bank
+    // trip withdraws a spare or buys Bob's stock.
+    if (!hasAxe(sdk)) {
+        log('no axe for the vines: banking first');
+        if (!(await bankTrip()) || !hasAxe(sdk)) return false;
+        await session.setPhase('travel');
+    }
     if (!inDungeon()) {
         // From anywhere but Ardougne the docks walk fails (jacklove2 from the Al Kharid toll):
         // bank at Ardougne first, which also tops up the kit.
