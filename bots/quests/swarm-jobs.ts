@@ -39,8 +39,13 @@ import { fileURLToPath } from 'node:url';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { OutdatedClientError } from '../../server/webclient/src/lite/net/GameConnection.js';
-import { startSession, type LiteSession, type SessionEnd } from '../../server/webclient/src/lite/session.js';
+import type { LiteSession, SessionEnd } from '../../server/webclient/src/lite/session.js';
+// Loaded at run time from the image's web client: the deploy preflight bundles bots/quests
+// in a bare container without server/webclient's node_modules (fflate), so these must not
+// be static imports.
+const LITE = '../../server/webclient/src/lite/';
+const { OutdatedClientError } = (await import(LITE + 'net/GameConnection.js')) as typeof import('../../server/webclient/src/lite/net/GameConnection.js');
+const { startSession } = (await import(LITE + 'session.js')) as typeof import('../../server/webclient/src/lite/session.js');
 import type { BotAction, BotWorldState, InventoryItem, NearbyNpc } from '../../server/webclient/src/bot/types.js';
 import type { LiteClient } from '../../server/webclient/src/lite/LiteClient.js';
 import { appendGrindLog } from '../../sdk/grind-log.js';
