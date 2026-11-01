@@ -38,7 +38,7 @@ const FOOD_WANT = 20;
 const LEAVE_FOOD = 8;
 /** Below this with no potion, Protect from Magic is about to drop: out (ABGARMY17 died at 12). */
 const LEAVE_PRAYER = 15;
-const PRAYER_POTS_WANT = 4;
+const PRAYER_POTS_WANT = 6;
 const MAGIC_TAB = 6;
 const LUMBRIDGE_TELEPORT = 1167;
 
@@ -562,7 +562,8 @@ async function fight(): Promise<void> {
             await teleportOut();
             return;
         }
-        if (pos().hp < pos().maxHp * 0.35 && foodCount() <= 2) {
+        // Emergency exit (user: no deaths): the lair is not wilderness, so the teleport is instant.
+        if (pos().hp < pos().maxHp * 0.5 && foodCount() <= 4) {
             session.log('warn', `Emergency teleport at ${pos().hp}/${pos().maxHp}`);
             await teleportOut();
             return;

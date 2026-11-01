@@ -113,6 +113,13 @@ const ARMOUR = [
     /^amulet of glory\([1-4]\)$|^amulet of (power|strength)$/i
 ];
 const SUPER_ATTACK = /^super attack\(\d\)$/i;
+const LAW = /^law rune$/i;
+const AIR = /^air rune$/i;
+const EARTH = /^earth rune$/i;
+const MAGIC_TAB = 6;
+/** sdk/spells.ts: Camelot (Magic 45, 1 law 5 air), Lumbridge (Magic 31, 1 law 3 air 1 earth). */
+const CAMELOT_TELEPORT = 1174;
+const LUMBRIDGE_TELEPORT = 1167;
 const SUPER_STRENGTH = /^super strength\(\d\)$/i;
 const LOOT =
     /^(dragon (platelegs|plateskirt|med helm|spear|chainbody)|soul rune|law rune|death rune|blood rune|nature rune|rune .*|adamant(ite)? .*|steel bar|iron bar|runite bar|coal|uncut (sapphire|emerald|ruby|diamond|dragonstone)|clue scroll.*|half of a key|.*half of a key)$/i;
@@ -266,6 +273,9 @@ function keep(name: string): boolean {
         foodHeal(name) > 0 ||
         PRAYER_POT.test(name) ||
         SUPER_ATTACK.test(name) ||
+        LAW.test(name) ||
+        AIR.test(name) ||
+        EARTH.test(name) ||
         SUPER_STRENGTH.test(name) ||
         SHIELD.test(name) ||
         AXES.some((p) => p.test(name)) ||
@@ -326,6 +336,9 @@ async function bankTrip(): Promise<boolean> {
     for (const piece of ARMOUR) await withdrawFirst([piece]);
     await withdrawUpTo(PRAYER_POT, PRAYER_POTS_WANT);
     await withdrawUpTo(SUPER_ATTACK, 1);
+    await withdrawUpTo(LAW, 1);
+    await withdrawUpTo(AIR, 5);
+    await withdrawUpTo(EARTH, 1);
     await withdrawUpTo(SUPER_STRENGTH, 1);
     if (count(PRAYER_POT) < PRAYER_POTS_WANT) await brewPrayerPotions(bot, sdk, log, PRAYER_POTS_WANT - count(PRAYER_POT));
     const sharks = sdk.findBankItem(/^shark$/i) ? /^shark$/i : /^(swordfish|lobster)$/i;
@@ -566,6 +579,23 @@ async function buryBones(): Promise<void> {
     }
 }
 
+/**
+ * Emergency exit (user: no deaths). Brimhaven Dungeon is not wilderness: Camelot (Seers, then the
+ * walk to Ardougne) or Lumbridge Teleport lands at once. Three farm deaths were prayer running dry.
+ */
+async function emergencyTeleport(): Promise<boolean> {
+    await protectMelee(false);
+    const magic = sdk.getSkill('Magic')?.level ?? 1;
+    const spell = magic >= 45 && count(LAW) >= 1 && count(AIR) >= 5 ? CAMELOT_TELEPORT : magic >= 31 && count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1 ? LUMBRIDGE_TELEPORT : 0;
+    if (!spell) return false;
+    await sdk.sendSetTab(MAGIC_TAB).catch(() => {});
+    await sdk.waitForTicks(1).catch(() => {});
+    await sdk.sendClickComponent(spell);
+    await sdk.waitForCondition((st) => (st.player?.worldZ ?? 0) < 9000, 12_000).catch(() => {});
+    session.log('warn', `Emergency teleport ${inDungeon() ? 'FAILED' : 'out'} @ ${pos().x},${pos().z}`);
+    return !inDungeon();
+}
+
 /** A dose of super attack / super strength when the boost has worn off: shorter kills, less prayer. */
 async function boost(): Promise<void> {
     for (const [pot, skill] of [[SUPER_ATTACK, 'Attack'], [SUPER_STRENGTH, 'Strength']] as const) {
@@ -604,6 +634,11 @@ async function fightOne(): Promise<void> {
         await eatIfNeeded();
         await drinkPrayerIfLow();
         await protectMelee(true);
+        const prayerOut = (sdk.getPrayerState()?.prayerPoints ?? 99) < 10 && !sdk.findInventoryItem(PRAYER_POT);
+        if (pos().hp < pos().maxHp * 0.5 && (foodCount() <= 4 || prayerOut)) {
+            await emergencyTeleport();
+            return;
+        }
         if ((foodCount() <= 2 && pos().hp < pos().maxHp * 0.6) || ((sdk.getPrayerState()?.prayerPoints ?? 0) === 0 && !sdk.findInventoryItem(PRAYER_POT))) {
             session.log('warn', `Low on food (${foodCount()}) at ${pos().hp}/${pos().maxHp} — leaving`);
             return;

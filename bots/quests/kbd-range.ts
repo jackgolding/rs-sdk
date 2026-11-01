@@ -1028,6 +1028,13 @@ async function meleeKill(): Promise<void> {
             session.log('warn', `Low on food (${foodCount()}) at ${pos().hp}/${pos().maxHp} mid-fight — leaving the lair`);
             break;
         }
+        // Emergency exit (user: no deaths): the lair is wilderness level 0, the teleport is instant.
+        const prayerOut = (sdk.getPrayerState()?.prayerPoints ?? 99) < 10 && !sdk.findInventoryItem(PRAYER_POT);
+        if (pos().hp < pos().maxHp * 0.5 && (foodCount() <= 5 || prayerOut)) {
+            session.log('warn', `Emergency teleport at ${pos().hp}/${pos().maxHp} food=${foodCount()} prayer=${sdk.getPrayerState()?.prayerPoints}`);
+            await teleportOutOfLair();
+            return;
+        }
         if (!(pos().inCombat && pos().targetType === 'npc')) await attackFromTile(true);
         await sdk.waitForTicks(1);
     }
