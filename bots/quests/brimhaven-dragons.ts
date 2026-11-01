@@ -133,8 +133,12 @@ const MAGIC_TAB = 6;
 const CAMELOT_TELEPORT = 1174;
 const LUMBRIDGE_TELEPORT = 1167;
 const SUPER_STRENGTH = /^super strength\(\d\)$/i;
+/**
+ * No iron/steel bars: every iron dragon drops 5 unnoted bars, which filled the pack and sent the
+ * account banking after one kill (loadout study, 2026-11-01: 2 of 2 trips ended at 1 kill).
+ */
 const LOOT =
-    /^(dragon (platelegs|plateskirt|med helm|spear|chainbody)|soul rune|law rune|death rune|blood rune|nature rune|rune .*|adamant(ite)? .*|steel bar|iron bar|runite bar|coal|uncut (sapphire|emerald|ruby|diamond|dragonstone)|clue scroll.*|half of a key|.*half of a key)$/i;
+    /^(dragon (platelegs|plateskirt|med helm|spear|chainbody)|soul rune|law rune|death rune|blood rune|nature rune|rune .*|adamant(ite)? .*|runite bar|coal|uncut (sapphire|emerald|ruby|diamond|dragonstone)|clue scroll.*|half of a key|.*half of a key)$/i;
 
 const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-'));

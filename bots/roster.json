@@ -351,8 +351,7 @@
         "jacklove18",
         "--then",
         "bots/quests/aemad-supplies.ts",
-        "jacklove18",
-        "--ropes=0"
+        "jacklove18"
       ],
       "noEffectMinutes": 60
     },
