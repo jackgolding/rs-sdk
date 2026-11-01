@@ -678,6 +678,20 @@ async function boost(): Promise<void> {
     }
 }
 
+/**
+ * Stab (the longsword's Lunge): iron and steel dragons have stabdefence 50 against slashdefence 70
+ * (karamja.npc), and the dragon longsword's stab bonus is 58 to slash 69, so stab lands ~8% more
+ * often (attack/defence roll ratio 1.07 against 0.99).
+ */
+async function setStabStyle(): Promise<void> {
+    const cs = sdk.getState()?.combatStyle;
+    const stab = cs?.styles.find((s) => s.damageType === 'Stab');
+    if (!cs || !stab || cs.currentStyle === stab.index) return;
+    await sdk.sendSetCombatStyle(stab.index);
+    await sdk.waitForCondition((s) => s.combatStyle?.currentStyle === stab.index, 5_000).catch(() => {});
+    log(`Style ${stab.name} (stab) on ${cs.weaponName}`);
+}
+
 async function fightOne(): Promise<void> {
     const target = pickDragon();
     if (!target) {
@@ -688,6 +702,7 @@ async function fightOne(): Promise<void> {
         return;
     }
     await protectMelee(true);
+    await setStabStyle();
     await boost();
     const attack = target.optionsWithIndex.find((o) => /attack/i.test(o.text))!;
     const xp0 = sdk.getSkill('Hitpoints')?.experience ?? 0;
