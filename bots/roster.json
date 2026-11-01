@@ -494,7 +494,9 @@
         "ABGARMY09",
         "--then",
         "bots/quests/hobgoblins.ts",
-        "ABGARMY09"
+        "ABGARMY09",
+        "--spot=westardy",
+        "--food=8"
       ],
       "noEffectMinutes": 60
     },

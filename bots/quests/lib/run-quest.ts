@@ -67,6 +67,7 @@ import { inPlagueArea, leavePlagueCity } from './plague-city';
 import { inJungleArea, leaveJungle } from './jungle-potion';
 import { inKeepArea, leaveKeep } from './merlins-crystal';
 import { inCrestUnderground, leaveCrestUnderground } from './crest';
+import { inMelzarsMaze, leaveMelzarsMaze } from './melzars-maze';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -472,6 +473,9 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inArenaCompound(pos()) && !inArenaCompound({ ...tile, level: tile.level ?? 0 })) await leaveArena(q);
                 // Restarted inside Peer the Seer's house (pigfat, mid-puzzle in the mural room, 2026-10-30).
                 if (inSeerHouse(pos()) && !inSeerHouse({ ...tile, level: tile.level ?? 0 })) await leaveSeerHouse(q);
+                // Melzar's Maze: the east door wants the Maze key and climbTo would take any ladder in it
+                // (ABGARMY09 stranded after Dragon Slayer, 2026-11-01). Out by its own rooms (lib/melzars-maze.ts).
+                if (inMelzarsMaze(pos()) && !inMelzarsMaze({ ...tile, level: tile.level ?? 0 })) await leaveMelzarsMaze(bot, sdk, log);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0, tile);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in
@@ -710,6 +714,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
         // Up in the Grand Tree: climbTo finds no way down from its L1 (jacklove4 after a restart
         // mid-stock-run, 2026-10-31).
         if (inStronghold(pos()) && pos().level !== 0) await leaveGrandTree(q);
+        // Melzar's Maze, any floor or its basement: climbTo would take any of its ladders (lib/melzars-maze.ts).
+        if (inMelzarsMaze(pos())) await leaveMelzarsMaze(bot, sdk, log);
         if (pos().level !== 0) await q.climbTo(0);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.
         if (pos().z >= UNDERGROUND_Z) await climbOutOfUnderground(hub);
@@ -849,6 +855,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         }
 
         // ── epilogue: back to the hub, naked, where the run started
+        if (inMelzarsMaze(pos())) await leaveMelzarsMaze(bot, sdk, log);
         if (pos().level !== 0) await q.climbTo(0);
         await q.goTo(hub, 4);
         await depositAllInventory(q.supply);

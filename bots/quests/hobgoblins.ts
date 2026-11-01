@@ -3,6 +3,18 @@
  * Bank at Falador east when the bag is full.
  *
  *   bun bots/quests/hobgoblins.ts jackthief
+ *   bun bots/quests/hobgoblins.ts jackthief --spot=westardy
+ *
+ * `--spot=westardy`: the hobgoblins outside West Ardougne's wall, south of the Grand Tree and
+ * north-east of the Underground Pass entrance (m38_52: five at 2443-2447,3357-3362), banking at
+ * Ardougne north (booths 2615-2619,3331) by the open ground north of the wall — no door or gate.
+ * The other three (2448-2451,3329-3331) are left alone: five level-64 wolves spawn at
+ * 2437-2440,3333-3336 (wanderrange 6, huntrange 2) and killed a foodless test account there.
+ * `--food=N`: withdraw up to N of the best banked food each bank trip, and bank early when out
+ * of food below 40% HP (default 0: no withdrawals, as before). The West Ardougne five gang up on
+ * a combat-80 account (huntmode cowardly) and wore an 85-Defence rune-armoured test account down
+ * over ~100 kills without food.
+ * An account stranded in Melzar's Maze (next to the default camp) walks out of it first.
  */
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
@@ -17,11 +29,36 @@ import {
 } from './tiles';
 import { closeUi as closeUiShared } from './movement';
 import { crossAlKharidToll, inAlKharidRegion } from './alkharid-toll';
+import { inMelzarsMaze, leaveMelzarsMaze } from './lib/melzars-maze';
 import { foodHeal } from './food-heal';
 import { installGracefulShutdown } from '../../sdk/runner';
 
-const CAMP = CRAFTING_GUILD_HOBS;
-const BANK = FALADOR_EAST_BANK;
+const argv = process.argv.slice(2);
+const SPOT = (argv.find((a) => a.startsWith('--spot='))?.slice('--spot='.length) ?? 'craftguild').toLowerCase();
+if (SPOT !== 'craftguild' && SPOT !== 'westardy') throw new Error(`unknown --spot=${SPOT} (craftguild | westardy)`);
+const WEST_ARDY = SPOT === 'westardy';
+/** The northern West Ardougne group; the southern one shares its ground with wolves. */
+const WEST_ARDY_HOBS = { x: 2445, z: 3360 };
+const ARDOUGNE_NORTH_BANK = { x: 2616, z: 3333 };
+/** Ardougne north bank → north of the West Ardougne wall → the hobgoblins (sdk findLongPath, no doors). */
+const TO_WEST_ARDY_HOBS = [
+    ARDOUGNE_NORTH_BANK,
+    { x: 2613, z: 3345 },
+    { x: 2610, z: 3365 },
+    { x: 2591, z: 3380 },
+    { x: 2569, z: 3396 },
+    { x: 2545, z: 3400 },
+    { x: 2523, z: 3392 },
+    { x: 2501, z: 3378 },
+    { x: 2499, z: 3365 },
+    { x: 2483, z: 3350 },
+    { x: 2469, z: 3352 },
+    WEST_ARDY_HOBS
+];
+const CAMP = WEST_ARDY ? WEST_ARDY_HOBS : CRAFTING_GUILD_HOBS;
+const BANK = WEST_ARDY ? ARDOUGNE_NORTH_BANK : FALADOR_EAST_BANK;
+const BANK_NAME = WEST_ARDY ? 'Ardougne north' : 'Falador east';
+const FOOD_WITHDRAW = Math.max(0, Number(argv.find((a) => a.startsWith('--food='))?.slice('--food='.length) ?? 0) || 0);
 const DITCH_NORTH = { x: 3088, z: 3525 };
 const DITCH_SOUTH = { x: 3088, z: 3518 };
 const HUNT_RADIUS = 18;
@@ -43,7 +80,6 @@ const SPEC_MAX = 1000;
 const SPEC_REGEN = 100;
 const SPEC_REGEN_TICKS = 50;
 
-const argv = process.argv.slice(2);
 /**
  * Limpwurt and herbs only. The fleet banks ~1,100 snape grass already; picking it filled the pack
  * at ~24 snape to 1 limpwurt per trip, and limpwurt (super strength) has no shop source.
@@ -219,6 +255,7 @@ function atCamp(): boolean {
 }
 
 function inHuntBox(x: number, z: number): boolean {
+    if (WEST_ARDY) return x >= 2434 && x <= 2460 && z >= 3348 && z <= 3374;
     return x >= 2888 && x <= 2928 && z >= 3278 && z <= 3318;
 }
 
@@ -520,10 +557,12 @@ async function goToBank(): Promise<boolean> {
     await ui();
     if (northOfDitch() && !(await leaveWildy())) return false;
     if (pos().z > 6400) return false;
-    intent('Walking to Falador east bank');
+    intent(`Walking to ${BANK_NAME} bank`);
     session.setAnchor(BANK.x, BANK.z);
     if (distTo(BANK.x, BANK.z) > 8) {
-        if (pos().x > 3120 && pos().z < 3300) {
+        if (WEST_ARDY) {
+            await walkWaypoints([...TO_WEST_ARDY_HOBS].reverse());
+        } else if (pos().x > 3120 && pos().z < 3300) {
             await walkWaypoints([
                 { x: 3160, z: 3250 },
                 { x: 3088, z: 3250 },
@@ -543,10 +582,10 @@ async function goToCamp(): Promise<boolean> {
     await ui();
     if (northOfDitch() && !(await leaveWildy())) return false;
     if (atCamp()) return true;
-    intent(`Walking to crafting guild hobgoblins @ ${CAMP.x},${CAMP.z}`);
+    intent(`Walking to ${SPOT} hobgoblins @ ${CAMP.x},${CAMP.z}`);
     session.setAnchor(CAMP.x, CAMP.z);
     if (distTo(CAMP.x, CAMP.z) > 12) {
-        await walkWaypoints(TO_CRAFTING_GUILD_HOBS);
+        await walkWaypoints(WEST_ARDY ? TO_WEST_ARDY_HOBS : TO_CRAFTING_GUILD_HOBS);
     }
     if (!atCamp()) await hop(CAMP.x, CAMP.z, 8);
     const ok = atCamp();
@@ -559,11 +598,11 @@ async function bankTrip(): Promise<boolean> {
     if (session.metrics().phase !== 'bank') await session.setPhase('bank');
     await identifyHerbs();
     if (!(await goToBank())) {
-        session.noteFailure('bank_walk', 'Could not reach Falador east');
+        session.noteFailure('bank_walk', `Could not reach ${BANK_NAME}`);
         return false;
     }
     if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
-        session.noteFailure('bank_open', 'Falador east bank open failed');
+        session.noteFailure('bank_open', `${BANK_NAME} bank open failed`);
         return false;
     }
     for (const item of sdk.getInventory()) {
@@ -584,6 +623,14 @@ async function bankTrip(): Promise<boolean> {
         const bankDlong = sdk.findBankItem(DLONG);
         if (bankDlong) await bot.withdrawItem(bankDlong, 1);
     }
+    if (FOOD_WITHDRAW > 0) {
+        const food = sdk
+            .getBankItems()
+            .filter((b) => foodHeal(b.name) > 0 && (b.count ?? 0) > 0)
+            .sort((a, b) => foodHeal(b.name) - foodHeal(a.name))[0];
+        if (food) await bot.withdrawItem(food, Math.min(FOOD_WITHDRAW, food.count ?? FOOD_WITHDRAW));
+        else session.log('warn', `No food in the ${BANK_NAME} bank for --food=${FOOD_WITHDRAW}`);
+    }
     session.captureBankStock();
     await bot.closeBank();
     const invDlong = sdk.findInventoryItem(DLONG);
@@ -597,7 +644,7 @@ async function bankTrip(): Promise<boolean> {
     bankedSnape += Math.max(0, snape);
     const deposited = limp + herbs + snape;
     if (deposited > 0) session.recordTrip(deposited);
-    session.noteProgress('bank', 'falador east');
+    session.noteProgress('bank', BANK_NAME.toLowerCase());
     log(
         `Banked limp ${Math.max(0, limp)} herb ${Math.max(0, herbs)} snape ${Math.max(0, snape)} | ` +
             `trip ${session.metrics().trips} total limp ${bankedLimp} herb ${bankedHerb} snape ${bankedSnape} | ${lootSummary()}`
@@ -606,6 +653,10 @@ async function bankTrip(): Promise<boolean> {
 }
 
 session.registerRecovery([
+    {
+        name: 'leave_maze',
+        run: async () => inMelzarsMaze(pos()) && (await leaveMelzarsMaze(bot, sdk, log))
+    },
     {
         name: 'leave_wildy',
         run: async () => northOfDitch() && (await leaveWildy())
@@ -633,12 +684,21 @@ try {
     log(
         `Hobgoblin start HP ${pos().hp}/${pos().maxHp} herblore ${sdk.getSkill('Herblore')?.baseLevel} ` +
             `@ ${pos().x},${pos().z} weapon=${sdk.findEquipmentItem(DLONG)?.name ?? sdk.findInventoryItem(DLONG)?.name ?? 'none'} ` +
-            `spec ${Math.floor(specEnergy / 10)}% | ${lootSummary()}`
+            `spec ${Math.floor(specEnergy / 10)}% spot=${SPOT} | ${lootSummary()}`
     );
     // The ex-Kalphite Queen accounts start at the Al Kharid bank: walkTo has no route through the toll gate.
     if (inAlKharidRegion(pos())) await crossAlKharidToll(bot, sdk, false, { log });
+    if (inMelzarsMaze(pos())) await leaveMelzarsMaze(bot, sdk, log);
+    const heldDlong = sdk.findInventoryItem(DLONG);
+    if (heldDlong && !wearingDlong()) await bot.equipItem(heldDlong);
 
     while (!session.isStopped()) {
+        if (session.stopRequested) {
+            // SIGTERM/SIGINT: bank the pack, then exit 0 (it used to ignore the signal until the 300s force-exit).
+            const outcome = await session.drainToBank(async () => !inMelzarsMaze(pos()) && (await bankTrip()), { deadlineMs: 600_000 });
+            session.stop('stopped', `drained to bank: ${outcome}`, { restartable: false });
+            break;
+        }
         if (session.needsRecovery()) {
             if ((await session.recover()) === 'exhausted') break;
             continue;
@@ -657,8 +717,13 @@ try {
             await leaveWildy();
             continue;
         }
+        if (inMelzarsMaze(pos())) {
+            await leaveMelzarsMaze(bot, sdk, log);
+            continue;
+        }
 
-        if (bagFull() || (occupied() >= 26 && !atCamp())) {
+        const outOfFood = FOOD_WITHDRAW > 0 && foodCount() === 0 && pos().hp < pos().maxHp * 0.4;
+        if (bagFull() || (occupied() >= 26 && !atCamp()) || outOfFood) {
             log(`Banking ${lootSummary()}`);
             await bankTrip();
             continue;

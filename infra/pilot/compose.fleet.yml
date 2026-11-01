@@ -316,7 +316,7 @@ services:
   quest-abgarmy09:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "ABGARMY09", "--then", "bots/quests/hobgoblins.ts", "ABGARMY09"]
+    command: ["bun", "bots/quests/todo-runner.ts", "ABGARMY09", "--then", "bots/quests/hobgoblins.ts", "ABGARMY09", "--spot=westardy", "--food=8"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
