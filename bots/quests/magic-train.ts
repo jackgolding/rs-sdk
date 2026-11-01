@@ -45,6 +45,7 @@ import type { BotSDK } from '../../sdk/index';
 import type { NearbyNpc } from '../../sdk/types';
 import { runScript } from '../../sdk/runner';
 import { walkNear } from './movement';
+import { requestFromMule } from './supply';
 import { ensureBankStart, nearestBank, parkAtBank, SAFE_BANKS, type SafeBankName } from './safe-stops';
 import { tickNow, untilTicks } from './lib/ticks';
 
@@ -421,6 +422,8 @@ await runScript(async ({ bot, sdk }) => {
      * One bank visit: deposit everything but runes and the staff, wield an air staff if banked,
      * choose the spell, withdraw all of its runes. Returns false on NEEDS STOCK.
      */
+    /** The last NEEDS STOCK shortfall, e.g. "air rune ×236 (wind-blast to Magic 59)". */
+    let lastShort = '';
     async function restock(): Promise<'ok' | 'needs_stock' | 'bank_failed'> {
         await phaseTo('bank');
         if (!(await openBankAt(homeBank))) return 'bank_failed';
@@ -434,6 +437,7 @@ await runScript(async ({ bot, sdk }) => {
         const picked = pickSpell();
         if (!picked.spell) {
             await bot.closeBank().catch(() => undefined);
+            lastShort = picked.short;
             session.log('error', `NEEDS STOCK: ${picked.short} (Magic ${magicLevel(sdk)}, mode ${MODE}${SPELL_ARG ? `, spell ${SPELL_ARG}` : ''})`);
             return 'needs_stock';
         }
@@ -644,6 +648,18 @@ await runScript(async ({ bot, sdk }) => {
             if (stripped.length) log(`banking gear that spoils magic accuracy: ${stripped.join(', ')}`);
         }
         let stock = await restock();
+        if (stock === 'needs_stock' && lastShort) {
+            // Ask the Jackpoo2 mule (Draynor, the Lumbridge cows' bank) for the shortfall, then
+            // try once more: 7 accounts stopped short of air runes only (2026-11-01).
+            const lines = [...lastShort.matchAll(/(\w+) rune ×(\d+)/g)].map((m) => ({ label: `${m[1]} rune`, pattern: new RegExp(`^${m[1]} rune$`, 'i'), count: Number(m[2]) }));
+            if (lines.length) {
+                log(`asking Jackpoo2 for ${lines.map((l) => `${l.label}=${l.count}`).join(', ')}`);
+                await bot.closeInterface().catch(() => undefined);
+                const ok = await requestFromMule({ sdk, bot, session: null, log } as never, lines, { mule: 'Jackpoo2', timeoutMs: 5 * 60_000 });
+                log(`mule Jackpoo2: ${ok ? 'served' : 'not all served'}`);
+                stock = await restock();
+            }
+        }
         if (stock === 'needs_stock') {
             await parkAndRestore('needs stock');
             session.stop('needs_stock', 'NEEDS STOCK — mule tops up runes', { restartable: false });
