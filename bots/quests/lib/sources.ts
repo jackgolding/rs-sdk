@@ -17,6 +17,7 @@ import { driveDialog } from './dialog';
 import { manorSpade, oilCan, pressureGauge, rubberTube } from './draynor-manor';
 import { dramenStaff } from './lost-city';
 import { buyGroceries } from './gnome-stronghold';
+import { beehiveWax } from './merlins-crystal';
 
 export interface Need {
     /** Item name as the game shows it, e.g. 'ball of wool'. */
@@ -221,6 +222,10 @@ const SNAPE_GRASS_SPAWNS = [
     { x: 2907, z: 3295 },
     { x: 2917, z: 3274 },
 ];
+/** Giant bats on the shore west of Keep Le Faye (m43_53: 2752,3409 / 2753,3396 / 2759,3401). */
+const KEEP_GIANT_BATS: HuntSpot = { x: 2756, z: 3402, npc: /^giant bat$/i };
+/** Insect repellent ground spawn, Catherby (m43_53 obj 28 at 55,58). */
+const CATHERBY_INSECT_REPELLENT = { x: 2807, z: 3450 };
 
 export const SOURCES: Record<string, Source> = {
     /**
@@ -850,6 +855,20 @@ export const SOURCES: Record<string, Source> = {
             }
             if (!ids.every(held)) throw new Error('priest gown: Thessalia did not sell both halves');
         },
+    },
+    // ── Merlin's Crystal: bat bones for Thrantax, wax for the black candle
+    /** Giant bats (level 27, always bat bones) on the shore west of Keep Le Faye (m43_53 npc spawns). */
+    'bat bones': { get: (q, count) => huntDrop(q, KEEP_GIANT_BATS, 'bat bones', count) },
+    /** Ground spawn in Catherby (m43_53 obj 28); poured on the hive, never used up. */
+    'insect repellent': { tool: true, get: (q, count) => pickUpSpawn(q, CATHERBY_INSECT_REPELLENT, 'insect repellent', count) },
+    /** Repellent then a bucket on a Catherby beehive (bees.rs2); buckets from Arhein (lib/merlins-crystal.ts). */
+    'bucket of wax': {
+        obj: 'bucket_wax',
+        inputs: (count) => [
+            { item: 'bucket', count },
+            { item: 'insect repellent', count: 1 },
+        ],
+        get: (q, count) => beehiveWax(q, count),
     },
 
     // ── Priest in Peril

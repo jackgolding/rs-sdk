@@ -65,6 +65,7 @@ import { crossGnomeGate, inStronghold, leaveGrandTree } from './gnome-stronghold
 import { inWaterfallArea, leaveWaterfall } from './waterfall';
 import { inPlagueArea, leavePlagueCity } from './plague-city';
 import { inJungleArea, leaveJungle } from './jungle-potion';
+import { inKeepArea, leaveKeep } from './merlins-crystal';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -500,6 +501,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inWaterfallArea(pos()) && !inWaterfallArea(tile)) await leaveWaterfall(q);
                 // West Ardougne (walled until Biohazard), the plague sewer and cellar: manhole, mud pile (lib/plague-city.ts).
                 if (inPlagueArea(pos()) && !inPlagueArea(tile)) await leavePlagueCity(q);
+                // Keep Le Faye (and the crate that ships you there): out by its front door (lib/merlins-crystal.ts).
+                if (inKeepArea(pos()) && !inKeepArea(tile)) await leaveKeep(q);
                 if (pos().z >= UNDERGROUND_Z && tile.z < UNDERGROUND_Z) await climbOutOfUnderground(tile);
                 // Buildings whose doorway the client map gets wrong (lib/doors.ts).
                 if (away(tile) > tolerance) (await leaveStuckArea(sdk, bot, tile, log)) || (await enterStuckArea(sdk, bot, tile, log));
