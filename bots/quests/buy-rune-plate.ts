@@ -33,10 +33,46 @@ async function bankEverything(q: Quest): Promise<void> {
     await q.bot.closeBank();
 }
 
+/**
+ * `--buyout`: buy every rune platebody Oziach has in stock right now, owned or not, with no
+ * restock waits (user, 2026-11-01: jacklove18 buys out his stock before its next job).
+ */
+const BUYOUT = process.argv.includes('--buyout');
+
+async function buyout(q: Quest): Promise<void> {
+    await q.bot.openBank();
+    const banked = q.sdk.findBankItem(/^coins$/i)?.count ?? 0;
+    const take = Math.min(banked, 300_000);
+    if (take < 84_500) {
+        await q.bot.closeBank();
+        return q.log(`rune plate buyout: only ${banked} coins banked — already complete (nothing bought)`);
+    }
+    await q.bot.withdrawItem(/^coins$/i, take);
+    await q.bot.closeBank();
+    await q.talk(/^oziach$/i, [/can i buy a rune plate/i], OZIACH);
+    if (!(await untilTicks(q.sdk, () => !!q.sdk.getState()?.shop?.isOpen, 10))) {
+        throw new Error('rune plate buyout: Oziach did not open his shop (is Dragon Slayer complete?)');
+    }
+    let bought = 0;
+    for (let i = 0; i < 6; i++) {
+        const stock = q.sdk.getState()?.shop?.shopItems?.find((it) => PLATE.test(it.name));
+        if (!stock || stock.count < 1 || q.count('coins') < stock.buyPrice) break;
+        const before = q.sdk.getInventory().filter((it) => PLATE.test(it.name)).length;
+        const res = await q.bot.buyFromShop(PLATE, 1);
+        await untilTicks(q.sdk, () => q.sdk.getInventory().filter((it) => PLATE.test(it.name)).length > before, 6);
+        if (q.sdk.getInventory().filter((it) => PLATE.test(it.name)).length > before) bought++;
+        q.log(`rune plate buyout: ${res.message} (price ${stock.buyPrice}, stock ${stock.count})`);
+    }
+    await q.bot.closeShop();
+    await bankEverything(q);
+    q.log(`rune plate buyout: bought ${bought} and banked them — already complete for this run`);
+}
+
 await runTask({
     id: 'buy-rune-plate',
     hub: 'edgeville',
     task: async (q) => {
+        if (BUYOUT) return buyout(q);
         if (owned(q)) return q.log('rune plate: already complete (carried or worn)');
         await q.bot.openBank();
         if (q.sdk.findBankItem(PLATE)) {

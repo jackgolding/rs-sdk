@@ -350,8 +350,9 @@
       "args": [
         "jacklove18",
         "--then",
-        "bots/quests/monk-robes.ts",
-        "jacklove18"
+        "bots/quests/aemad-supplies.ts",
+        "jacklove18",
+        "--ropes=0"
       ],
       "noEffectMinutes": 60
     },
