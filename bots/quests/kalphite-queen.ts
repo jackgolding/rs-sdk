@@ -204,12 +204,19 @@ async function waitForTeam(): Promise<void> {
 
 // ── combat helpers ────────────────────────────────────────────────────────────
 
+/**
+ * Eat early and twice when low: the Queen's ranged (max 31) and her phase-2 melee land together
+ * in a crowded chamber, and two accounts died at once with 16 sharks left (prod, 2026-11-01).
+ */
 async function eatIfNeeded(): Promise<void> {
-    const p = pos();
-    const danger = p.hp <= Math.floor(p.maxHp * 0.55);
-    if (!danger && p.hp > p.maxHp - 22) return;
-    const food = sdk.getInventory().filter((i) => foodHeal(i.name) > 0).sort((a, b) => foodHeal(b.name) - foodHeal(a.name))[0];
-    if (food) await bot.eatFood(food);
+    for (let bite = 0; bite < 2; bite++) {
+        const p = pos();
+        if (p.hp > p.maxHp * 0.7 || p.hp > p.maxHp - 20) return;
+        const food = sdk.getInventory().filter((i) => foodHeal(i.name) > 0).sort((a, b) => foodHeal(b.name) - foodHeal(a.name))[0];
+        if (!food) return;
+        await bot.eatFood(food);
+        if (pos().hp > pos().maxHp * 0.45) return;
+    }
 }
 
 async function drink(p: RegExp): Promise<void> {
@@ -537,6 +544,11 @@ async function fight(): Promise<void> {
         await keepUp();
         if (foodCount() <= 2 && pos().hp < pos().maxHp * 0.6) {
             session.log('warn', `Low on food (${foodCount()}) — leaving the chamber`);
+            return;
+        }
+        if (pos().hp < pos().maxHp * 0.35 && foodCount() <= 2) {
+            session.log('warn', `Emergency teleport at ${pos().hp}/${pos().maxHp}`);
+            await teleportOut();
             return;
         }
         if (!(pos().inCombat && pos().targetType === 'npc')) {
