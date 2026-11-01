@@ -36,6 +36,13 @@ import type { Quest } from './lib/run-quest';
 const SANIBOCH = { x: 2744, z: 3152 };
 /** East Ardougne church altar (loc 409, maps/m40_51): a full prayer bar before every trip. */
 const ARDOUGNE_ALTAR = { x: 2617, z: 3309 };
+/** Seers' Village church altar (kbd-range.ts SEERS_ALTAR), a short walk from the Camelot teleport. */
+const SEERS_ALTAR = { x: 2694, z: 3462 };
+/**
+ * No prayer potions, no trip (user, 2026-11-01): without them the bar is gone after one kill and
+ * every kill cost a walk back out through the vines to an altar.
+ */
+const MIN_PRAYER_POTS = 2;
 const DUNGEON_ENTRY = { x: 2713, z: 9564 };
 const PIT = { x: 2708, z: 9442 };
 const ENTRY_FEE = 875;
@@ -328,10 +335,11 @@ async function leaveStronghold(): Promise<void> {
 
 async function bankTrip(): Promise<boolean> {
     await session.setPhase('bank');
-    if (inDungeon()) {
-        if (!(await leaveDungeon())) return false;
-    }
+    // Out by Camelot Teleport (user, 2026-11-01: teleport, not the walk back through the vines),
+    // then the Seers altar and bank; the walk to Ardougne's docks follows a ready kit.
+    if (inDungeon() && !(await emergencyTeleport()) && !(await leaveDungeon())) return false;
     if (onKaramja() && !(await sailToArdougne())) return false;
+    if (nearSeers()) return seersBankTrip();
     // A grind handed over at Al Kharid (process-bank) starts east of the toll gate.
     if (inAlKharidRegion(pos())) await crossAlKharidToll(bot, sdk, false, { log });
     // An agility grind hands over inside the Gnome Stronghold: walkTo has no route through its gate.
@@ -365,8 +373,9 @@ async function bankTrip(): Promise<boolean> {
     for (const piece of ARMOUR) await withdrawFirst([piece]);
     await withdrawUpTo(PRAYER_POT, PRAYER_POTS_WANT);
     await withdrawUpTo(SUPER_ATTACK, 1);
-    await withdrawUpTo(LAW, 1);
-    await withdrawUpTo(AIR, 5);
+    // Two Camelot Teleports: the planned exit and an emergency one.
+    await withdrawUpTo(LAW, 2);
+    await withdrawUpTo(AIR, 10);
     await withdrawUpTo(EARTH, 1);
     await withdrawUpTo(DUELING_RING, 1);
     await withdrawUpTo(SUPER_STRENGTH, 1);
@@ -386,22 +395,48 @@ async function bankTrip(): Promise<boolean> {
     }
     // No teleport, no trip (an emergency exit must exist before entering).
     const canTeleport = (count(LAW) >= 1 && count(AIR) >= 3) || count(DUELING_RING) > 0;
-    const ready = canTeleport && count(COINS) >= ENTRY_FEE + BOAT_GP * 2 && foodCount() > LEAVE_FOOD && AXES.some((p) => sdk.findInventoryItem(p) || sdk.findEquipmentItem(p)) && !!sdk.findEquipmentItem(SHIELD);
+    const potted = count(PRAYER_POT) >= MIN_PRAYER_POTS;
+    const ready = potted && canTeleport && count(COINS) >= ENTRY_FEE + BOAT_GP * 2 && foodCount() > LEAVE_FOOD && AXES.some((p) => sdk.findInventoryItem(p) || sdk.findEquipmentItem(p)) && !!sdk.findEquipmentItem(SHIELD);
     log(`Kit coins=${count(COINS)} food=${foodCount()} pots=${count(PRAYER_POT)} shield=${!!sdk.findEquipmentItem(SHIELD)} worn=${sdk.getEquipment().filter(Boolean).map((e) => e!.name).join(',')} ready=${ready}`);
     session.noteProgress('bank', `food ${foodCount()}`);
-    if (!ready) {
+    if (!potted) {
+        session.log('warn', `no prayer potions (${count(PRAYER_POT)} < ${MIN_PRAYER_POTS}, none to brew) — no trip; rechecking in 30 min`);
+        const until = Date.now() + 30 * 60_000;
+        while (Date.now() < until && !session.isStopped()) {
+            session.maybeHeartbeat();
+            await sdk.waitForTicks(50).catch(() => {});
+        }
+    } else if (!ready) {
         session.noteFailure('kit', 'missing coins, food, an axe or a dragonfire shield');
         await sdk.waitForTicks(200).catch(() => {});
     }
     return ready;
 }
 
+function nearSeers(): boolean {
+    const p = pos();
+    return p.z < 9000 && p.x >= 2680 && p.x <= 2780 && p.z >= 3430 && p.z <= 3520;
+}
+
+/** After a Camelot Teleport: the Seers altar, then the bank trip at Ardougne (it carries the kit). */
+async function seersBankTrip(): Promise<boolean> {
+    await prayAt(SEERS_ALTAR, 'Seers');
+    intent('Walking to the Ardougne bank');
+    const r = await bot.walkTo(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 3);
+    if (!r.success && distTo(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z) > 10) await walkNear(bot, sdk, ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 3);
+    return nearSeers() ? false : bankTrip();
+}
+
 /** Banking does not restore prayer: the second trip fought at 13 points and died (qlck1). */
 async function prayAtAltar(): Promise<void> {
+    await prayAt(ARDOUGNE_ALTAR, 'Ardougne');
+}
+
+async function prayAt(altarTile: { x: number; z: number }, where: string): Promise<void> {
     const st = sdk.getPrayerState();
     if (!st || st.prayerPoints >= st.prayerLevel) return;
-    intent('Praying at the Ardougne church altar');
-    await walkNear(bot, sdk, ARDOUGNE_ALTAR.x - 1, ARDOUGNE_ALTAR.z, 2);
+    intent(`Praying at the ${where} church altar`);
+    await walkNear(bot, sdk, altarTile.x - 1, altarTile.z, 2);
     await sdk.scanNearbyLocs(6).catch(() => {});
     const altar = sdk.findNearbyLoc(/^altar$/i, { withOption: /pray/i });
     const op = altar?.optionsWithIndex.find((o) => /pray/i.test(o.text));
