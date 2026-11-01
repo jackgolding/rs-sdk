@@ -30,6 +30,8 @@ import { brewPrayerPotions } from './prayer-brew';
 import { requestFromMule } from './supply';
 /** Last time this run asked jackthief for prayer potions. */
 let lastPotAsk = 0;
+/** Set when loot is picked up; cleared at the bank. */
+let lootedThisTrip = false;
 import { closeUi, crossGangplank, walkNear } from './movement';
 import { foodHeal, healAtBank } from './food-heal';
 import { ARDOUGNE_BANK, BRIMHAVEN_CUSTOMS, CAPTAIN_BARNABY } from './tiles';
@@ -373,6 +375,7 @@ async function bankTrip(): Promise<boolean> {
         if (!r.success && !r.partial) break;
     }
     if (banked.length) log(`Banked loot: ${banked.join(', ')}`);
+    lootedThisTrip = false;
     await healAtBank(bot, sdk, log);
     // One axe travels; spares (Bob's stock bought after a death) wait in the bank.
     const axesHeld = sdk.getInventory().filter((i) => AXES.some((a) => a.test(i.name)));
@@ -392,7 +395,10 @@ async function bankTrip(): Promise<boolean> {
     await withdrawUpTo(SUPER_STRENGTH, 1);
     if (count(PRAYER_POT) < PRAYER_POTS_WANT) await brewPrayerPotions(bot, sdk, log, PRAYER_POTS_WANT - count(PRAYER_POT));
     const sharks = sdk.findBankItem(/^shark$/i) ? /^shark$/i : /^(swordfish|lobster)$/i;
-    await withdrawUpTo(sharks, FOOD_WANT - (foodCount() - count(sharks)));
+    // Food fills what the kit leaves, keeping 3 slots for loot: 18 sharks on top of pots, runes,
+    // a ring and boosts filled the pack and the full-pack rule banked again at once (×80, 2026-11-02).
+    const nonFood = sdk.getInventory().filter((i) => (i.count ?? 0) > 0 && foodHeal(i.name) <= 0).length;
+    await withdrawUpTo(sharks, Math.max(8, Math.min(FOOD_WANT, 25 - nonFood)) - (foodCount() - count(sharks)));
     await bot.closeBank();
     if (!sdk.findEquipmentItem(SHIELD) && !sdk.findInventoryItem(SHIELD)) await fetchDukeShield(bot, sdk, log);
     // No axe held or banked (lost on a death): Bob's in Lumbridge (bob-axes.ts).
@@ -414,8 +420,11 @@ async function bankTrip(): Promise<boolean> {
     // prayer potions, and any missing piece of the study's loadout (rune legs + berserker helm +
     // glory + dragon longsword + dragonfire shield, 2026-11-02).
     const has = (p: RegExp) => !!sdk.findEquipmentItem(p) || !!sdk.findInventoryItem(p);
+    const gearMissing = [!has(SHIELD), !WEAPONS.some(has), !has(/^(rune|dragon) (platelegs|plateskirt)$/i), !has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i), !has(/^amulet of (glory|power|strength)/i)].filter(Boolean).length;
+    // The trade lands in the pack: ask only for what fits (Jackpoo4's trade failed "no_space").
+    const potRoom = Math.max(0, 28 - occupied() - gearMissing);
     const kitAsk = [
-        ...(!potted ? [{ label: 'prayer potion(3)', pattern: /^prayer potion\(3\)$/i, count: 9 }] : []),
+        ...(!potted && potRoom > 0 ? [{ label: 'prayer potion(3)', pattern: /^prayer potion\(3\)$/i, count: Math.min(9, potRoom) }] : []),
         ...(!has(SHIELD) ? [{ label: 'dragonfire shield', pattern: SHIELD, count: 1 }] : []),
         ...(!WEAPONS.some(has) ? [{ label: 'dragon longsword', pattern: /^dragon longsword$/i, count: 1 }] : []),
         ...(!has(/^(rune|dragon) (platelegs|plateskirt)$/i) ? [{ label: 'rune platelegs', pattern: /^rune platelegs$/i, count: 1 }] : []),
@@ -683,6 +692,7 @@ async function lootAndBury(): Promise<void> {
         if (!item || (occupied() >= 28 && !DRAGON_BONES.test(item.name))) break;
         const held = () => sdk.getInventory().filter((x) => x.id === item.id).reduce((n, x) => n + (x.count ?? 1), 0);
         const before = held();
+        lootedThisTrip = true;
         await sdk.sendPickup(item.x, item.z, item.id);
         await sdk.waitForCondition(() => held() > before, 4_000).catch(() => {});
         if (held() > before && !DRAGON_BONES.test(item.name)) {
@@ -826,7 +836,8 @@ function shouldBank(): boolean {
     // On prod a dragon-longsword iron kill takes 120-180s, past a 79-point bar (ABGARMY18 died
     // with prayer 0 after kill #2): without a potion, only a near-full bar starts a fight.
     if (inPit() && st && st.prayerPoints < st.prayerLevel * 0.9 && !sdk.findInventoryItem(PRAYER_POT)) return true;
-    if (occupied() >= 27) return true;
+    // Full of LOOT, not of kit: only after something was picked up this trip.
+    if (occupied() >= 27 && lootedThisTrip) return true;
     return false;
 }
 
