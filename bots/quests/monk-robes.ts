@@ -48,7 +48,7 @@ import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
 import { installGracefulShutdown } from '../../sdk/runner';
 import { SAFE_BANKS } from './safe-stops';
-import { closeUi, installWaitForTicksGuard, walkNear } from './movement';
+import { closeUi, installWaitForTicksGuard, leaveEdgevilleWilderness, walkNear } from './movement';
 import { travelTo } from './travel';
 import { driveDialog, talkThrough } from './lib/dialog';
 import { tickNow, untilTicks } from './lib/ticks';
@@ -488,6 +488,13 @@ try {
         `Monk robes start @ ${pos().x},${pos().z},L${pos().level} Prayer ${prayerLevel()} ` +
             `target=${TARGET || 'none'} bank-at=${BANK_AT || 'full'} max-skew=${MAX_SKEW} | ${summary()}`
     );
+    // A stop mid-walk left jacklove18 on the ditch at (3072,3520) and every relaunch stopped at
+    // once (2026-11-01): walk out south over the ditch gap instead of stopping.
+    if (wildy(pos().x, pos().z) || nearWildy()) {
+        log(`at the wilderness edge @ ${pos().x},${pos().z} — walking back south`);
+        await leaveEdgevilleWilderness(sdk).catch(() => false);
+        await walkNear(bot, sdk, 3094, 3492, 3).catch(() => undefined);
+    }
     if (wildy(pos().x, pos().z)) session.stop('wilderness', `started in the wilderness @ ${pos().x},${pos().z}`, { restartable: true });
     if (!session.isStopped() && prayerLevel() < PRAYER_REQUIRED) {
         // The ladder needs the order, the order needs base Prayer 31: nothing to do.
