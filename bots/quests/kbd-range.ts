@@ -1295,7 +1295,8 @@ async function bankTrip(): Promise<boolean> {
         // No teleport, no trip (Camelot / Lumbridge runes, or a ring of dueling).
         const canTeleport = (count(LAW) >= 1 && count(AIR) >= 3) || !!sdk.findInventoryItem(DUELING_RING);
         if (!canTeleport) session.noteFailure('kit', 'no teleport out of the lair (runes or ring of dueling)');
-        if (!armed && Date.now() - lastMuleAsk > 30 * 60_000) {
+        // Held but not wieldable (no Lost City: jacklove11 was served two it could not wield) is not asked again.
+        if (!armed && !sdk.findInventoryItem(MELEE_WEAPON) && Date.now() - lastMuleAsk > 30 * 60_000) {
             // New team members (jacklove11/12/13/16, 2026-11-01) bank shields but no longsword:
             // Jackpoo2 serves dragon longswords at Draynor (lib/sources.ts). Lost City to wield it.
             lastMuleAsk = Date.now();
