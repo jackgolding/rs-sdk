@@ -2,7 +2,6 @@
   "heartbeatSec": 60,
   "accounts": [
     { "name": "fatpig", "job": "knights" },
-    { "name": "jacklove10", "job": "knights" },
     { "name": "jacklove17", "job": "bignet" }
   ]
 }
