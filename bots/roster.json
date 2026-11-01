@@ -273,10 +273,8 @@
       "args": [
         "jacklove12",
         "--then",
-        "bots/quests/kbd-range.ts",
-        "jacklove12",
-        "--melee",
-        "--team-min=4"
+        "bots/quests/air-rune-craft.ts",
+        "jacklove12"
       ],
       "noEffectMinutes": 60
     },
