@@ -468,16 +468,30 @@ async function sailToKaramja(): Promise<boolean> {
     return sail(/^captain barnaby$/i, onKaramja);
 }
 
+/**
+ * Walk near a Karamja tile. A run resumed on the ship's deck (ABGARMY18 at 2776,3230 after a
+ * restart) has no route ashore until it crosses the gangplank.
+ */
+async function walkAshore(x: number, z: number, tol: number): Promise<void> {
+    await walkNear(bot, sdk, x, z, tol);
+    if (distTo(x, z) <= tol + 4) return;
+    const plank = sdk.findNearbyLoc(/gangplank/i);
+    if (!plank || Math.hypot(plank.x - pos().x, plank.z - pos().z) > 8) return;
+    log(`on the ship's deck @ ${pos().x},${pos().z}: crossing the gangplank`);
+    await crossGangplank(bot, sdk);
+    await walkNear(bot, sdk, x, z, tol);
+}
+
 async function sailToArdougne(): Promise<boolean> {
     intent('Brimhaven customs → Ardougne');
-    await walkNear(bot, sdk, BRIMHAVEN_CUSTOMS.x, BRIMHAVEN_CUSTOMS.z, 4);
+    await walkAshore(BRIMHAVEN_CUSTOMS.x, BRIMHAVEN_CUSTOMS.z, 4);
     return sail(/^customs officer$/i, inArdougne);
 }
 
 /** Pay Saniboch and go in through the dungeon entrance. */
 async function enterDungeon(): Promise<boolean> {
     intent('Paying Saniboch');
-    await walkNear(bot, sdk, SANIBOCH.x + 1, SANIBOCH.z + 2, 2);
+    await walkAshore(SANIBOCH.x + 1, SANIBOCH.z + 2, 2);
     const saniboch = sdk.findNearbyNpc(/^saniboch$/i);
     const pay = saniboch?.optionsWithIndex.find((o) => /^pay$/i.test(o.text));
     if (saniboch && pay) {
