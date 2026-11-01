@@ -27,6 +27,8 @@ import { brewPrayerPotions } from './prayer-brew';
 import { leaveMine } from './air-runes-shared';
 
 const SHANTAY = { x: 3304, z: 3127, npc: /^shantay$/i };
+/** Ned, Draynor: rope 15gp ("I would like some rope", lib/sources.ts). Lumbridge Teleport lands next door. */
+const NED = { x: 3099, z: 3258 };
 const SHANTAY_GATE = { x: 3304, z: 3119 };
 const BURROW = { x: 3228, z: 3110 };
 const LAIR_LANDING = { x: 3483, z: 9510 };
@@ -258,6 +260,7 @@ async function bankTrip(): Promise<boolean> {
     if (inLair()) await teleportOut();
     // A grind handed over in the rune essence mine (ABGARMY09) is in an instance: portal out first.
     await leaveMine(bot, sdk, log);
+    await buyRopes();
     if (!eastOfToll(pos())) await crossAlKharidToll(bot, sdk, true, { log });
     if (distTo(AL_KHARID_BANK.x, AL_KHARID_BANK.z) > 8) await walkNear(bot, sdk, AL_KHARID_BANK.x, AL_KHARID_BANK.z, 3);
     const opened = await bot.openBank();
@@ -274,7 +277,7 @@ async function bankTrip(): Promise<boolean> {
         if (!r.success && !r.partial) break;
     }
     if (banked.length) log(`Banked loot: ${banked.join(', ')}`);
-    await withdraw(COINS, 200);
+    await withdraw(COINS, 300);
     for (const w of WEAPONS) {
         if (sdk.findEquipmentItem(w) || sdk.findInventoryItem(w)) break;
         const item = sdk.findBankItem(w);
@@ -310,6 +313,34 @@ async function bankTrip(): Promise<boolean> {
         await sdk.waitForTicks(200).catch(() => {});
     }
     return ready;
+}
+
+/**
+ * Two ropes each from Ned: one carrier's ropes stranded the first prod team at the chamber
+ * entrance when that carrier bounced off the Shantay gate. Only on the Lumbridge side of the toll.
+ */
+async function buyRopes(): Promise<void> {
+    if (count(ROPE) >= 2 || eastOfToll(pos())) return;
+    if (count(COINS) < 30) return;
+    intent('Buying rope from Ned in Draynor');
+    await walkNear(bot, sdk, NED.x, NED.z, 3);
+    for (let misses = 0; misses < 3 && count(ROPE) < 2; ) {
+        const ned = sdk.findNearbyNpc(/^ned$/i);
+        if (!ned) break;
+        const before = count(ROPE);
+        await bot.talkTo(ned).catch(() => undefined);
+        for (let i = 0; i < 14 && count(ROPE) === before; i++) {
+            const d = sdk.getDialog();
+            if (d?.isOpen && !d.isWaiting) {
+                const pick = d.options.find((o) => /would like some rope|sell me some rope|yes/i.test(o.text));
+                await sdk.sendClickDialog(pick?.index ?? d.options[0]?.index ?? 0);
+            }
+            await sdk.waitForTicks(1).catch(() => {});
+        }
+        await closeUi(bot, sdk);
+        misses = count(ROPE) > before ? 0 : misses + 1;
+    }
+    log(`Ropes from Ned: ${count(ROPE)}`);
 }
 
 // ── travel ────────────────────────────────────────────────────────────────────
@@ -348,13 +379,20 @@ async function throughShantayGate(): Promise<boolean> {
             return false;
         }
         await sdk.sendInteractLoc(gate.x, gate.z, gate.id, op.opIndex);
+        const south = (st: { player?: { worldZ?: number } | null }) => (st.player?.worldZ ?? 9999) < 3117;
         for (let i = 0; i < 20 && !inDesert(); i++) {
             const d = sdk.getDialog();
             if (d?.isOpen && !d.isWaiting) {
                 const pick = d.options.find((o) => /doesn't scare me|go into the desert/i.test(o.text));
                 await sdk.sendClickDialog(pick?.index ?? d.options[0]?.index ?? 0);
             }
-            await sdk.waitForTicks(1).catch(() => {});
+            // Event-driven, not a tick poll: jackthief was through and bounced back north by
+            // the replayed Go-through inside one poll. Walk south the moment the state says south.
+            const through = await sdk.waitForCondition((st) => south(st) || !!st.dialog?.isOpen, 1_500).then(() => inDesert()).catch(() => false);
+            if (through) {
+                await sdk.sendWalk(SHANTAY_GATE.x - 3, SHANTAY_GATE.z - 8, true).catch(() => {});
+                break;
+            }
         }
         // The Go-through replays on arrival and, from the desert side, the gate sends you back
         // north for free (qlck1 bounced to 3304,3118): walk south at once to drop it.
