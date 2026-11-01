@@ -377,20 +377,38 @@ async function throughShantayGate(): Promise<boolean> {
     if (inDesert()) return true;
     await walkNear(bot, sdk, SHANTAY_GATE.x, SHANTAY_GATE.z + 2, 2);
     for (let attempt = 0; attempt < 3 && !inDesert(); attempt++) {
+        // The gate guard (shantay_guard_still, Talk-to only, by the gate) rather than the gate loc:
+        // a replayed loc Go-through from the desert side sends you back north for free and the
+        // pass is gone (ABGARMY17 on prod); a replayed Talk-to only reopens his dialog.
+        const guard = (sdk.getNearbyNpcs() ?? [])
+            .filter((n) => /^shantay guard$/i.test(n.name) && !n.optionsWithIndex.some((o) => /attack/i.test(o.text)))
+            .sort((a, b) => Math.hypot(a.x - SHANTAY_GATE.x, a.z - SHANTAY_GATE.z) - Math.hypot(b.x - SHANTAY_GATE.x, b.z - SHANTAY_GATE.z))[0];
         await sdk.scanNearbyLocs(6).catch(() => {});
         const gate = sdk.findNearbyLoc(/^shantay pass$/i, { withOption: /go-through/i });
         const op = gate?.optionsWithIndex.find((o) => /go-through/i.test(o.text));
-        if (!gate || !op) {
-            session.noteFailure('gate', `no Shantay pass gate in view at ${pos().x},${pos().z}`);
+        if (guard) {
+            const talk = guard.optionsWithIndex.find((o) => /talk/i.test(o.text));
+            if (talk) await sdk.sendInteractNpc(guard.index, talk.opIndex);
+        } else if (gate && op) {
+            await sdk.sendInteractLoc(gate.x, gate.z, gate.id, op.opIndex);
+        } else {
+            session.noteFailure('gate', `no Shantay gate guard or gate in view at ${pos().x},${pos().z}`);
             return false;
         }
-        await sdk.sendInteractLoc(gate.x, gate.z, gate.id, op.opIndex);
         const south = (st: { player?: { worldZ?: number } | null }) => (st.player?.worldZ ?? 9999) < 3117;
-        for (let i = 0; i < 20 && !inDesert(); i++) {
+        for (let i = 0; i < 30 && !inDesert(); i++) {
             const d = sdk.getDialog();
-            if (d?.isOpen && !d.isWaiting) {
-                const pick = d.options.find((o) => /doesn't scare me|go into the desert/i.test(o.text));
-                await sdk.sendClickDialog(pick?.index ?? d.options[0]?.index ?? 0);
+            if (d?.isOpen) {
+                if (!d.isWaiting) {
+                    const pick = d.options.find((o) => /doesn't scare me|go into the desert/i.test(o.text));
+                    await sdk.sendClickDialog(pick?.index ?? d.options[0]?.index ?? 0);
+                }
+                await sdk.waitForTicks(1).catch(() => {});
+                if (inDesert()) {
+                    await sdk.sendWalk(SHANTAY_GATE.x - 3, SHANTAY_GATE.z - 8, true).catch(() => {});
+                    break;
+                }
+                continue;
             }
             // Event-driven, not a tick poll: jackthief was through and bounced back north by
             // the replayed Go-through inside one poll. Walk south the moment the state says south.
