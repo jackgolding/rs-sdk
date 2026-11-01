@@ -126,6 +126,7 @@ function pos() {
         isDead: p?.isDead ?? false,
         inCombat: p?.combat?.inCombat ?? false,
         targetType: p?.combat?.targetType ?? 'none',
+        targetIndex: p?.combat?.targetIndex ?? -1,
         lifeId: p?.lifeId ?? 0
     };
 }
@@ -217,8 +218,14 @@ async function eatIfNeeded(): Promise<void> {
         const p = pos();
         if (p.hp > p.maxHp * 0.7 || p.hp > p.maxHp - 20) return;
         const food = sdk.getInventory().filter((i) => foodHeal(i.name) > 0).sort((a, b) => foodHeal(b.name) - foodHeal(a.name))[0];
-        if (!food) return;
-        await bot.eatFood(food);
+        const op = food?.optionsWithIndex.find((o) => /eat/i.test(o.text));
+        if (!food || !op) return;
+        // Raw packet + tick wait: bot.eatFood waits in wall-clock ms. Eating cancels the swing
+        // (study: re-attacking after eats was 444 vs 684 ticks a kill at N=4).
+        const before = foodCount();
+        await sdk.sendUseItem(food.slot, op.opIndex);
+        for (let w = 0; w < 3 && foodCount() === before; w++) await sdk.waitForTicks(1).catch(() => {});
+        if (foodCount() < before) cancelledAt = now();
         if (pos().hp > pos().maxHp * 0.45) return;
     }
 }
@@ -228,6 +235,7 @@ async function drink(p: RegExp): Promise<void> {
     const op = pot?.optionsWithIndex.find((o) => /drink/i.test(o.text));
     if (pot && op) {
         await sdk.sendUseItem(pot.slot, op.opIndex);
+        cancelledAt = now();
         await sdk.waitForTicks(2).catch(() => {});
     }
 }
@@ -242,7 +250,19 @@ async function keepUp(): Promise<void> {
 
 /** Protect from Magic, re-flicked for near-zero drain (prayer-flick.ts; user, 2026-11-01). */
 const flicker = new PrayerFlicker(sdk, (m) => session.log('log', m));
+const QUEEN_P1 = 1158;
+const QUEEN_P2 = 1160;
+/** Tick of the last attack packet; one per tick at most. */
 let lastAttackAt = -1;
+/** Tick of the last eat/drink/walk (each cancels the swing, like a prayer toggle). */
+let cancelledAt = -1;
+let lastQueenId = -1;
+let phase2At = -1;
+let revertWarned = false;
+
+function now(): number {
+    return sdk.getState()?.tick ?? 0;
+}
 
 // ── bank ──────────────────────────────────────────────────────────────────────
 
@@ -570,12 +590,6 @@ function queen() {
     return (sdk.getNearbyNpcs() ?? []).find((n) => QUEEN_NPC.test(n.name) && (n.hp === null || n.hp > 0) && n.optionsWithIndex.some((o) => /attack/i.test(o.text))) ?? null;
 }
 
-/** Any Queen NPC, whatever her phase, hp or options: she is mid-transformation when unattackable. */
-function anyQueenForm(): boolean {
-    return (sdk.getNearbyNpcs() ?? []).some((n) => QUEEN_NPC.test(n.name));
-}
-let quietTicks = 0;
-
 async function loot(): Promise<void> {
     for (let i = 0; i < 10; i++) {
         await eatIfNeeded();
@@ -589,27 +603,115 @@ async function loot(): Promise<void> {
     }
 }
 
+/** Kalphite Queen team-mates in the chamber (fresh lair check-ins, self included), sorted: the spread index. */
+function chamberTeam(): string[] {
+    const names = new Set<string>([username]);
+    try {
+        for (const n of readdirSync(TEAM_DIR)) {
+            try {
+                const t = JSON.parse(readFileSync(join(TEAM_DIR, n), 'utf8')) as { at: number; where: string };
+                if (Date.now() - t.at < TEAM_FRESH_MS && t.where === 'lair') names.add(n);
+            } catch {
+                /* skip */
+            }
+        }
+    } catch {
+        /* no team dir */
+    }
+    return [...names].sort();
+}
+
+/**
+ * Stand on the Queen's West or East face by team index. Her ranged hits up to 5 players within
+ * 5 tiles of her target; opposite faces of the 5x5 Queen are 6 apart, so half the team is out of
+ * every volley (local study, N=4: 292 vs 622 HP taken a kill). Returns true when in place (or
+ * when spreading does not apply / keeps failing), false while walking there this tick.
+ */
+let spreadMisses = 0;
+let lastSpreadWalk = -9;
+function onFace(target: NonNullable<ReturnType<typeof queen>>): boolean {
+    const team = chamberTeam();
+    if (team.length < 2 || target.tileX === undefined || target.tileZ === undefined || spreadMisses >= 12) return true;
+    const size = target.size ?? 5;
+    const idx = team.indexOf(username);
+    const fx = idx % 2 === 0 ? target.tileX - 1 : target.tileX + size;
+    const p = pos();
+    if (p.x === fx && p.z >= target.tileZ && p.z < target.tileZ + size) {
+        spreadMisses = 0;
+        return true;
+    }
+    if (now() - lastSpreadWalk >= 3) {
+        lastSpreadWalk = now();
+        spreadMisses++;
+        void sdk.sendWalk(fx, target.tileZ + 1 + ((idx >> 1) % 3));
+        cancelledAt = now();
+    }
+    return false;
+}
+
+/** Slash (aggressive) on the dragon longsword: phase 2 has 100 defence to every melee style, slash has the best bonus. */
+async function setSlashAggressive(): Promise<void> {
+    const cs = sdk.getState()?.combatStyle;
+    if (!cs?.styles?.length) return;
+    const pick = cs.styles.find((s) => s.damageType === 'Slash' && s.type === 'Aggressive') ?? cs.styles.find((s) => s.type === 'Aggressive');
+    if (pick && cs.currentStyle !== pick.index) await sdk.sendSetCombatStyle(pick.index);
+}
+
+/**
+ * One attack packet per tick, sent when we are not on her, our combat target is not her, she
+ * changed form (1158 -> 1160 keeps the npc index), or a prayer toggle / eat / drink / walk
+ * cancelled the swing since the last attack (p_clearpendingaction).
+ */
+async function attackIfNeeded(target: NonNullable<ReturnType<typeof queen>>): Promise<void> {
+    const t = now();
+    if (lastAttackAt === t) return;
+    const p = pos();
+    const onHer = p.inCombat && p.targetType === 'npc' && p.targetIndex === target.index;
+    const cancelled = Math.max(flicker.toggledAt, cancelledAt) >= lastAttackAt;
+    if (onHer && !cancelled && target.id === lastQueenId) return;
+    const op = target.optionsWithIndex.find((o) => /attack/i.test(o.text));
+    if (!op) return;
+    lastAttackAt = t;
+    lastQueenId = target.id;
+    await sdk.sendInteractNpc(target.index, op.opIndex);
+}
+
 async function fight(): Promise<void> {
     checkIn('lair');
     const q = queen();
     if (!q) {
-        // Phase 1 dies in seconds with 30 players in the chamber, and phase 2 rises a few ticks
-        // later: 13 deaths (prod, 2026-11-01) came right after a "dead", with the prayer dropped
-        // and nobody eating. Keep the prayer up and eat while any Queen form is in view.
+        // Protect from Magic stays up for the whole stay in the chamber: her first volley after the
+        // 100-tick respawn lands before a bot can react (9 of 12 study deaths were at the respawn
+        // tick with the prayer down). Poll every tick so the rise / respawn is seen at once.
         await keepUp();
-        if (!anyQueenForm() && ++quietTicks >= 20) flicker.set(null);
         await loot();
-        await sdk.waitForTicks(3).catch(() => {});
+        await sdk.waitForTicks(1).catch(() => {});
         return;
     }
-    quietTicks = 0;
     const started = Date.now();
     let ticks = 0;
     const xp0 = sdk.getSkill('Hitpoints')?.experience ?? 0;
-    log(`Queen up — team=${(sdk.getNearbyPlayers() ?? []).length + 1} food=${foodCount()} prayer=${sdk.getPrayerState()?.prayerPoints}`);
+    await setSlashAggressive();
+    log(`Queen up (${q.id === QUEEN_P2 ? 'phase 2' : 'phase 1'}) — team=${(sdk.getNearbyPlayers() ?? []).length + 1} chamberTeam=${chamberTeam().length} food=${foodCount()} prayer=${sdk.getPrayerState()?.prayerPoints}`);
     while (!pos().isDead && !session.isStopped() && Date.now() - started < 600_000) {
         const target = queen();
         if (!target) break;
+        // Phase 2 rising (same npc, new id): attack this tick, before eating. Loot goes to the most
+        // PHASE-2 damage (npc_statheal clears heroPoints at the change), and the first 16 damagers only.
+        const rising = target.id === QUEEN_P2 && lastQueenId !== QUEEN_P2;
+        if (rising) {
+            phase2At = now();
+            revertWarned = false;
+            await attackIfNeeded(target);
+            if (pos().hp > pos().maxHp * 0.45) {
+                await sdk.waitForTicks(1).catch(() => {});
+                continue;
+            }
+        }
+        if (target.id === QUEEN_P2 && phase2At > 0 && now() - phase2At > 1800 && !revertWarned) {
+            revertWarned = true;
+            session.log('warn', `Phase 2 up for ${now() - phase2At}t: she reverts to phase 1 (keeping HP) at 2000t`);
+        }
         await bot.dismissBlockingUI();
         await keepUp();
         if (foodCount() <= 2 && pos().hp < pos().maxHp * 0.6) {
@@ -628,22 +730,20 @@ async function fight(): Promise<void> {
             return;
         }
         if (++ticks % 10 === 0) {
-            // Diagnosis for the ~200 HP / 13s spikes: is it her ranged/melee on us, or magic?
             const said = (sdk.getState()?.gameMessages ?? []).slice(-2).map((m) => m.text).join(' | ');
-            log(`fight hp=${pos().hp}/${pos().maxHp} food=${foodCount()} magic=${sdk.isPrayerActive('protect_from_magic')} missiles=${sdk.isPrayerActive('protect_from_missiles')} pts=${sdk.getPrayerState()?.prayerPoints} queenTarget=${target.targetIndex} dist=${target.distance} :: ${said}`);
+            log(`fight hp=${pos().hp}/${pos().maxHp} food=${foodCount()} magic=${sdk.isPrayerActive('protect_from_magic')} pts=${sdk.getPrayerState()?.prayerPoints} queen=${target.id} queenTarget=${target.targetIndex} at=${pos().x},${pos().z} :: ${said}`);
         }
-        // A prayer toggle cancels the attack (p_clearpendingaction): re-attack after one.
-        if (!(pos().inCombat && pos().targetType === 'npc') || flicker.toggledAt >= lastAttackAt) {
-            lastAttackAt = (sdk.getState()?.tick ?? 0);
-            const op = target.optionsWithIndex.find((o) => /attack/i.test(o.text))!;
-            await sdk.sendInteractNpc(target.index, op.opIndex);
-        }
+        const fresh = queen();
+        if (fresh && onFace(fresh)) await attackIfNeeded(fresh);
         await sdk.waitForTicks(1).catch(() => {});
     }
-    if (!pos().isDead && (sdk.getSkill('Hitpoints')?.experience ?? 0) > xp0 && !queen()) {
+    // Only a phase-2 death is a kill: phase 1 changing form also leaves no attackable Queen for a tick.
+    if (!pos().isDead && (sdk.getSkill('Hitpoints')?.experience ?? 0) > xp0 && !queen() && lastQueenId === QUEEN_P2) {
         kills++;
         session.noteProgress('xp', `queen ${kills}`);
-        log(`Kalphite Queen dead (#${kills}) in ${Math.round((Date.now() - started) / 1000)}s food=${foodCount()} prayer=${sdk.getPrayerState()?.prayerPoints}`);
+        log(`Kalphite Queen dead (#${kills}) in ${Math.round((Date.now() - started) / 1000)}s${phase2At > 0 ? ` phase2=${now() - phase2At}t` : ''} food=${foodCount()} prayer=${sdk.getPrayerState()?.prayerPoints}`);
+        phase2At = -1;
+        lastQueenId = -1;
         await sdk.waitForTicks(3).catch(() => {});
         await loot();
     }
