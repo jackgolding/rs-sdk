@@ -23,6 +23,7 @@ import { initPathfinding } from '../../sdk/pathfinding';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { installGracefulShutdown } from '../../sdk/runner';
+import { PrayerFlicker } from './prayer-flick';
 import { fetchDukeShield } from './duke-shield';
 import { ensureAxeFromBob, hasAxe } from './bob-axes';
 import { brewPrayerPotions } from './prayer-brew';
@@ -270,10 +271,11 @@ async function drinkPrayerIfLow(): Promise<void> {
     }
 }
 
+/** Protect from Melee, re-flicked for near-zero drain (prayer-flick.ts; user, 2026-11-01). */
+const flicker = new PrayerFlicker(sdk, (m) => session.log('log', m));
+
 async function protectMelee(on: boolean): Promise<void> {
-    const active = sdk.isPrayerActive('protect_from_melee');
-    if (on && !active && (sdk.getPrayerState()?.prayerPoints ?? 0) > 0) await bot.activatePrayer('protect_from_melee');
-    if (!on && active) await bot.deactivatePrayer('protect_from_melee');
+    flicker.set(on ? 'protect_from_melee' : null);
 }
 
 // ── bank ──────────────────────────────────────────────────────────────────────

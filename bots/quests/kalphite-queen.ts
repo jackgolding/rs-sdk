@@ -19,6 +19,7 @@ import { findLongPath, initPathfinding } from '../../sdk/pathfinding';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { installGracefulShutdown } from '../../sdk/runner';
+import { PrayerFlicker } from './prayer-flick';
 import { closeUi, walkNear } from './movement';
 import { foodHeal } from './food-heal';
 import { AL_KHARID_BANK } from './tiles';
@@ -236,9 +237,11 @@ async function keepUp(): Promise<void> {
     const st = sdk.getPrayerState();
     if (st && st.prayerPoints < Math.max(10, st.prayerLevel * 0.3)) await drink(PRAYER_POT);
     if ((sdk.getState()?.gameMessages ?? []).slice(-3).some((m) => /poison/i.test(m.text ?? ''))) await drink(ANTIPOISON);
-    const active = sdk.isPrayerActive('protect_from_magic');
-    if (!active && (sdk.getPrayerState()?.prayerPoints ?? 0) > 0 && inChamber()) await bot.activatePrayer('protect_from_magic');
+    if (inChamber()) flicker.set('protect_from_magic');
 }
+
+/** Protect from Magic, re-flicked for near-zero drain (prayer-flick.ts; user, 2026-11-01). */
+const flicker = new PrayerFlicker(sdk, (m) => session.log('log', m));
 
 // ── bank ──────────────────────────────────────────────────────────────────────
 
@@ -536,7 +539,7 @@ async function leaveDesert(): Promise<void> {
 
 async function teleportOut(): Promise<boolean> {
     if (!inLair()) return true;
-    await bot.deactivatePrayer('protect_from_magic').catch(() => undefined);
+    flicker.set(null);
     if (count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1) {
         await sdk.sendSetTab(MAGIC_TAB).catch(() => {});
         await sdk.waitForTicks(1).catch(() => {});
@@ -593,7 +596,7 @@ async function fight(): Promise<void> {
         // later: 13 deaths (prod, 2026-11-01) came right after a "dead", with the prayer dropped
         // and nobody eating. Keep the prayer up and eat while any Queen form is in view.
         await keepUp();
-        if (!anyQueenForm() && ++quietTicks >= 20) await bot.deactivatePrayer('protect_from_magic').catch(() => undefined);
+        if (!anyQueenForm() && ++quietTicks >= 20) flicker.set(null);
         await loot();
         await sdk.waitForTicks(3).catch(() => {});
         return;

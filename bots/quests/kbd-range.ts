@@ -49,6 +49,7 @@ import { closeUi, leaveAdjacentClosedDoor, walkNear } from './movement';
 import { foodHeal, needsBankHeal } from './food-heal';
 import { LAVA_MAZE_EAST, southOfLavaMaze } from './rune-rocks-route';
 import { installGracefulShutdown } from '../../sdk/runner';
+import { PrayerFlicker } from './prayer-flick';
 import { fetchDukeShield } from './duke-shield';
 import { brewPrayerPotions } from './prayer-brew';
 import { requestFromMule } from './supply';
@@ -994,10 +995,11 @@ async function pullEntryLever(): Promise<boolean> {
     return inKbdLair();
 }
 
+/** Protect from Melee, re-flicked for near-zero drain (prayer-flick.ts; user, 2026-11-01). */
+const flicker = new PrayerFlicker(sdk, (m) => session.log('log', m));
+
 async function protectMelee(on: boolean): Promise<void> {
-    const active = sdk.isPrayerActive('protect_from_melee');
-    if (on && !active && (sdk.getPrayerState()?.prayerPoints ?? 0) > 0) await bot.activatePrayer('protect_from_melee');
-    if (!on && active) await bot.deactivatePrayer('protect_from_melee');
+    flicker.set(on ? 'protect_from_melee' : null);
 }
 
 /** One dragon, start to loot. Every --melee account in the lair runs the same loop on it. */
