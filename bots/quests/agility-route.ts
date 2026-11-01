@@ -23,7 +23,13 @@ import { GnomeCourse, GNOME_START } from './gnome-course';
 import { WildyCourse } from './wildy-course';
 import { installGracefulShutdown } from '../../sdk/runner';
 
-const TARGET_LEVEL = 99;
+/**
+ * `--until=N`: a queued task (todo.json) that trains to N and ends ("already complete" marks
+ * it done) — e.g. Agility 12 for the Brimhaven stepping stones, 50 for Legends. Without it,
+ * the grind parks at 99 as before.
+ */
+const UNTIL_ARG = Number(process.argv.find((a) => a.startsWith('--until='))?.split('=')[1] ?? 0);
+const TARGET_LEVEL = UNTIL_ARG > 0 ? UNTIL_ARG : 99;
 // Stay on the gnome course all the way to 99: the wilderness course's Mage
 // Arena food restock loops (walkToMage never lands), so every bot that crossed
 // 52 stalled in wildy_prep. Gnome laps pay the full +1162 bonus and are safe.
@@ -2422,6 +2428,11 @@ async function fallbackGnomeTick(): Promise<void> {
  * sleep with no packets and no recovery.
  */
 async function parkAtTarget(): Promise<void> {
+    if (UNTIL_ARG > 0) {
+        console.log(`agility: already complete — Agility ${agilityLevel()} >= ${TARGET_LEVEL}`);
+        session.stop('done', `Agility ${agilityLevel()} reached (until ${TARGET_LEVEL})`, { restartable: false });
+        return;
+    }
     if (parked) return;
     parked = true;
     await session.setPhase('parked');
