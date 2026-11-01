@@ -173,7 +173,7 @@
       "args": [
         "jackthief",
         "--then",
-        "bots/quests/law-runes.ts",
+        "bots/quests/champions-rune-buy.ts",
         "jackthief"
       ],
       "noEffectMinutes": 60
