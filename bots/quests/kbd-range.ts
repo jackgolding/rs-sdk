@@ -1000,6 +1000,20 @@ async function protectMelee(on: boolean): Promise<void> {
 }
 
 /** One dragon, start to loot. Every --melee account in the lair runs the same loop on it. */
+/**
+ * Stab (the longsword's Lunge) against the KBD: king_dragon.npc has stabdefence 70 against
+ * slashdefence 90, and the dragon longsword's stab bonus is 58 to slash 69, so stab lands ~5%
+ * more often (attack/defence roll ratio 0.91 against 0.86).
+ */
+async function setStabStyle(): Promise<void> {
+    const cs = sdk.getState()?.combatStyle;
+    const stab = cs?.styles.find((s) => s.damageType === 'Stab');
+    if (!cs || !stab || cs.currentStyle === stab.index) return;
+    await sdk.sendSetCombatStyle(stab.index);
+    await sdk.waitForCondition((s) => s.combatStyle?.currentStyle === stab.index, 5_000).catch(() => {});
+    log(`Style ${stab.name} (stab) on ${cs.weaponName}`);
+}
+
 async function meleeKill(): Promise<void> {
     if (!inKbdLair()) return;
     teamCheckIn('lair');
@@ -1011,6 +1025,7 @@ async function meleeKill(): Promise<void> {
         return;
     }
     await protectMelee(true);
+    await setStabStyle();
     log(`KBD up — protect from melee ${sdk.isPrayerActive('protect_from_melee') ? 'on' : 'OFF'} prayer=${sdk.getPrayerState()?.prayerPoints} sharks=${foodCount()} team=${(sdk.getNearbyPlayers() ?? []).length + 1}`);
     const hpXp = () => sdk.getSkill('Hitpoints')?.experience ?? 0;
     const xpBefore = hpXp();
