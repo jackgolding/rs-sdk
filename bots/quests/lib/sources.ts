@@ -595,8 +595,9 @@ export const SOURCES: Record<string, Source> = {
     plank: {
         obj: 'woodplank',
         get: async (q, count) => {
-            const t0 = tickNow(q.sdk);
             await q.goTo(PLANK_SPAWNS[0]!, 3);
+            // Timed from arrival: the walk from Draynor alone is ~2750 ticks (Jackpoo5, 2026-10-31).
+            const t0 = tickNow(q.sdk);
             while (q.count('plank') < count && tickNow(q.sdk) - t0 < 1500) {
                 const plank = q.sdk.findGroundItem(/^plank$/i, { reachable: true });
                 if (!plank || plank.distance > 10) {
