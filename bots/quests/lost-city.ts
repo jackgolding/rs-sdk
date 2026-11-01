@@ -29,7 +29,8 @@ const ENTRANA_KIT = (q: Quest) => [
     ...(meleeSpirit(q) ? [] : [{ item: 'chaos rune', count: 30 }]),
     { item: 'earth rune', count: 1 },
     { item: 'law rune', count: 1 },
-    { item: 'shark', count: 20 },
+    // Wind Bolt used 2 sharks at jackquests' stats; 20 left no slot for the chaos runes (prod, 2026-11-01).
+    { item: 'shark', count: meleeSpirit(q) ? 20 : 12 },
     { item: 'knife', count: 1 },
 ];
 /** In the dungeon the kit is what is left of it; only the knife and the teleport still matter. */
