@@ -64,6 +64,7 @@ import { inDungeon as inEntranaDungeon, teleportOut as teleportOutOfEntranaDunge
 import { crossGnomeGate, inStronghold, leaveGrandTree } from './gnome-stronghold';
 import { inWaterfallArea, leaveWaterfall } from './waterfall';
 import { inPlagueArea, leavePlagueCity } from './plague-city';
+import { inJungleArea, leaveJungle } from './jungle-potion';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -480,6 +481,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // Shut in the manor's bookcase nook or closet: walkTo has no way out of either
                 // (ABGARMY04/07 sat in the nook through four quests, 2026-10-29).
                 if (onManorGround(pos()) && !onManorGround(tile) && tile.z < UNDERGROUND_Z) await leaveManor(q);
+                // Tai Bwo Wannai's jungle and the Rogues Purse cave: out by the hand holds, home by the Brimhaven boat (lib/jungle-potion.ts).
+                if (inJungleArea(pos())) await leaveJungle(q, tile);
                 // Left on Karamja by a failed Pirate's Treasure run (jacklove13, 2026-10-29).
                 if (pos().level === 0 && onKaramja(pos()) && !onKaramja(tile)) await sailFromKaramja();
                 // Left on Entrana (jacklove6 after a Lost City run, 2026-10-29): the monks' boat back.
