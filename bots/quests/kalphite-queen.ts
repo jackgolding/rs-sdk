@@ -317,11 +317,18 @@ async function bankTrip(): Promise<boolean> {
 async function buyPass(): Promise<void> {
     if (count(PASS) > 0) return;
     const { buyAtShop } = await import('./quest-supplies');
-    await buyAtShop(
-        { bot, sdk, log, intent, walkNear: (x, z, t = 3) => walkNear(bot, sdk, x, z, t), closeUi: () => closeUi(bot, sdk) },
-        SHANTAY,
-        [{ pattern: PASS, amount: 1, label: 'shantay pass' }]
-    );
+    // The pass lands a few ticks after the buy, with the shop still open: the first prod team
+    // reached the gate with pass=0 and turned back. Close the shop and wait for it.
+    for (let attempt = 0; attempt < 2 && count(PASS) === 0; attempt++) {
+        await buyAtShop(
+            { bot, sdk, log, intent, walkNear: (x, z, t = 3) => walkNear(bot, sdk, x, z, t), closeUi: () => closeUi(bot, sdk) },
+            SHANTAY,
+            [{ pattern: PASS, amount: 1, label: 'shantay pass' }]
+        ).catch((e) => log(`Shantay shop: ${e instanceof Error ? e.message : String(e)}`));
+        await closeUi(bot, sdk);
+        await sdk.waitForCondition(() => count(PASS) > 0, 5_000).catch(() => {});
+    }
+    log(`Shantay pass ${count(PASS) > 0 ? 'bought' : 'NOT bought'} (coins ${count(COINS)})`);
 }
 
 /**
