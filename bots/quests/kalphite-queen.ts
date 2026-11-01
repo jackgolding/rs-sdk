@@ -545,6 +545,7 @@ async function fight(): Promise<void> {
         return;
     }
     const started = Date.now();
+    let ticks = 0;
     const xp0 = sdk.getSkill('Hitpoints')?.experience ?? 0;
     log(`Queen up — team=${(sdk.getNearbyPlayers() ?? []).length + 1} food=${foodCount()} prayer=${sdk.getPrayerState()?.prayerPoints}`);
     while (!pos().isDead && !session.isStopped() && Date.now() - started < 600_000) {
@@ -565,6 +566,11 @@ async function fight(): Promise<void> {
             session.log('warn', `Emergency teleport at ${pos().hp}/${pos().maxHp}`);
             await teleportOut();
             return;
+        }
+        if (++ticks % 10 === 0) {
+            // Diagnosis for the ~200 HP / 13s spikes: is it her ranged/melee on us, or magic?
+            const said = (sdk.getState()?.gameMessages ?? []).slice(-2).map((m) => m.text).join(' | ');
+            log(`fight hp=${pos().hp}/${pos().maxHp} food=${foodCount()} magic=${sdk.isPrayerActive('protect_from_magic')} missiles=${sdk.isPrayerActive('protect_from_missiles')} pts=${sdk.getPrayerState()?.prayerPoints} queenTarget=${target.targetIndex} dist=${target.distance} :: ${said}`);
         }
         if (!(pos().inCombat && pos().targetType === 'npc')) {
             const op = target.optionsWithIndex.find((o) => /attack/i.test(o.text))!;
