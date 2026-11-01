@@ -573,7 +573,7 @@ services:
   quest-abgarmy17:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "ABGARMY17", "--then", "bots/quests/hobgoblins.ts", "ABGARMY17"]
+    command: ["bun", "bots/quests/todo-runner.ts", "ABGARMY17", "--then", "bots/quests/kbd-range.ts", "ABGARMY17", "--melee", "--team-min=4"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1151,7 +1151,7 @@ services:
   quest-jacklove20:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "jacklove20", "--then", "bots/quests/lost-city-prep.ts", "jacklove20", "--then", "bots/quests/seers-wc-fm.ts", "jacklove20"]
+    command: ["bun", "bots/quests/todo-runner.ts", "jacklove20", "--then", "bots/quests/kbd-range.ts", "jacklove20", "--melee", "--team-min=4"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1219,7 +1219,7 @@ services:
   quest-jacklove4:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "jacklove4", "--then", "bots/quests/seers-wc-fm.ts", "jacklove4"]
+    command: ["bun", "bots/quests/todo-runner.ts", "jacklove4", "--then", "bots/quests/kbd-range.ts", "jacklove4", "--melee", "--team-min=4"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

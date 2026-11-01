@@ -144,8 +144,10 @@
       "args": [
         "jacklove4",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
-        "jacklove4"
+        "bots/quests/kbd-range.ts",
+        "jacklove4",
+        "--melee",
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
@@ -370,11 +372,10 @@
       "args": [
         "jacklove20",
         "--then",
-        "bots/quests/lost-city-prep.ts",
+        "bots/quests/kbd-range.ts",
         "jacklove20",
-        "--then",
-        "bots/quests/seers-wc-fm.ts",
-        "jacklove20"
+        "--melee",
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
@@ -596,8 +597,10 @@
       "args": [
         "ABGARMY17",
         "--then",
-        "bots/quests/hobgoblins.ts",
-        "ABGARMY17"
+        "bots/quests/kbd-range.ts",
+        "ABGARMY17",
+        "--melee",
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
