@@ -273,6 +273,7 @@ async function drinkPrayerIfLow(): Promise<void> {
 
 /** Protect from Melee, re-flicked for near-zero drain (prayer-flick.ts; user, 2026-11-01). */
 const flicker = new PrayerFlicker(sdk, (m) => session.log('log', m));
+let lastAttackAt = -1;
 
 async function protectMelee(on: boolean): Promise<void> {
     flicker.set(on ? 'protect_from_melee' : null);
@@ -764,7 +765,11 @@ async function fightOne(): Promise<void> {
             session.log('warn', `Low on food (${foodCount()}) at ${pos().hp}/${pos().maxHp} — leaving`);
             return;
         }
-        if (!(pos().inCombat && pos().targetType === 'npc')) await sdk.sendInteractNpc(target.index, attack.opIndex);
+        // A prayer toggle cancels the attack (p_clearpendingaction): re-attack after one.
+        if (!(pos().inCombat && pos().targetType === 'npc') || flicker.toggledAt >= lastAttackAt) {
+            lastAttackAt = (sdk.getState()?.tick ?? 0);
+            await sdk.sendInteractNpc(target.index, attack.opIndex);
+        }
         if (++ticks % 20 === 0) {
             const hits = (sdk.getState()?.gameMessages ?? []).slice(-3).map((m) => m.text).join(' | ');
             log(`fight ${target.name} hp=${pos().hp}/${pos().maxHp} melee-prayer=${sdk.isPrayerActive('protect_from_melee')} pts=${sdk.getPrayerState()?.prayerPoints} shield=${!!sdk.findEquipmentItem(SHIELD)} food=${foodCount()} :: ${hits}`);

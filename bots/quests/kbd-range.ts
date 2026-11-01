@@ -1022,6 +1022,7 @@ async function pullEntryLever(): Promise<boolean> {
 
 /** Protect from Melee, re-flicked for near-zero drain (prayer-flick.ts; user, 2026-11-01). */
 const flicker = new PrayerFlicker(sdk, (m) => session.log('log', m));
+let lastAttackAt = -1;
 
 async function protectMelee(on: boolean): Promise<void> {
     flicker.set(on ? 'protect_from_melee' : null);
@@ -1104,7 +1105,11 @@ async function meleeKill(): Promise<void> {
             await teleportOutOfLair();
             return;
         }
-        if (!(pos().inCombat && pos().targetType === 'npc')) await attackFromTile(true);
+        // A prayer toggle cancels the attack (p_clearpendingaction): re-attack after one.
+        if (!(pos().inCombat && pos().targetType === 'npc') || flicker.toggledAt >= lastAttackAt) {
+            lastAttackAt = (sdk.getState()?.tick ?? 0);
+            await attackFromTile(true);
+        }
         await sdk.waitForTicks(1);
     }
     await protectMelee(false);

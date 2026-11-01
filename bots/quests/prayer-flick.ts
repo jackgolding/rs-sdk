@@ -34,11 +34,27 @@ export class PrayerFlicker {
     private offReads = 0;
     /** True once flicking proved unreliable this run: the prayer is simply held on. */
     steady = false;
+    /**
+     * Tick of the last toggle sent. Every prayer button runs p_clearpendingaction
+     * (skill_prayer/scripts/prayers/*.rs2), which cancels the current attack: a fight loop
+     * must re-attack after this tick.
+     */
+    toggledAt = -1;
+    /** Flick (OFF+ON every 3 ticks) only when asked: a flick cancels the attack each time. */
+    flick = false;
 
     constructor(
         private sdk: BotSDK,
-        private log: (msg: string) => void
-    ) {}
+        private log: (msg: string) => void,
+        opts: { flick?: boolean } = {}
+    ) {
+        this.flick = opts.flick ?? false;
+    }
+
+    private async toggle(p: PrayerName): Promise<void> {
+        this.toggledAt = this.tick();
+        await this.sdk.sendTogglePrayer(p);
+    }
 
     /** Keep `prayer` up (re-flicked) or, with null, turn the protection off. Returns at once. */
     set(prayer: PrayerName | null): void {
@@ -47,8 +63,8 @@ export class PrayerFlicker {
         this.want = prayer;
         // A fresh switch-on is not a split.
         this.lastFlick = 0;
-        if (prev && prev !== prayer && this.sdk.isPrayerActive(prev)) void this.sdk.sendTogglePrayer(prev);
-        if (!prayer && prev && this.sdk.isPrayerActive(prev)) void this.sdk.sendTogglePrayer(prev);
+        if (prev && prev !== prayer && this.sdk.isPrayerActive(prev)) void this.toggle(prev);
+        if (!prayer && prev && this.sdk.isPrayerActive(prev)) void this.toggle(prev);
         // Switching off is verified too: a stale "already off" read skipped the toggle and left
         // Protect from Melee on between KBD kills (43 -> 23 points while waiting, prod 2026-11-01).
         if (!prayer && prev) this.offTarget = prev;
@@ -79,7 +95,7 @@ export class PrayerFlicker {
                         this.offConfirms = 0;
                         if (++this.onReads >= 2 && this.tick() - this.lastFlick >= 3) {
                             this.onReads = 0;
-                            await this.sdk.sendTogglePrayer(t);
+                            await this.toggle(t);
                             this.lastFlick = this.tick();
                         }
                     } else if (fresh) {
@@ -113,10 +129,11 @@ export class PrayerFlicker {
                         this.steady = true;
                         this.log(`prayer flick: ${p} seen off ${this.splits} times — holding it on for the rest of the run`);
                     }
-                    await this.sdk.sendTogglePrayer(p);
+                    await this.toggle(p);
                     this.lastFlick = this.tick();
-                } else if (!off && !this.steady && this.tick() - this.lastFlick >= REFLICK_TICKS) {
+                } else if (this.flick && !off && !this.steady && this.tick() - this.lastFlick >= REFLICK_TICKS) {
                     // OFF and ON back to back: both decoded in the same tick's input phase.
+                    this.toggledAt = this.tick();
                     await Promise.all([this.sdk.sendTogglePrayer(p), this.sdk.sendTogglePrayer(p)]);
                     this.lastFlick = this.tick();
                 }

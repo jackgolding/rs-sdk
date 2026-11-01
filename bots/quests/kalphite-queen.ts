@@ -242,6 +242,7 @@ async function keepUp(): Promise<void> {
 
 /** Protect from Magic, re-flicked for near-zero drain (prayer-flick.ts; user, 2026-11-01). */
 const flicker = new PrayerFlicker(sdk, (m) => session.log('log', m));
+let lastAttackAt = -1;
 
 // ── bank ──────────────────────────────────────────────────────────────────────
 
@@ -631,7 +632,9 @@ async function fight(): Promise<void> {
             const said = (sdk.getState()?.gameMessages ?? []).slice(-2).map((m) => m.text).join(' | ');
             log(`fight hp=${pos().hp}/${pos().maxHp} food=${foodCount()} magic=${sdk.isPrayerActive('protect_from_magic')} missiles=${sdk.isPrayerActive('protect_from_missiles')} pts=${sdk.getPrayerState()?.prayerPoints} queenTarget=${target.targetIndex} dist=${target.distance} :: ${said}`);
         }
-        if (!(pos().inCombat && pos().targetType === 'npc')) {
+        // A prayer toggle cancels the attack (p_clearpendingaction): re-attack after one.
+        if (!(pos().inCombat && pos().targetType === 'npc') || flicker.toggledAt >= lastAttackAt) {
+            lastAttackAt = (sdk.getState()?.tick ?? 0);
             const op = target.optionsWithIndex.find((o) => /attack/i.test(o.text))!;
             await sdk.sendInteractNpc(target.index, op.opIndex);
         }
