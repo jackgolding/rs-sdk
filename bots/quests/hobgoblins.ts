@@ -43,6 +43,11 @@ const SPEC_REGEN = 100;
 const SPEC_REGEN_TICKS = 50;
 
 const argv = process.argv.slice(2);
+/**
+ * Limpwurt and herbs only. The fleet banks ~1,100 snape grass already; picking it filled the pack
+ * at ~24 snape to 1 limpwurt per trip, and limpwurt (super strength) has no shop source.
+ */
+const NO_SNAPE = argv.includes('--no-snape');
 const botArg = argv.find((a) => !a.startsWith('-'));
 
 function loadBotEnv(): void {
@@ -225,7 +230,7 @@ function shouldKeep(name: string): boolean {
 }
 
 function isLoot(name: string): boolean {
-    return LIMPWURT.test(name) || SNAPE.test(name) || HERB.test(name) || GEM.test(name) || KEY_HALF.test(name) || RDT_RARE.test(name);
+    return LIMPWURT.test(name) || (!NO_SNAPE && SNAPE.test(name)) || HERB.test(name) || GEM.test(name) || KEY_HALF.test(name) || RDT_RARE.test(name);
 }
 
 function lootPriority(name: string): number {

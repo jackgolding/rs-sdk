@@ -416,9 +416,9 @@
       "args": [
         "ABGARMY03",
         "--then",
-        "bots/quests/fishing-route.ts",
+        "bots/quests/hobgoblins.ts",
         "ABGARMY03",
-        "--bignet"
+        "--no-snape"
       ],
       "noEffectMinutes": 60
     },
@@ -442,9 +442,9 @@
       "args": [
         "ABGARMY05",
         "--then",
-        "bots/quests/fishing-route.ts",
+        "bots/quests/hobgoblins.ts",
         "ABGARMY05",
-        "--bignet"
+        "--no-snape"
       ],
       "noEffectMinutes": 60
     },
