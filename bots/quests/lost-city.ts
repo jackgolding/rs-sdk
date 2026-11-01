@@ -7,7 +7,7 @@
  * line). Dialog: warrior_zanaris.rs2 (the camp's "Looks like you don't know
  * either" starts it), shamus.rs2, monk_of_entrana.rs2, cave_monk.rs2. Needs
  * Crafting 31 and Woodcutting 36 (trained in the prologue by lib/training.ts) and
- * Magic 35 for the tree spirit (Fire Bolt). Items:
+ * Magic 17 for the tree spirit (Wind Bolt: the fleet holds ~250k air runes but under 800 fire). Items:
  *   - axe                         lib/sources.ts (Bob's) — for the leprechaun's tree
  *   - air/fire/chaos/earth runes  lib/sources.ts (Betty, Port Sarim)
  *   - law rune, sharks            mule stock (Lumbridge Teleport out of the dungeon; food)
@@ -18,11 +18,14 @@
 import { runQuest, type Quest } from './lib/run-quest';
 import { carveStaff, enterZanaris, inDungeon, spiritAndBranch, talkShamus, toDungeon, WARRIOR_CAMP } from './lib/lost-city';
 
-/** Fire Bolt (3 air, 4 fire, 1 chaos) for the spirit, Lumbridge Teleport (3 air, 1 earth, 1 law) out, food. */
+/**
+ * Wind Bolt (2 air, 1 chaos) for the spirit (85 hp, max hit 9: ~30 casts with misses),
+ * Lumbridge Teleport (3 air, 1 earth, 1 law) out, food. Fire Bolt's 120 fire runes stalled
+ * two accounts for an hour on Betty's stock (2026-11-01).
+ */
 const ENTRANA_KIT = [
-    { item: 'air rune', count: 100 },
-    { item: 'fire rune', count: 120 },
-    { item: 'chaos rune', count: 30 },
+    { item: 'air rune', count: 150 },
+    { item: 'chaos rune', count: 60 },
     { item: 'earth rune', count: 2 },
     { item: 'law rune', count: 1 },
     { item: 'shark', count: 8 },
@@ -40,7 +43,7 @@ const stage = (id: string, kind: 'unstarted' | 'active' | 'complete', text: stri
 await runQuest({
     id: 'lostcity',
     hub: 'draynor',
-    skills: { crafting: 31, woodcutting: 36, magic: 35 },
+    skills: { crafting: 31, woodcutting: 36, magic: 17 },
     carry: ['dramen branch', 'dramen staff'],
     journal: { label: 'Lost City', title: 'Lost City' },
     stages: [

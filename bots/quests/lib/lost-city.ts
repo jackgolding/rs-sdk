@@ -37,8 +37,8 @@ const DRAMEN_TREE = { x: 2860, z: 9734 };
 const SHED_OUTSIDE = { x: 3201, z: 3169 };
 const SHED_DOOR = { x: 3202, z: 3169 };
 
-/** Spellbook component ids (sdk/spells.ts Spells.FIRE_BOLT / LUMBRIDGE_TELEPORT). */
-const FIRE_BOLT = 1169;
+/** Spellbook component ids (sdk/spells.ts Spells.WIND_BOLT / LUMBRIDGE_TELEPORT). */
+const WIND_BOLT = 1160;
 const LUMBRIDGE_TELEPORT = 1167;
 const MAGIC_TAB = 6;
 
@@ -158,7 +158,7 @@ async function eatIfLow(q: Quest): Promise<void> {
     if (food) await q.bot.eatFood(food).catch(() => undefined);
 }
 
-/** Chop the Dramen tree; at spoken_shamus that brings out the tree spirit, killed here with Fire Bolt. */
+/** Chop the Dramen tree; at spoken_shamus that brings out the tree spirit, killed here with Wind Bolt. */
 export async function spiritAndBranch(q: Quest, branch: boolean): Promise<void> {
     await bronzeAxe(q);
     await q.bot.walkTo(DRAMEN_TREE.x, DRAMEN_TREE.z + 2, 2);
@@ -185,15 +185,15 @@ export async function spiritAndBranch(q: Quest, branch: boolean): Promise<void> 
             await eatIfLow(q);
             const s = spirit();
             if (!s) break;
-            // A bolt (3 air, 4 fire, 1 chaos) only while Lumbridge Teleport's 3 air stay behind.
-            if (q.count('air rune') < 6 || q.count('fire rune') < 4 || q.count('chaos rune') < 1) {
+            // A bolt (2 air, 1 chaos) only while Lumbridge Teleport's 3 air stay behind.
+            if (q.count('air rune') < 5 || q.count('chaos rune') < 1) {
                 await teleportOut(q);
-                throw new Error(`lostcity: out of Fire Bolt runes after ${casts} casts; teleported out`);
+                throw new Error(`lostcity: out of Wind Bolt runes after ${casts} casts; teleported out`);
             }
-            const res = await q.bot.castSpell(s, FIRE_BOLT, ticksToMs(8));
+            const res = await q.bot.castSpell(s, WIND_BOLT, ticksToMs(8));
             casts++;
             if (!res.success) {
-                q.log(`lostcity: fire bolt #${casts}: ${res.message}`);
+                q.log(`lostcity: wind bolt #${casts}: ${res.message}`);
                 await q.sdk.waitForTicks(2);
             }
         }
