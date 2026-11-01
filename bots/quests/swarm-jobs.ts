@@ -193,6 +193,8 @@ abstract class JobBot {
     private bankClosing = false;
     private bankLastMoveTick = -99;
     private bankMoveTries = 0;
+    /** Items whose bank move never landed this visit (bank full, stock gone): skipped, not fatal. */
+    private bankSkip = new Set<string>();
     private lastWalkTick = -99;
 
     constructor(
@@ -363,6 +365,7 @@ abstract class JobBot {
         this.bankClosing = false;
         this.bankLastMoveTick = -99;
         this.bankMoveTries = 0;
+        this.bankSkip.clear();
     }
 
     /**
@@ -423,10 +426,16 @@ abstract class JobBot {
         // Wait for the previous move to land before sending another.
         if (this.tick - this.bankLastMoveTick < 2) return { status: 'busy' };
 
-        const deposit = s.inventory.find(i => !(plan.keep && plan.keep.test(i.name)) && !plan.withdraw.some(w => w.match(i.name)));
+        const deposit = s.inventory.find(i => !this.bankSkip.has(i.name.toLowerCase()) && !(plan.keep && plan.keep.test(i.name)) && !plan.withdraw.some(w => w.match(i.name)));
         // Over-held kit (e.g. 14 food left from last trip, plan wants 10) stays: the next withdraw tops up to `count`.
         if (deposit) {
-            if (++this.bankMoveTries > 40) return { status: 'failed', reason: `deposit of ${deposit.name} never landed` };
+            if (++this.bankMoveTries > 40) {
+                // Bank full or the item is stuck: carry it rather than stop the account.
+                this.log.log('WARN', `deposit of ${deposit.name} never landed — keeping it`);
+                this.bankSkip.add(deposit.name.toLowerCase());
+                this.bankMoveTries = 0;
+                return { status: 'busy' };
+            }
             this.exec({ type: 'bankDeposit', slot: deposit.slot, amount: -1, reason: `deposit ${deposit.name}` });
             this.bankDeposited += s.inventory.filter(i => i.id === deposit.id).reduce((a, i) => a + i.count, 0); // "All" takes every slot of that id
             this.bankLastMoveTick = this.tick;
@@ -436,14 +445,19 @@ abstract class JobBot {
         const free = 28 - s.inventory.length;
         for (const w of plan.withdraw) {
             const have = s.inventory.filter(i => w.match(i.name)).reduce((a, i) => a + i.count, 0);
-            if (have >= w.count) continue;
+            if (have >= w.count || this.bankSkip.has(w.label.toLowerCase())) continue;
             const item = s.bank.items.find(i => w.match(i.name) && i.count > 0);
             if (!item) {
                 if (w.required) return { status: 'failed', reason: `NEEDS STOCK: ${w.label} ×${w.count - have}` };
                 continue;
             }
             if (free <= 0) break;
-            if (++this.bankMoveTries > 40) return { status: 'failed', reason: `withdraw of ${w.label} never landed` };
+            if (++this.bankMoveTries > 40) {
+                this.log.log('WARN', `withdraw of ${w.label} never landed — going with what is held`);
+                this.bankSkip.add(w.label.toLowerCase());
+                this.bankMoveTries = 0;
+                continue;
+            }
             const need = Math.min(w.count - have, free);
             const amount = need >= 10 ? 10 : need >= 5 ? 5 : 1;
             this.exec({ type: 'bankWithdraw', slot: item.slot, amount, reason: `withdraw ${item.name}` });
@@ -534,13 +548,18 @@ class KnightsBot extends JobBot {
         // Pick the food once per visit: the lowest-heal fish the bank still has.
         if (s.bank.isOpen && s.bank.items.length > 0) {
             const inPack = s.inventory.find(i => FOOD_RE.test(i.name))?.name;
-            const pref = FOOD_PREF.map(re => s.bank.items.find(i => re.test(i.name) && i.count > 0)?.name).find(Boolean);
+            // Lowest-heal food with a full pack's worth banked first, then any left (jacklove6,
+            // ABGARMY19, ABGARMY02 stopped when the bank ran low on cod, 2026-11-01).
+            const pref =
+                FOOD_PREF.map(re => s.bank.items.find(i => re.test(i.name) && i.count >= FOOD_TAKE)?.name).find(Boolean) ??
+                FOOD_PREF.map(re => s.bank.items.find(i => re.test(i.name) && i.count > 0)?.name).find(Boolean);
             this.food = pref ?? inPack ?? null;
         }
         const food = this.food;
         return {
             hub: ARDOUGNE_BANK,
-            keep: null,
+            // Food already held is never banked back (a full bank refused the cod deposit).
+            keep: FOOD_RE,
             withdraw: food ? [{ match: n => n.toLowerCase() === food.toLowerCase(), label: food, count: FOOD_TAKE, required: false }] : []
         };
     }
