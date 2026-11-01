@@ -30,6 +30,8 @@ import { closeUi, crossGangplank, walkNear } from './movement';
 import { foodHeal } from './food-heal';
 import { ARDOUGNE_BANK, BRIMHAVEN_CUSTOMS, CAPTAIN_BARNABY } from './tiles';
 import { crossAlKharidToll, inAlKharidRegion } from './alkharid-toll';
+import { crossGnomeGate, inStronghold } from './lib/gnome-stronghold';
+import type { Quest } from './lib/run-quest';
 
 const SANIBOCH = { x: 2744, z: 3152 };
 /** East Ardougne church altar (loc 409, maps/m40_51): a full prayer bar before every trip. */
@@ -305,6 +307,25 @@ async function withdrawFirst(patterns: RegExp[]): Promise<void> {
     }
 }
 
+async function leaveStronghold(): Promise<void> {
+    const q = {
+        bot,
+        sdk,
+        log,
+        goTo: (t: { x: number; z: number }, tol = 2) => walkNear(bot, sdk, t.x, t.z, tol).then(() => undefined),
+        climbTo: async (level: number) => {
+            for (let i = 0; i < 4 && (sdk.getState()?.player?.level ?? 0) > level; i++) {
+                const down = sdk.findNearbyLoc(/ladder|staircase|branch|rope|tree/i);
+                const op = down?.optionsWithIndex.find((o) => /climb-down|climb down/i.test(o.text));
+                if (!down || !op) break;
+                await bot.interactLoc(down, op.text);
+                await sdk.waitForTicks(4).catch(() => {});
+            }
+        }
+    } as unknown as Quest;
+    await crossGnomeGate(q, false).catch((e) => log(`stronghold: leaving: ${(e as Error).message}`));
+}
+
 async function bankTrip(): Promise<boolean> {
     await session.setPhase('bank');
     if (inDungeon()) {
@@ -313,6 +334,8 @@ async function bankTrip(): Promise<boolean> {
     if (onKaramja() && !(await sailToArdougne())) return false;
     // A grind handed over at Al Kharid (process-bank) starts east of the toll gate.
     if (inAlKharidRegion(pos())) await crossAlKharidToll(bot, sdk, false, { log });
+    // An agility grind hands over inside the Gnome Stronghold: walkTo has no route through its gate.
+    if (inStronghold(pos())) await leaveStronghold();
     intent('Banking at Ardougne');
     if (distTo(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z) > 8) {
         const r = await bot.walkTo(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z, 3);
