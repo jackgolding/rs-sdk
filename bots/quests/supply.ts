@@ -134,8 +134,51 @@ export const MULE_BANK: Tile = { x: 3092, z: 3243 };
  * the Ardougne bank they already use; everyone else is at Draynor.
  */
 export const MULE_BANKS: Record<string, Tile> = { jackthief: { x: 2655, z: 3283 } };
+/**
+ * Local tests stand fixture accounts in for the fleet mules (fixture names must be `ql…`):
+ * QUEST_MULE_ALIAS="Jackpoo2=qlmpa,jackthief=qlmpb". Unset on the fleet, so a name is itself.
+ */
+function muleAliases(): Array<[string, string]> {
+    return (process.env.QUEST_MULE_ALIAS ?? '')
+        .split(',')
+        .map((pair) => pair.split('=').map((s) => s.trim()) as [string, string])
+        .filter(([a, b]) => a && b);
+}
+/** The account that plays the mule `name` (the alias in a local test, else `name`). */
+export function muleAccount(name: string): string {
+    return muleAliases().find(([a]) => a.toLowerCase() === name.toLowerCase())?.[1] ?? name;
+}
+/** The fleet mule an account plays (reverse of muleAccount). */
+function muleRole(account: string): string {
+    return muleAliases().find(([, b]) => b.toLowerCase() === account.toLowerCase())?.[0] ?? account;
+}
 export function muleBank(mule: string): Tile {
-    return MULE_BANKS[mule.toLowerCase()] ?? MULE_BANKS[mule] ?? MULE_BANK;
+    const role = muleRole(mule);
+    return MULE_BANKS[role.toLowerCase()] ?? MULE_BANKS[role] ?? MULE_BANK;
+}
+
+/**
+ * DM a mule. The local engines run without the friend server (Environment.friend.enabled), so
+ * private messages go nowhere there: with QUEST_MULE_SAY=1 (local tests only) the line is also
+ * said aloud, which the mule reads the same way since it is standing beside the sender.
+ */
+export async function dmMule(sdk: BotSDK, account: string, text: string): Promise<void> {
+    await sdk.dm(account, text).catch(() => undefined);
+    if (process.env.QUEST_MULE_SAY !== '1') return;
+    // One social packet per tick: a say in the DM's tick is dropped.
+    await sdk.waitForTicks(2).catch(() => undefined);
+    await sdk.say(text).catch(() => undefined);
+}
+
+/**
+ * Producers allowed to restock a mule by trade (`quest-restock` DM, then a trade the mule
+ * receives and banks): jackthief smiths nails and buys bread (mule-produce.ts) and carries
+ * them to Jackpoo2. Anyone else's `quest-restock` is ignored, so a stranger cannot make a
+ * mule sit in a trade screen.
+ */
+export const MULE_RESTOCKERS = ['jackthief'];
+export function isRestockRequest(from: string, text: string): boolean {
+    return /^\s*quest-restock\b/i.test(text) && MULE_RESTOCKERS.some((r) => muleAccount(r).toLowerCase() === from.toLowerCase());
 }
 
 export interface MuleOptions {
@@ -193,11 +236,12 @@ export async function requestFromMule(
         // mule served nothing (ABGARMY01, 2026-10-31). `label=count; …` passes it for every
         // stocked label and count tested (WordEnc.filter), and ';' is in the chat charset.
         const detail = pending.map((n) => `${n.label}=${n.count - countItems(sdk, n.pattern)}`).join('; ');
-        await sdk.dm(opts.mule, `quest-supply ${detail}`).catch(() => undefined);
-        ctx.log(`supply: requested from ${opts.mule}: ${detail}`);
+        const account = muleAccount(opts.mule);
+        await dmMule(sdk, account, `quest-supply ${detail}`);
+        ctx.log(`supply: requested from ${opts.mule}${account !== opts.mule ? ` (${account})` : ''}: ${detail}`);
         const want = pending.map((n) => ({ item: n.pattern, amount: n.count - countItems(sdk, n.pattern) }));
         const served = await bot.serveTrades({
-            from: new RegExp(`^${opts.mule.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            from: new RegExp(`^${account.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
             give: [],
             want,
             accept: (offer: TradeItem[]) =>

@@ -59,16 +59,32 @@ export interface Source {
      */
     mule?: boolean;
     /**
-     * A mule account parked at Draynor bank running quest-mule.ts that serves this
-     * item. The prepare phase DMs it once for every short line it serves and takes
-     * the trade; whatever it has not handed over in time is sourced by `get` as usual.
+     * A mule account running quest-mule.ts that serves this item, at its bank
+     * (supply.ts muleBank: Draynor, jackthief at Ardougne). The prepare phase DMs it
+     * once for every short line it serves and takes the trade; whatever it has not
+     * handed over in time is sourced by `get` as usual. A list is tried in order:
+     * what the first mule could not hand over is asked of the next.
      */
-    muleSupply?: string;
+    muleSupply?: string | string[];
     /** Skill levels `get` needs; the runner trains them first (lib/training.ts). */
     levels?: Record<string, number>;
     /** Produce until holding `count` in total. */
     get?: (q: Quest, count: number) => Promise<void>;
 }
+
+/** Source.muleSupply as a list, in the order the prepare phase asks them. */
+export function mulesFor(item: string): string[] {
+    const by = SOURCES[item]?.muleSupply;
+    return by ? (Array.isArray(by) ? by : [by]) : [];
+}
+
+/**
+ * Mule-only lines Jackpoo2 runs out of: jackthief (the max-stat mule at the Ardougne bank)
+ * banks them in bulk (bots/quests/mule-produce.ts smiths the nails and buys the bread, and
+ * restocks Jackpoo2 by trade), so a quester Jackpoo2 cannot serve asks jackthief next instead
+ * of stopping with NEEDS STOCK. Draynor first: most of these quests start there.
+ */
+const JACKPOO2_THEN_JACKTHIEF = ['Jackpoo2', 'jackthief'];
 
 /** Exact, case-insensitive name match ('wool' must not match 'ball of wool'). */
 export function itemPattern(item: string): RegExp {
@@ -440,7 +456,7 @@ export const SOURCES: Record<string, Source> = {
     'blurberry special': { obj: 'premade_blurberry_special', mule: true, muleSupply: 'Jackpoo2' },
     /** Tenzing's winter supplies; no shop near Burthorpe sells either, so the mule stocks them
      * (jacklove4 gathered 50 of each with death-plateau-stock.ts, 2026-10-30). */
-    bread: { mule: true, muleSupply: 'Jackpoo2' },
+    bread: { mule: true, muleSupply: JACKPOO2_THEN_JACKTHIEF },
     trout: { mule: true, muleSupply: 'Jackpoo2' },
 
     // ── Fight Arena: the pen fights (ogre 63, scorpion 44, Bouncer 137) are ranged; a mule stocks the kit
@@ -633,10 +649,10 @@ export const SOURCES: Record<string, Source> = {
             }
         },
     },
-    /** Smithed from steel bars only (Smithing 34, two a bar): the Jackpoo2 mule smiths and serves them. */
-    nails: { mule: true, muleSupply: 'Jackpoo2' },
-    /** Attack 60 and Lost City complete to wield; no shop sells it. Asked of the Jackpoo2 mule first. */
-    'dragon longsword': { obj: 'dragon_longsword', mule: true, muleSupply: 'Jackpoo2' },
+    /** Smithed from steel bars only (Smithing 34, two a bar): jackthief smiths them (mule-produce.ts). */
+    nails: { mule: true, muleSupply: JACKPOO2_THEN_JACKTHIEF },
+    /** Attack 60 and Lost City complete to wield; no shop sells it. jackthief banks ~95. */
+    'dragon longsword': { obj: 'dragon_longsword', mule: true, muleSupply: JACKPOO2_THEN_JACKTHIEF },
 
     shears: {
         tool: true,

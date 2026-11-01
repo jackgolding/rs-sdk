@@ -51,7 +51,7 @@ import { countItems, requireSkills } from '../quest-lib';
 import { depositAllInventory, type SupplyCtx } from '../quest-supplies';
 import { requestFromMule } from '../supply';
 import { SAFE_BANKS, type SafeBankName } from '../safe-stops';
-import { GROUPS, itemPattern, needMet, SOURCES, type Need } from './sources';
+import { GROUPS, itemPattern, mulesFor, needMet, SOURCES, type Need } from './sources';
 import { TRAINERS } from './training';
 import { talkThrough } from './dialog';
 import { enterStuckArea, leaveStuckArea } from './doors';
@@ -763,6 +763,29 @@ export async function runQuest(def: QuestDef): Promise<void> {
         await bot.closeBank().catch(() => undefined);
         log(`prologue: naked at ${def.hub} (${startAt.x},${startAt.z}); carrying ${describeInventory(sdk)}`);
 
+        /**
+         * Source.muleSupply, one round per position in its list: every line still short goes to
+         * its first mule, what that mule could not hand over goes to its second (Jackpoo2 at
+         * Draynor, then jackthief at Ardougne), and so on. `count` is the total wanted —
+         * requestFromMule asks only for what is not held (passing the shortfall asked for it twice
+         * over, so 5 nails held of 12 asked for 2).
+         */
+        const askMules = async (needs: Need[]): Promise<void> => {
+            for (let round = 0; ; round++) {
+                const byMule = new Map<string, Need[]>();
+                for (const need of needs) {
+                    const by = mulesFor(need.item)[round];
+                    if (by && !needMet(q, need)) byMule.set(by, [...(byMule.get(by) ?? []), need]);
+                }
+                if (byMule.size === 0) return;
+                for (const [by, list] of byMule) {
+                    const asked = list.map((n) => ({ label: n.item, pattern: itemPattern(n.item), count: n.count }));
+                    const ok = await requestFromMule({ sdk, bot, session: null, log }, asked, { mule: by, timeoutMs: ticksToMs(MULE_WAIT_TICKS) });
+                    log(`mule ${by}: ${ok ? 'supplied' : 'not all supplied'}; carrying ${describeInventory(sdk)}`);
+                }
+            }
+        };
+
         // ── prepare: every sourced item the rest of the quest needs, before any quest step
         const remaining = def.transitions.slice(def.transitions.findIndex((t) => t.from === start));
         // Mule-supplied stock first: the prologue has withdrawn what the bank holds, so a
@@ -771,16 +794,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (spawn) for (const need of mule) if (!needMet(q, need)) await q.ensure(need.item, need.count);
         // A mule-only line with a serving mule (Source.muleSupply: Jackpoo2's iron bars) is asked
         // of that mule before the account counts as unstocked.
-        const askMule = new Map<string, Need[]>();
-        for (const need of mule) {
-            const by = SOURCES[need.item]?.muleSupply;
-            if (by && !needMet(q, need)) askMule.set(by, [...(askMule.get(by) ?? []), need]);
-        }
-        for (const [by, needs] of askMule) {
-            const asked = needs.map((n) => ({ label: n.item, pattern: itemPattern(n.item), count: n.count - q.count(n.item) }));
-            const ok = await requestFromMule({ sdk, bot, session: null, log }, asked, { mule: by, timeoutMs: ticksToMs(MULE_WAIT_TICKS) });
-            log(`mule ${by}: ${ok ? 'supplied' : 'not all supplied'}; carrying ${describeInventory(sdk)}`);
-        }
+        await askMules(mule);
         const short = mule.filter((n) => !needMet(q, n)).map((n) => ({ item: n.item, count: n.count - q.count(n.item) }));
         if (short.length) throw new NeedsStock(short);
         const prep = preparableNeeds(q, remaining);
@@ -789,16 +803,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
             log(`prepare: ${prep.map((n) => `${n.count} ${n.item}`).join(', ')}`);
             // Mule-served lines (Source.muleSupply): one request per mule; anything it does
             // not hand over in MULE_WAIT_TICKS (offline, mid-quest, out of stock) is sourced below.
-            const byMule = new Map<string, Need[]>();
-            for (const need of prep) {
-                const mule = SOURCES[need.item]?.muleSupply;
-                if (mule && !needMet(q, need)) byMule.set(mule, [...(byMule.get(mule) ?? []), need]);
-            }
-            for (const [mule, needs] of byMule) {
-                const asked = needs.map((n) => ({ label: n.item, pattern: itemPattern(n.item), count: n.count }));
-                const ok = await requestFromMule({ sdk, bot, session: null, log }, asked, { mule, timeoutMs: ticksToMs(MULE_WAIT_TICKS) });
-                log(`mule ${mule}: ${ok ? 'supplied' : 'not all supplied'}; carrying ${describeInventory(sdk)}`);
-            }
+            await askMules(prep);
             for (const need of prep) if (!needMet(q, need)) await q.ensure(need.item, need.count);
             log(`prepared; carrying ${describeInventory(sdk)}`);
         }

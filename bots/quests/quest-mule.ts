@@ -22,7 +22,8 @@ import { initPathfinding } from '../../sdk/pathfinding';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { walkSendHops } from './movement';
-import { QUEST_STOCK, ensureSupplied, muleBank, parseSupplyRequest } from './supply';
+import { QUEST_STOCK, ensureSupplied, isRestockRequest, muleBank, parseSupplyRequest } from './supply';
+import type { TradeItem } from '../../sdk/types';
 import { countItems } from './quest-lib';
 import { TREES, fletchFor } from './lib/training';
 
@@ -190,25 +191,39 @@ async function serveOnce(from: string, needs: Array<{ label: string; count: numb
     }
     // --train carries an axe, a knife and logs: bank the pack so the request fits.
     if (TRAIN) await depositPack();
+    // Serve what is in stock: one line out (nails, 2026-11-01) used to send nothing at all,
+    // and the requester then went without the lines this mule did hold. The requester takes a
+    // partial trade (supply.ts accepts any offered line) and asks its next mule for the rest.
     const give: Array<{ item: RegExp; amount: number }> = [];
+    const served: string[] = [];
     for (const need of needs) {
         const pattern = new RegExp(`^${need.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
         const have = bankCount(pattern);
         if (have < need.count) {
             session.log('warn', `mule: low stock ${need.label} have=${have} need=${need.count} (RESTOCK)`);
         }
-        const match = (sdk.getBankItems?.() ?? []).find((i) => pattern.test(i.name));
+        const match = (sdk.getBankItems?.() ?? []).find((i) => pattern.test(i.name) && (i.count ?? 0) > 0);
         if (!match) {
             session.log('warn', `mule: out of ${need.label} for ${from}`);
-            await bot.closeBank().catch(() => undefined);
-            return false;
+            continue;
         }
+        const before = countItems(sdk, pattern);
         await bot.withdrawItem(match, Math.min(need.count, match.count ?? need.count));
         await sdk.waitForTicks(2).catch(() => undefined);
-        give.push({ item: pattern, amount: need.count });
+        const amount = countItems(sdk, pattern) - before;
+        if (amount <= 0) {
+            session.log('warn', `mule: withdraw of ${need.label} for ${from} gave nothing (pack full?)`);
+            continue;
+        }
+        give.push({ item: pattern, amount });
+        served.push(`${need.label} x${amount}`);
     }
     await bot.closeBank().catch(() => undefined);
-    log(`mule: serving ${from}: ${needs.map((n) => `${n.label} x${n.count}`).join(', ')}`);
+    if (give.length === 0) {
+        session.log('warn', `mule: nothing in stock for ${from}`);
+        return false;
+    }
+    log(`mule: serving ${from}: ${served.join(', ')}`);
     // The requester waits in serveTrades (the receiving half), so the mule must send
     // the trade request: both sides serving deadlocked every request (2026-10-29).
     try {
@@ -230,6 +245,42 @@ async function serveOnce(from: string, needs: Array<{ label: string; count: numb
         return res.success;
     } catch {
         return false;
+    }
+}
+
+/**
+ * A producer (supply.ts MULE_RESTOCKERS: jackthief) DMed `quest-restock`: bank the pack,
+ * take its trade (it sends; the receiver must only serve — two crossing trade calls race
+ * "is busy"), then bank what came over. Noted stacks deposit as items.
+ */
+async function receiveRestock(from: string): Promise<void> {
+    if (await openBank().catch(() => false)) {
+        await depositPack();
+        await bot.closeBank().catch(() => undefined);
+    }
+    log(`mule: restock from ${from}: waiting for its trade`);
+    const before = new Map(sdk.getInventory().map((i) => [i.name, i.count ?? 1]));
+    const res = await bot
+        .serveTrades({
+            from: new RegExp(`^${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+            give: [],
+            accept: (offer: TradeItem[]) => (offer ?? []).length > 0,
+            maxTrades: 1,
+            timeout: 180_000,
+            tradeTimeout: 120_000,
+            rejectAfterMs: 90_000,
+        } as never)
+        .catch(() => undefined);
+    const got = sdk
+        .getInventory()
+        .map((i) => ({ name: i.name, n: (i.count ?? 1) - (before.get(i.name) ?? 0) }))
+        .filter((i) => i.n > 0);
+    const traded = (res as { trades?: unknown[] } | undefined)?.trades?.length ?? 0;
+    log(`mule: restock from ${from} ${traded ? 'received' : 'got no trade'}: ${got.map((i) => `${i.name} x${i.n}`).join(', ') || 'nothing'}`);
+    session.noteProgress(got.length ? 'trade' : 'location', `mule restock ${from}`);
+    if (await openBank().catch(() => false)) {
+        await depositPack();
+        await bot.closeBank().catch(() => undefined);
     }
 }
 
@@ -368,6 +419,11 @@ try {
             const from = String(msg.from ?? msg.sender ?? '');
             if (!from || seen.has(from + text)) continue;
             seen.add(from + text);
+            if (isRestockRequest(from, text)) {
+                if (TRAIN) await parkAtDraynor().catch(() => undefined);
+                await receiveRestock(from);
+                continue;
+            }
             const req = parseSupplyRequest(from, text);
             if (!req) continue;
             log(`mule: request from ${from}: ${req.needs.map((n) => `${n.label} x${n.count}`).join(', ')}`);
