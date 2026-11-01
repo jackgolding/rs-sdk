@@ -3,6 +3,7 @@
  * vials of water (2gp, stock 500) for prayer-potion brewing (prayer-brew.ts) and rope (23gp,
  * stock 20) for Waterfall, Plague City and the Kalphite lair. Buys a pack, banks it at the
  * Ardougne south bank, repeats until the bank holds the targets, then parks and rechecks.
+ * Starts and ends at the south bank: a stop mid-trip walks back and banks the pack.
  *
  *   bun bots/quests/aemad-supplies.ts {botname} [--vials=1000] [--ropes=50]
  *
@@ -71,7 +72,8 @@ const session = new ActivitySession(sdk, bot, {
     stallMs: 240_000,
     maxRecoveryTactics: 6
 });
-installGracefulShutdown({ graceMs: 30_000 });
+// A stop walks back from Aemad (~40 tiles) and banks before exiting: give it the time.
+installGracefulShutdown({ graceMs: 55_000 });
 
 let trips = 0;
 let boughtVials = 0;
@@ -219,6 +221,11 @@ try {
     session.stop('script_error', err instanceof Error ? err.message : String(err));
     console.error('Script error:', err);
 } finally {
+    // Start and end at the south bank (user, 2026-11-01): a stop mid-trip banks the pack first.
+    if (count(VIAL) + count(ROPE) > 0 || distTo(ARDOUGNE_BANK.x, ARDOUGNE_BANK.z) > 6) {
+        await bank().catch((e) => log(`final bank: ${e instanceof Error ? e.message : String(e)}`));
+        await bot.closeBank().catch(() => undefined);
+    }
     log(`stopped: trips=${trips} vials=${boughtVials} ropes=${boughtRopes}`);
     await session.finalizeStop();
     await sdk.disconnect();
