@@ -51,6 +51,7 @@ import { LAVA_MAZE_EAST, southOfLavaMaze } from './rune-rocks-route';
 import { installGracefulShutdown } from '../../sdk/runner';
 import { fetchDukeShield } from './duke-shield';
 import { brewPrayerPotions } from './prayer-brew';
+import { requestFromMule } from './supply';
 
 /** Stalagmite loc_542 is (2707, 9818). Stand one tile west — KBD is east. */
 function MELEE_MODE(): boolean {
@@ -1005,6 +1006,9 @@ async function protectMelee(on: boolean): Promise<void> {
  * slashdefence 90, and the dragon longsword's stab bonus is 58 to slash 69, so stab lands ~5%
  * more often (attack/defence roll ratio 0.91 against 0.86).
  */
+/** Last time this run asked the mule for a weapon (once per 30 minutes at most). */
+let lastMuleAsk = 0;
+
 async function setStabStyle(): Promise<void> {
     const cs = sdk.getState()?.combatStyle;
     const stab = cs?.styles.find((s) => s.damageType === 'Stab');
@@ -1289,6 +1293,21 @@ async function bankTrip(): Promise<boolean> {
         // No teleport, no trip (Camelot / Lumbridge runes, or a ring of dueling).
         const canTeleport = (count(LAW) >= 1 && count(AIR) >= 3) || !!sdk.findInventoryItem(DUELING_RING);
         if (!canTeleport) session.noteFailure('kit', 'no teleport out of the lair (runes or ring of dueling)');
+        if (!armed && Date.now() - lastMuleAsk > 30 * 60_000) {
+            // New team members (jacklove11/12/13/16, 2026-11-01) bank shields but no longsword:
+            // Jackpoo2 serves dragon longswords at Draynor (lib/sources.ts). Lost City to wield it.
+            lastMuleAsk = Date.now();
+            await bot.closeBank().catch(() => undefined);
+            log('no melee weapon: asking Jackpoo2 for a dragon longsword at Draynor');
+            const ok = await requestFromMule({ sdk, bot, session: null, log } as never, [{ label: 'dragon longsword', pattern: /^dragon longsword$/i, count: 1 }], { mule: 'Jackpoo2', timeoutMs: 5 * 60_000 });
+            const dls = sdk.findInventoryItem(/^dragon longsword$/i);
+            if (dls) {
+                await bot.equipItem(dls).catch(() => undefined);
+                await sdk.waitForTicks(2).catch(() => {});
+            }
+            log(`mule Jackpoo2: ${ok ? 'served' : 'not served'}; wielding ${sdk.findEquipmentItem(MELEE_WEAPON)?.name ?? 'nothing'}`);
+            return false;
+        }
         if (!armed) {
             // No melee weapon worn or banked: jacklove17 re-banked 140 times in 20 minutes.
             session.noteFailure('kit', 'no melee weapon in the bank (dragon longsword, rune scimitar, ...)');

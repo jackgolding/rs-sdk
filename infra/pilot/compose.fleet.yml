@@ -811,7 +811,7 @@ services:
   quest-jacklove11:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "jacklove11", "--then", "bots/quests/seers-wc-fm.ts", "jacklove11"]
+    command: ["bun", "bots/quests/todo-runner.ts", "jacklove11", "--then", "bots/quests/kbd-range.ts", "jacklove11", "--melee", "--team-min=4"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -845,7 +845,7 @@ services:
   quest-jacklove12:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "jacklove12", "--then", "bots/quests/thieving-route.ts", "jacklove12", "--knights"]
+    command: ["bun", "bots/quests/todo-runner.ts", "jacklove12", "--then", "bots/quests/kbd-range.ts", "jacklove12", "--melee", "--team-min=4"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -879,7 +879,7 @@ services:
   quest-jacklove13:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "jacklove13", "--then", "bots/quests/fishing-route.ts", "jacklove13", "--bignet"]
+    command: ["bun", "bots/quests/todo-runner.ts", "jacklove13", "--then", "bots/quests/kbd-range.ts", "jacklove13", "--melee", "--team-min=4"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -981,7 +981,7 @@ services:
   quest-jacklove16:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "jacklove16", "--then", "bots/quests/seers-wc-fm.ts", "jacklove16"]
+    command: ["bun", "bots/quests/todo-runner.ts", "jacklove16", "--then", "bots/quests/kbd-range.ts", "jacklove16", "--melee", "--team-min=4"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

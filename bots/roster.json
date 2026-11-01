@@ -261,8 +261,10 @@
       "args": [
         "jacklove11",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
-        "jacklove11"
+        "bots/quests/kbd-range.ts",
+        "jacklove11",
+        "--melee",
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
@@ -273,9 +275,10 @@
       "args": [
         "jacklove12",
         "--then",
-        "bots/quests/thieving-route.ts",
+        "bots/quests/kbd-range.ts",
         "jacklove12",
-        "--knights"
+        "--melee",
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
@@ -286,9 +289,10 @@
       "args": [
         "jacklove13",
         "--then",
-        "bots/quests/fishing-route.ts",
+        "bots/quests/kbd-range.ts",
         "jacklove13",
-        "--bignet"
+        "--melee",
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
@@ -323,8 +327,10 @@
       "args": [
         "jacklove16",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
-        "jacklove16"
+        "bots/quests/kbd-range.ts",
+        "jacklove16",
+        "--melee",
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
