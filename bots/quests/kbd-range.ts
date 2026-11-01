@@ -76,7 +76,8 @@ const SPIDER_GATE = { x: 3224, z: 3904 };
 const TREE_HOP = 12;
 const HOP_LEAD = 4;
 const FOOD_WITHDRAW = MELEE_MODE() ? 20 : 12;
-const ANTIPOISON_WITHDRAW = 2;
+/** One potion covers ~4 cures against ~1 poisoning per account per trip (local KBD study, 2026-11-01). */
+const ANTIPOISON_WITHDRAW = 1;
 const PRAYER_POT_WITHDRAW = MELEE_MODE() ? 4 : 2;
 const KNIFE_RESTOCK_BELOW = 80;
 /** Melee: leave the lair with this many sharks left (no armour; three-account kills ate ~12 each). */
@@ -517,9 +518,18 @@ async function drinkPrayerIfLow(): Promise<void> {
     await sdk.waitForTicks(2);
 }
 
+/**
+ * Newest message already acted on. The whole history was scanned before, so one "You have been
+ * poisoned!" made it drink every pass of the fight loop until both pots were gone (local KBD
+ * study, 2026-11-01). Poison is 148 hp over ~11 minutes; one dose saves ~7 sharks.
+ */
+let poisonCursor = 0;
+
 async function drinkAntipoison(): Promise<void> {
     const msgs = sdk.getState()?.gameMessages ?? [];
-    const poisoned = msgs.some((m) => /poison/i.test(m.text ?? ''));
+    const fresh = msgs.filter((m) => (m.observationId ?? m.tick) > poisonCursor);
+    if (fresh.length) poisonCursor = Math.max(...fresh.map((m) => m.observationId ?? m.tick));
+    const poisoned = fresh.some((m) => /you have been poisoned|poison(ed)? you/i.test(m.text ?? ''));
     if (!poisoned) return;
     const pot = sdk.findInventoryItem(ANTIPOISON);
     if (!pot) return;
