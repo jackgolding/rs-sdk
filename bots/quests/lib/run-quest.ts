@@ -66,6 +66,7 @@ import { inWaterfallArea, leaveWaterfall } from './waterfall';
 import { inPlagueArea, leavePlagueCity } from './plague-city';
 import { inJungleArea, leaveJungle } from './jungle-potion';
 import { inKeepArea, leaveKeep } from './merlins-crystal';
+import { inCrestUnderground, leaveCrestUnderground } from './crest';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -503,6 +504,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inPlagueArea(pos()) && !inPlagueArea(tile)) await leavePlagueCity(q);
                 // Keep Le Faye (and the crate that ships you there): out by its front door (lib/merlins-crystal.ts).
                 if (inKeepArea(pos()) && !inKeepArea(tile)) await leaveKeep(q);
+                // Family Crest's mines and the Edgeville dungeon: their ladders are out of a generic climb's sight (lib/crest.ts).
+                if (inCrestUnderground(pos()) && !inCrestUnderground(tile)) await leaveCrestUnderground(q);
                 if (pos().z >= UNDERGROUND_Z && tile.z < UNDERGROUND_Z) await climbOutOfUnderground(tile);
                 // Buildings whose doorway the client map gets wrong (lib/doors.ts).
                 if (away(tile) > tolerance) (await leaveStuckArea(sdk, bot, tile, log)) || (await enterStuckArea(sdk, bot, tile, log));
@@ -543,6 +546,10 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (away(tile) > tolerance) {
                     // walkTo measures arrival its own way; trust its success.
                     let res = await bot.walkTo(tile.x, tile.z, tolerance);
+                    // Died on the way: re-planning from the respawn walks the account back into
+                    // whatever killed it (crest-nostock walked Lumbridge -> the Edgeville dungeon
+                    // tile, 2026-11-01). The caller decides how to restart.
+                    if (!res.success && /died en route/i.test(res.message)) throw new Error(`approach to (${tile.x},${tile.z}) failed: ${res.message}`);
                     if (!res.success) {
                         log(`walkTo (${tile.x},${tile.z}) failed (${res.message}); trying travelTo`);
                         await viaTravel();
