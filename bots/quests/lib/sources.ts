@@ -460,8 +460,10 @@ export const SOURCES: Record<string, Source> = {
             await buyWaitingForRestock(q, ZAFF, 'staff of fire', 1);
         },
     },
-    'air rune': runes('air rune', 4, AUBURY),
-    'chaos rune': runes('chaos rune', 15, AUBURY),
+    // Shops are emptied by other players' bots (jackquests waited hours on Aubury's chaos, 2026-11-01): the mule first.
+    'air rune': { ...runes('air rune', 4, AUBURY), muleSupply: 'Jackpoo2' },
+    // Shops are emptied by other players' bots (jackquests waited hours on Aubury's chaos, 2026-11-01): the mule first.
+    'chaos rune': { ...runes('chaos rune', 15, AUBURY), muleSupply: 'Jackpoo2' },
     // ── Tools for the skill trainers (lib/training.ts) and Lost City
     axe: {
         obj: 'bronze_axe',
