@@ -50,6 +50,7 @@ import { foodHeal, needsBankHeal } from './food-heal';
 import { LAVA_MAZE_EAST, southOfLavaMaze } from './rune-rocks-route';
 import { installGracefulShutdown } from '../../sdk/runner';
 import { fetchDukeShield } from './duke-shield';
+import { brewPrayerPotions } from './prayer-brew';
 
 /** Stalagmite loc_542 is (2707, 9818). Stand one tile west — KBD is east. */
 function MELEE_MODE(): boolean {
@@ -1227,6 +1228,9 @@ async function bankTrip(): Promise<boolean> {
     if (!sdk.findInventoryItem(KITCHEN_KNIFE)) await withdrawCount(KITCHEN_KNIFE, 1);
     if (MELEE) {
         await withdrawCount(PRAYER_POT, MELEE_PRAYER_POTS);
+        // Protect from Melee ran dry mid-run on team trips (prayer=0 at the kill): brew the rest.
+        const pots = sdk.getInventory().filter((i) => PRAYER_POT.test(i.name)).length;
+        if (pots < MELEE_PRAYER_POTS) await brewPrayerPotions(bot, sdk, log, MELEE_PRAYER_POTS - pots);
         // Camelot Teleport runes first (Magic 45), a ring of dueling and Lumbridge runes as backups.
         await withdrawCount(LAW, 2);
         await withdrawCount(AIR, 8);
