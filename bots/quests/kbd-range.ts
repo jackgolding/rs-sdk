@@ -1271,12 +1271,15 @@ async function bankTrip(): Promise<boolean> {
     );
     if (MELEE) {
         const armed = !!sdk.findEquipmentItem(MELEE_WEAPON);
+        // No teleport, no trip (Camelot / Lumbridge runes, or a ring of dueling).
+        const canTeleport = (count(LAW) >= 1 && count(AIR) >= 3) || !!sdk.findInventoryItem(DUELING_RING);
+        if (!canTeleport) session.noteFailure('kit', 'no teleport out of the lair (runes or ring of dueling)');
         if (!armed) {
             // No melee weapon worn or banked: jacklove17 re-banked 140 times in 20 minutes.
             session.noteFailure('kit', 'no melee weapon in the bank (dragon longsword, rune scimitar, ...)');
             await sdk.waitForTicks(200).catch(() => {});
         }
-        return sharkSlots() > 0 && armed && !!sdk.findEquipmentItem(FIRE_SHIELD);
+        return sharkSlots() > 0 && armed && canTeleport && !!sdk.findEquipmentItem(FIRE_SHIELD);
     }
     return sharkSlots() > 0 && count(KNIVES) > 0 && !!sdk.findEquipmentItem(FIRE_SHIELD);
 }

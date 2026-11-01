@@ -116,6 +116,7 @@ const SUPER_ATTACK = /^super attack\(\d\)$/i;
 const LAW = /^law rune$/i;
 const AIR = /^air rune$/i;
 const EARTH = /^earth rune$/i;
+const DUELING_RING = /^ring of dueling\(\d\)$/i;
 const MAGIC_TAB = 6;
 /** sdk/spells.ts: Camelot (Magic 45, 1 law 5 air), Lumbridge (Magic 31, 1 law 3 air 1 earth). */
 const CAMELOT_TELEPORT = 1174;
@@ -276,6 +277,7 @@ function keep(name: string): boolean {
         LAW.test(name) ||
         AIR.test(name) ||
         EARTH.test(name) ||
+        DUELING_RING.test(name) ||
         SUPER_STRENGTH.test(name) ||
         SHIELD.test(name) ||
         AXES.some((p) => p.test(name)) ||
@@ -339,6 +341,7 @@ async function bankTrip(): Promise<boolean> {
     await withdrawUpTo(LAW, 1);
     await withdrawUpTo(AIR, 5);
     await withdrawUpTo(EARTH, 1);
+    await withdrawUpTo(DUELING_RING, 1);
     await withdrawUpTo(SUPER_STRENGTH, 1);
     if (count(PRAYER_POT) < PRAYER_POTS_WANT) await brewPrayerPotions(bot, sdk, log, PRAYER_POTS_WANT - count(PRAYER_POT));
     const sharks = sdk.findBankItem(/^shark$/i) ? /^shark$/i : /^(swordfish|lobster)$/i;
@@ -352,7 +355,9 @@ async function bankTrip(): Promise<boolean> {
         if (item) await bot.equipItem(item);
         if (WEAPONS.includes(pattern) && sdk.getEquipment().some((e) => WEAPONS.some((w) => w.test(e?.name ?? '')))) continue;
     }
-    const ready = count(COINS) >= ENTRY_FEE + BOAT_GP * 2 && foodCount() > LEAVE_FOOD && AXES.some((p) => sdk.findInventoryItem(p) || sdk.findEquipmentItem(p)) && !!sdk.findEquipmentItem(SHIELD);
+    // No teleport, no trip (an emergency exit must exist before entering).
+    const canTeleport = (count(LAW) >= 1 && count(AIR) >= 3) || count(DUELING_RING) > 0;
+    const ready = canTeleport && count(COINS) >= ENTRY_FEE + BOAT_GP * 2 && foodCount() > LEAVE_FOOD && AXES.some((p) => sdk.findInventoryItem(p) || sdk.findEquipmentItem(p)) && !!sdk.findEquipmentItem(SHIELD);
     log(`Kit coins=${count(COINS)} food=${foodCount()} pots=${count(PRAYER_POT)} shield=${!!sdk.findEquipmentItem(SHIELD)} worn=${sdk.getEquipment().filter(Boolean).map((e) => e!.name).join(',')} ready=${ready}`);
     session.noteProgress('bank', `food ${foodCount()}`);
     if (!ready) {
@@ -587,10 +592,23 @@ async function emergencyTeleport(): Promise<boolean> {
     await protectMelee(false);
     const magic = sdk.getSkill('Magic')?.level ?? 1;
     const spell = magic >= 45 && count(LAW) >= 1 && count(AIR) >= 5 ? CAMELOT_TELEPORT : magic >= 31 && count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1 ? LUMBRIDGE_TELEPORT : 0;
-    if (!spell) return false;
-    await sdk.sendSetTab(MAGIC_TAB).catch(() => {});
-    await sdk.waitForTicks(1).catch(() => {});
-    await sdk.sendClickComponent(spell);
+    const ring = sdk.findInventoryItem(DUELING_RING);
+    const rub = ring?.optionsWithIndex.find((o) => /rub/i.test(o.text));
+    if (spell) {
+        await sdk.sendSetTab(MAGIC_TAB).catch(() => {});
+        await sdk.waitForTicks(1).catch(() => {});
+        await sdk.sendClickComponent(spell);
+    } else if (ring && rub) {
+        // Castle Wars, the ring's stop nearer Ardougne.
+        await sdk.sendUseItem(ring.slot, rub.opIndex);
+        for (let i = 0; i < 10 && inDungeon(); i++) {
+            const cw = sdk.getDialog()?.options.find((o) => /castle wars/i.test(o.text));
+            if (cw) await sdk.sendClickDialog(cw.index);
+            await sdk.waitForTicks(1).catch(() => {});
+        }
+    } else {
+        return false;
+    }
     await sdk.waitForCondition((st) => (st.player?.worldZ ?? 0) < 9000, 12_000).catch(() => {});
     session.log('warn', `Emergency teleport ${inDungeon() ? 'FAILED' : 'out'} @ ${pos().x},${pos().z}`);
     return !inDungeon();

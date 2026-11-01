@@ -52,6 +52,7 @@ const ANTIPOISON = /^antipoison\(\d\)$/i;
 const LAW = /^law rune$/i;
 const AIR = /^air rune$/i;
 const EARTH = /^earth rune$/i;
+const DUELING_RING = /^ring of dueling\(\d\)$/i;
 const WEAPONS = [/^dragon longsword$/i, /^dragon scimitar$/i, /^rune scimitar$/i, /^rune longsword$/i];
 const ARMOUR = [
     /^(dragon|rune|adamant) (full helm|med helm)$/i,
@@ -253,6 +254,7 @@ function keep(name: string): boolean {
         LAW.test(name) ||
         AIR.test(name) ||
         EARTH.test(name) ||
+        DUELING_RING.test(name) ||
         WEAPONS.some((w) => w.test(name)) ||
         ARMOUR.some((a) => a.test(name))
     );
@@ -306,6 +308,7 @@ async function bankTrip(): Promise<boolean> {
     await withdraw(LAW, 1);
     await withdraw(AIR, 3);
     await withdraw(EARTH, 1);
+    await withdraw(DUELING_RING, 1);
     await withdraw(ANTIPOISON, 2);
     await withdraw(PRAYER_POT, PRAYER_POTS_WANT);
     if (count(PRAYER_POT) < PRAYER_POTS_WANT) await brewPrayerPotions(bot, sdk, log, PRAYER_POTS_WANT - count(PRAYER_POT));
@@ -322,7 +325,9 @@ async function bankTrip(): Promise<boolean> {
         const item = sdk.findInventoryItem(p);
         if (item) await bot.equipItem(item);
     }
-    const ready = foodCount() > LEAVE_FOOD && WEAPONS.some((w) => sdk.findEquipmentItem(w));
+    // No teleport, no trip: jackthief (no air runes) could not teleport and died in the chamber.
+    const canTeleport = (count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1) || count(DUELING_RING) > 0;
+    const ready = foodCount() > LEAVE_FOOD && WEAPONS.some((w) => sdk.findEquipmentItem(w)) && canTeleport;
     log(`Kit food=${foodCount()} pots=${count(PRAYER_POT)} ropes=${count(ROPE)} pass=${count(PASS)} anti=${count(ANTIPOISON)} worn=${sdk.getEquipment().filter(Boolean).map((e) => e!.name).join(',')} ready=${ready}`);
     if (!ready) {
         session.noteFailure('kit', 'no weapon or food');
@@ -536,6 +541,19 @@ async function teleportOut(): Promise<boolean> {
         await sdk.sendSetTab(MAGIC_TAB).catch(() => {});
         await sdk.waitForTicks(1).catch(() => {});
         await sdk.sendClickComponent(LUMBRIDGE_TELEPORT);
+        await sdk.waitForCondition((s) => (s.player?.worldZ ?? 9999) < 9000, 12_000).catch(() => {});
+    }
+    // Ring of dueling to the Duel Arena (by Al Kharid) when the runes are missing or did not take.
+    const ring = inLair() ? sdk.findInventoryItem(DUELING_RING) : null;
+    const rub = ring?.optionsWithIndex.find((o) => /rub/i.test(o.text));
+    if (ring && rub) {
+        await sdk.sendUseItem(ring.slot, rub.opIndex);
+        for (let i = 0; i < 10 && inLair(); i++) {
+            const d = sdk.getDialog();
+            const arena = d?.options.find((o) => /duel arena/i.test(o.text));
+            if (arena) await sdk.sendClickDialog(arena.index);
+            await sdk.waitForTicks(1).catch(() => {});
+        }
         await sdk.waitForCondition((s) => (s.player?.worldZ ?? 9999) < 9000, 12_000).catch(() => {});
     }
     log(inLair() ? 'No teleport out (runes) — still in the lair' : `Teleported out to ${pos().x},${pos().z}`);
