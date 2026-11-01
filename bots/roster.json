@@ -169,9 +169,9 @@
       "args": [
         "jackthief",
         "--then",
-        "bots/quests/thieving-route.ts",
+        "bots/quests/kalphite-queen.ts",
         "jackthief",
-        "--knights"
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
@@ -429,9 +429,9 @@
       "args": [
         "ABGARMY04",
         "--then",
-        "bots/quests/fishing-route.ts",
+        "bots/quests/kalphite-queen.ts",
         "ABGARMY04",
-        "--bignet"
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
@@ -467,9 +467,9 @@
       "args": [
         "ABGARMY07",
         "--then",
-        "bots/quests/fishing-route.ts",
+        "bots/quests/kalphite-queen.ts",
         "ABGARMY07",
-        "--bignet"
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
@@ -493,8 +493,9 @@
       "args": [
         "ABGARMY09",
         "--then",
-        "bots/quests/essence.ts",
-        "ABGARMY09"
+        "bots/quests/kalphite-queen.ts",
+        "ABGARMY09",
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
@@ -599,9 +600,9 @@
       "args": [
         "ABGARMY17",
         "--then",
-        "bots/quests/fishing-route.ts",
+        "bots/quests/kalphite-queen.ts",
         "ABGARMY17",
-        "--bignet"
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },
