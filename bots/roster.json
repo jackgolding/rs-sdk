@@ -260,10 +260,9 @@
       "args": [
         "jacklove11",
         "--then",
-        "bots/quests/kbd-range.ts",
+        "bots/quests/unicorns.ts",
         "jacklove11",
-        "--melee",
-        "--team-min=4"
+        "--spots=black,north"
       ],
       "noEffectMinutes": 60
     },

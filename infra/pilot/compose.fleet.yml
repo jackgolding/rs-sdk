@@ -811,7 +811,7 @@ services:
   quest-jacklove11:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "jacklove11", "--then", "bots/quests/kbd-range.ts", "jacklove11", "--melee", "--team-min=4"]
+    command: ["bun", "bots/quests/todo-runner.ts", "jacklove11", "--then", "bots/quests/unicorns.ts", "jacklove11", "--spots=black,north"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
