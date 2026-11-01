@@ -173,8 +173,9 @@
       "args": [
         "jackthief",
         "--then",
-        "bots/quests/champions-rune-buy.ts",
-        "jackthief"
+        "bots/quests/quest-mule.ts",
+        "jackthief",
+        "--serve-only"
       ],
       "noEffectMinutes": 60
     },
