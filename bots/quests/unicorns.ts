@@ -24,6 +24,18 @@
  * half HP; with no food left it banks for food or waits out regen at the bank.
  * SIGTERM finishes the current fight and banks (exit 0). Otherwise it never exits 0:
  * recovery exhaust is restartable (70).
+ *
+ * WILDERNESS MODE (opt-in only: --spots=wild, never mixed with the Seers spots):
+ *   bun bots/quests/unicorns.ts jacklove11 --spots=wild [--bank-at=12]
+ * The 12 m50_57 black unicorns (3209-3244, 3668-3685; wilderness level 19-21).
+ * Bank: Edgeville. Route: Edgeville ditch (3088,3518/3525), then sdk.sendWalk hops
+ * (never bot.walkTo north of the ditch) via 3120,3535 / 3160,3565 / 3200,3605 /
+ * 3209,3640 — 27 tiles of town plus ~154 wilderness tiles, the shortest of Edgeville
+ * and Varrock west/east (pathfinder: 181 vs 256+ total). Kit: the cheapest decent
+ * weapon (adamant first; never dragon) and food only — everything else worn or
+ * carried is banked before crossing. Horns are banked every --bank-at (default 12).
+ * Any non-fleet player in view who could attack us at this wilderness level, or
+ * any player hit, sends it straight back south to the bank; repeated flights back off.
  */
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
@@ -31,7 +43,7 @@ import { ActivitySession, BotSDK, deriveGatewayUrl, inWilderness } from '../../s
 import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
 import { installGracefulShutdown } from '../../sdk/runner';
-import { SEERS_BANK } from './tiles';
+import { DITCH_NORTH, DITCH_SOUTH, EDGEVILLE, SEERS_BANK } from './tiles';
 import { closeUi, installWaitForTicksGuard, walkNear } from './movement';
 import { travelTo } from './travel';
 import { foodHeal } from './food-heal';
@@ -45,12 +57,31 @@ const ALL_SPOTS: Spot[] = [
     { name: 'south', x: 2700, z: 3432, radius: 22, spawns: 2, target: UNICORN },
     { name: 'east', x: 2787, z: 3463, radius: 22, spawns: 2, target: UNICORN },
     { name: 'north', x: 2741, z: 3605, radius: 20, spawns: 1, target: UNICORN },
-    { name: 'black', x: 2719, z: 3666, radius: 24, spawns: 2, target: BLACK_UNICORN }
+    { name: 'black', x: 2719, z: 3666, radius: 24, spawns: 2, target: BLACK_UNICORN },
+    // WILDERNESS — opt-in only (--spots=wild). m50_57: 12 black unicorns.
+    { name: 'wild', x: 3225, z: 3675, radius: 22, spawns: 12, target: BLACK_UNICORN }
 ];
+/** Wilderness legs north of the Edgeville ditch, south to north (black-unicorns.ts route). */
+const WILD_ROUTE = [
+    { x: 3120, z: 3535 },
+    { x: 3160, z: 3565 },
+    { x: 3200, z: 3605 },
+    { x: 3209, z: 3640 },
+    { x: 3222, z: 3672 }
+];
+/** Never fight or loot deeper than this (wilderness level 22). */
+const WILD_MAX_Z = 3694;
 const RESPAWN_TICKS = 180;
 /** Ticks-per-horn added per contended visit (other players fighting the spot's unicorns). */
 const CONTENTION_PENALTY = 60;
-const BANK = SEERS_BANK;
+const argv = process.argv.slice(2);
+const thenIdx = argv.indexOf('--then');
+const ownArgs = thenIdx >= 0 ? argv.slice(0, thenIdx) : argv;
+const spotsArg = ownArgs.find((a) => a.startsWith('--spots='))?.split('=')[1];
+const WILD = !!spotsArg?.split(',').includes('wild');
+if (WILD && spotsArg !== 'wild') throw new Error('--spots=wild cannot be mixed with the Seers spots');
+const BANK = WILD ? EDGEVILLE : SEERS_BANK;
+const BANK_NAME = WILD ? 'Edgeville' : 'Seers';
 /** Camelot teleport lands in front of the castle, ~30 tiles from Seers bank. */
 const CAMELOT_TELEPORT = 1174;
 const MAGIC_TAB = 6;
@@ -60,9 +91,11 @@ const HORN = /^unicorn horn$/i;
 const BONES = /^bones$/i;
 const LAW = /^law rune$/i;
 const AIR = /^air rune$/i;
-const FOOD_WITHDRAW = 5;
+const FOOD_WITHDRAW = WILD ? 8 : 5;
+/** Eat below this fraction of max HP (earlier in the wilderness: a PK can follow). */
+const EAT_AT = WILD ? 0.7 : 0.5;
 /** Best first; attack level each needs. */
-const WEAPONS: { pattern: RegExp; attack: number }[] = [
+const MAIN_WEAPONS: { pattern: RegExp; attack: number }[] = [
     { pattern: /^dragon longsword$/i, attack: 60 },
     { pattern: /^dragon scimitar$/i, attack: 60 },
     { pattern: /^dragon battleaxe$/i, attack: 60 },
@@ -77,16 +110,26 @@ const WEAPONS: { pattern: RegExp; attack: number }[] = [
     { pattern: /^iron scimitar$/i, attack: 1 },
     { pattern: /^bronze scimitar$/i, attack: 1 }
 ];
+/** Wilderness: cheap first, so a PK takes little. Rune only if nothing cheaper is banked; never dragon. */
+const WILD_WEAPONS: { pattern: RegExp; attack: number }[] = [
+    { pattern: /^adamant longsword$/i, attack: 30 },
+    { pattern: /^adamant scimitar$/i, attack: 30 },
+    { pattern: /^mithril (longsword|scimitar)$/i, attack: 20 },
+    { pattern: /^black (longsword|scimitar)$/i, attack: 10 },
+    { pattern: /^steel (longsword|scimitar)$/i, attack: 5 },
+    { pattern: /^iron (longsword|scimitar)$/i, attack: 1 },
+    { pattern: /^rune (scimitar|longsword)$/i, attack: 40 }
+];
+const WEAPONS = WILD ? WILD_WEAPONS : MAIN_WEAPONS;
+/** Never taken north of the ditch. */
+const WILD_FORBIDDEN = /dragon|anti-?dragon|dragonfire/i;
 
-const argv = process.argv.slice(2);
-const thenIdx = argv.indexOf('--then');
-const ownArgs = thenIdx >= 0 ? argv.slice(0, thenIdx) : argv;
 const botArg = ownArgs.find((a) => !a.startsWith('-') && !a.endsWith('.ts'));
 const BURY = !ownArgs.includes('--no-bury');
-const spotsArg = ownArgs.find((a) => a.startsWith('--spots='))?.split('=')[1];
-const BANK_AT = Number(ownArgs.find((a) => a.startsWith('--bank-at='))?.split('=')[1] ?? 0);
+const BANK_AT = Number(ownArgs.find((a) => a.startsWith('--bank-at='))?.split('=')[1] ?? (WILD ? 12 : 0));
 const SPOTS = ALL_SPOTS.filter((s) => {
     if (spotsArg) return spotsArg.split(',').includes(s.name);
+    if (s.name === 'wild') return false;
     if (ownArgs.includes('--no-black')) return s.name !== 'black';
     return true;
 });
@@ -168,6 +211,21 @@ function wildy(x: number, z: number): boolean {
     return inWilderness(x, z) && x >= 46 * 64 && x < 53 * 64;
 }
 
+/** Wilderness level as the game shows it (1 at z 3520..3527). */
+function wildyLevel(z: number): number {
+    return Math.floor((z - 3520) / 8) + 1;
+}
+
+function fleetNames(): Set<string> {
+    try {
+        const roster = JSON.parse(readFileSync(join(process.cwd(), 'bots', 'roster.json'), 'utf-8'));
+        return new Set((roster.bots ?? []).map((b: { name?: string }) => (b.name ?? '').toLowerCase()).filter(Boolean));
+    } catch {
+        return new Set();
+    }
+}
+const FLEET = fleetNames();
+
 function dist(x: number, z: number): number {
     return Math.hypot(pos().x - x, pos().z - z);
 }
@@ -211,6 +269,7 @@ function summary(): string {
 
 function shouldBank(): boolean {
     if (occupied() >= 27) return true;
+    if (WILD && foodCount() < 2) return true;
     if (BANK_AT > 0 && count(HORN) >= BANK_AT) return true;
     return false;
 }
@@ -273,7 +332,7 @@ function isKeptWeapon(name: string): boolean {
 
 async function eatIfNeeded(): Promise<void> {
     const p = pos();
-    if (p.hp >= Math.max(8, Math.ceil(p.maxHp * 0.5))) return;
+    if (p.hp >= Math.max(8, Math.ceil(p.maxHp * EAT_AT))) return;
     const food = edible().sort((a, b) => foodHeal(a.name) - foodHeal(b.name))[0];
     if (!food) return;
     const r = await bot.eatFood(food);
@@ -285,13 +344,182 @@ async function eatIfNeeded(): Promise<void> {
 
 function tooHurt(): boolean {
     const p = pos();
-    return foodCount() === 0 && p.hp < Math.ceil(p.maxHp * 0.35);
+    return foodCount() === 0 && p.hp < Math.ceil(p.maxHp * (WILD ? 0.6 : 0.35));
+}
+
+// ---------------------------------------------------------------- wilderness
+
+function norm(name: string): string {
+    return name.toLowerCase().replace(/[\s_]/g, '');
+}
+const FLEET_NORM = new Set([...FLEET].map(norm));
+
+/** A non-fleet player in view who could attack us here (combat gap <= wilderness level). */
+function threat() {
+    const p = pos();
+    if (!wildy(p.x, p.z)) return null;
+    const me = norm(username);
+    const myCb = sdk.getState()?.player?.combatLevel ?? 3;
+    return (
+        (sdk.getNearbyPlayers() ?? []).find((pl) => {
+            const n = norm(pl.name ?? '');
+            if (!n || n === me || FLEET_NORM.has(n)) return false;
+            if (!wildy(pl.x, pl.z)) return false;
+            const lvl = Math.min(wildyLevel(p.z), wildyLevel(pl.z));
+            return Math.abs((pl.combatLevel ?? 0) - myCb) <= lvl + 2 && (pl.distance ?? 99) <= 24;
+        }) ?? null
+    );
+}
+
+function danger(): string | null {
+    if (!WILD || !wildy(pos().x, pos().z)) return null;
+    const p = pos();
+    if (p.inCombat && p.targetType === 'player') return 'attacked by a player';
+    const t = threat();
+    if (t) return `${t.name} (cb ${t.combatLevel}) ${Math.round(t.distance ?? 0)} tiles`;
+    return null;
+}
+
+let flights = 0;
+let lastFlightTick = -1_000_000;
+
+/** One leg in <=12-tile sendWalk hops (never bot.walkTo north of the ditch). */
+async function wildHop(x: number, z: number, north: boolean): Promise<boolean> {
+    for (let i = 0; i < 30 && !pos().isDead; i++) {
+        const d = dist(x, z);
+        if (d <= 4) return true;
+        if (north && danger()) return false;
+        if (!north && pos().hp < Math.ceil(pos().maxHp * 0.5)) await eatIfNeeded();
+        // Aggressive skeletons by the ditch: auto-retaliate pins us in place, so finish the
+        // fight (they are level 25) rather than re-sending walks that never land.
+        if (pos().inCombat && pos().targetType === 'npc') {
+            await untilTicks(sdk, () => !pos().inCombat || pos().isDead || (north && !!danger()), 40);
+            await eatIfNeeded();
+            continue;
+        }
+        const step = Math.min(12, d);
+        const tx = Math.round(pos().x + ((x - pos().x) / d) * step);
+        const tz = Math.round(pos().z + ((z - pos().z) / d) * step);
+        const sx = pos().x;
+        const sz = pos().z;
+        await sdk.sendWalk(tx, tz, true);
+        await untilTicks(sdk, () => Math.hypot(pos().x - tx, pos().z - tz) <= 2 || pos().isDead || pos().inCombat, step * 2 + 4);
+        if (pos().x === sx && pos().z === sz && !pos().inCombat) {
+            // Blocked straight line: side-step and let the next hop re-aim.
+            await sdk.sendWalk(sx + (i % 2 === 0 ? 3 : -3), sz + (z > sz ? 2 : -2), true);
+            await sdk.waitForTicks(3).catch(() => {});
+        }
+    }
+    return dist(x, z) <= 6;
+}
+
+async function crossDitch(northward: boolean): Promise<boolean> {
+    const done = () => (northward ? pos().z >= 3520 : pos().z < 3520) || pos().isDead;
+    if (done()) return true;
+    const to = northward ? DITCH_NORTH : DITCH_SOUTH;
+    intent(`Crossing the Edgeville ditch ${northward ? 'north' : 'south'}`);
+    for (let i = 0; i < 3 && !done(); i++) {
+        await sdk.sendWalk(to.x, to.z, true);
+        await untilTicks(sdk, done, 20);
+    }
+    return done();
+}
+
+async function leaveWild(): Promise<boolean> {
+    if (!wildy(pos().x, pos().z)) return true;
+    if (session.metrics().phase !== 'escape') await session.setPhase('escape');
+    intent('Leaving the wilderness');
+    // Two passes: a skeleton fight on the way can use up one leg's hops.
+    for (let pass = 0; pass < 2 && wildy(pos().x, pos().z) && !pos().isDead; pass++) {
+        const south = [...WILD_ROUTE].reverse().filter((w) => w.z < pos().z - 4);
+        for (const wp of [...south, DITCH_NORTH]) {
+            if (!wildy(pos().x, pos().z) || pos().isDead) break;
+            await wildHop(wp.x, wp.z, false);
+        }
+        await crossDitch(false);
+    }
+    const ok = !wildy(pos().x, pos().z);
+    if (!ok && !pos().isDead) session.noteFailure('ditch', `still in the wilderness @ ${pos().x},${pos().z}`);
+    return ok;
+}
+
+async function flee(reason: string): Promise<void> {
+    flights++;
+    lastFlightTick = tickNow(sdk);
+    session.log('warn', `FLEE (${reason}) @ ${pos().x},${pos().z} wildy L${wildyLevel(pos().z)} flight ${flights} | ${summary()}`);
+    await eatIfNeeded();
+    await leaveWild();
+    current = null;
+}
+
+/** Only the weapon (cheap, never dragon) and food north of the ditch. */
+function kitSafe(): boolean {
+    for (const e of sdk.getEquipment()) {
+        if (!e?.name) continue;
+        if (WILD_FORBIDDEN.test(e.name) || weaponRank(e.name) >= WEAPONS.length) return false;
+    }
+    return sdk
+        .getInventory()
+        .every((i) => !i.name || foodHeal(i.name) > 0 || HORN.test(i.name) || BONES.test(i.name) || (!WILD_FORBIDDEN.test(i.name) && weaponRank(i.name) < WEAPONS.length));
+}
+
+/** Take off everything but a cheap first-choice weapon, so the bank trip deposits it. */
+async function stripForWild(): Promise<void> {
+    for (const e of sdk.getEquipment()) {
+        if (!e?.name) continue;
+        if (!WILD_FORBIDDEN.test(e.name) && weaponRank(e.name) === 0) continue;
+        if (occupied() >= 27) break;
+        const r = await bot.unequipItem(e);
+        if (!r.success) session.log('warn', `Unequip ${e.name} failed: ${r.message}`);
+        else log(`Took off ${e.name} (not taken into the wilderness)`);
+    }
+}
+
+async function goWild(spot: Spot): Promise<boolean> {
+    if (!wildy(pos().x, pos().z)) {
+        const wait = 100 * Math.min(flights, 6) - (tickNow(sdk) - lastFlightTick);
+        if (flights > 0 && wait > 0) {
+            intent(`Waiting ${wait}t at the bank after flight ${flights}`);
+            log(`Backing off ${wait}t after ${flights} flight(s)`);
+            await untilTicks(sdk, () => false, wait);
+        }
+        if (!kitSafe()) {
+            session.log('warn', 'Kit not wilderness-safe — banking first');
+            await bankTrip();
+            if (!kitSafe()) {
+                session.noteFailure('kit', 'cannot make the kit wilderness-safe');
+                await sdk.waitForTicks(50).catch(() => {});
+                return false;
+            }
+        }
+        if (dist(DITCH_SOUTH.x, DITCH_SOUTH.z) > 6 && !(await walkTo(DITCH_SOUTH.x, DITCH_SOUTH.z, 3))) return false;
+        if (!(await crossDitch(true))) {
+            session.noteFailure('ditch', `could not cross north @ ${pos().x},${pos().z}`);
+            return false;
+        }
+    }
+    for (const wp of WILD_ROUTE) {
+        if (wp.z <= pos().z + 4 && dist(spot.x, spot.z) < Math.hypot(wp.x - spot.x, wp.z - spot.z) + 4) continue;
+        const why = danger();
+        if (why) {
+            await flee(why);
+            return false;
+        }
+        if (!(await wildHop(wp.x, wp.z, true))) {
+            const d = danger();
+            if (d) await flee(d);
+            return false;
+        }
+    }
+    log(`At wild unicorns @ ${pos().x},${pos().z} wildy L${wildyLevel(pos().z)}`);
+    return atSpot(spot) || (await wildHop(spot.x, spot.z, true));
 }
 
 // ---------------------------------------------------------------- travel
 
 async function walkTo(x: number, z: number, tolerance: number): Promise<boolean> {
     if (dist(x, z) <= tolerance) return true;
+    if (wildy(pos().x, pos().z) || wildy(x, z)) return wildHop(x, z, wildy(x, z) && z > pos().z);
     // Level-up dialogs (Prayer from burying) block walking; travelTo does not dismiss them.
     await closeUi(bot, sdk);
     if (await walkNear(bot, sdk, x, z, tolerance)) return true;
@@ -305,7 +533,7 @@ async function walkTo(x: number, z: number, tolerance: number): Promise<boolean>
 }
 
 async function teleportCamelotIfFar(): Promise<void> {
-    if (dist(BANK.x, BANK.z) <= FAR_FROM_SEERS) return;
+    if (WILD || dist(BANK.x, BANK.z) <= FAR_FROM_SEERS) return;
     const magic = sdk.getSkill('Magic')?.baseLevel ?? 1;
     if (magic < 45 || count(LAW) < 1 || count(AIR) < 5 || wildy(pos().x, pos().z)) return;
     intent('Camelot teleport');
@@ -321,8 +549,9 @@ async function teleportCamelotIfFar(): Promise<void> {
 
 async function goToBank(): Promise<boolean> {
     await closeUi(bot, sdk);
+    if (wildy(pos().x, pos().z) && !(await leaveWild())) return false;
     await teleportCamelotIfFar();
-    intent('Walking to Seers bank');
+    intent(`Walking to ${BANK_NAME} bank`);
     session.setAnchor(BANK.x, BANK.z);
     await walkTo(BANK.x, BANK.z, 4);
     return dist(BANK.x, BANK.z) <= 10;
@@ -331,18 +560,27 @@ async function goToBank(): Promise<boolean> {
 async function bankTrip(): Promise<boolean> {
     if (session.metrics().phase !== 'bank') await session.setPhase('bank');
     if (!(await goToBank())) {
-        session.noteFailure('bank_walk', `Could not reach Seers bank from ${pos().x},${pos().z}`);
+        session.noteFailure('bank_walk', `Could not reach ${BANK_NAME} bank from ${pos().x},${pos().z}`);
         return false;
     }
+    if (WILD) {
+        await closeUi(bot, sdk);
+        await stripForWild();
+    }
     if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
-        session.noteFailure('bank_open', 'Seers bank open failed');
+        session.noteFailure('bank_open', `${BANK_NAME} bank open failed`);
         return false;
     }
     const before = count(HORN);
     for (let i = 0; i < 40; i++) {
         const item = sdk
             .getInventory()
-            .find((it) => (it.count ?? 0) > 0 && foodHeal(it.name) <= 0 && !isKeptWeapon(it.name) && !LAW.test(it.name) && !AIR.test(it.name));
+            .find(
+                (it) =>
+                    (it.count ?? 0) > 0 &&
+                    foodHeal(it.name) <= 0 &&
+                    (WILD ? WILD_FORBIDDEN.test(it.name) || weaponRank(it.name) > 0 || !isKeptWeapon(it.name) : !isKeptWeapon(it.name) && !LAW.test(it.name) && !AIR.test(it.name))
+            );
         if (!item) break;
         if (HORN.test(item.name)) session.recordGain(item.name, item.count ?? 1);
         const r = await bot.depositItem(item, -1);
@@ -373,14 +611,15 @@ async function bankTrip(): Promise<boolean> {
     await bot.closeBank();
     await closeUi(bot, sdk);
     await wieldBestInPack();
-    session.noteProgress('bank', 'seers');
+    session.noteProgress('bank', BANK_NAME);
+    if (WILD && deposited > 0 && flights > 0 && tickNow(sdk) - lastFlightTick > 600) flights = 0;
     log(`Banked ${deposited} horns | trip ${session.metrics().trips} | ${summary()}`);
     return !shouldBank();
 }
 
 async function restAtBank(): Promise<void> {
     if (!(await goToBank())) return;
-    intent('Out of food: regenerating at Seers bank');
+    intent(`Out of food: regenerating at ${BANK_NAME} bank`);
     log(`Resting at bank HP ${pos().hp}/${pos().maxHp} (no food)`);
     await untilTicks(sdk, () => pos().hp >= Math.ceil(pos().maxHp * 0.8), 600);
     session.noteProgress('location', 'rested');
@@ -425,7 +664,7 @@ function spotNpcs(spot: Spot) {
             (n.hp === null || n.hp > 0) &&
             n.optionsWithIndex.some((o) => /attack/i.test(o.text)) &&
             inSpot(spot, n.x, n.z) &&
-            !wildy(n.x, n.z)
+            (spot.name === 'wild' ? n.z <= WILD_MAX_Z : !wildy(n.x, n.z))
     );
 }
 
@@ -458,7 +697,7 @@ function isLoot(name: string): boolean {
 
 async function loot(spot: Spot): Promise<void> {
     for (let i = 0; i < 6; i++) {
-        if (pos().isDead) return;
+        if (pos().isDead || danger()) return;
         let ground = sdk.getGroundItems() ?? [];
         if (i === 0) {
             const scanned = await sdk.scanGroundItems(10).catch(() => null);
@@ -473,6 +712,7 @@ async function loot(spot: Spot): Promise<void> {
                     g.reachable !== false &&
                     (g.distance ?? 99) <= 10 &&
                     (inSpot(spot, g.x, g.z) || (g.distance ?? 99) <= 4) &&
+                    (spot.name !== 'wild' || g.z <= WILD_MAX_Z) &&
                     (HORN.test(g.name) ? free >= 1 : free >= 2)
             )
             .sort((a, b) => (HORN.test(a.name) ? 0 : 1) - (HORN.test(b.name) ? 0 : 1) || (a.distance ?? 99) - (b.distance ?? 99))[0];
@@ -489,7 +729,7 @@ async function loot(spot: Spot): Promise<void> {
         session.noteProgress('inventory', item.name);
         if (pattern === HORN) {
             looted++;
-            log(`Horn @ ${spot.name} | ${summary()}`);
+            log(`Horn @ ${spot.name}${wildy(pos().x, pos().z) ? ` wildy L${wildyLevel(pos().z)}` : ''} | ${summary()}`);
         } else {
             await buryBones();
         }
@@ -500,6 +740,8 @@ async function fightOne(spot: Spot, target: NonNullable<ReturnType<typeof findTa
     const xpBefore = hpXp();
     intent(`Attack ${target.name} @ ${target.x},${target.z} (${spot.name})`);
     session.setAnchor(target.x, target.z);
+    if (wildy(pos().x, pos().z) && (target.distance ?? 99) > 5) await wildHop(target.x, target.z, true);
+    if (danger()) return false;
     const r = await bot.attack(target, ticksToMs(20));
     if (!r.success) {
         session.noteFailure('attack', r.message);
@@ -508,9 +750,11 @@ async function fightOne(spot: Spot, target: NonNullable<ReturnType<typeof findTa
     // Black unicorns flee: re-attack while it is alive, still in the spot and nobody else took it.
     for (let t = 0; t < 150 && !pos().isDead; ) {
         await eatIfNeeded();
+        if (danger()) return false;
         const live = sdk.getNearbyNpcs().find((n) => n.index === target.index);
         if (!live || (live.hp !== null && live.hp <= 0)) break;
         if (!inSpot(spot, live.x, live.z) && (live.distance ?? 99) > 6) break;
+        if (spot.name === 'wild' && live.z > WILD_MAX_Z) break;
         if (!mine(live) && !pos().inCombat) {
             if (busyElsewhere(live) && live.inCombat) break;
             await bot.attack(live, ticksToMs(12)).catch(() => null);
@@ -537,7 +781,7 @@ async function huntSpot(spot: Spot): Promise<void> {
     let firstKill: number | null = null;
     let sawBusy = false;
     for (let round = 0; round < 12 && !session.isStoppedOrRequested(); round++) {
-        if (pos().isDead || shouldBank() || tooHurt()) return;
+        if (pos().isDead || shouldBank() || tooHurt() || danger()) return;
         await eatIfNeeded();
         await loot(spot);
         const target = findTarget(spot);
@@ -545,7 +789,8 @@ async function huntSpot(spot: Spot): Promise<void> {
             if (spotNpcs(spot).some((n) => busyElsewhere(n))) sawBusy = true;
             // Wandering unicorns may be just out of view of the spot centre.
             if (round === 0 && dist(spot.x, spot.z) > 4) {
-                await walkTo(spot.x, spot.z, 3);
+                if (spot.name === 'wild') await wildHop(spot.x, spot.z, true);
+                else await walkTo(spot.x, spot.z, 3);
                 continue;
             }
             break;
@@ -568,7 +813,11 @@ async function hunt(): Promise<void> {
         intent(`Walking to ${spot.name} unicorns @ ${spot.x},${spot.z}`);
         session.setAnchor(spot.x, spot.z);
         current = spot;
-        if (!(await walkTo(spot.x, spot.z, 6))) {
+        if (!(spot.name === 'wild' ? await goWild(spot) : await walkTo(spot.x, spot.z, 6))) {
+            if (spot.name === 'wild') {
+                current = null;
+                return;
+            }
             session.noteFailure('spot_walk', `Could not reach ${spot.name} from ${pos().x},${pos().z}`);
             // Try another spot next round instead of hammering the same route.
             spotState.get(spot.name)!.readyAt = tickNow(sdk) + RESPAWN_TICKS;
@@ -583,7 +832,7 @@ async function hunt(): Promise<void> {
     if (!findTarget(spot) && st.readyAt > tickNow(sdk)) {
         // Nothing here yet and this is still the best spot: wait in short slices so a
         // wandering or respawned unicorn is picked up as soon as it appears.
-        await untilTicks(sdk, () => !!findTarget(spot), Math.min(30, st.readyAt - tickNow(sdk)));
+        await untilTicks(sdk, () => !!findTarget(spot) || !!danger(), Math.min(30, st.readyAt - tickNow(sdk)));
         if (!findTarget(spot)) return;
     }
     await huntSpot(spot);
@@ -611,10 +860,16 @@ try {
             `weapon=${sdk.getEquipment().find((e) => weaponRank(e?.name) < WEAPONS.length)?.name ?? 'none'} ` +
             `spots=${SPOTS.map((s) => s.name).join(',')} bury=${BURY} | ${summary()}`
     );
-    if (wildy(pos().x, pos().z)) session.stop('wilderness', `started in the wilderness @ ${pos().x},${pos().z}`, { restartable: true });
-    await wieldBestInPack();
-    // Kit up first if the bank may hold a better weapon or food.
-    if (!session.isStopped() && (wornWeaponRank() > 3 || foodCount() === 0)) await bankTrip();
+    if (wildy(pos().x, pos().z) && !WILD) session.stop('wilderness', `started in the wilderness @ ${pos().x},${pos().z}`, { restartable: true });
+    if (WILD) {
+        log(`WILDERNESS mode: Edgeville bank, bank every ${BANK_AT} horns, fleet ${FLEET.size} names ignored`);
+        if (wildy(pos().x, pos().z)) await leaveWild();
+        if (!kitSafe() || foodCount() < FOOD_WITHDRAW / 2 || wornWeaponRank() > 0) await bankTrip();
+    } else {
+        await wieldBestInPack();
+        // Kit up first if the bank may hold a better weapon or food.
+        if (!session.isStopped() && (wornWeaponRank() > 3 || foodCount() === 0)) await bankTrip();
+    }
 
     while (!session.isStoppedOrRequested()) {
         if (session.needsRecovery()) {
@@ -631,13 +886,22 @@ try {
         }
         await closeUi(bot, sdk);
         await eatIfNeeded();
-        if (wildy(pos().x, pos().z)) {
+        if (wildy(pos().x, pos().z) && !WILD) {
             session.stop('wilderness', `in the wilderness @ ${pos().x},${pos().z}`, { restartable: true });
             break;
+        }
+        const why = danger();
+        if (why) {
+            await flee(why);
+            continue;
         }
         if (shouldBank()) {
             log(`Banking | ${summary()}`);
             if (!(await bankTrip())) await sdk.waitForTicks(5).catch(() => {});
+            if (WILD && foodCount() < 2 && !wildy(pos().x, pos().z)) {
+                session.log('warn', `No food in the ${BANK_NAME} bank — not entering the wilderness; waiting 600t`);
+                await untilTicks(sdk, () => false, 600);
+            }
             current = null;
             continue;
         }

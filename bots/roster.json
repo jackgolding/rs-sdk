@@ -262,7 +262,7 @@
         "--then",
         "bots/quests/unicorns.ts",
         "jacklove11",
-        "--spots=black,north"
+        "--spots=wild"
       ],
       "noEffectMinutes": 60
     },
