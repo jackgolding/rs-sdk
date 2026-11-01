@@ -176,7 +176,8 @@ export async function dmMule(sdk: BotSDK, account: string, text: string): Promis
  * them to Jackpoo2. Anyone else's `quest-restock` is ignored, so a stranger cannot make a
  * mule sit in a trade screen.
  */
-export const MULE_RESTOCKERS = ['jackthief'];
+// jacklove2 and pigfat hold most of the fleet's air runes (76k, 54k): they restock Jackpoo2 too.
+export const MULE_RESTOCKERS = ['jackthief', 'jacklove2', 'pigfat'];
 export function isRestockRequest(from: string, text: string): boolean {
     return /^\s*quest-restock\b/i.test(text) && MULE_RESTOCKERS.some((r) => muleAccount(r).toLowerCase() === from.toLowerCase());
 }
