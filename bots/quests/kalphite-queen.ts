@@ -566,8 +566,15 @@ function queen() {
     return (sdk.getNearbyNpcs() ?? []).find((n) => QUEEN_NPC.test(n.name) && (n.hp === null || n.hp > 0) && n.optionsWithIndex.some((o) => /attack/i.test(o.text))) ?? null;
 }
 
+/** Any Queen NPC, whatever her phase, hp or options: she is mid-transformation when unattackable. */
+function anyQueenForm(): boolean {
+    return (sdk.getNearbyNpcs() ?? []).some((n) => QUEEN_NPC.test(n.name));
+}
+let quietTicks = 0;
+
 async function loot(): Promise<void> {
     for (let i = 0; i < 10; i++) {
+        await eatIfNeeded();
         const g = (sdk.getGroundItems() ?? []).filter((x) => LOOT.test(x.name) && (x.distance ?? 99) <= 10 && x.reachable !== false).sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
         if (!g || sdk.getInventory().filter((x) => (x.count ?? 0) > 0).length >= 28) break;
         const had = sdk.getInventory().filter((x) => x.id === g.id).reduce((n, x) => n + (x.count ?? 1), 0);
@@ -582,11 +589,16 @@ async function fight(): Promise<void> {
     checkIn('lair');
     const q = queen();
     if (!q) {
-        await bot.deactivatePrayer('protect_from_magic').catch(() => undefined);
+        // Phase 1 dies in seconds with 30 players in the chamber, and phase 2 rises a few ticks
+        // later: 13 deaths (prod, 2026-11-01) came right after a "dead", with the prayer dropped
+        // and nobody eating. Keep the prayer up and eat while any Queen form is in view.
+        await keepUp();
+        if (!anyQueenForm() && ++quietTicks >= 20) await bot.deactivatePrayer('protect_from_magic').catch(() => undefined);
         await loot();
         await sdk.waitForTicks(3).catch(() => {});
         return;
     }
+    quietTicks = 0;
     const started = Date.now();
     let ticks = 0;
     const xp0 = sdk.getSkill('Hitpoints')?.experience ?? 0;
