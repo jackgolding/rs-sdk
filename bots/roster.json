@@ -350,7 +350,7 @@
       "args": [
         "jacklove18",
         "--then",
-        "bots/quests/aemad-supplies.ts",
+        "bots/quests/taverley-supplies.ts",
         "jacklove18"
       ],
       "noEffectMinutes": 60
