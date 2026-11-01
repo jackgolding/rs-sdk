@@ -29,6 +29,17 @@ interface Tile {
 }
 
 export const WARRIOR_CAMP = { x: 3145, z: 3202 };
+
+/**
+ * Melee or Wind Bolt for the tree spirit (level 101, defence 80, 85 hp, strength 95). Melee with
+ * the dungeon's bronze axe needs a strong account: at Strength 37 / HP 52 25 sharks were gone
+ * after two hits (fast gate, 2026-11-01). Weaker accounts cast Wind Bolt (2 air, 1 chaos), which
+ * the fleet holds by the hundred thousand, instead of Fire Bolt's scarce fire runes.
+ */
+export function meleeSpirit(q: Quest): boolean {
+    const lvl = (s: string) => q.sdk.getSkill(s)?.baseLevel ?? 1;
+    return lvl('Attack') >= 70 && lvl('Strength') >= 70 && lvl('Hitpoints') >= 70;
+}
 const LEPRECHAUN_TREE = { x: 3138, z: 3212 };
 const PORT_SARIM_MONK = { x: 3045, z: 3236 };
 const ENTRANA_LADDER = { x: 2820, z: 3374 };
@@ -126,6 +137,9 @@ async function bronzeAxe(q: Quest): Promise<void> {
     const t0 = tickNow(q.sdk);
     let kills = 0;
     while (!have() && tickNow(q.sdk) - t0 < 1500) {
+        // Unarmed against aggressive zombies: a jackquests-stats run (Strength 37) died here with
+        // 3 sharks uneaten, the loop never ate (2026-11-01).
+        await eatIfLow(q);
         const drop = q.sdk.findGroundItem(/^bronze axe$/i, { reachable: true });
         if (drop) {
             await q.bot.pickupItem(drop);
@@ -143,7 +157,10 @@ async function bronzeAxe(q: Quest): Promise<void> {
         const res = await q.bot.attack(zombie, ticksToMs(15));
         if (res.success) {
             kills++;
-            await untilTicks(q.sdk, (s) => !!q.sdk.findGroundItem(/^bronze axe$/i) || !(s.nearbyNpcs ?? []).some((n) => n.index === zombie.index && (n.hp ?? 1) > 0), 60);
+            for (let t = 0; t < 30; t++) {
+                await eatIfLow(q);
+                if (await untilTicks(q.sdk, (s) => !!q.sdk.findGroundItem(/^bronze axe$/i) || !(s.nearbyNpcs ?? []).some((n) => n.index === zombie.index && (n.hp ?? 1) > 0), 2)) break;
+            }
             await q.sdk.waitForTicks(2);
         }
     }
@@ -151,20 +168,42 @@ async function bronzeAxe(q: Quest): Promise<void> {
     if (!have()) throw new Error('lostcity: no bronze axe from the zombies');
 }
 
-async function eatIfLow(q: Quest): Promise<void> {
+/** Topped up whenever a shark's 20 fits: the spirit (strength 95) and a zombie can land together. */
+async function eatToFull(q: Quest): Promise<void> {
     const p = q.sdk.getState()?.player;
-    if (!p || p.hp > (p.maxHp ?? 10) * 0.5) return;
+    if (!p || p.hp > (p.maxHp ?? 10) - 22) return;
     const food = q.sdk.findInventoryItem(/^shark$/i);
     if (food) await q.bot.eatFood(food).catch(() => undefined);
 }
 
-/** Chop the Dramen tree; at spoken_shamus that brings out the tree spirit, killed here with Wind Bolt. */
+async function eatIfLow(q: Quest): Promise<void> {
+    const p = q.sdk.getState()?.player;
+    // The spirit (strength 95) can hit ~20: a low-HP account eats well above half.
+    if (!p || p.hp > Math.max((p.maxHp ?? 10) * 0.5, 25)) return;
+    const food = q.sdk.findInventoryItem(/^shark$/i);
+    if (food) await q.bot.eatFood(food).catch(() => undefined);
+}
+
+/**
+ * Chop the Dramen tree; at spoken_shamus that brings out the tree spirit, killed here in melee
+ * with the zombies' bronze axe wielded, or with Wind Bolt (meleeSpirit): tree_spirit.rs2 only
+ * checks the kill.
+ * Runes were the bottleneck: Fire Bolt's 120 fire runes stalled two accounts for an hour (user,
+ * 2026-11-01: "doable just with 20 sharks and a bronze hatchet").
+ */
 export async function spiritAndBranch(q: Quest, branch: boolean): Promise<void> {
     await bronzeAxe(q);
+    const melee = meleeSpirit(q);
+    q.log(`lostcity: tree spirit by ${melee ? 'melee (bronze axe)' : 'Wind Bolt'}`);
+    const axe = q.sdk.findInventoryItem(/^bronze axe$/i);
+    if (axe && melee) {
+        await q.bot.equipItem(axe).catch(() => undefined);
+        await untilTicks(q.sdk, () => q.sdk.getEquipment().some((i) => /^bronze axe$/i.test(i.name)), 5);
+    }
     await q.bot.walkTo(DRAMEN_TREE.x, DRAMEN_TREE.z + 2, 2);
     const t0 = tickNow(q.sdk);
-    let casts = 0;
-    for (let round = 0; round < 6 && tickNow(q.sdk) - t0 < 1500; round++) {
+    let attacks = 0;
+    for (let round = 0; round < 6 && tickNow(q.sdk) - t0 < 2000; round++) {
         if (branch && q.count('dramen branch') > 0) return;
         const spirit = () => (q.sdk.getNearbyNpcs() ?? []).find((n) => /^tree spirit$/i.test(n.name) && (n.hp ?? 1) > 0);
         if (!spirit()) {
@@ -181,24 +220,40 @@ export async function spiritAndBranch(q: Quest, branch: boolean): Promise<void> 
                 continue;
             }
         }
-        while (spirit() && tickNow(q.sdk) - t0 < 1500) {
-            await eatIfLow(q);
+        while (spirit() && tickNow(q.sdk) - t0 < 2000) {
+            await eatToFull(q);
             const s = spirit();
             if (!s) break;
-            // A bolt (2 air, 1 chaos) only while Lumbridge Teleport's 3 air stay behind.
-            if (q.count('air rune') < 5 || q.count('chaos rune') < 1) {
+            if (q.count(/^shark$/i) === 0 && (q.sdk.getState()?.player?.hp ?? 99) < (q.sdk.getState()?.player?.maxHp ?? 99) * 0.4) {
                 await teleportOut(q);
-                throw new Error(`lostcity: out of Wind Bolt runes after ${casts} casts; teleported out`);
+                throw new Error(`lostcity: out of food against the tree spirit after ${attacks} attacks; teleported out`);
             }
-            const res = await q.bot.castSpell(s, WIND_BOLT, ticksToMs(8));
-            casts++;
-            if (!res.success) {
-                q.log(`lostcity: wind bolt #${casts}: ${res.message}`);
-                await q.sdk.waitForTicks(2);
+            if (!melee) {
+                // A bolt (2 air, 1 chaos) only while Lumbridge Teleport's 3 air stay behind.
+                if (q.count('air rune') < 5 || q.count('chaos rune') < 1) {
+                    await teleportOut(q);
+                    throw new Error(`lostcity: out of Wind Bolt runes after ${attacks} casts; teleported out`);
+                }
+                const res = await q.bot.castSpell(s, WIND_BOLT, ticksToMs(8));
+                attacks++;
+                if (!res.success) {
+                    q.log(`lostcity: wind bolt #${attacks}: ${res.message}`);
+                    await q.sdk.waitForTicks(2);
+                }
+                continue;
             }
+            const p = q.sdk.getState()?.player;
+            if (!(p?.combat?.inCombat && p.combat.targetType === 'npc')) {
+                const op = s.optionsWithIndex.find((o) => /attack/i.test(o.text));
+                if (op) {
+                    await q.sdk.sendInteractNpc(s.index, op.opIndex);
+                    attacks++;
+                }
+            }
+            await q.sdk.waitForTicks(2);
         }
         await driveDialog(q.sdk, [], { ticks: 20, log: q.log });
-        q.log(`lostcity: tree spirit gone after ${casts} casts (${tickNow(q.sdk) - t0}t, hp ${q.sdk.getState()?.player?.hp})`);
+        q.log(`lostcity: tree spirit gone after ${attacks} attacks (${tickNow(q.sdk) - t0}t, hp ${q.sdk.getState()?.player?.hp}, sharks ${q.count(/^shark$/i)})`);
         if (!branch) return;
     }
 }
