@@ -1036,6 +1036,8 @@ async function protectMelee(on: boolean): Promise<void> {
  */
 /** Last time this run asked the mule for a weapon (once per 30 minutes at most). */
 let lastMuleAsk = 0;
+/** Last time this run asked the mule for teleport runes. */
+let lastRuneAsk = 0;
 
 async function setStabStyle(): Promise<void> {
     const cs = sdk.getState()?.combatStyle;
@@ -1332,6 +1334,20 @@ async function bankTrip(): Promise<boolean> {
         await withdrawCount(AIR, 8);
         await withdrawCount(EARTH, 1);
         if (!sdk.findInventoryItem(DUELING_RING)) await withdrawCount(DUELING_RING, 1);
+        // Out of teleport runes in the bank (jacklove12/20 walked out of the lair, 2026-11-01):
+        // ask the Jackpoo2 mule for a stock, at most every 30 minutes.
+        const runesShort = count(LAW) < 2 || count(AIR) < 8;
+        if (runesShort && !sdk.findInventoryItem(DUELING_RING) && Date.now() - lastRuneAsk > 30 * 60_000) {
+            lastRuneAsk = Date.now();
+            await bot.closeBank().catch(() => undefined);
+            log(`teleport runes short (law ${count(LAW)}, air ${count(AIR)}): asking Jackpoo2 at Draynor`);
+            const ok = await requestFromMule({ sdk, bot, session: null, log } as never, [
+                { label: 'law rune', pattern: /^law rune$/i, count: 20 },
+                { label: 'air rune', pattern: /^air rune$/i, count: 100 }
+            ], { mule: 'Jackpoo2', timeoutMs: 5 * 60_000 });
+            log(`mule Jackpoo2: ${ok ? 'served' : 'not all served'}; law ${count(LAW)} air ${count(AIR)}`);
+            return false;
+        }
         if (!sdk.findEquipmentItem(MELEE_WEAPON) && !sdk.findInventoryItem(MELEE_WEAPON)) {
             const weapon = MELEE_WEAPONS.map((p) => sdk.findBankItem(p)).find(Boolean);
             if (weapon) await bot.withdrawItem(weapon, 1);
