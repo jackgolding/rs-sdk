@@ -487,7 +487,15 @@ async function goToQueen(): Promise<boolean> {
     if (!inChamber()) {
         intent('To the Queen chamber');
         if (distTo(CHAMBER_ENTRANCE.x, CHAMBER_ENTRANCE.z) > 4) await walkLegs(pos().level, CHAMBER_ENTRANCE);
-        if (!(await ropeAndClimb(/tunnel|entrance|hole/i, () => inChamber()))) return false;
+        if (!(await ropeAndClimb(/tunnel|entrance|hole/i, () => inChamber()))) {
+            // Ropes spent on the burrow and the team's tied rope gone (ABGARMY04 stuck at the chamber
+            // entrance): out, and the bank trip buys two from Ned.
+            if (count(ROPE) === 0) {
+                session.log('warn', 'No rope for the chamber — teleporting out to restock');
+                await teleportOut();
+            }
+            return false;
+        }
         log(`In the Queen chamber @ ${pos().x},${pos().z}`);
     }
     if (distTo(QUEEN.x, QUEEN.z) > 10) await walkLegs(0, QUEEN);
