@@ -410,13 +410,27 @@ async function bankTrip(): Promise<boolean> {
     const ready = potted && canTeleport && count(COINS) >= ENTRY_FEE + BOAT_GP * 2 && foodCount() > LEAVE_FOOD && AXES.some((p) => sdk.findInventoryItem(p) || sdk.findEquipmentItem(p)) && !!sdk.findEquipmentItem(SHIELD);
     log(`Kit coins=${count(COINS)} food=${foodCount()} pots=${count(PRAYER_POT)} shield=${!!sdk.findEquipmentItem(SHIELD)} worn=${sdk.getEquipment().filter(Boolean).map((e) => e!.name).join(',')} ready=${ready}`);
     session.noteProgress('bank', `food ${foodCount()}`);
-    if (!potted && Date.now() - lastPotAsk > 20 * 60_000) {
-        // jackthief, the max-stat mule, serves from this same Ardougne bank (supply.ts MULE_BANKS).
+    // jackthief, the max-stat mule, serves from this same Ardougne bank (supply.ts MULE_BANKS):
+    // prayer potions, and any missing piece of the study's loadout (rune legs + berserker helm +
+    // glory + dragon longsword + dragonfire shield, 2026-11-02).
+    const has = (p: RegExp) => !!sdk.findEquipmentItem(p) || !!sdk.findInventoryItem(p);
+    const kitAsk = [
+        ...(!potted ? [{ label: 'prayer potion(3)', pattern: /^prayer potion\(3\)$/i, count: 9 }] : []),
+        ...(!has(SHIELD) ? [{ label: 'dragonfire shield', pattern: SHIELD, count: 1 }] : []),
+        ...(!WEAPONS.some(has) ? [{ label: 'dragon longsword', pattern: /^dragon longsword$/i, count: 1 }] : []),
+        ...(!has(/^(rune|dragon) (platelegs|plateskirt)$/i) ? [{ label: 'rune platelegs', pattern: /^rune platelegs$/i, count: 1 }] : []),
+        ...(!has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i) ? [{ label: 'berserker helm', pattern: /^berserker helm$/i, count: 1 }] : []),
+        ...(!has(/^amulet of (glory|power|strength)/i) ? [{ label: 'amulet of glory', pattern: /^amulet of glory/i, count: 1 }] : [])
+    ];
+    if ((!potted || !ready) && kitAsk.length && Date.now() - lastPotAsk > 20 * 60_000) {
         lastPotAsk = Date.now();
-        log(`prayer potions short (${count(PRAYER_POT)}): asking jackthief at the Ardougne bank`);
-        const ok = await requestFromMule({ sdk, bot, session: null, log } as never, [
-            { label: 'prayer potion(3)', pattern: /^prayer potion\(3\)$/i, count: 9 }
-        ], { mule: 'jackthief', timeoutMs: 5 * 60_000 });
+        log(`kit short (${kitAsk.map((k) => k.label).join(', ')}): asking jackthief at the Ardougne bank`);
+        const ok = await requestFromMule({ sdk, bot, session: null, log } as never, kitAsk, { mule: 'jackthief', timeoutMs: 5 * 60_000 });
+        for (const pattern of [...WEAPONS, SHIELD, ...ARMOUR]) {
+            if (sdk.findEquipmentItem(pattern)) continue;
+            const item = sdk.findInventoryItem(pattern);
+            if (item) await bot.equipItem(item).catch(() => undefined);
+        }
         log(`mule jackthief: ${ok ? 'served' : 'not all served'}; pots ${count(PRAYER_POT)}`);
         return false;
     }

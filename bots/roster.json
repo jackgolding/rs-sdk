@@ -68,9 +68,8 @@
       "args": [
         "Jackpoo4",
         "--then",
-        "bots/quests/fishing-route.ts",
-        "Jackpoo4",
-        "--bignet"
+        "bots/quests/brimhaven-dragons.ts",
+        "Jackpoo4"
       ],
       "noEffectMinutes": 60
     },
@@ -160,9 +159,8 @@
       "args": [
         "jacklove5",
         "--then",
-        "bots/quests/fishing-route.ts",
-        "jacklove5",
-        "--bignet"
+        "bots/quests/brimhaven-dragons.ts",
+        "jacklove5"
       ],
       "noEffectMinutes": 60
     },
@@ -481,9 +479,8 @@
       "args": [
         "ABGARMY08",
         "--then",
-        "bots/quests/thieving-route.ts",
-        "ABGARMY08",
-        "--knights"
+        "bots/quests/brimhaven-dragons.ts",
+        "ABGARMY08"
       ],
       "noEffectMinutes": 60
     },
@@ -508,9 +505,8 @@
       "args": [
         "ABGARMY10",
         "--then",
-        "bots/quests/fishing-route.ts",
-        "ABGARMY10",
-        "--bignet"
+        "bots/quests/brimhaven-dragons.ts",
+        "ABGARMY10"
       ],
       "noEffectMinutes": 60
     },
