@@ -87,11 +87,11 @@ const BRAVEK_DOOR = { x: 2530, z: 3314 };
 /** Inside the clerk's office, west of Bravek's door. */
 const BRAVEK_DOOR_WEST = { x: 2529, z: 3314 };
 
-const pos = (q: Quest) => {
+export const pos = (q: Quest) => {
     const p = q.sdk.getState()?.player;
     return { x: p?.worldX ?? 0, z: p?.worldZ ?? 0, level: p?.level ?? 0 };
 };
-const where = (q: Quest) => `(${pos(q).x},${pos(q).z},L${pos(q).level})`;
+export const where = (q: Quest) => `(${pos(q).x},${pos(q).z},L${pos(q).level})`;
 const inBox = (p: Tile, x0: number, x1: number, z0: number, z1: number) => p.x >= x0 && p.x <= x1 && p.z >= z0 && p.z <= z1;
 
 /** Inside the West Ardougne wall (the east wall runs at x 2557-2558; Edmond's garden is 2566). */
@@ -104,23 +104,23 @@ export const inPlagueCellar = (p: Tile) => inBox(p, 2530, 2546, 9664, 9680);
 export const inPlagueArea = (p: Tile) => inWestArdougne(p) || inPlagueSewer(p) || inPlagueCellar(p);
 
 export const holds = (q: Quest, id: number) => q.sdk.getInventory().some((i) => i.id === id) || q.sdk.getEquipment().some((i) => i.id === id);
-const wearing = (q: Quest, id: number) => q.sdk.getEquipment().some((i) => i.id === id);
+export const wearing = (q: Quest, id: number) => q.sdk.getEquipment().some((i) => i.id === id);
 
 /** Newest game-message cursor, taken before an action so only replies to it match. */
-function cursor(q: Quest): number {
+export function cursor(q: Quest): number {
     return Math.max(0, ...(q.sdk.getState()?.gameMessages ?? []).map((m) => m.observationId ?? m.tick));
 }
-function saidSince(q: Quest, since: number, text: RegExp): boolean {
+export function saidSince(q: Quest, since: number, text: RegExp): boolean {
     return (q.sdk.getState()?.gameMessages ?? []).some((m) => (m.observationId ?? m.tick) > since && text.test(m.text));
 }
 /** Text of the open dialog (objbox/mesbox pages carry the content's own words). */
-function dialogText(q: Quest): string {
+export function dialogText(q: Quest): string {
     const d = q.sdk.getDialog();
     return d?.isOpen ? (d.allComponents ?? []).map((c) => c.text).filter(Boolean).join(' ') : '';
 }
 
 /** The loc named `name` (with option `opt`) nearest `at`, within 3 tiles of it. */
-async function findLoc(q: Quest, at: Tile, name: RegExp, opt?: RegExp) {
+export async function findLoc(q: Quest, at: Tile, name: RegExp, opt?: RegExp) {
     await q.sdk.scanNearbyLocs(15).catch(() => undefined);
     const loc = (q.sdk.getNearbyLocs() ?? [])
         .filter((l) => name.test(l.name) && (!opt || l.optionsWithIndex.some((o) => opt.test(o.text))))
@@ -129,7 +129,7 @@ async function findLoc(q: Quest, at: Tile, name: RegExp, opt?: RegExp) {
 }
 
 /** Op on the loc named `name` near `at` until `done`, driving any dialog through with `choices`. */
-async function op(q: Quest, at: Tile, name: RegExp, opt: RegExp, done: () => boolean, label: string, choices: Array<RegExp | string> = [], ticks = 30): Promise<string> {
+export async function op(q: Quest, at: Tile, name: RegExp, opt: RegExp, done: () => boolean, label: string, choices: Array<RegExp | string> = [], ticks = 30): Promise<string> {
     let seen = '';
     for (let attempt = 1; attempt <= 4; attempt++) {
         if (done()) return seen;
@@ -149,7 +149,7 @@ async function op(q: Quest, at: Tile, name: RegExp, opt: RegExp, done: () => boo
 }
 
 /** Use the held item matching `item` (an obj id or a name) on the loc named `name` near `at` until `done`. */
-async function useOn(q: Quest, item: number | RegExp, at: Tile, name: RegExp, done: () => boolean, label: string, ticks = 30): Promise<string> {
+export async function useOn(q: Quest, item: number | RegExp, at: Tile, name: RegExp, done: () => boolean, label: string, ticks = 30): Promise<string> {
     let seen = '';
     for (let attempt = 1; attempt <= 4; attempt++) {
         if (done()) return seen;
@@ -171,7 +171,7 @@ async function useOn(q: Quest, item: number | RegExp, at: Tile, name: RegExp, do
 }
 
 /** Pick up the ground item `id` at `tile` (a respawning spawn): waits out a respawn, bounded. */
-async function pickUp(q: Quest, tile: Tile, id: number, label: string): Promise<void> {
+export async function pickUp(q: Quest, tile: Tile, id: number, label: string): Promise<void> {
     if (holds(q, id)) return;
     await q.goTo(tile, 2);
     for (let i = 0; i < 20 && !holds(q, id); i++) {

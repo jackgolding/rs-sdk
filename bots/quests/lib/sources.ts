@@ -817,6 +817,35 @@ export const SOURCES: Record<string, Source> = {
     /** No shop stocks it: three ground spawns among the hobgoblins (level 28) south-west of the Crafting Guild. */
     'snape grass': { get: (q, count) => pickSpawns(q, 'snape grass', count, SNAPE_GRASS_SPAWNS) },
 
+    // ── Biohazard: Guidor's wife lets in a priest — top and bottom worn
+    /**
+     * Both halves are named "Priest gown" (objs 426 top, 428 bottom), so the need is
+     * 'priest gown' x2 and this buys whichever id is missing. Thessalia (varrock.inv
+     * clotheshop: 3 of each, 5gp).
+     */
+    'priest gown': {
+        obj: 'priest_gown',
+        inputs: () => [{ item: 'coins', count: 12 }],
+        get: async (q) => {
+            const ids = [426, 428];
+            const held = (id: number) => [...q.sdk.getInventory(), ...q.sdk.getEquipment()].some((i) => i.id === id);
+            if (ids.every(held)) return;
+            await q.ensure('coins', 10);
+            for (let attempt = 1; attempt <= 3 && !ids.every(held); attempt++) {
+                await q.goTo(THESSALIA_CLOTHES, 3);
+                if (!q.sdk.getState()?.shop?.isOpen) await q.bot.openShop(THESSALIA_CLOTHES.npc);
+                for (const id of ids.filter((i) => !held(i))) {
+                    const line = q.sdk.getState()?.shop?.shopItems.find((i) => i.id === id);
+                    if (!line) continue;
+                    const res = await q.bot.buyFromShop(line, 1);
+                    if (!res.success) q.log(`priest gown ${id}: ${res.message}`);
+                }
+                await q.bot.closeShop().catch(() => undefined);
+            }
+            if (!ids.every(held)) throw new Error('priest gown: Thessalia did not sell both halves');
+        },
+    },
+
     // ── Priest in Peril
     /**
      * Unstackable, one slot each, so a quest asks for a pack's worth at a time.
