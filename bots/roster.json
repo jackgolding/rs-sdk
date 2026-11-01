@@ -653,12 +653,9 @@
       "args": [
         "jackquests",
         "--then",
-        "bots/quests/lost-city-prep.ts",
+        "bots/quests/edgeville-dungeon-melee.ts",
         "jackquests",
-        "--then",
-        "bots/quests/quest-mule.ts",
-        "jackquests",
-        "--serve-only"
+        "thugs"
       ],
       "noEffectMinutes": 60
     }
