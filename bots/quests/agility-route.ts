@@ -20,6 +20,8 @@ import {
 import { ARDOUGNE_BANK, ARDOUGNE_MARKET, BRIMHAVEN_CUSTOMS, type Tile } from './tiles';
 import { foodHeal } from './food-heal';
 import { GnomeCourse, GNOME_START } from './gnome-course';
+import { crossGnomeGate } from './lib/gnome-stronghold';
+import type { Quest } from './lib/run-quest';
 import { WildyCourse } from './wildy-course';
 import { installGracefulShutdown } from '../../sdk/runner';
 
@@ -1748,6 +1750,19 @@ async function ensureGnomeEntrance(force = false): Promise<void> {
     // ladder. Any move — ours or recovery's — resets the counter; the cooldown
     // resets it too, so a stale rejection is not permanent.
     const start = pos();
+    // South of the gate, near it: the shared gate crossing (lib/gnome-stronghold.ts, proven both
+    // ways). This script's own approach stalled ABGARMY10 at 2460,3382 (2026-11-01).
+    if (start.z <= GNOME_GATE.z && Math.hypot(start.x - GNOME_GATE.x, start.z - GNOME_GATE.z) <= 12) {
+        const q = {
+            bot,
+            sdk,
+            log,
+            goTo: (t: { x: number; z: number }, tol = 2) => bot.walkTo(t.x, t.z, tol).then(() => undefined),
+            climbTo: async () => undefined
+        } as unknown as Quest;
+        await crossGnomeGate(q, true).catch((e) => log(`gnome gate (shared): ${(e as Error).message}`));
+        if (pastGnomeGate()) return;
+    }
     const tile = `${start.x},${start.z}`;
     const nowMs = Date.now();
     if (gnomeEntranceTile === tile && nowMs - gnomeEntranceAtMs < GNOME_ENTRANCE_COOLDOWN_MS) {
