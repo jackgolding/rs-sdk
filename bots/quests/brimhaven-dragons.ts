@@ -28,7 +28,7 @@ import { fetchDukeShield } from './duke-shield';
 import { ensureAxeFromBob, hasAxe } from './bob-axes';
 import { brewPrayerPotions } from './prayer-brew';
 import { closeUi, crossGangplank, walkNear } from './movement';
-import { foodHeal } from './food-heal';
+import { foodHeal, healAtBank } from './food-heal';
 import { ARDOUGNE_BANK, BRIMHAVEN_CUSTOMS, CAPTAIN_BARNABY } from './tiles';
 import { crossAlKharidToll, inAlKharidRegion } from './alkharid-toll';
 import { crossGnomeGate, inStronghold } from './lib/gnome-stronghold';
@@ -365,6 +365,7 @@ async function bankTrip(): Promise<boolean> {
         if (!r.success && !r.partial) break;
     }
     if (banked.length) log(`Banked loot: ${banked.join(', ')}`);
+    await healAtBank(bot, sdk, log);
     // One axe travels; spares (Bob's stock bought after a death) wait in the bank.
     const axesHeld = sdk.getInventory().filter((i) => AXES.some((a) => a.test(i.name)));
     for (const extra of axesHeld.slice(sdk.findEquipmentItem(/axe$/i) ? 0 : 1)) await bot.depositItem(extra, 1).catch(() => undefined);

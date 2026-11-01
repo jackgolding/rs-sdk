@@ -31,6 +31,7 @@ export class PrayerFlicker {
     private running = false;
     private lastFlick = 0;
     private splits = 0;
+    private offReads = 0;
     /** True once flicking proved unreliable this run: the prayer is simply held on. */
     steady = false;
 
@@ -69,16 +70,22 @@ export class PrayerFlicker {
                     await this.sdk.waitForTicks(1).catch(() => {});
                     continue;
                 }
-                // A toggle is a toggle: right after a pair, an "off" read may be the first half with
-                // the second still in flight, and another toggle would turn it back off.
-                if (!this.sdk.isPrayerActive(p) && this.tick() - this.lastFlick >= 2) {
+                // A toggle is a toggle: an "off" read right after a pair, or from stale state (the
+                // box under memory pressure publishes state late), would turn it back off. Only a
+                // fresh state seen off on two checks in a row counts (prod, 2026-11-01: every KBD
+                // account fell back to holding within minutes).
+                const fresh = (this.sdk.getStateAge?.() ?? 0) < 500;
+                const off = fresh && !this.sdk.isPrayerActive(p) && this.tick() - this.lastFlick >= 3;
+                this.offReads = off ? this.offReads + 1 : 0;
+                if (off && (this.offReads >= 2 || !this.lastFlick)) {
+                    this.offReads = 0;
                     if (this.lastFlick && !this.steady && ++this.splits >= SPLIT_LIMIT) {
                         this.steady = true;
                         this.log(`prayer flick: ${p} seen off ${this.splits} times — holding it on for the rest of the run`);
                     }
                     await this.sdk.sendTogglePrayer(p);
                     this.lastFlick = this.tick();
-                } else if (!this.steady && this.tick() - this.lastFlick >= REFLICK_TICKS) {
+                } else if (!off && !this.steady && this.tick() - this.lastFlick >= REFLICK_TICKS) {
                     // OFF and ON back to back: both decoded in the same tick's input phase.
                     await Promise.all([this.sdk.sendTogglePrayer(p), this.sdk.sendTogglePrayer(p)]);
                     this.lastFlick = this.tick();

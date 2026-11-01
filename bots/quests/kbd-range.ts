@@ -46,7 +46,7 @@ import {
     SEERS_BANK
 } from './tiles';
 import { closeUi, leaveAdjacentClosedDoor, walkNear } from './movement';
-import { foodHeal, needsBankHeal } from './food-heal';
+import { foodHeal, healAtBank, needsBankHeal } from './food-heal';
 import { LAVA_MAZE_EAST, southOfLavaMaze } from './rune-rocks-route';
 import { installGracefulShutdown } from '../../sdk/runner';
 import { PrayerFlicker } from './prayer-flick';
@@ -1207,6 +1207,12 @@ async function teleportOutOfLair(): Promise<boolean> {
     await sdk.waitForCondition((st) => (st.player?.worldZ ?? 9999) < 9000, 12_000).catch(() => {});
     const out = !inKbdLair();
     log(out ? `Teleported out of the lair to ${pos().x},${pos().z}` : 'No teleport out of the lair (no ring, no runes) — walking');
+    // Out low and maybe poisoned (jacklove1 died on the walk to the bank, 2026-11-01): eat what is left now.
+    for (let i = 0; i < 28 && out && pos().hp < pos().maxHp - 15; i++) {
+        const food = sdk.getInventory().find((it) => foodHeal(it.name) > 0);
+        if (!food) break;
+        await bot.eatFood(food).catch(() => undefined);
+    }
     return out;
 }
 
@@ -1245,6 +1251,7 @@ async function bankTrip(): Promise<boolean> {
         const r = await bot.depositItem(item, -1);
         if (!r.success && !r.partial) break;
     }
+    await healAtBank(bot, sdk, log);
     if (sharkSlots() > FOOD_WITHDRAW) await bot.depositItem(SHARK, sharkSlots() - FOOD_WITHDRAW);
     const extraAnti = sdk.getInventory().filter((i) => ANTIPOISON.test(i.name)).length - ANTIPOISON_WITHDRAW;
     if (extraAnti > 0) await bot.depositItem(ANTIPOISON, extraAnti);
