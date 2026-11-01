@@ -1559,7 +1559,7 @@ services:
   quest-jackpoo5:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "Jackpoo5", "--then", "bots/quests/seers-wc-fm.ts", "Jackpoo5"]
+    command: ["bun", "bots/quests/todo-runner.ts", "Jackpoo5", "--then", "bots/quests/kbd-range.ts", "Jackpoo5", "--melee", "--team-min=4"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

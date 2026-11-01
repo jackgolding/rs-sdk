@@ -81,8 +81,10 @@
       "args": [
         "Jackpoo5",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
-        "Jackpoo5"
+        "bots/quests/kbd-range.ts",
+        "Jackpoo5",
+        "--melee",
+        "--team-min=4"
       ],
       "noEffectMinutes": 60
     },

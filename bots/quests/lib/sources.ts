@@ -473,7 +473,8 @@ export const SOURCES: Record<string, Source> = {
             await buyWaitingForRestock(q, BOBS_AXES, 'bronze axe', 1);
         },
     },
-    knife: { tool: true, get: (q, count) => pickUpSpawn(q, LUMBRIDGE_KNIFE, 'knife', count) },
+    // The Lumbridge spawn is contested (jacklove11's Lost City failed twice on it, 2026-11-01): the mule first.
+    knife: { tool: true, muleSupply: 'Jackpoo2', get: (q, count) => pickUpSpawn(q, LUMBRIDGE_KNIFE, 'knife', count) },
     needle: {
         tool: true,
         inputs: () => [{ item: 'coins', count: 1 }],
