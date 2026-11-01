@@ -236,10 +236,7 @@
       "args": [
         "jacklove9",
         "--then",
-        "bots/quests/lost-city-prep.ts",
-        "jacklove9",
-        "--then",
-        "bots/quests/seers-wc-fm.ts",
+        "bots/quests/unicorns.ts",
         "jacklove9"
       ],
       "noEffectMinutes": 60

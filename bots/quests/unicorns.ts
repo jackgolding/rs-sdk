@@ -1,0 +1,665 @@
+/**
+ * Unicorn horns (antipoison secondary) around Seers' Village / Camelot teleport.
+ * Kills unicorns (and the two non-wilderness black unicorns on the Rellekka road),
+ * loots the horn, buries the bones, banks at Seers. Repeats forever.
+ *
+ *   bun bots/quests/unicorns.ts {botname} [--no-bury] [--no-black] [--spots=south,east] [--bank-at=N]
+ *
+ * Spawns (server/content/maps *.jm2 NPC sections, npc 89 = unicorn, 133 = black unicorn),
+ * none of them in the wilderness:
+ *   south  m42_53  (2700,3423) (2700,3442)  2 unicorns, south of Seers
+ *   east   m43_54  (2783,3466) (2791,3460)  2 unicorns, Seers-Catherby road
+ *   north  m42_56  (2741,3605)              1 unicorn, Rellekka road
+ *   black  m42_57  (2708,3672) (2730,3659)  2 black unicorns, Rellekka road
+ * The four Taverley-side unicorns (m44_52, 2838-2863,3370-3378) have no route from
+ * Seers, and the m50_57 black unicorns are wilderness — neither is used.
+ *
+ * Both kinds are level 15/27, not aggressive, always drop a horn, respawn 180 ticks
+ * and wander 17 tiles. Spot choice is greedy on ticks-per-horn: max(walk, respawn
+ * still due) / spawns, plus a penalty for spots where other players were seen
+ * fighting them. With only four close spawns the bot mostly cycles south <-> east and
+ * goes north when those are camped.
+ *
+ * Wields the best melee weapon it can find (equipped, pack, Seers bank). Eats below
+ * half HP; with no food left it banks for food or waits out regen at the bank.
+ * SIGTERM finishes the current fight and banks (exit 0). Otherwise it never exits 0:
+ * recovery exhaust is restartable (70).
+ */
+import { existsSync, readFileSync } from 'fs';
+import { dirname, join } from 'path';
+import { ActivitySession, BotSDK, deriveGatewayUrl, inWilderness } from '../../sdk/index';
+import { BotActions } from '../../sdk/actions';
+import { initPathfinding } from '../../sdk/pathfinding';
+import { installGracefulShutdown } from '../../sdk/runner';
+import { SEERS_BANK } from './tiles';
+import { closeUi, installWaitForTicksGuard, walkNear } from './movement';
+import { travelTo } from './travel';
+import { foodHeal } from './food-heal';
+import { tickNow, ticksToMs, untilTicks } from './lib/ticks';
+
+type Spot = { name: string; x: number; z: number; radius: number; spawns: number; target: RegExp };
+
+const UNICORN = /^unicorn$/i;
+const BLACK_UNICORN = /^black unicorn$/i;
+const ALL_SPOTS: Spot[] = [
+    { name: 'south', x: 2700, z: 3432, radius: 22, spawns: 2, target: UNICORN },
+    { name: 'east', x: 2787, z: 3463, radius: 22, spawns: 2, target: UNICORN },
+    { name: 'north', x: 2741, z: 3605, radius: 20, spawns: 1, target: UNICORN },
+    { name: 'black', x: 2719, z: 3666, radius: 24, spawns: 2, target: BLACK_UNICORN }
+];
+const RESPAWN_TICKS = 180;
+/** Ticks-per-horn added per contended visit (other players fighting the spot's unicorns). */
+const CONTENTION_PENALTY = 60;
+const BANK = SEERS_BANK;
+/** Camelot teleport lands in front of the castle, ~30 tiles from Seers bank. */
+const CAMELOT_TELEPORT = 1174;
+const MAGIC_TAB = 6;
+const FAR_FROM_SEERS = 250;
+
+const HORN = /^unicorn horn$/i;
+const BONES = /^bones$/i;
+const LAW = /^law rune$/i;
+const AIR = /^air rune$/i;
+const FOOD_WITHDRAW = 5;
+/** Best first; attack level each needs. */
+const WEAPONS: { pattern: RegExp; attack: number }[] = [
+    { pattern: /^dragon longsword$/i, attack: 60 },
+    { pattern: /^dragon scimitar$/i, attack: 60 },
+    { pattern: /^dragon battleaxe$/i, attack: 60 },
+    { pattern: /^rune scimitar$/i, attack: 40 },
+    { pattern: /^rune longsword$/i, attack: 40 },
+    { pattern: /^rune battleaxe$/i, attack: 40 },
+    { pattern: /^adamant scimitar$/i, attack: 30 },
+    { pattern: /^adamant longsword$/i, attack: 30 },
+    { pattern: /^mithril scimitar$/i, attack: 20 },
+    { pattern: /^black scimitar$/i, attack: 10 },
+    { pattern: /^steel scimitar$/i, attack: 5 },
+    { pattern: /^iron scimitar$/i, attack: 1 },
+    { pattern: /^bronze scimitar$/i, attack: 1 }
+];
+
+const argv = process.argv.slice(2);
+const thenIdx = argv.indexOf('--then');
+const ownArgs = thenIdx >= 0 ? argv.slice(0, thenIdx) : argv;
+const botArg = ownArgs.find((a) => !a.startsWith('-') && !a.endsWith('.ts'));
+const BURY = !ownArgs.includes('--no-bury');
+const spotsArg = ownArgs.find((a) => a.startsWith('--spots='))?.split('=')[1];
+const BANK_AT = Number(ownArgs.find((a) => a.startsWith('--bank-at='))?.split('=')[1] ?? 0);
+const SPOTS = ALL_SPOTS.filter((s) => {
+    if (spotsArg) return spotsArg.split(',').includes(s.name);
+    if (ownArgs.includes('--no-black')) return s.name !== 'black';
+    return true;
+});
+if (!SPOTS.length) throw new Error(`--spots=${spotsArg} matches none of ${ALL_SPOTS.map((s) => s.name).join(',')}`);
+
+function loadBotEnv(): void {
+    const envPath = botArg ? join(process.cwd(), 'bots', botArg, 'bot.env') : join(dirname(import.meta.path), 'bot.env');
+    if (!existsSync(envPath)) throw new Error(`bot.env not found at ${envPath}. Usage: bun bots/quests/unicorns.ts {botname}`);
+    for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
+        const t = line.trim();
+        if (!t || t.startsWith('#')) continue;
+        const eq = t.indexOf('=');
+        if (eq > 0) process.env[t.slice(0, eq)] = t.slice(eq + 1);
+    }
+}
+
+loadBotEnv();
+const username = process.env.BOT_USERNAME!;
+initPathfinding();
+const sdk = new BotSDK({
+    botUsername: username,
+    password: process.env.PASSWORD!,
+    gatewayUrl: deriveGatewayUrl(process.env.SERVER),
+    autoLaunchBrowser: false,
+    browserLaunchTimeout: 90_000,
+    readyTimeout: 45_000,
+    connectTimeout: 60_000,
+    showChat: false
+});
+await sdk.connect();
+const bot = new BotActions(sdk);
+const session = new ActivitySession(sdk, bot, {
+    name: 'unicorns',
+    grindLogPath: join(process.cwd(), 'bots', username, 'grind.log'),
+    stallMs: 180_000,
+    maxRecoveryTactics: 8
+});
+installGracefulShutdown({ graceMs: 30_000 });
+installWaitForTicksGuard(sdk, session);
+
+const spotState = new Map<string, { readyAt: number; contended: number; kills: number }>();
+for (const s of SPOTS) spotState.set(s.name, { readyAt: 0, contended: 0, kills: 0 });
+let current: Spot | null = null;
+let kills = 0;
+let looted = 0;
+let buried = 0;
+let bankedHorns = 0;
+const startTick = tickNow(sdk);
+
+function log(msg: string): void {
+    session.log('log', msg);
+}
+
+function intent(msg: string): void {
+    void session.showIntent(msg);
+}
+
+function pos() {
+    const p = sdk.getState()?.player;
+    return {
+        x: p?.worldX ?? 0,
+        z: p?.worldZ ?? 0,
+        level: p?.level ?? 0,
+        hp: p?.hp ?? 10,
+        maxHp: p?.maxHp ?? 10,
+        isDead: p?.isDead ?? false,
+        inCombat: p?.combat?.inCombat ?? false,
+        targetType: p?.combat?.targetType ?? 'none',
+        targetIndex: p?.combat?.targetIndex ?? -1
+    };
+}
+
+/**
+ * sdk inWilderness is z-only (z >= 3520), which flags the whole Rellekka road. The
+ * game's own zones (area_wilderness wilderness_zones.dbrow: mapsquares 46_55..52_99)
+ * also bound x to 2944..3391 — that is what PvP and the wilderness level use.
+ */
+function wildy(x: number, z: number): boolean {
+    return inWilderness(x, z) && x >= 46 * 64 && x < 53 * 64;
+}
+
+function dist(x: number, z: number): number {
+    return Math.hypot(pos().x - x, pos().z - z);
+}
+
+function occupied(): number {
+    return sdk.getInventory().filter((i) => (i.count ?? 0) > 0).length;
+}
+
+function count(pattern: RegExp): number {
+    return sdk
+        .getInventory()
+        .filter((i) => pattern.test(i.name))
+        .reduce((n, i) => n + (i.count ?? 1), 0);
+}
+
+function edible() {
+    return sdk.getInventory().filter((i) => foodHeal(i.name) > 0);
+}
+
+function foodCount(): number {
+    return edible().length;
+}
+
+function prayerXp(): number {
+    return sdk.getSkillXp('Prayer') ?? 0;
+}
+
+function hpXp(): number {
+    return sdk.getSkillXp('Hitpoints') ?? 0;
+}
+
+function elapsedTicks(): number {
+    return Math.max(1, tickNow(sdk) - startTick);
+}
+
+function summary(): string {
+    const total = bankedHorns + count(HORN);
+    const perKTick = ((total * 1000) / elapsedTicks()).toFixed(1);
+    return `horns ${total} (pack ${count(HORN)} banked ${bankedHorns}) kills ${kills} buried ${buried} ${perKTick}/1k ticks slots ${occupied()} food ${foodCount()}`;
+}
+
+function shouldBank(): boolean {
+    if (occupied() >= 27) return true;
+    if (BANK_AT > 0 && count(HORN) >= BANK_AT) return true;
+    return false;
+}
+
+function inSpot(spot: Spot, x: number, z: number): boolean {
+    return Math.hypot(x - spot.x, z - spot.z) <= spot.radius;
+}
+
+function atSpot(spot: Spot): boolean {
+    return dist(spot.x, spot.z) <= Math.min(10, spot.radius);
+}
+
+// ---------------------------------------------------------------- weapon
+
+function attackLevel(): number {
+    return sdk.getSkill('Attack')?.baseLevel ?? 1;
+}
+
+/** Weapons the game refused to wield (e.g. dragon longsword before Lost City). */
+const unwieldable = new Set<string>();
+
+function weaponRank(name: string | undefined): number {
+    if (!name || unwieldable.has(name.toLowerCase())) return WEAPONS.length;
+    const i = WEAPONS.findIndex((w) => w.pattern.test(name) && w.attack <= attackLevel());
+    return i < 0 ? WEAPONS.length : i;
+}
+
+function wornWeaponRank(): number {
+    return Math.min(WEAPONS.length, ...sdk.getEquipment().map((e) => weaponRank(e?.name)));
+}
+
+function bestInPack() {
+    return sdk
+        .getInventory()
+        .filter((i) => weaponRank(i.name) < WEAPONS.length)
+        .sort((a, b) => weaponRank(a.name) - weaponRank(b.name))[0];
+}
+
+async function wieldBestInPack(): Promise<void> {
+    for (let i = 0; i < 4; i++) {
+        const item = bestInPack();
+        if (!item || weaponRank(item.name) >= wornWeaponRank()) return;
+        await sdk.waitForTicks(1).catch(() => {});
+        const r = await bot.equipItem(item);
+        if (r.success) {
+            log(`Wielded ${item.name}`);
+            return;
+        }
+        // Usually a quest requirement; skip it from now on (it is banked next trip).
+        session.log('warn', `Equip ${item.name} failed: ${r.message} — not using it`);
+        unwieldable.add(item.name.toLowerCase());
+    }
+}
+
+function isKeptWeapon(name: string): boolean {
+    return weaponRank(name) < WEAPONS.length && weaponRank(name) <= weaponRank(bestInPack()?.name);
+}
+
+// ---------------------------------------------------------------- eating
+
+async function eatIfNeeded(): Promise<void> {
+    const p = pos();
+    if (p.hp >= Math.max(8, Math.ceil(p.maxHp * 0.5))) return;
+    const food = edible().sort((a, b) => foodHeal(a.name) - foodHeal(b.name))[0];
+    if (!food) return;
+    const r = await bot.eatFood(food);
+    if (r.success) {
+        session.noteProgress('inventory', 'eat');
+        log(`Ate ${food.name} +${r.hpGained} HP ${pos().hp}/${pos().maxHp} food=${foodCount()}`);
+    }
+}
+
+function tooHurt(): boolean {
+    const p = pos();
+    return foodCount() === 0 && p.hp < Math.ceil(p.maxHp * 0.35);
+}
+
+// ---------------------------------------------------------------- travel
+
+async function walkTo(x: number, z: number, tolerance: number): Promise<boolean> {
+    if (dist(x, z) <= tolerance) return true;
+    // Level-up dialogs (Prayer from burying) block walking; travelTo does not dismiss them.
+    await closeUi(bot, sdk);
+    if (await walkNear(bot, sdk, x, z, tolerance)) return true;
+    if (pos().level > 0 || dist(x, z) > tolerance) {
+        const r = await travelTo(sdk, bot, { x, z }, { tolerance, log: (m) => log(`travel: ${m}`) });
+        if (r.ok) return true;
+        await closeUi(bot, sdk);
+        await walkNear(bot, sdk, x, z, tolerance);
+    }
+    return dist(x, z) <= tolerance + 2;
+}
+
+async function teleportCamelotIfFar(): Promise<void> {
+    if (dist(BANK.x, BANK.z) <= FAR_FROM_SEERS) return;
+    const magic = sdk.getSkill('Magic')?.baseLevel ?? 1;
+    if (magic < 45 || count(LAW) < 1 || count(AIR) < 5 || wildy(pos().x, pos().z)) return;
+    intent('Camelot teleport');
+    await closeUi(bot, sdk);
+    await sdk.sendSetTab(MAGIC_TAB).catch(() => {});
+    await sdk.waitForTicks(1).catch(() => {});
+    await sdk.sendClickComponent(CAMELOT_TELEPORT);
+    const ok = await untilTicks(sdk, () => dist(BANK.x, BANK.z) < 80, 12);
+    log(ok ? `Camelot teleport -> ${pos().x},${pos().z}` : 'Camelot teleport did not land');
+}
+
+// ---------------------------------------------------------------- bank
+
+async function goToBank(): Promise<boolean> {
+    await closeUi(bot, sdk);
+    await teleportCamelotIfFar();
+    intent('Walking to Seers bank');
+    session.setAnchor(BANK.x, BANK.z);
+    await walkTo(BANK.x, BANK.z, 4);
+    return dist(BANK.x, BANK.z) <= 10;
+}
+
+async function bankTrip(): Promise<boolean> {
+    if (session.metrics().phase !== 'bank') await session.setPhase('bank');
+    if (!(await goToBank())) {
+        session.noteFailure('bank_walk', `Could not reach Seers bank from ${pos().x},${pos().z}`);
+        return false;
+    }
+    if (!(sdk.getState()?.bank?.isOpen || (await bot.openBank()).success)) {
+        session.noteFailure('bank_open', 'Seers bank open failed');
+        return false;
+    }
+    const before = count(HORN);
+    for (let i = 0; i < 40; i++) {
+        const item = sdk
+            .getInventory()
+            .find((it) => (it.count ?? 0) > 0 && foodHeal(it.name) <= 0 && !isKeptWeapon(it.name) && !LAW.test(it.name) && !AIR.test(it.name));
+        if (!item) break;
+        if (HORN.test(item.name)) session.recordGain(item.name, item.count ?? 1);
+        const r = await bot.depositItem(item, -1);
+        if (!r.success && !r.partial) break;
+    }
+    const deposited = before - count(HORN);
+    if (deposited > 0) {
+        bankedHorns += deposited;
+        session.recordTrip(deposited);
+    }
+    // Best weapon: bank stock beats what is worn only if it ranks higher.
+    const bankWeapon = WEAPONS.map((w, i) => ({ i, item: w.attack <= attackLevel() ? sdk.findBankItem(w.pattern) : null })).find(
+        (b) => b.item && !unwieldable.has(b.item.name.toLowerCase())
+    );
+    if (bankWeapon?.item && bankWeapon.i < wornWeaponRank() && bankWeapon.i < weaponRank(bestInPack()?.name)) {
+        await bot.withdrawItem(bankWeapon.item, 1);
+        await untilTicks(sdk, () => !!bestInPack(), 6);
+    }
+    const haveFood = foodCount();
+    if (haveFood < FOOD_WITHDRAW) {
+        const food = sdk
+            .getState()
+            ?.bank?.items?.filter((b) => foodHeal(b.name) > 0 && (b.count ?? 0) > 0)
+            .sort((a, b) => foodHeal(a.name) - foodHeal(b.name))[0];
+        if (food) await bot.withdrawItem(food, Math.min(FOOD_WITHDRAW - haveFood, food.count ?? 0));
+    }
+    session.captureBankStock();
+    await bot.closeBank();
+    await closeUi(bot, sdk);
+    await wieldBestInPack();
+    session.noteProgress('bank', 'seers');
+    log(`Banked ${deposited} horns | trip ${session.metrics().trips} | ${summary()}`);
+    return !shouldBank();
+}
+
+async function restAtBank(): Promise<void> {
+    if (!(await goToBank())) return;
+    intent('Out of food: regenerating at Seers bank');
+    log(`Resting at bank HP ${pos().hp}/${pos().maxHp} (no food)`);
+    await untilTicks(sdk, () => pos().hp >= Math.ceil(pos().maxHp * 0.8), 600);
+    session.noteProgress('location', 'rested');
+}
+
+// ---------------------------------------------------------------- hunting
+
+function chooseSpot(): Spot {
+    const now = tickNow(sdk);
+    let best: Spot = SPOTS[0]!;
+    let bestScore = Infinity;
+    for (const s of SPOTS) {
+        const st = spotState.get(s.name)!;
+        const walk = s === current && atSpot(s) ? 0 : Math.hypot(pos().x - s.x, pos().z - s.z);
+        const wait = Math.max(walk, st.readyAt - now);
+        const score = wait / s.spawns + st.contended * CONTENTION_PENALTY;
+        if (score < bestScore) {
+            bestScore = score;
+            best = s;
+        }
+    }
+    return best;
+}
+
+function mine(n: { index: number }): boolean {
+    const p = pos();
+    return p.targetType === 'npc' && p.targetIndex === n.index;
+}
+
+/** Someone else is on it: in combat, or damaged in the last few ticks, and not by us. */
+function busyElsewhere(n: { index: number; inCombat: boolean; lastCombatTick: number | null; hp: number | null; maxHp: number | null }): boolean {
+    if (mine(n)) return false;
+    if (n.inCombat) return true;
+    if (n.lastCombatTick !== null && (sdk.getState()?.tick ?? 0) - n.lastCombatTick < 10) return true;
+    return n.hp !== null && n.maxHp !== null && n.hp < n.maxHp;
+}
+
+function spotNpcs(spot: Spot) {
+    return (sdk.getNearbyNpcs() ?? []).filter(
+        (n) =>
+            spot.target.test(n.name) &&
+            (n.hp === null || n.hp > 0) &&
+            n.optionsWithIndex.some((o) => /attack/i.test(o.text)) &&
+            inSpot(spot, n.x, n.z) &&
+            !wildy(n.x, n.z)
+    );
+}
+
+function findTarget(spot: Spot) {
+    return (
+        spotNpcs(spot)
+            .filter((n) => n.reachable !== false && !busyElsewhere(n))
+            .sort((a, b) => (mine(a) ? 0 : 1) - (mine(b) ? 0 : 1) || (a.distance ?? 99) - (b.distance ?? 99))[0] ?? null
+    );
+}
+
+async function buryBones(): Promise<void> {
+    if (!BURY) return;
+    for (let i = 0; i < 4; i++) {
+        const bone = sdk.findInventoryItem(BONES);
+        const op = bone?.optionsWithIndex.find((o) => /bury/i.test(o.text));
+        if (!bone || !op) return;
+        const xp = prayerXp();
+        await sdk.sendUseItem(bone.slot, op.opIndex);
+        if (await untilTicks(sdk, () => prayerXp() > xp || !sdk.getInventory().some((it) => it.slot === bone.slot && BONES.test(it.name)), 4)) {
+            buried++;
+        }
+        await sdk.waitForTicks(1).catch(() => {});
+    }
+}
+
+function isLoot(name: string): boolean {
+    return HORN.test(name) || (BURY && BONES.test(name));
+}
+
+async function loot(spot: Spot): Promise<void> {
+    for (let i = 0; i < 6; i++) {
+        if (pos().isDead) return;
+        let ground = sdk.getGroundItems() ?? [];
+        if (i === 0) {
+            const scanned = await sdk.scanGroundItems(10).catch(() => null);
+            if (scanned) ground = scanned;
+        }
+        // A horn always takes a slot; bones only while there's room to spare (they get buried).
+        const free = 28 - occupied();
+        const item = ground
+            .filter(
+                (g) =>
+                    isLoot(g.name) &&
+                    g.reachable !== false &&
+                    (g.distance ?? 99) <= 10 &&
+                    (inSpot(spot, g.x, g.z) || (g.distance ?? 99) <= 4) &&
+                    (HORN.test(g.name) ? free >= 1 : free >= 2)
+            )
+            .sort((a, b) => (HORN.test(a.name) ? 0 : 1) - (HORN.test(b.name) ? 0 : 1) || (a.distance ?? 99) - (b.distance ?? 99))[0];
+        if (!item) return;
+        const pattern = HORN.test(item.name) ? HORN : BONES;
+        const before = count(pattern);
+        intent(`Loot ${item.name} @ ${item.x},${item.z}`);
+        const r = await bot.pickupItem(item);
+        const got = await untilTicks(sdk, () => count(pattern) > before || pos().isDead, 12);
+        if (!got) {
+            if (!r.success) session.noteFailure('loot', r.message);
+            return;
+        }
+        session.noteProgress('inventory', item.name);
+        if (pattern === HORN) {
+            looted++;
+            log(`Horn @ ${spot.name} | ${summary()}`);
+        } else {
+            await buryBones();
+        }
+    }
+}
+
+async function fightOne(spot: Spot, target: NonNullable<ReturnType<typeof findTarget>>): Promise<boolean> {
+    const xpBefore = hpXp();
+    intent(`Attack ${target.name} @ ${target.x},${target.z} (${spot.name})`);
+    session.setAnchor(target.x, target.z);
+    const r = await bot.attack(target, ticksToMs(20));
+    if (!r.success) {
+        session.noteFailure('attack', r.message);
+        return false;
+    }
+    // Black unicorns flee: re-attack while it is alive, still in the spot and nobody else took it.
+    for (let t = 0; t < 150 && !pos().isDead; ) {
+        await eatIfNeeded();
+        const live = sdk.getNearbyNpcs().find((n) => n.index === target.index);
+        if (!live || (live.hp !== null && live.hp <= 0)) break;
+        if (!inSpot(spot, live.x, live.z) && (live.distance ?? 99) > 6) break;
+        if (!mine(live) && !pos().inCombat) {
+            if (busyElsewhere(live) && live.inCombat) break;
+            await bot.attack(live, ticksToMs(12)).catch(() => null);
+        }
+        await sdk.waitForTicks(1);
+        t++;
+        if (!sdk.getNearbyNpcs().some((n) => n.index === target.index && (n.hp === null || n.hp > 0))) break;
+    }
+    const killed = hpXp() > xpBefore && !sdk.getNearbyNpcs().some((n) => n.index === target.index && (n.hp === null || n.hp > 0));
+    if (killed) {
+        kills++;
+        const st = spotState.get(spot.name)!;
+        st.kills++;
+        session.noteProgress('xp', `kill ${spot.name}`);
+        await untilTicks(sdk, () => (sdk.getGroundItems() ?? []).some((g) => HORN.test(g.name) && (g.distance ?? 99) <= 10), 6);
+    }
+    await loot(spot);
+    return killed;
+}
+
+/** Fight everything free at a spot, then mark when it will next have unicorns. */
+async function huntSpot(spot: Spot): Promise<void> {
+    const st = spotState.get(spot.name)!;
+    let firstKill: number | null = null;
+    let sawBusy = false;
+    for (let round = 0; round < 12 && !session.isStoppedOrRequested(); round++) {
+        if (pos().isDead || shouldBank() || tooHurt()) return;
+        await eatIfNeeded();
+        await loot(spot);
+        const target = findTarget(spot);
+        if (!target) {
+            if (spotNpcs(spot).some((n) => busyElsewhere(n))) sawBusy = true;
+            // Wandering unicorns may be just out of view of the spot centre.
+            if (round === 0 && dist(spot.x, spot.z) > 4) {
+                await walkTo(spot.x, spot.z, 3);
+                continue;
+            }
+            break;
+        }
+        if (await fightOne(spot, target)) {
+            if (firstKill === null) firstKill = tickNow(sdk);
+        }
+    }
+    const now = tickNow(sdk);
+    st.readyAt = (firstKill ?? now - RESPAWN_TICKS / 2) + RESPAWN_TICKS;
+    if (sawBusy && firstKill === null) st.contended = Math.min(st.contended + 1, 5);
+    else if (firstKill !== null) st.contended = Math.max(0, st.contended - 1);
+    if (sawBusy) log(`Spot ${spot.name} contested (level ${st.contended})`);
+}
+
+async function hunt(): Promise<void> {
+    const spot = chooseSpot();
+    if (spot !== current || !atSpot(spot)) {
+        if (session.metrics().phase !== 'travel') await session.setPhase('travel');
+        intent(`Walking to ${spot.name} unicorns @ ${spot.x},${spot.z}`);
+        session.setAnchor(spot.x, spot.z);
+        current = spot;
+        if (!(await walkTo(spot.x, spot.z, 6))) {
+            session.noteFailure('spot_walk', `Could not reach ${spot.name} from ${pos().x},${pos().z}`);
+            // Try another spot next round instead of hammering the same route.
+            spotState.get(spot.name)!.readyAt = tickNow(sdk) + RESPAWN_TICKS;
+            current = null;
+            await sdk.waitForTicks(3).catch(() => {});
+            return;
+        }
+        session.noteProgress('location', spot.name);
+    }
+    if (session.metrics().phase !== 'hunt') await session.setPhase('hunt');
+    const st = spotState.get(spot.name)!;
+    if (!findTarget(spot) && st.readyAt > tickNow(sdk)) {
+        // Nothing here yet and this is still the best spot: wait in short slices so a
+        // wandering or respawned unicorn is picked up as soon as it appears.
+        await untilTicks(sdk, () => !!findTarget(spot), Math.min(30, st.readyAt - tickNow(sdk)));
+        if (!findTarget(spot)) return;
+    }
+    await huntSpot(spot);
+}
+
+session.registerRecovery([
+    {
+        name: 'bank_if_full',
+        run: async () => {
+            if (!shouldBank()) return false;
+            return bankTrip();
+        }
+    },
+    {
+        name: 'walk_bank',
+        run: async () => goToBank()
+    }
+]);
+
+try {
+    await bot.skipTutorial();
+    await closeUi(bot, sdk);
+    log(
+        `Unicorns start @ ${pos().x},${pos().z} HP ${pos().hp}/${pos().maxHp} attack ${attackLevel()} ` +
+            `weapon=${sdk.getEquipment().find((e) => weaponRank(e?.name) < WEAPONS.length)?.name ?? 'none'} ` +
+            `spots=${SPOTS.map((s) => s.name).join(',')} bury=${BURY} | ${summary()}`
+    );
+    if (wildy(pos().x, pos().z)) session.stop('wilderness', `started in the wilderness @ ${pos().x},${pos().z}`, { restartable: true });
+    await wieldBestInPack();
+    // Kit up first if the bank may hold a better weapon or food.
+    if (!session.isStopped() && (wornWeaponRank() > 3 || foodCount() === 0)) await bankTrip();
+
+    while (!session.isStoppedOrRequested()) {
+        if (session.needsRecovery()) {
+            if ((await session.recover()) === 'exhausted') break;
+            continue;
+        }
+        session.maybeHeartbeat();
+        if (pos().isDead) {
+            await untilTicks(sdk, () => !pos().isDead, 100);
+            await sdk.waitForTicks(3).catch(() => {});
+            log(`Respawned @ ${pos().x},${pos().z}`);
+            current = null;
+            continue;
+        }
+        await closeUi(bot, sdk);
+        await eatIfNeeded();
+        if (wildy(pos().x, pos().z)) {
+            session.stop('wilderness', `in the wilderness @ ${pos().x},${pos().z}`, { restartable: true });
+            break;
+        }
+        if (shouldBank()) {
+            log(`Banking | ${summary()}`);
+            if (!(await bankTrip())) await sdk.waitForTicks(5).catch(() => {});
+            current = null;
+            continue;
+        }
+        if (tooHurt()) {
+            if (!(await bankTrip()) || foodCount() === 0) await restAtBank();
+            current = null;
+            continue;
+        }
+        await hunt();
+    }
+    if (session.stopRequested) {
+        log(`Stop requested — banking | ${summary()}`);
+        await session.drainToBank(async () => {
+            await bankTrip();
+            return count(HORN) === 0;
+        });
+    }
+} catch (err) {
+    session.stop('script_error', err instanceof Error ? err.message : String(err));
+    console.error('Script error:', err);
+} finally {
+    log(`stopped | ${summary()} looted ${looted}`);
+    await session.finalizeStop();
+    await sdk.disconnect();
+}

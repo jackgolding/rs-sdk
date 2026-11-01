@@ -1389,7 +1389,7 @@ services:
   quest-jacklove9:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "jacklove9", "--then", "bots/quests/lost-city-prep.ts", "jacklove9", "--then", "bots/quests/seers-wc-fm.ts", "jacklove9"]
+    command: ["bun", "bots/quests/todo-runner.ts", "jacklove9", "--then", "bots/quests/unicorns.ts", "jacklove9"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
