@@ -129,6 +129,19 @@ export const GROUPS: Record<string, Array<{ item: string; skill: string; level: 
     /** Black Knights' Fortress: the guard disguise is worn, so worn ones count. */
     'bronze med helm': [{ item: 'bronze med helm', skill: 'defence', level: 1 }],
     'iron chainbody': [{ item: 'iron chainbody', skill: 'defence', level: 1 }],
+    /** Shilo Village's Nazastarool: the best melee weapon banked, wielded for the fight. */
+    'melee weapon': [
+        { item: 'dragon scimitar', skill: 'attack', level: 60 },
+        { item: 'dragon longsword', skill: 'attack', level: 60 },
+        { item: 'rune scimitar', skill: 'attack', level: 40 },
+        { item: 'rune longsword', skill: 'attack', level: 40 },
+        { item: 'adamant scimitar', skill: 'attack', level: 30 },
+        { item: 'adamant longsword', skill: 'attack', level: 30 },
+        { item: 'mithril scimitar', skill: 'attack', level: 20 },
+        { item: 'black scimitar', skill: 'attack', level: 10 },
+        { item: 'steel scimitar', skill: 'attack', level: 5 },
+        { item: 'iron scimitar', skill: 'attack', level: 1 },
+    ],
 };
 
 const LUMBRIDGE_GENERAL_STORE = { x: 3211, z: 3246, npc: /shop\s*(keeper|assistant)/i };
@@ -142,6 +155,8 @@ const LUMBRIDGE_KNIFE = { x: 3224, z: 3202 };
 const DOMMIK = { x: 3322, z: 3194, npc: /^dommik$/i };
 /** Arhein's store, Catherby: tinderbox. */
 const ARHEIN = { x: 2803, z: 3430, npc: /^arhein$/i };
+/** The Catherby candle maker (catherby.inv candleshop): candles 3gp. */
+const CANDLE_MAKER = { x: 2800, z: 3439, npc: /^candle maker$/i };
 /** Harry's Fishing Shop, Catherby: harpoon 5gp (fishing-route.ts HARRY). */
 const HARRY = { x: 2834, z: 3445, npc: /^harry$/i };
 /** Catherby pier, where the Net/Harpoon (shark) spots move between (fishing-route.ts PIER). */
@@ -557,6 +572,40 @@ export const SOURCES: Record<string, Source> = {
         },
     },
     potato: { get: (q, count) => pickLocs(q, 'potato', /^potato$/i, RELLEKKA_POTATOES, count) },
+
+    // ── Shilo Village: a light dropped into the fissure, the beads' wire, a weapon for Nazastarool
+    candle: {
+        obj: 'unlit_candle',
+        inputs: (count) => [{ item: 'coins', count: 5 * count }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, CANDLE_MAKER, 'candle', count);
+        },
+    },
+    'lit candle': {
+        obj: 'lit_candle',
+        inputs: (count) => [
+            { item: 'candle', count },
+            { item: 'tinderbox', count: 1 },
+        ],
+        get: async (q, count) => {
+            await q.ensure('candle', count - q.count('lit candle'));
+            await q.ensure('tinderbox', 1);
+            for (let misses = 0; misses < 3 && q.count('lit candle') < count; ) {
+                const before = q.count('lit candle');
+                const tinder = q.sdk.findInventoryItem(/^tinderbox$/i);
+                const candle = q.sdk.findInventoryItem(/^candle$/i);
+                if (!tinder || !candle) break;
+                await q.sdk.sendUseItemOnItem(tinder.slot, candle.slot);
+                await untilTicks(q.sdk, () => q.count('lit candle') > before, 6);
+                misses = q.count('lit candle') > before ? 0 : misses + 1;
+            }
+        },
+    },
+    /** Smithed from a bronze bar (Smithing 4): mule stock, like the iron bars. */
+    'bronze wire': { obj: 'bronzecraftwire', mule: true },
+    /** GROUPS 'melee weapon': nothing to buy near a hub, so a bank without one stops with NEEDS STOCK. */
+    'melee weapon': { obj: 'rune_scimitar', mule: true },
     /** Lalli's altar step (raw shark on the Strange altar): harpooned off Catherby's pier at Fishing 76. */
     'raw shark': {
         levels: { fishing: 76 },

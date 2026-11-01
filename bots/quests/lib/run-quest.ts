@@ -65,6 +65,7 @@ import { crossGnomeGate, inStronghold, leaveGrandTree } from './gnome-stronghold
 import { inWaterfallArea, leaveWaterfall } from './waterfall';
 import { inPlagueArea, leavePlagueCity } from './plague-city';
 import { inJungleArea, leaveJungle } from './jungle-potion';
+import { inShiloArea, leaveShilo } from './shilo-village';
 import { inKeepArea, leaveKeep } from './merlins-crystal';
 import { inCrestUnderground, leaveCrestUnderground } from './crest';
 import { inMelzarsMaze, leaveMelzarsMaze } from './melzars-maze';
@@ -487,6 +488,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // Shut in the manor's bookcase nook or closet: walkTo has no way out of either
                 // (ABGARMY04/07 sat in the nook through four quests, 2026-10-29).
                 if (onManorGround(pos()) && !onManorGround(tile) && tile.z < UNDERGROUND_Z) await leaveManor(q);
+                // Shilo Village's dungeons, Cairn Isle and the river valley: out by their own exits (lib/shilo-village.ts).
+                if (inShiloArea(pos()) && !inShiloArea(tile)) await leaveShilo(q, tile);
                 // Tai Bwo Wannai's jungle and the Rogues Purse cave: out by the hand holds, home by the Brimhaven boat (lib/jungle-potion.ts).
                 if (inJungleArea(pos())) await leaveJungle(q, tile);
                 // Left on Karamja by a failed Pirate's Treasure run (jacklove13, 2026-10-29).
@@ -717,6 +720,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         // Melzar's Maze, any floor or its basement: climbTo would take any of its ladders (lib/melzars-maze.ts).
         if (inMelzarsMaze(pos())) await leaveMelzarsMaze(bot, sdk, log);
         if (pos().level !== 0) await q.climbTo(0);
+        if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.
         if (pos().z >= UNDERGROUND_Z) await climbOutOfUnderground(hub);
         // Naked before the walk, not only at the hub: a run that starts with a pack from the last
