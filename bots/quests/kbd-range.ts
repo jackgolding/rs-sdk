@@ -604,6 +604,19 @@ async function pickupNear(item: { x: number; z: number; id: number; name: string
     return got;
 }
 
+/** Below 99 Prayer the bones are buried where they drop (user, 2026-11-01): prayer xp over banking them. */
+async function buryDragonBones(): Promise<void> {
+    if ((sdk.getSkill('Prayer')?.baseLevel ?? 99) >= 99) return;
+    for (let i = 0; i < 6; i++) {
+        const bones = sdk.findInventoryItem(DRAGON_BONES);
+        const op = bones?.optionsWithIndex.find((o) => /bury/i.test(o.text));
+        if (!bones || !op) return;
+        const before = count(DRAGON_BONES);
+        await sdk.sendUseItem(bones.slot, op.opIndex);
+        await sdk.waitForCondition(() => count(DRAGON_BONES) < before, 3_000).catch(() => {});
+    }
+}
+
 async function lootAfterKill(): Promise<void> {
     for (let i = 0; i < 12; i++) {
         await eatIfNeeded();
@@ -622,6 +635,7 @@ async function lootAfterKill(): Promise<void> {
         const ok = await pickupNear(item);
         if (!ok) break;
     }
+    await buryDragonBones();
     if (!sdk.findEquipmentItem(KNIVES)) {
         const stack = sdk.findInventoryItem(KNIVES);
         if (stack) await bot.equipItem(stack);
@@ -1165,10 +1179,17 @@ async function withdrawCount(pattern: RegExp, want: number): Promise<void> {
     log(`Withdraw ${bank.name} ${short}: ${r.success ? 'ok' : r.message}`);
 }
 
+/** East Ardougne church altar (brimhaven-dragons.ts ARDOUGNE_ALTAR), near the Ardougne bank. */
+const ARDOUGNE_ALTAR = { x: 2617, z: 3309 };
+
 async function prayAtSeersAltar(): Promise<void> {
+    await prayAtAltar(SEERS_ALTAR, 'Seers');
+}
+
+async function prayAtAltar(tile: { x: number; z: number }, where: string): Promise<void> {
     const st = sdk.getPrayerState();
     if (!st || st.prayerPoints >= st.prayerLevel) return;
-    await walkNear(bot, sdk, SEERS_ALTAR.x + 1, SEERS_ALTAR.z, 2);
+    await walkNear(bot, sdk, tile.x + 1, tile.z, 2);
     await sdk.scanNearbyLocs(6).catch(() => {});
     const altar = sdk.findNearbyLoc(/^altar$/i, { withOption: /pray/i });
     const op = altar?.optionsWithIndex.find((o) => /pray/i.test(o.text));
@@ -1176,7 +1197,7 @@ async function prayAtSeersAltar(): Promise<void> {
         await sdk.sendInteractLoc(altar.x, altar.z, altar.id, op.opIndex);
         await sdk.waitForCondition((s) => (s.skills.find((k) => k.name === 'Prayer')?.level ?? 0) >= st.prayerLevel, 10_000).catch(() => {});
     }
-    log(`Seers altar: prayer ${sdk.getPrayerState()?.prayerPoints}/${st.prayerLevel}`);
+    log(`${where} altar: prayer ${sdk.getPrayerState()?.prayerPoints}/${st.prayerLevel}`);
 }
 
 /** True when out of the lair by spell or ring (Camelot, Castle Wars, Lumbridge). */
@@ -1245,7 +1266,8 @@ async function bankTrip(): Promise<boolean> {
     }
     const wornArrows = sdk.findEquipmentItem(ARROW);
     if (wornArrows) await bot.unequipItem(wornArrows);
-    for (let i = 0; i < 16; i++) {
+    // Every non-kit item goes in, however many (ABGARMY16 carried a previous job's pack, 2026-11-01).
+    for (let i = 0; i < 28; i++) {
         const item = sdk.getInventory().find((it) => (it.count ?? 0) > 0 && !shouldKeep(it.name));
         if (!item) break;
         const r = await bot.depositItem(item, -1);
@@ -1288,6 +1310,12 @@ async function bankTrip(): Promise<boolean> {
     }
     await bot.closeBank();
     if (MELEE && nearSeers) await prayAtSeersAltar();
+    // Banking at Ardougne never restored prayer, and shouldBank sends a potless account with
+    // < 10 points straight back: ABGARMY20 looped 520 bank trips (2026-11-01).
+    else if (MELEE && (sdk.getPrayerState()?.prayerPoints ?? 99) < (sdk.getPrayerState()?.prayerLevel ?? 0) * 0.9) {
+        await bot.closeBank().catch(() => undefined);
+        await prayAtAltar(ARDOUGNE_ALTAR, 'Ardougne');
+    }
     // None banked: the Duke replaces it for any Dragon Slayer finisher (duke-shield.ts).
     if (MELEE && !sdk.findEquipmentItem(FIRE_SHIELD) && !sdk.findInventoryItem(FIRE_SHIELD)) await fetchDukeShield(bot, sdk, log);
     await equipLoadout();
