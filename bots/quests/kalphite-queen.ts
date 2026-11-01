@@ -35,7 +35,9 @@ const LAIR_LANDING = { x: 3483, z: 9510 };
 const CHAMBER_ENTRANCE = { x: 3507, z: 9497 };
 const QUEEN = { x: 3478, z: 9496 };
 const FOOD_WANT = 20;
-const LEAVE_FOOD = 5;
+const LEAVE_FOOD = 8;
+/** Below this with no potion, Protect from Magic is about to drop: out (ABGARMY17 died at 12). */
+const LEAVE_PRAYER = 15;
 const PRAYER_POTS_WANT = 4;
 const MAGIC_TAB = 6;
 const LUMBRIDGE_TELEPORT = 1167;
@@ -554,6 +556,11 @@ async function fight(): Promise<void> {
             session.log('warn', `Low on food (${foodCount()}) — leaving the chamber`);
             return;
         }
+        if ((sdk.getPrayerState()?.prayerPoints ?? 99) < LEAVE_PRAYER && count(PRAYER_POT) === 0) {
+            session.log('warn', `Prayer ${sdk.getPrayerState()?.prayerPoints} and no potion — teleporting out`);
+            await teleportOut();
+            return;
+        }
         if (pos().hp < pos().maxHp * 0.35 && foodCount() <= 2) {
             session.log('warn', `Emergency teleport at ${pos().hp}/${pos().maxHp}`);
             await teleportOut();
@@ -596,7 +603,8 @@ try {
             continue;
         }
         await closeUi(bot, sdk);
-        if (foodCount() <= LEAVE_FOOD) {
+        const prayerLow = (sdk.getPrayerState()?.prayerPoints ?? 99) < LEAVE_PRAYER && count(PRAYER_POT) === 0;
+        if (foodCount() <= LEAVE_FOOD || (inChamber() && prayerLow)) {
             await bankTrip();
             continue;
         }
