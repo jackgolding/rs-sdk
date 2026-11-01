@@ -131,7 +131,7 @@ services:
   quest-abgarmy04:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "ABGARMY04", "--then", "bots/quests/kalphite-queen.ts", "ABGARMY04", "--team-min=4"]
+    command: ["bun", "bots/quests/todo-runner.ts", "ABGARMY04", "--then", "bots/quests/hobgoblins.ts", "ABGARMY04"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -233,7 +233,7 @@ services:
   quest-abgarmy07:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "ABGARMY07", "--then", "bots/quests/kalphite-queen.ts", "ABGARMY07", "--team-min=4"]
+    command: ["bun", "bots/quests/todo-runner.ts", "ABGARMY07", "--then", "bots/quests/hobgoblins.ts", "ABGARMY07"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -301,7 +301,7 @@ services:
   quest-abgarmy09:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "ABGARMY09", "--then", "bots/quests/kalphite-queen.ts", "ABGARMY09", "--team-min=4"]
+    command: ["bun", "bots/quests/todo-runner.ts", "ABGARMY09", "--then", "bots/quests/hobgoblins.ts", "ABGARMY09"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -573,7 +573,7 @@ services:
   quest-abgarmy17:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "ABGARMY17", "--then", "bots/quests/kalphite-queen.ts", "ABGARMY17", "--team-min=4"]
+    command: ["bun", "bots/quests/todo-runner.ts", "ABGARMY17", "--then", "bots/quests/hobgoblins.ts", "ABGARMY17"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
@@ -1627,7 +1627,7 @@ services:
   quest-jackthief:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "jackthief", "--then", "bots/quests/kalphite-queen.ts", "jackthief", "--team-min=4"]
+    command: ["bun", "bots/quests/todo-runner.ts", "jackthief", "--then", "bots/quests/hobgoblins.ts", "jackthief"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so

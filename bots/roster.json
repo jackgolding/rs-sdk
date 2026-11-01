@@ -169,9 +169,8 @@
       "args": [
         "jackthief",
         "--then",
-        "bots/quests/kalphite-queen.ts",
-        "jackthief",
-        "--team-min=4"
+        "bots/quests/hobgoblins.ts",
+        "jackthief"
       ],
       "noEffectMinutes": 60
     },
@@ -429,9 +428,8 @@
       "args": [
         "ABGARMY04",
         "--then",
-        "bots/quests/kalphite-queen.ts",
-        "ABGARMY04",
-        "--team-min=4"
+        "bots/quests/hobgoblins.ts",
+        "ABGARMY04"
       ],
       "noEffectMinutes": 60
     },
@@ -467,9 +465,8 @@
       "args": [
         "ABGARMY07",
         "--then",
-        "bots/quests/kalphite-queen.ts",
-        "ABGARMY07",
-        "--team-min=4"
+        "bots/quests/hobgoblins.ts",
+        "ABGARMY07"
       ],
       "noEffectMinutes": 60
     },
@@ -493,9 +490,8 @@
       "args": [
         "ABGARMY09",
         "--then",
-        "bots/quests/kalphite-queen.ts",
-        "ABGARMY09",
-        "--team-min=4"
+        "bots/quests/hobgoblins.ts",
+        "ABGARMY09"
       ],
       "noEffectMinutes": 60
     },
@@ -600,9 +596,8 @@
       "args": [
         "ABGARMY17",
         "--then",
-        "bots/quests/kalphite-queen.ts",
-        "ABGARMY17",
-        "--team-min=4"
+        "bots/quests/hobgoblins.ts",
+        "ABGARMY17"
       ],
       "noEffectMinutes": 60
     },
