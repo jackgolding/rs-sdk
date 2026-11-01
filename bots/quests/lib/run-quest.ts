@@ -63,6 +63,7 @@ import { inEssenceMine, leaveEssenceMine } from './mining';
 import { inDungeon as inEntranaDungeon, teleportOut as teleportOutOfEntranaDungeon } from './lost-city';
 import { crossGnomeGate, inStronghold, leaveGrandTree } from './gnome-stronghold';
 import { inWaterfallArea, leaveWaterfall } from './waterfall';
+import { inPlagueArea, leavePlagueCity } from './plague-city';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -494,6 +495,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 }
                 // Baxtorian Falls, its ledge and the raft's island: no ladder or path out (lib/waterfall.ts).
                 if (inWaterfallArea(pos()) && !inWaterfallArea(tile)) await leaveWaterfall(q);
+                // West Ardougne (walled until Biohazard), the plague sewer and cellar: manhole, mud pile (lib/plague-city.ts).
+                if (inPlagueArea(pos()) && !inPlagueArea(tile)) await leavePlagueCity(q);
                 if (pos().z >= UNDERGROUND_Z && tile.z < UNDERGROUND_Z) await climbOutOfUnderground(tile);
                 // Buildings whose doorway the client map gets wrong (lib/doors.ts).
                 if (away(tile) > tolerance) (await leaveStuckArea(sdk, bot, tile, log)) || (await enterStuckArea(sdk, bot, tile, log));

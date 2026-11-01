@@ -16,6 +16,7 @@ import { closeUi } from '../movement';
 import { driveDialog } from './dialog';
 import { manorSpade, oilCan, pressureGauge, rubberTube } from './draynor-manor';
 import { dramenStaff } from './lost-city';
+import { buyGroceries } from './gnome-stronghold';
 
 export interface Need {
     /** Item name as the game shows it, e.g. 'ball of wool'. */
@@ -208,6 +209,12 @@ const LOGS_SPAWNS_SW_ARDOUGNE = [
     { x: 2464, z: 3191 },
 ];
 const PALACE_KITCHEN_SINK = { x: 3224, z: 3494 };
+/** Snape grass ground spawns, m45_51 (0 26 33 / 27 31 / 37 10): the hobgoblin peninsula. */
+const SNAPE_GRASS_SPAWNS = [
+    { x: 2906, z: 3297 },
+    { x: 2907, z: 3295 },
+    { x: 2917, z: 3274 },
+];
 
 export const SOURCES: Record<string, Source> = {
     /**
@@ -801,6 +808,14 @@ export const SOURCES: Record<string, Source> = {
             }
         },
     },
+
+    // ── Plague City: Alrena's dwellberries and Bravek's hangover cure (milk, chocolate dust, snape grass)
+    /** Hudo's Grand Tree Groceries (gnome.inv gnomeshop_hudo: dwellberries 3, chocolate dust 5, milk 5). */
+    dwellberries: { inputs: (count) => [{ item: 'coins', count: 40 * count }], get: (q, count) => buyGroceries(q, /^dwellberries$/i, 'dwellberries', count) },
+    'chocolate dust': { inputs: (count) => [{ item: 'coins', count: 40 * count }], get: (q, count) => buyGroceries(q, /^chocolate dust$/i, 'chocolate dust', count) },
+    'bucket of milk': { obj: 'bucket_milk', inputs: (count) => [{ item: 'coins', count: 40 * count }], get: (q, count) => buyGroceries(q, /^bucket of milk$/i, 'bucket of milk', count) },
+    /** No shop stocks it: three ground spawns among the hobgoblins (level 28) south-west of the Crafting Guild. */
+    'snape grass': { get: (q, count) => pickSpawns(q, 'snape grass', count, SNAPE_GRASS_SPAWNS) },
 
     // ── Priest in Peril
     /**
