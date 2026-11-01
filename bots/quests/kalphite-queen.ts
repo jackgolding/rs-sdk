@@ -269,6 +269,7 @@ async function bankTrip(): Promise<boolean> {
     if (inLair()) await teleportOut();
     // A grind handed over in the rune essence mine (ABGARMY09) is in an instance: portal out first.
     await leaveMine(bot, sdk, log);
+    await leaveDesert();
     await buyRopes();
     if (!eastOfToll(pos())) await crossAlKharidToll(bot, sdk, true, { log });
     if (distTo(AL_KHARID_BANK.x, AL_KHARID_BANK.z) > 8) await walkNear(bot, sdk, AL_KHARID_BANK.x, AL_KHARID_BANK.z, 3);
@@ -483,7 +484,13 @@ async function goToQueen(): Promise<boolean> {
         if (!(await throughShantayGate())) return false;
         intent('Across the desert to the Kalphite burrow');
         await walkLegs(0, BURROW);
-        if (!(await ropeAndClimb(/tunnel|entrance|burrow|hole/i, () => inLair()))) return false;
+        if (!(await ropeAndClimb(/tunnel|entrance|burrow|hole/i, () => inLair()))) {
+            if (count(ROPE) === 0) {
+                session.log('warn', 'No rope for the burrow — back to restock');
+                await bankTrip();
+            }
+            return false;
+        }
         log(`In the Kalphite lair @ ${pos().x},${pos().z} L${pos().level}`);
     }
     if (!inChamber()) {
@@ -502,6 +509,24 @@ async function goToQueen(): Promise<boolean> {
     }
     if (distTo(QUEEN.x, QUEEN.z) > 10) await walkLegs(0, QUEEN);
     return inChamber();
+}
+
+/**
+ * Back north through the Shantay gate (free from the desert side). Without it a bank trip from
+ * the burrow (ABGARMY09, no rope) counted the desert as "west of the toll" and walked at the wall.
+ */
+async function leaveDesert(): Promise<void> {
+    if (!inDesert()) return;
+    intent('Back through the Shantay gate');
+    await walkLegs(0, { x: SHANTAY_GATE.x - 1, z: SHANTAY_GATE.z - 4 });
+    for (let attempt = 0; attempt < 4 && inDesert(); attempt++) {
+        await sdk.scanNearbyLocs(6).catch(() => {});
+        const gate = sdk.findNearbyLoc(/^shantay pass$/i, { withOption: /go-through/i });
+        const op = gate?.optionsWithIndex.find((o) => /go-through/i.test(o.text));
+        if (gate && op) await sdk.sendInteractLoc(gate.x, gate.z, gate.id, op.opIndex);
+        await sdk.waitForCondition((st) => (st.player?.worldZ ?? 0) >= 3117, 6_000).catch(() => {});
+    }
+    log(`Out of the desert: ${!inDesert()} @ ${pos().x},${pos().z}`);
 }
 
 async function teleportOut(): Promise<boolean> {
