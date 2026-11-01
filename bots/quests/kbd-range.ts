@@ -117,7 +117,8 @@ const LADDER_TO_KEEP = [...KEEP_TO_LADDER].reverse();
 const KBD = /^king black dragon$/i;
 const KNIVES = /^mithril kni(fe|ves)$/i;
 const DRAGON_BONES = /^dragon bones$/i;
-const BLACK_HIDE = /^black d'?hide$/i;
+// The KBD's hide is named just "Dragonhide" here (crafting.obj dragonhide_black): the old pattern never matched, 0 picked up (2026-11-01).
+const BLACK_HIDE = /^(black )?(dragonhide|d'?hide)$/i;
 const SHARK = /^shark$/i;
 const ANTIPOISON = /^antipoison(\(\d\))?$/i;
 const PRAYER_POT = /^prayer potion(\(\d\))?$/i;
