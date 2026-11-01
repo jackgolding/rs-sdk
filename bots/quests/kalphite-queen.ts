@@ -24,6 +24,7 @@ import { foodHeal } from './food-heal';
 import { AL_KHARID_BANK } from './tiles';
 import { crossAlKharidToll, eastOfToll } from './alkharid-toll';
 import { brewPrayerPotions } from './prayer-brew';
+import { leaveMine } from './air-runes-shared';
 
 const SHANTAY = { x: 3304, z: 3127, npc: /^shantay$/i };
 const SHANTAY_GATE = { x: 3304, z: 3119 };
@@ -255,6 +256,8 @@ async function withdraw(p: RegExp, want: number): Promise<void> {
 async function bankTrip(): Promise<boolean> {
     await session.setPhase('bank');
     if (inLair()) await teleportOut();
+    // A grind handed over in the rune essence mine (ABGARMY09) is in an instance: portal out first.
+    await leaveMine(bot, sdk, log);
     if (!eastOfToll(pos())) await crossAlKharidToll(bot, sdk, true, { log });
     if (distTo(AL_KHARID_BANK.x, AL_KHARID_BANK.z) > 8) await walkNear(bot, sdk, AL_KHARID_BANK.x, AL_KHARID_BANK.z, 3);
     const opened = await bot.openBank();
