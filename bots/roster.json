@@ -352,7 +352,7 @@
       "args": [
         "jacklove18",
         "--then",
-        "bots/quests/brimhaven-dragons.ts",
+        "bots/quests/monk-robes.ts",
         "jacklove18"
       ],
       "noEffectMinutes": 60
