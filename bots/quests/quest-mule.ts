@@ -106,7 +106,9 @@ function bankCount(pattern: RegExp): number {
 
 async function parkAtDraynor(): Promise<void> {
     const p = pos();
-    if (Math.hypot(p.x - MULE_BANK.x, p.z - MULE_BANK.z) > 6) {
+    // Far away (jackthief moving to its Ardougne post from Varrock): the pathfinder, then hops.
+    if (Math.hypot(p.x - MULE_BANK.x, p.z - MULE_BANK.z) > 30) await bot.walkTo(MULE_BANK.x, MULE_BANK.z, 3).catch(() => undefined);
+    if (Math.hypot(pos().x - MULE_BANK.x, pos().z - MULE_BANK.z) > 6) {
         await walkSendHops(sdk, [MULE_BANK], MULE_BANK, 4);
     }
 }
