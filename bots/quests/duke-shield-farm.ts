@@ -1,8 +1,8 @@
 /**
  * Dragonfire shields for the fleet: Duke Horacio hands one to a Dragon Slayer finisher holding
  * or wearing none, and never checks the bank (duke_horacio.rs2). So: ask him on the castle's
- * first floor, bank the shield at Draynor (Lumbridge castle has no bank in this revision), ask
- * again (user, 2026-11-01).
+ * first floor, drop it, ask again — BATCH times — then pick them all up before they despawn
+ * and bank them at Draynor (no bank in Lumbridge castle) (user, 2026-11-01).
  *
  *   bun bots/quests/duke-shield-farm.ts {botname} [--target=40]
  *
@@ -14,7 +14,9 @@ import { BotSDK, deriveGatewayUrl } from '../../sdk/index';
 import { BotActions } from '../../sdk/actions';
 import { initPathfinding } from '../../sdk/pathfinding';
 import { closeUi, walkNear } from './movement';
-import { fetchDukeShield } from './duke-shield';
+/** Shields dropped per batch: picked up well inside the ground-item lifetime, then banked. */
+const BATCH = Number(process.argv.find((a) => a.startsWith('--batch='))?.split('=')[1] ?? 10);
+const DUKE = { x: 3210, z: 3221 };
 
 const SHIELD = /dragonfire shield|anti-?dragon/i;
 const CASTLE_STAIRS = { x: 3205, z: 3209 };
@@ -83,6 +85,39 @@ async function bankShields(): Promise<number> {
     return banked;
 }
 
+/** One "I seek a shield" from the Duke; true when a shield lands in the pack. */
+async function askDuke(): Promise<boolean> {
+    if (Math.hypot(pos().x - DUKE.x, pos().z - DUKE.z) > 3) await bot.walkTo(DUKE.x, DUKE.z, 2).catch(() => undefined);
+    const duke = sdk.findNearbyNpc(/^duke horacio$/i);
+    if (!duke) return false;
+    await bot.talkTo(duke).catch(() => undefined);
+    for (let i = 0; i < 16 && !sdk.findInventoryItem(SHIELD); i++) {
+        const d = sdk.getDialog();
+        if (d?.isOpen && !d.isWaiting) {
+            const ask = d.options.find((o) => /seek a shield/i.test(o.text));
+            if (!ask && d.options.length > 1) break;
+            await sdk.sendClickDialog(ask?.index ?? d.options[0]?.index ?? 0);
+        }
+        await sdk.waitForTicks(1).catch(() => undefined);
+    }
+    await bot.dismissBlockingUI().catch(() => undefined);
+    return !!sdk.findInventoryItem(SHIELD);
+}
+
+/** Every dropped shield in view, before the ground items despawn. */
+async function pickUpShields(): Promise<number> {
+    let picked = 0;
+    for (let i = 0; i < BATCH * 2 + 4; i++) {
+        const g = sdk.findGroundItem(SHIELD, { reachable: true });
+        if (!g || sdk.getInventory().length >= 28) break;
+        const before = sdk.getInventory().filter((x) => SHIELD.test(x.name)).length;
+        await bot.pickupItem(g).catch(() => undefined);
+        await sdk.waitForCondition(() => sdk.getInventory().filter((x) => SHIELD.test(x.name)).length > before, 4_000).catch(() => {});
+        if (sdk.getInventory().filter((x) => SHIELD.test(x.name)).length > before) picked++;
+    }
+    return picked;
+}
+
 let ok = false;
 try {
     await closeUi(bot, sdk);
@@ -96,14 +131,26 @@ try {
             if (!r.success) await walkNear(bot, sdk, CASTLE_STAIRS.x, CASTLE_STAIRS.z, 2);
         }
         if (!(await climbTo(1))) throw new Error('could not reach the Duke\'s floor');
-        const got = await fetchDukeShield(bot, sdk, log);
-        if (!got) {
-            misses++;
-            continue;
+        const batch = Math.min(BATCH, target - banked);
+        let dropped = 0;
+        for (let i = 0; i < batch && misses < 3; i++) {
+            if (!(await askDuke())) {
+                misses++;
+                continue;
+            }
+            misses = 0;
+            const shield = sdk.findInventoryItem(SHIELD);
+            if (shield) {
+                await sdk.sendDropItem(shield.slot);
+                await sdk.waitForCondition(() => !sdk.findInventoryItem(SHIELD), 3_000).catch(() => {});
+                dropped++;
+            }
         }
-        misses = 0;
+        const picked = await pickUpShields();
+        log(`batch: dropped ${dropped}, picked up ${picked}`);
+        if (picked === 0 && dropped === 0) continue;
         banked = await bankShields();
-        log(`shield banked — ${banked}/${target}`);
+        log(`shields banked — ${banked}/${target}`);
     }
     ok = banked >= target;
     log(ok ? `done: ${banked} shields banked` : `stopped: the Duke gave none ${misses} times (${banked} banked)`);
