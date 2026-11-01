@@ -603,7 +603,28 @@ export const SOURCES: Record<string, Source> = {
         },
     },
     /** Smithed from a bronze bar (Smithing 4): mule stock, like the iron bars. */
-    'bronze wire': { obj: 'bronzecraftwire', mule: true },
+    /**
+     * Shilo Village's Bronze wire: a bronze bar smithed at the Seers' anvil (Smithing 4). No mule
+     * stocks it, and the port's mule-only line stopped every run (2026-11-02).
+     */
+    'bronze wire': {
+        obj: 'bronzecraftwire',
+        levels: { smithing: 4 },
+        inputs: () => [
+            { item: 'bronze bar', count: 1 },
+            { item: 'hammer', count: 1 },
+        ],
+        get: async (q, count) => {
+            for (let i = 0; i < count && q.count('bronze wire') < count; i++) {
+                await q.ensure('bronze bar', 1);
+                await q.ensure('hammer', 1);
+                await q.goTo({ x: 2713, z: 3492 }, 2);
+                const res = await q.bot.smithAtAnvil('bronze wire');
+                if (!res.success) q.log(`bronze wire: ${res.message}`);
+                await untilTicks(q.sdk, () => q.count('bronze wire') > 0, 10);
+            }
+        },
+    },
     /** GROUPS 'melee weapon': nothing to buy near a hub, so a bank without one stops with NEEDS STOCK. */
     'melee weapon': { obj: 'rune_scimitar', mule: true },
     /** Lalli's altar step (raw shark on the Strange altar): harpooned off Catherby's pier at Fishing 76. */
