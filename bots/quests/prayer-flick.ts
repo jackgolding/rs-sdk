@@ -49,8 +49,16 @@ export class PrayerFlicker {
         this.lastFlick = 0;
         if (prev && prev !== prayer && this.sdk.isPrayerActive(prev)) void this.sdk.sendTogglePrayer(prev);
         if (!prayer && prev && this.sdk.isPrayerActive(prev)) void this.sdk.sendTogglePrayer(prev);
-        if (prayer && !this.running) void this.loop();
+        // Switching off is verified too: a stale "already off" read skipped the toggle and left
+        // Protect from Melee on between KBD kills (43 -> 23 points while waiting, prod 2026-11-01).
+        if (!prayer && prev) this.offTarget = prev;
+        if (!this.running) void this.loop();
     }
+
+    /** Prayer that must be confirmed off (fresh state) before the loop rests. */
+    private offTarget: PrayerName | null = null;
+    private onReads = 0;
+    private offConfirms = 0;
 
     get active(): PrayerName | null {
         return this.want;
@@ -63,7 +71,29 @@ export class PrayerFlicker {
     private async loop(): Promise<void> {
         this.running = true;
         try {
-            while (this.want) {
+            while (this.want || this.offTarget) {
+                if (!this.want) {
+                    const t = this.offTarget!;
+                    const fresh = (this.sdk.getStateAge?.() ?? 0) < 500;
+                    if (fresh && this.sdk.isPrayerActive(t)) {
+                        this.offConfirms = 0;
+                        if (++this.onReads >= 2 && this.tick() - this.lastFlick >= 3) {
+                            this.onReads = 0;
+                            await this.sdk.sendTogglePrayer(t);
+                            this.lastFlick = this.tick();
+                        }
+                    } else if (fresh) {
+                        this.onReads = 0;
+                        if (++this.offConfirms >= 3) {
+                            this.offTarget = null;
+                            this.offConfirms = 0;
+                            break;
+                        }
+                    }
+                    await this.sdk.waitForTicks(1).catch(() => {});
+                    continue;
+                }
+                this.offTarget = null;
                 const p = this.want;
                 const points = this.sdk.getPrayerState()?.prayerPoints ?? 0;
                 if (points <= 0) {

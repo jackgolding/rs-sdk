@@ -1045,6 +1045,29 @@ async function setStabStyle(): Promise<void> {
     log(`Style ${stab.name} (stab) on ${cs.weaponName}`);
 }
 
+/**
+ * The KBD attacks only its current target (king_black_dragon.rs2), so only that account needs
+ * Protect from Melee (user, 2026-11-01). Its target is its facing entity: a player slot + 32768.
+ * Our own slot is not published, so "a player none of the visible others are" means us.
+ * Held for TARGET_HOLD_TICKS after the dragon looks away, and while we were hit in the last
+ * few ticks, so a quick switch back does not land unprotected.
+ */
+const TARGET_HOLD_TICKS = 8;
+let lastTargetedTick = -999;
+
+function kbdTargetsMe(): boolean {
+    const tick = sdk.getState()?.tick ?? 0;
+    const t = findKbd()?.targetIndex ?? -1;
+    let me = false;
+    if (t >= 32768) {
+        const idx = t - 32768;
+        me = !(sdk.getNearbyPlayers() ?? []).some((p) => p.index === idx);
+    }
+    const hit = sdk.getState()?.player?.combat?.lastDamageTick ?? -1;
+    if (me || (hit >= 0 && tick - hit <= 4)) lastTargetedTick = tick;
+    return tick - lastTargetedTick <= TARGET_HOLD_TICKS;
+}
+
 async function meleeKill(): Promise<void> {
     if (!inKbdLair()) return;
     teamCheckIn('lair');
@@ -1055,7 +1078,7 @@ async function meleeKill(): Promise<void> {
         await sdk.waitForTicks(3);
         return;
     }
-    await protectMelee(true);
+    await protectMelee(kbdTargetsMe());
     await setStabStyle();
     log(`KBD up — protect from melee ${sdk.isPrayerActive('protect_from_melee') ? 'on' : 'OFF'} prayer=${sdk.getPrayerState()?.prayerPoints} sharks=${foodCount()} team=${(sdk.getNearbyPlayers() ?? []).length + 1}`);
     const hpXp = () => sdk.getSkill('Hitpoints')?.experience ?? 0;
@@ -1067,7 +1090,7 @@ async function meleeKill(): Promise<void> {
         await eatIfNeeded();
         await drinkAntipoison();
         await drinkPrayerIfLow();
-        await protectMelee(true);
+        await protectMelee(kbdTargetsMe());
         // Two sharks for the walk to the exit lever: the far fire breath still lands on the way
         // (qlck1 left at 0 sharks, 44 HP, and died by the lever).
         if (foodCount() <= 3) {
