@@ -299,7 +299,10 @@ async function bankTrip(): Promise<boolean> {
     await withdraw(ANTIPOISON, 2);
     await withdraw(PRAYER_POT, PRAYER_POTS_WANT);
     if (count(PRAYER_POT) < PRAYER_POTS_WANT) await brewPrayerPotions(bot, sdk, log, PRAYER_POTS_WANT - count(PRAYER_POT));
-    await withdraw(SHARK, FOOD_WANT);
+    // Leave 3 slots: the Shantay pass is bought after banking, and the loot needs room
+    // (jackthief: "No inventory space to buy Shantay pass").
+    const free = 28 - sdk.getInventory().filter((i) => (i.count ?? 0) > 0).length;
+    await withdraw(SHARK, Math.min(FOOD_WANT, count(SHARK) + free - 3));
     await bot.closeBank();
     for (const p of [...WEAPONS, ...ARMOUR]) {
         if (sdk.findEquipmentItem(p)) continue;
