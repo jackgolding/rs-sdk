@@ -22,7 +22,7 @@ import { initPathfinding } from '../../sdk/pathfinding';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { walkSendHops } from './movement';
-import { MULE_BANK, QUEST_STOCK, ensureSupplied, parseSupplyRequest } from './supply';
+import { QUEST_STOCK, ensureSupplied, muleBank, parseSupplyRequest } from './supply';
 import { countItems } from './quest-lib';
 import { TREES, fletchFor } from './lib/training';
 
@@ -35,6 +35,8 @@ const STOCK_MODE = argv.includes('--stock');
 // --serve-only: a mule for a few lines only (jacklove4's imp beads) — no
 // QUEST_STOCK audit, which would warn about every Dragon Slayer line it never holds.
 const SERVE_ONLY = argv.includes('--serve-only');
+/** This mule's bank (supply.ts MULE_BANKS: jackthief at Ardougne, the rest at Draynor). */
+const MULE_BANK = muleBank(botArg ?? '');
 // --train: Woodcutting + Fletching at the Draynor trees while no request is waiting.
 const TRAIN = argv.includes('--train');
 

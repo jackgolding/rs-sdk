@@ -27,6 +27,9 @@ import { PrayerFlicker } from './prayer-flick';
 import { fetchDukeShield } from './duke-shield';
 import { ensureAxeFromBob, hasAxe } from './bob-axes';
 import { brewPrayerPotions } from './prayer-brew';
+import { requestFromMule } from './supply';
+/** Last time this run asked jackthief for prayer potions. */
+let lastPotAsk = 0;
 import { closeUi, crossGangplank, walkNear } from './movement';
 import { foodHeal, healAtBank } from './food-heal';
 import { ARDOUGNE_BANK, BRIMHAVEN_CUSTOMS, CAPTAIN_BARNABY } from './tiles';
@@ -407,6 +410,16 @@ async function bankTrip(): Promise<boolean> {
     const ready = potted && canTeleport && count(COINS) >= ENTRY_FEE + BOAT_GP * 2 && foodCount() > LEAVE_FOOD && AXES.some((p) => sdk.findInventoryItem(p) || sdk.findEquipmentItem(p)) && !!sdk.findEquipmentItem(SHIELD);
     log(`Kit coins=${count(COINS)} food=${foodCount()} pots=${count(PRAYER_POT)} shield=${!!sdk.findEquipmentItem(SHIELD)} worn=${sdk.getEquipment().filter(Boolean).map((e) => e!.name).join(',')} ready=${ready}`);
     session.noteProgress('bank', `food ${foodCount()}`);
+    if (!potted && Date.now() - lastPotAsk > 20 * 60_000) {
+        // jackthief, the max-stat mule, serves from this same Ardougne bank (supply.ts MULE_BANKS).
+        lastPotAsk = Date.now();
+        log(`prayer potions short (${count(PRAYER_POT)}): asking jackthief at the Ardougne bank`);
+        const ok = await requestFromMule({ sdk, bot, session: null, log } as never, [
+            { label: 'prayer potion(3)', pattern: /^prayer potion\(3\)$/i, count: 9 }
+        ], { mule: 'jackthief', timeoutMs: 5 * 60_000 });
+        log(`mule jackthief: ${ok ? 'served' : 'not all served'}; pots ${count(PRAYER_POT)}`);
+        return false;
+    }
     if (!potted) {
         session.log('warn', `no prayer potions (${count(PRAYER_POT)} < ${MIN_PRAYER_POTS}, none to brew) — no trip; rechecking in 30 min`);
         const until = Date.now() + 30 * 60_000;

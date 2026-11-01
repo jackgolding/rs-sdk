@@ -129,6 +129,14 @@ export const QUEST_STOCK: Record<string, number> = {
 
 /** Draynor HQ rendezvous: the mule parks at the bank, questers come to it. */
 export const MULE_BANK: Tile = { x: 3092, z: 3243 };
+/**
+ * Where each mule parks. jackthief (the max-stat mule, 2026-11-02) serves the boss teams from
+ * the Ardougne bank they already use; everyone else is at Draynor.
+ */
+export const MULE_BANKS: Record<string, Tile> = { jackthief: { x: 2655, z: 3283 } };
+export function muleBank(mule: string): Tile {
+    return MULE_BANKS[mule.toLowerCase()] ?? MULE_BANKS[mule] ?? MULE_BANK;
+}
 
 export interface MuleOptions {
     /** Mule account name (DM target + trade partner). Omit to skip the mule. */
@@ -175,7 +183,11 @@ export async function requestFromMule(
     const pending = needs.filter((n) => countItems(sdk, n.pattern) < n.count);
     if (pending.length === 0) return true;
     try {
-        await walkSendHops(sdk, [MULE_BANK], MULE_BANK, 4);
+        const at = muleBank(opts.mule);
+        // Far walks need the pathfinder: hops only work within a short leg.
+        const here = sdk.getState()?.player;
+        if (here && Math.hypot(here.worldX - at.x, here.worldZ - at.z) > 30) await bot.walkTo(at.x, at.z, 3).catch(() => undefined);
+        await walkSendHops(sdk, [at], at, 4);
         // The server's word filter reads digits as letters and skips spaces and commas:
         // "nails x12, dragon longsword" arrived as "na**********ragon longsword" and the
         // mule served nothing (ABGARMY01, 2026-10-31). `label=count; …` passes it for every
