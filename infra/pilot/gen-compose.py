@@ -7,6 +7,7 @@ Usage: python3 infra/pilot/gen-compose.py > infra/pilot/compose.fleet.yml
 Re-run whenever roster scripts/args change; commit the output.
 """
 import json
+import os
 
 HEADER = """# GENERATED from bots/roster.json — do not edit by hand.
 # Regenerate: python3 infra/pilot/gen-compose.py > infra/pilot/compose.fleet.yml
@@ -51,15 +52,44 @@ def sh(words):
     return "[" + ", ".join('"%s"' % w for w in words) + "]"
 
 
+# One process for every account in bots/swarm.json (server/webclient/src/lite/
+# swarm-jobs.ts): those accounts get NO lite-/quest- pair below. ~10 MiB per
+# account instead of ~400 MiB. They must also be in skip-bots.txt until
+# fleet-status learns to read swarm-status.json, or the shepherd will try to wake them.
+SWARM = """  swarm:
+    <<: *runner
+    working_dir: /opt/fleet/server/webclient
+    command: ["bun", "/opt/fleet/bots/quests/swarm-jobs.ts", "--config=/opt/fleet/bots/swarm.json"]
+    volumes:
+      - /srv/fleet/bots:/opt/fleet/bots
+""" + LOGGING + """    # SIGTERM parks every account at its bank (<=120s) before logging out.
+    stop_grace_period: 150s
+    mem_limit: 768m
+    restart: unless-stopped
+"""
+
+
+def swarm_names():
+    if not os.path.exists("bots/swarm.json"):
+        return set()
+    with open("bots/swarm.json") as f:
+        return {a["name"] for a in json.load(f).get("accounts", [])}
+
+
 def main():
     with open("bots/roster.json") as f:
         r = json.load(f)
     bots = r if isinstance(r, list) else r.get("bots", r)
+    in_swarm = swarm_names()
     print(HEADER)
     print(BASE)
     print("services:")
+    if in_swarm:
+        print(SWARM, end="")
     for b in sorted(bots, key=lambda x: x["name"].lower()):
         name = b["name"]
+        if name in in_swarm:
+            continue
         slug = name.lower()
         script = b["script"]
         args = b.get("args", [name])
