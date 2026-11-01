@@ -24,6 +24,7 @@ import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { installGracefulShutdown } from '../../sdk/runner';
 import { fetchDukeShield } from './duke-shield';
+import { ensureAxeFromBob, hasAxe } from './bob-axes';
 import { brewPrayerPotions } from './prayer-brew';
 import { closeUi, crossGangplank, walkNear } from './movement';
 import { foodHeal } from './food-heal';
@@ -331,6 +332,9 @@ async function bankTrip(): Promise<boolean> {
         if (!r.success && !r.partial) break;
     }
     if (banked.length) log(`Banked loot: ${banked.join(', ')}`);
+    // One axe travels; spares (Bob's stock bought after a death) wait in the bank.
+    const axesHeld = sdk.getInventory().filter((i) => AXES.some((a) => a.test(i.name)));
+    for (const extra of axesHeld.slice(sdk.findEquipmentItem(/axe$/i) ? 0 : 1)) await bot.depositItem(extra, 1).catch(() => undefined);
     await withdrawUpTo(COINS, COINS_WANT);
     await withdrawFirst(AXES);
     await withdrawFirst(WEAPONS);
@@ -348,6 +352,8 @@ async function bankTrip(): Promise<boolean> {
     await withdrawUpTo(sharks, FOOD_WANT - (foodCount() - count(sharks)));
     await bot.closeBank();
     if (!sdk.findEquipmentItem(SHIELD) && !sdk.findInventoryItem(SHIELD)) await fetchDukeShield(bot, sdk, log);
+    // No axe held or banked (lost on a death): Bob's in Lumbridge (bob-axes.ts).
+    if (!hasAxe(sdk)) await ensureAxeFromBob(bot, sdk, log);
     await prayAtAltar();
     for (const pattern of [...WEAPONS, SHIELD, ...ARMOUR]) {
         if (sdk.findEquipmentItem(pattern)) continue;
@@ -697,6 +703,8 @@ async function waitRespawn(): Promise<void> {
     await sdk.waitForCondition((s) => !s.player.isDead && s.player.lifeId !== life, 60_000).catch(() => {});
     await closeUi(bot, sdk);
     await fetchDukeShield(bot, sdk, log);
+    // The respawn is in Lumbridge, next to Bob's axes: replace a lost axe before the walk back.
+    await ensureAxeFromBob(bot, sdk, log);
 }
 
 session.registerRecovery([
