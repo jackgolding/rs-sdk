@@ -138,6 +138,12 @@ const CATHERBY_PIER = [
 const RELLEKKA_POTATOES = [{ x: 2677, z: 3652 }];
 /** Betty's Magic Emporium, Port Sarim: elemental and chaos runes. */
 const BETTY = { x: 3012, z: 3259, npc: /^betty$/i };
+/**
+ * Aubury's Rune Shop, Varrock (wiki/shops/auburys-rune-shop.md): 2000 of each elemental rune,
+ * 1000 mind/chaos/death. Betty stocks a handful, and two questers emptied her earth and fire
+ * runes for an hour (Lost City, Waterfall; 2026-11-01).
+ */
+const AUBURY = { x: 3253, z: 3402, npc: /^aubury$/i };
 const LUMBRIDGE_CASTLE_STAIRS = { x: 3205, z: 3208 };
 /** Wydin's Food Store, Port Sarim: pot of flour 10gp (stock 3), redberries 3gp (stock 1). */
 const WYDIN = { x: 3014, z: 3204, npc: /^wydin$/i };
@@ -449,8 +455,8 @@ export const SOURCES: Record<string, Source> = {
             await buyWaitingForRestock(q, ZAFF, 'staff of fire', 1);
         },
     },
-    'air rune': runes('air rune', 4),
-    'chaos rune': runes('chaos rune', 15),
+    'air rune': runes('air rune', 4, AUBURY),
+    'chaos rune': runes('chaos rune', 15, AUBURY),
     // ── Tools for the skill trainers (lib/training.ts) and Lost City
     axe: {
         obj: 'bronze_axe',
@@ -496,10 +502,10 @@ export const SOURCES: Record<string, Source> = {
             await buyWaitingForRestock(q, DOMMIK, 'thread', count);
         },
     },
-    'fire rune': runes('fire rune', 4),
-    'earth rune': runes('earth rune', 4),
+    'fire rune': runes('fire rune', 4, AUBURY),
+    'earth rune': runes('earth rune', 4, AUBURY),
     /** Waterfall Quest's pillars. Betty: stock 1000. */
-    'water rune': runes('water rune', 4),
+    'water rune': runes('water rune', 4, AUBURY),
     /** Not sold near any hub (the Magic Guild store needs 66 Magic): mule stock, like the Telegrab laws. */
     'law rune': { obj: 'lawrune', mule: true },
     /** Lost City past the spirit with the staff lost: back to Entrana for another branch (lib/lost-city.ts). */
@@ -1200,7 +1206,7 @@ async function spinBatch(q: Quest): Promise<void> {
 }
 
 /** Runes from Betty's (Port Sarim), `price` each. */
-function runes(item: string, price: number): Source {
+function runes(item: string, price: number, shop: { x: number; z: number; npc: RegExp } = BETTY): Source {
     return {
         obj: item.replace(/ /g, ''),
         // Shop prices climb as the stock runs down: half again over list price covers a big order.
@@ -1211,7 +1217,7 @@ function runes(item: string, price: number): Source {
             for (let batch = 0; batch < 40 && q.count(item) < count; batch++) {
                 const want = Math.min(count, q.count(item) + 25);
                 await q.ensure('coins', Math.ceil(price * (want - q.count(item)) * 2));
-                await buyWaitingForRestock(q, BETTY, item, want);
+                await buyWaitingForRestock(q, shop, item, want);
             }
         },
     };
