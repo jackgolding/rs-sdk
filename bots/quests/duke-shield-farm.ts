@@ -1,7 +1,8 @@
 /**
  * Dragonfire shields for the fleet: Duke Horacio hands one to a Dragon Slayer finisher holding
  * or wearing none, and never checks the bank (duke_horacio.rs2). So: ask him on the castle's
- * first floor, bank the shield one floor up, ask again (user, 2026-11-01).
+ * first floor, bank the shield at Draynor (Lumbridge castle has no bank in this revision), ask
+ * again (user, 2026-11-01).
  *
  *   bun bots/quests/duke-shield-farm.ts {botname} [--target=40]
  *
@@ -17,8 +18,8 @@ import { fetchDukeShield } from './duke-shield';
 
 const SHIELD = /dragonfire shield|anti-?dragon/i;
 const CASTLE_STAIRS = { x: 3205, z: 3209 };
-/** Lumbridge castle bank, second floor (level 2). */
-const CASTLE_BANK = { x: 3208, z: 3220 };
+/** Draynor bank booth stand (safe-stops DRAYNOR_BANK). */
+const DRAYNOR_BANK = { x: 3092, z: 3243 };
 
 const argv = process.argv.slice(2);
 const name = argv.find((a) => !a.startsWith('-'))!;
@@ -62,10 +63,11 @@ async function climbTo(want: number): Promise<boolean> {
     return pos().level === want;
 }
 
-/** Bank the shield(s) held on the castle's top floor; returns the banked count. */
+/** Bank the shield(s) held at Draynor; returns the banked count. */
 async function bankShields(): Promise<number> {
-    if (!(await climbTo(2))) throw new Error(`could not climb to the castle bank from ${pos().x},${pos().z},L${pos().level}`);
-    await walkNear(bot, sdk, CASTLE_BANK.x, CASTLE_BANK.z, 2);
+    if (pos().level > 0 && !(await climbTo(0))) throw new Error(`could not climb down from ${pos().x},${pos().z},L${pos().level}`);
+    const r = await bot.walkTo(DRAYNOR_BANK.x, DRAYNOR_BANK.z, 3);
+    if (!r.success) await walkNear(bot, sdk, DRAYNOR_BANK.x, DRAYNOR_BANK.z, 3);
     const opened = await bot.openBank();
     if (!opened.success) throw new Error(`castle bank: ${opened.message}`);
     for (let i = 0; i < 28; i++) {
@@ -85,14 +87,14 @@ let ok = false;
 try {
     await closeUi(bot, sdk);
     log(`start @ ${pos().x},${pos().z},L${pos().level} target=${target}`);
-    if (Math.hypot(pos().x - CASTLE_STAIRS.x, pos().z - CASTLE_STAIRS.z) > 30) {
-        const r = await bot.walkTo(CASTLE_STAIRS.x, CASTLE_STAIRS.z, 3);
-        if (!r.success) await walkNear(bot, sdk, CASTLE_STAIRS.x, CASTLE_STAIRS.z, 3);
-    }
     let banked = await bankShields();
     log(`bank holds ${banked} shields`);
     let misses = 0;
     while (banked < target && misses < 3) {
+        if (Math.hypot(pos().x - CASTLE_STAIRS.x, pos().z - CASTLE_STAIRS.z) > 6 && pos().level === 0) {
+            const r = await bot.walkTo(CASTLE_STAIRS.x, CASTLE_STAIRS.z, 2);
+            if (!r.success) await walkNear(bot, sdk, CASTLE_STAIRS.x, CASTLE_STAIRS.z, 2);
+        }
         if (!(await climbTo(1))) throw new Error('could not reach the Duke\'s floor');
         const got = await fetchDukeShield(bot, sdk, log);
         if (!got) {
