@@ -303,6 +303,9 @@ async function bankTrip(): Promise<boolean> {
     // (jackthief: "No inventory space to buy Shantay pass").
     const free = 28 - sdk.getInventory().filter((i) => (i.count ?? 0) > 0).length;
     await withdraw(SHARK, Math.min(FOOD_WANT, count(SHARK) + free - 3));
+    // Whatever else the pack holds (other food, brewed potions), end with 3 free slots.
+    const freeNow = 28 - sdk.getInventory().filter((i) => (i.count ?? 0) > 0).length;
+    if (freeNow < 3 && count(SHARK) > 0) await bot.depositItem(SHARK, Math.min(count(SHARK), 3 - freeNow)).catch(() => undefined);
     await bot.closeBank();
     for (const p of [...WEAPONS, ...ARMOUR]) {
         if (sdk.findEquipmentItem(p)) continue;
