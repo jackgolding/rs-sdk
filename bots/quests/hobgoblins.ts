@@ -16,6 +16,7 @@ import {
     TO_FALADOR_EAST_FROM_HOBS
 } from './tiles';
 import { closeUi as closeUiShared } from './movement';
+import { crossAlKharidToll, inAlKharidRegion } from './alkharid-toll';
 import { foodHeal } from './food-heal';
 import { installGracefulShutdown } from '../../sdk/runner';
 
@@ -634,6 +635,8 @@ try {
             `@ ${pos().x},${pos().z} weapon=${sdk.findEquipmentItem(DLONG)?.name ?? sdk.findInventoryItem(DLONG)?.name ?? 'none'} ` +
             `spec ${Math.floor(specEnergy / 10)}% | ${lootSummary()}`
     );
+    // The ex-Kalphite Queen accounts start at the Al Kharid bank: walkTo has no route through the toll gate.
+    if (inAlKharidRegion(pos())) await crossAlKharidToll(bot, sdk, false, { log });
 
     while (!session.isStopped()) {
         if (session.needsRecovery()) {
