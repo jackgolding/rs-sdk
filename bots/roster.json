@@ -169,7 +169,7 @@
       "args": [
         "jackthief",
         "--then",
-        "bots/quests/hobgoblins.ts",
+        "bots/quests/aemad-supplies.ts",
         "jackthief"
       ],
       "noEffectMinutes": 60

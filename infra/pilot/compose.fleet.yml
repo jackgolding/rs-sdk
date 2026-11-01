@@ -1627,7 +1627,7 @@ services:
   quest-jackthief:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "jackthief", "--then", "bots/quests/hobgoblins.ts", "jackthief"]
+    command: ["bun", "bots/quests/todo-runner.ts", "jackthief", "--then", "bots/quests/aemad-supplies.ts", "jackthief"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
