@@ -27,6 +27,15 @@ export const QUEST_START_GAP_MS = 5 * 60_000;
  * so N queued quests start one every 5 minutes instead of all at once. Wall-clock: no client yet.
  */
 export async function awaitQuestStartTurn(id: string, account: string, grindLog: string): Promise<void> {
+    // A retry/resume (this quest tried in the last hour) skips the queue: jackquests sat idle
+    // among Entrana's zombies waiting its turn mid-quest (2026-11-02).
+    try {
+        const st = JSON.parse(readFileSync(join(process.cwd(), 'bots', account, 'todo-state.json'), 'utf-8')) as Record<string, { lastAt?: string; deferredAt?: string }>;
+        const last = Date.parse(st[id]?.lastAt ?? '');
+        if (Number.isFinite(last) && Date.now() - last < 60 * 60_000) return;
+    } catch {
+        /* no state: a new start, paced */
+    }
     const dir = join(SLOT_DIR, '_starts');
     try {
         mkdirSync(dir, { recursive: true });
