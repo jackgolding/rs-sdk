@@ -427,8 +427,15 @@ export async function smuggleVials(q: Quest): Promise<void> {
     if (!has(q, OBJ.touchPaper)) await talkIndoors(q, /^chemist$/i, [/yes please/i], CHEMIST);
     for (const e of ERRANDS) {
         if (!has(q, e.vial)) continue;
-        await q.talk(e.boy, [e.choice], ERRAND_BOYS);
-        if (has(q, e.vial)) throw new Error(`biohazard: ${e.boy.source} did not take the vial`);
+        const said = await q.talk(e.boy, [e.choice], ERRAND_BOYS);
+        // A boy who already carries one from an earlier run takes no second ("I've got your vial
+        // but I'm not taking two", chancy.rs2/hops.rs2/devinci.rs2 *_given bit): his is on its way.
+        // ABGARMY05 stopped here with a spare liquid honey (2026-11-02).
+        if (has(q, e.vial) && /not taking two|contemplating the sublime|better get going/i.test(String(said ?? ''))) {
+            q.log(`biohazard: ${e.boy.source} already carries a vial from an earlier run`);
+            continue;
+        }
+        if (has(q, e.vial)) throw new Error(`biohazard: ${e.boy.source} did not take the vial (${String(said ?? '').slice(-120)})`);
     }
     q.log(`biohazard: vials with the errand boys in ${tickNow(q.sdk) - t0}t`);
     await crossMembersGate(q, true);
