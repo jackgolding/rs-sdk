@@ -41,8 +41,8 @@ await runTask({
             }
             await sdk.waitForTicks(2).catch(() => undefined);
             const short = WANT.map((w) => ({ ...w, missing: w.target - banked(w.pattern) })).filter((w) => w.missing > 0);
-            await bot.closeBank();
             q.log(`top-up round ${round}: ${WANT.map((w) => `${w.label} ${banked(w.pattern)}/${w.target}`).join(', ')}`);
+            await bot.closeBank();
             if (short.length === 0) {
                 q.log(`top-up: bank holds every target — already complete`);
                 return;

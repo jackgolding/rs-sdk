@@ -178,7 +178,9 @@ export async function dmMule(sdk: BotSDK, account: string, text: string): Promis
  */
 // jacklove2 and pigfat hold most of the fleet's air runes (76k, 54k): they restock Jackpoo2 too.
 // The hobgoblin accounts hand their ranarr and snape grass in for prayer potions (2026-11-02 muster).
-export const MULE_RESTOCKERS = ['jackthief', 'jacklove2', 'pigfat', 'Jackpoo2', 'ABGARMY03', 'ABGARMY04', 'ABGARMY05', 'ABGARMY07', 'ABGARMY09', 'jacklove9'];
+export const MULE_RESTOCKERS = ['jackthief', 'jacklove2', 'pigfat', 'Jackpoo2', 'ABGARMY03', 'ABGARMY04', 'ABGARMY05', 'ABGARMY07', 'ABGARMY09', 'jacklove9',
+    // KBD hides, dragon daggers, unicorn horns and snape grass to the mule (muster hand-over, 2026-11-02).
+    'ABGARMY11', 'ABGARMY14', 'ABGARMY17', 'ABGARMY20', 'jacklove1', 'jacklove11', 'jacklove13', 'jacklove20'];
 export function isRestockRequest(from: string, text: string): boolean {
     return /^\s*quest-restock\b/i.test(text) && MULE_RESTOCKERS.some((r) => muleAccount(r).toLowerCase() === from.toLowerCase());
 }
