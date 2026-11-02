@@ -922,9 +922,11 @@ export async function runQuest(def: QuestDef): Promise<void> {
     // A game-server blip drops every client at once (13:34 and 14:01 on 2026-10-29): the
     // runner used to fail the quest and burn a retry on each account. Wait for the client
     // and resume from the journal stage instead; only a long outage counts as a failure.
+    // The quest's slot first, then the start turn: a full quest is deferred without spending a
+    // fleet-wide start window (ABGARMY11 won a turn, found Dragon Slayer full, and burned it).
+    const releaseSlot = await acquireQuestSlot(def.id, def.maxConcurrent ?? QUEST_SLOTS, account, grindLog);
     // Quests (not tasks: those have no stages) start one fleet-wide every 5 minutes.
     if (def.stages.length > 0) await awaitQuestStartTurn(def.id, account, grindLog);
-    const releaseSlot = await acquireQuestSlot(def.id, def.maxConcurrent ?? QUEST_SLOTS, account, grindLog);
     process.once('exit', releaseSlot);
     let result = await runScript(body);
     for (let outage = 1; outage <= OUTAGE_RETRIES && !result.success && OUTAGE.test(result.error?.message ?? ''); outage++) {
