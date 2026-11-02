@@ -55,8 +55,9 @@
       "args": [
         "Jackpoo3",
         "--then",
-        "bots/quests/process-bank.ts",
-        "Jackpoo3"
+        "bots/quests/fishing-route.ts",
+        "Jackpoo3",
+        "--bignet"
       ],
       "noEffectMinutes": 60
     },
@@ -297,8 +298,9 @@
       "args": [
         "jacklove14",
         "--then",
-        "bots/quests/agility-route.ts",
-        "jacklove14"
+        "bots/quests/fishing-route.ts",
+        "jacklove14",
+        "--bignet"
       ],
       "noEffectMinutes": 60
     },
@@ -361,8 +363,9 @@
       "args": [
         "jacklove19",
         "--then",
-        "bots/quests/seers-wc-fm.ts",
-        "jacklove19"
+        "bots/quests/fishing-route.ts",
+        "jacklove19",
+        "--bignet"
       ],
       "noEffectMinutes": 60
     },
