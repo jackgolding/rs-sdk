@@ -561,10 +561,10 @@ export const SOURCES: Record<string, Source> = {
             await buyWaitingForRestock(q, DOMMIK, 'thread', count);
         },
     },
-    'fire rune': runes('fire rune', 4, AUBURY),
-    'earth rune': runes('earth rune', 4, AUBURY),
+    'fire rune': { ...runes('fire rune', 4, AUBURY), muleSupply: 'jackthief' },
+    'earth rune': { ...runes('earth rune', 4, AUBURY), muleSupply: 'jackthief' },
     /** Waterfall Quest's pillars. Betty: stock 1000. */
-    'water rune': runes('water rune', 4, AUBURY),
+    'water rune': { ...runes('water rune', 4, AUBURY), muleSupply: 'jackthief' },
     /** Not sold near any hub (the Magic Guild store needs 66 Magic): mule stock, like the Telegrab laws. */
     'law rune': { obj: 'lawrune', mule: true },
     /** Lost City past the spirit with the staff lost: back to Entrana for another branch (lib/lost-city.ts). */
