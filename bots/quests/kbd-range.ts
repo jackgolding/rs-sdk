@@ -1211,6 +1211,19 @@ async function waitForTeam(): Promise<void> {
 
 async function goToLair(): Promise<boolean> {
     if (inKbdLair()) return true;
+    // Never toward the lair undressed or unfed: ABGARMY14 went in naked when a stall recovery
+    // ("to_lair") skipped the bank's equip step (2026-11-02). Bank and dress first.
+    if (MELEE && !northOfDitch()) {
+        const dressed = !!sdk.findEquipmentItem(MELEE_WEAPON) && !!sdk.findEquipmentItem(FIRE_SHIELD);
+        const fed = sharkSlots() >= Math.min(8, FOOD_WITHDRAW);
+        const exit = (count(LAW) >= 1 && count(AIR) >= 5) || (count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1);
+        if (!dressed || !fed || !exit) {
+            session.log('warn', `Not leaving for the lair: weapon=${!!sdk.findEquipmentItem(MELEE_WEAPON)} shield=${!!sdk.findEquipmentItem(FIRE_SHIELD)} sharks=${sharkSlots()} teleport=${exit} — banking first`);
+            if (!(await bankTrip())) return false;
+            await equipLoadout();
+            if (!sdk.findEquipmentItem(MELEE_WEAPON) || !sdk.findEquipmentItem(FIRE_SHIELD)) return false;
+        }
+    }
     if (session.metrics().phase !== 'travel') await session.setPhase('travel');
     if (inLeverDungeon()) return pullEntryLever();
     if (!northOfDitch()) {
