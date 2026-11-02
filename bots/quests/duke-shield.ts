@@ -89,3 +89,20 @@ export async function fetchDukeShield(bot: BotActions, sdk: BotSDK, log: Log): P
     }
     return got;
 }
+
+/**
+ * Upstairs in Lumbridge castle (the Duke's floor) after a restart mid-trip: a walk to any
+ * bank has no route from there (ABGARMY17 at 3207,3221 L1, 2026-11-02). Ask the Duke while
+ * here when no shield is held, then down the stairs.
+ */
+export async function leaveDukeFloor(bot: BotActions, sdk: BotSDK, log: Log): Promise<void> {
+    const p = sdk.getState()?.player;
+    if (!p || level(sdk) !== 1 || Math.abs(p.worldX - DUKE.x) > 15 || Math.abs(p.worldZ - DUKE.z) > 15) return;
+    if (!holding(sdk)) {
+        await fetchDukeShield(bot, sdk, log);
+        return; // fetchDukeShield climbs down after asking
+    }
+    await bot.walkTo(CASTLE_STAIRS.x, CASTLE_STAIRS.z + 1, 2).catch(() => undefined);
+    await climb(bot, sdk, false);
+    log(`Down from the Duke's floor to ${sdk.getState()?.player?.worldX},${sdk.getState()?.player?.worldZ} L${level(sdk)}`);
+}

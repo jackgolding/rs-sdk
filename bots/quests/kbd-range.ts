@@ -49,7 +49,7 @@ import { closeUi, leaveAdjacentClosedDoor, walkNear } from './movement';
 import { foodHeal, healAtBank, needsBankHeal } from './food-heal';
 import { installGracefulShutdown } from '../../sdk/runner';
 import { PrayerFlicker } from './prayer-flick';
-import { fetchDukeShield } from './duke-shield';
+import { fetchDukeShield, leaveDukeFloor } from './duke-shield';
 import { brewPrayerPotions } from './prayer-brew';
 import { ANTIFIRE, AntifireUpkeep } from './lib/antifire';
 import { requestFromMule } from './supply';
@@ -1439,6 +1439,7 @@ async function settleMeleeKit(): Promise<void> {
 
 async function bankTrip(): Promise<boolean> {
     if (session.metrics().phase !== 'bank') await session.setPhase('bank');
+    if (MELEE) await leaveDukeFloor(bot, sdk, log);
     if (MELEE) await teleportOutOfLair();
     if (northOfDitch() || inKbdLair() || inLeverDungeon()) {
         if (!(await leaveWildy())) return false;
