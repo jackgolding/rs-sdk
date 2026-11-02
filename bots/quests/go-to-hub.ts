@@ -2,7 +2,7 @@
  * One-off move of a paused account to a swarm hub (swarm-jobs.ts walks only short legs):
  * out of the Gnome Stronghold / Al Kharid if needed, walk to the hub bank, bank the pack, exit.
  *
- *   bun bots/quests/go-to-hub.ts {botname} --hub=ardougne|catherby|seers [--teleport]
+ *   bun bots/quests/go-to-hub.ts {botname} --hub=ardougne|catherby|seers [--teleport] [--stay]
  *
  * Exit 0 when parked at the hub bank, 1 otherwise.
  */
@@ -25,6 +25,8 @@ const HUBS: Record<string, { x: number; z: number }> = {
 };
 /** `--teleport`: Camelot Teleport first (Magic 45, 1 law + 5 air, taken from the nearest bank). */
 const TELEPORT = process.argv.includes('--teleport');
+/** `--stay`: stay logged in at the hub bank until stopped (a muster for hand-overs, 2026-11-02). */
+const STAY = process.argv.includes('--stay');
 const CAMELOT_TELEPORT = 1174;
 const MAGIC_TAB = 6;
 
@@ -115,6 +117,14 @@ try {
         ok = true;
     }
     log(`${ok ? 'parked' : 'NOT at the hub'} @ ${pos().x},${pos().z} pack=${sdk.getInventory().length}`);
+    if (STAY && ok) {
+        log('staying at the hub bank until stopped');
+        let stop = false;
+        process.once('SIGTERM', () => (stop = true));
+        process.once('SIGINT', () => (stop = true));
+        while (!stop) await sdk.waitForTicks(20).catch(() => new Promise((r) => setTimeout(r, 12_000)));
+        log('stop requested — leaving the hub');
+    }
 } catch (e) {
     log(`error: ${(e as Error).message}`);
 } finally {
