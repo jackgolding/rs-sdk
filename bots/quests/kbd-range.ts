@@ -1160,7 +1160,10 @@ function kbdTargetsMe(): boolean {
     }
     const hit = sdk.getState()?.player?.combat?.lastDamageTick ?? -1;
     if (me || (hit >= 0 && tick - hit <= 4)) lastTargetedTick = tick;
-    return tick - lastTargetedTick <= TARGET_HOLD_TICKS;
+    if (tick - lastTargetedTick <= TARGET_HOLD_TICKS) return true;
+    // Alone in the lair the KBD can only be on us: pray from the first tick, not after the first
+    // hit. jacklove20 went from 75 HP to dead in 7 s with Protect from Melee OFF, team=1 (2026-11-02).
+    return (sdk.getNearbyPlayers() ?? []).length === 0;
 }
 
 async function meleeKill(): Promise<void> {
