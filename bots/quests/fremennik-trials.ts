@@ -42,6 +42,8 @@ const trial = (from: string, to: (typeof ORDER)[number], needs: Array<{ item: st
 
 await runQuest({
     id: 'viking',
+    // Swarm accounts rotating through the trials held all 3 default slots (2026-11-02).
+    maxConcurrent: 5,
     hub: 'catherby',
     skills: { woodcutting: 40, crafting: 40, fletching: 25 },
     retries: 6,
