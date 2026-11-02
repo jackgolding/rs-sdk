@@ -105,7 +105,7 @@ async function restock(q: Quest): Promise<boolean> {
     if (!bow) throw new Error('no shortbow the Ranged level allows in the bank or worn');
     if (!sdk.findEquipmentItem(bow)) {
         const b = sdk.findBankItem(bow);
-        if (b) await bot.withdrawItem(b, 1);
+        if (b) await bot.withdrawItem(b, 1, { asNote: false });
     }
     const arrows = sdk.findBankItem(/^iron arrow$/i) ?? sdk.findBankItem(/^bronze arrow$/i);
     if (arrows) await bot.withdrawItem(arrows, arrows.count);
@@ -116,13 +116,16 @@ async function restock(q: Quest): Promise<boolean> {
     // The bow first, then the arrows; checked, since a bare-handed trip crawled (jacklove20, 2026-11-02).
     for (let i = 0; i < 3 && !sdk.findEquipmentItem(bow); i++) {
         let bowItem = sdk.findInventoryItem(bow);
-        if (!bowItem) {
+        // A noted bow (the bank was in note mode) has no wield option: bank it and take a real one.
+        const wieldable = (it: typeof bowItem) => !!it?.optionsWithIndex?.some((o) => /wield|wear|equip/i.test(o.text));
+        if (!bowItem || !wieldable(bowItem)) {
             if (!(await bot.openBank()).success) break;
+            if (bowItem) await bot.depositItem(bowItem, -1).catch(() => undefined);
             const b = sdk.findBankItem(bow);
             if (b) await bot.withdrawItem(b, 1, { asNote: false });
             await sdk.waitForCondition(() => !!sdk.findInventoryItem(bow), 3_000).catch(() => undefined);
             await bot.closeBank();
-            bowItem = sdk.findInventoryItem(bow);
+            bowItem = sdk.getInventory().find((i) => bow.test(i.name) && wieldable(i)) ?? null;
         }
         if (bowItem) {
             const r = await bot.equipItem(bowItem);
