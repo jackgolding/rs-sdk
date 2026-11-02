@@ -432,6 +432,10 @@ async function bankTrip(): Promise<boolean> {
     const kitAsk = [
         ...(!potted && potRoom > 0 ? [{ label: 'prayer potion(3)', pattern: /^prayer potion\(3\)$/i, count: Math.min(9, potRoom) }] : []),
         ...(!has(SHIELD) ? [{ label: 'dragonfire shield', pattern: SHIELD, count: 1 }] : []),
+        // No emergency exit: Camelot Teleport runes and a ring (ABGARMY10/Jackpoo1 had no air runes, 2026-11-02).
+        ...(!canTeleport && count(AIR) < 10 ? [{ label: 'air rune', pattern: AIR, count: 200 }] : []),
+        ...(!canTeleport && count(LAW) < 2 ? [{ label: 'law rune', pattern: LAW, count: 20 }] : []),
+        ...(!canTeleport && !count(DUELING_RING) ? [{ label: 'ring of dueling(8)', pattern: /^ring of dueling\(8\)$/i, count: 1 }] : []),
         ...(!WEAPONS.some(has) ? [{ label: 'dragon longsword', pattern: /^dragon longsword$/i, count: 1 }] : []),
         ...(!has(/^(rune|dragon) (platelegs|plateskirt)$/i) ? [{ label: 'rune platelegs', pattern: /^rune platelegs$/i, count: 1 }] : []),
         ...(!has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i) ? [{ label: 'berserker helm', pattern: /^berserker helm$/i, count: 1 }] : []),
@@ -671,14 +675,28 @@ async function leaveDungeon(): Promise<boolean> {
 
 // ── fight ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Whose dragon is it: its facing target is a player slot + 32768. A slot of someone in view is
+ * another player's fight; any other player slot is ours (our own slot is never in that list).
+ */
+function dragonTakenByOther(n: { targetIndex: number }): boolean {
+    const t = n.targetIndex ?? -1;
+    return t >= 32768 && (sdk.getNearbyPlayers() ?? []).some((p) => p.index === t - 32768);
+}
+function dragonOnMe(n: { targetIndex: number }): boolean {
+    return (n.targetIndex ?? -1) >= 32768 && !dragonTakenByOther(n);
+}
+
 function pickDragon() {
     const live = (sdk.getNearbyNpcs() ?? []).filter(
-        (n) => DRAGON.test(n.name) && (n.hp === null || n.hp > 0) && n.reachable !== false && n.optionsWithIndex.some((o) => /attack/i.test(o.text))
+        (n) => DRAGON.test(n.name) && (n.hp === null || n.hp > 0) && n.reachable !== false && !dragonTakenByOther(n) && n.optionsWithIndex.some((o) => /attack/i.test(o.text))
     );
-    // Iron first (165 hp/def against steel's 210/215): a solo rune-scimitar steel kill took
+    // A dragon already on us comes first: single combat refuses any other ("I'm already under
+    // attack!"), and Jackpoo1 kept swinging at the nearest one instead (2026-11-02).
+    // Then iron first (165 hp/def against steel's 210/215): a solo rune-scimitar steel kill took
     // ~600 ticks, past one prayer bar, and the headbutts that follow it ate a trip's food.
     const iron = (n: { name: string }) => (/^iron/i.test(n.name) ? 0 : 1);
-    return live.sort((a, b) => iron(a) - iron(b) || (a.distance ?? 99) - (b.distance ?? 99))[0] ?? null;
+    return live.sort((a, b) => Number(dragonOnMe(b)) - Number(dragonOnMe(a)) || iron(a) - iron(b) || (a.distance ?? 99) - (b.distance ?? 99))[0] ?? null;
 }
 
 /** Bones first (the prayer xp is the point), then runes and rares, then the bars. */
@@ -799,6 +817,10 @@ async function fightOne(): Promise<void> {
     while (!pos().isDead && !session.isStopped() && Date.now() - started < 240_000) {
         const still = (sdk.getNearbyNpcs() ?? []).find((n) => n.index === target.index && DRAGON.test(n.name));
         if (!still || (still.hp !== null && still.hp <= 0)) break;
+        // Another player took it, or a different dragon is on us: re-pick (the one on us first).
+        if (dragonTakenByOther(still)) break;
+        const attacker = (sdk.getNearbyNpcs() ?? []).find((n) => DRAGON.test(n.name) && n.index !== target.index && dragonOnMe(n) && (n.hp === null || n.hp > 0));
+        if (attacker && !dragonOnMe(still)) break;
         await bot.dismissBlockingUI();
         await eatIfNeeded();
         await antifire.maybeDrink();
