@@ -48,6 +48,7 @@ import { closeUi, installWaitForTicksGuard, walkNear } from './movement';
 import { travelTo } from './travel';
 import { foodHeal } from './food-heal';
 import { tickNow, ticksToMs, untilTicks } from './lib/ticks';
+import { buyAtShop } from './quest-supplies';
 
 type Spot = { name: string; x: number; z: number; radius: number; spawns: number; target: RegExp };
 
@@ -120,7 +121,26 @@ const WILD_WEAPONS: { pattern: RegExp; attack: number }[] = [
     { pattern: /^iron (longsword|scimitar)$/i, attack: 1 },
     { pattern: /^rune (scimitar|longsword)$/i, attack: 40 }
 ];
-const WEAPONS = WILD ? WILD_WEAPONS : MAIN_WEAPONS;
+/**
+ * `--ranged` (jacklove18, 2026-11-02): strung shortbows + iron/bronze arrows instead of melee.
+ * Unstrung bows share the strung name, so bank picks go by obj id (RANGED_BOW_IDS); a bow or
+ * arrows missing from the bank are bought at Hickton's in Catherby (oak shortbow, iron arrows).
+ */
+const RANGED = process.argv.includes('--ranged');
+const RANGED_WEAPONS: { pattern: RegExp; attack: number }[] = [
+    { pattern: /^magic shortbow$/i, attack: 50 },
+    { pattern: /^yew shortbow$/i, attack: 40 },
+    { pattern: /^maple shortbow$/i, attack: 30 },
+    { pattern: /^willow shortbow$/i, attack: 20 },
+    { pattern: /^oak shortbow$/i, attack: 5 },
+    { pattern: /^shortbow$/i, attack: 1 },
+];
+/** Strung ids, same order as RANGED_WEAPONS. */
+const RANGED_BOW_IDS = [861, 857, 853, 849, 843, 841];
+const ARROWS = /^(iron|bronze) arrow$/i;
+const HICKTON = { x: 2823, z: 3443, npc: /^hickton$/i };
+const ARROW_BUY = 500;
+const WEAPONS = WILD ? WILD_WEAPONS : RANGED ? RANGED_WEAPONS : MAIN_WEAPONS;
 /** Never taken north of the ditch. */
 const WILD_FORBIDDEN = /dragon|anti-?dragon|dragonfire/i;
 
@@ -285,7 +305,7 @@ function atSpot(spot: Spot): boolean {
 // ---------------------------------------------------------------- weapon
 
 function attackLevel(): number {
-    return sdk.getSkill('Attack')?.baseLevel ?? 1;
+    return sdk.getSkill(RANGED ? 'Ranged' : 'Attack')?.baseLevel ?? 1;
 }
 
 /** Weapons the game refused to wield (e.g. dragon longsword before Lost City). */
@@ -322,6 +342,35 @@ async function wieldBestInPack(): Promise<void> {
         session.log('warn', `Equip ${item.name} failed: ${r.message} — not using it`);
         unwieldable.add(item.name.toLowerCase());
     }
+}
+
+function quiverCount(): number {
+    return sdk.getEquipment().filter((e) => e && ARROWS.test(e.name)).reduce((n, e) => n + (e!.count ?? 1), 0);
+}
+
+/** Bow worn and arrows in the quiver; what is missing is bought at Hickton's (Catherby). */
+async function rangedKit(): Promise<void> {
+    const strungWorn = () => sdk.getEquipment().some((e) => e && RANGED_BOW_IDS.includes(e.id));
+    const needBow = !strungWorn() && !sdk.getInventory().some((i) => RANGED_BOW_IDS.includes(i.id));
+    const needArrows = quiverCount() + count(ARROWS) < 50;
+    if (needBow || needArrows) {
+        const items = [
+            ...(needBow ? [{ pattern: attackLevel() >= 5 ? /^oak shortbow$/i : /^shortbow$/i, amount: 1, label: 'bow' }] : []),
+            ...(needArrows ? [{ pattern: /^iron arrow$/i, amount: ARROW_BUY, label: 'iron arrows' }] : []),
+        ];
+        log(`ranged kit short (${items.map((i) => i.label).join(', ')}): Hickton's, Catherby`);
+        await buyAtShop(
+            { bot, sdk, log, intent: () => undefined, walkNear: (x: number, z: number, t = 3) => walkNear(bot, sdk, x, z, t), closeUi: () => closeUi(bot, sdk) },
+            HICKTON,
+            items
+        ).catch((e) => session.log('warn', `Hickton: ${e instanceof Error ? e.message : String(e)}`));
+        await closeUi(bot, sdk);
+    }
+    const bow = sdk.getInventory().find((i) => RANGED_BOW_IDS.includes(i.id));
+    if (bow && !strungWorn()) await bot.equipItem(bow).catch(() => undefined);
+    const arrows = sdk.findInventoryItem(ARROWS);
+    if (arrows) await bot.equipItem(arrows).catch(() => undefined);
+    if (!strungWorn()) session.log('warn', 'ranged: no strung bow worn');
 }
 
 function isKeptWeapon(name: string): boolean {
@@ -579,6 +628,7 @@ async function bankTrip(): Promise<boolean> {
                 (it) =>
                     (it.count ?? 0) > 0 &&
                     foodHeal(it.name) <= 0 &&
+                    !(RANGED && ARROWS.test(it.name)) &&
                     (WILD ? WILD_FORBIDDEN.test(it.name) || weaponRank(it.name) > 0 || !isKeptWeapon(it.name) : !isKeptWeapon(it.name) && !LAW.test(it.name) && !AIR.test(it.name))
             );
         if (!item) break;
@@ -592,12 +642,22 @@ async function bankTrip(): Promise<boolean> {
         session.recordTrip(deposited);
     }
     // Best weapon: bank stock beats what is worn only if it ranks higher.
-    const bankWeapon = WEAPONS.map((w, i) => ({ i, item: w.attack <= attackLevel() ? sdk.findBankItem(w.pattern) : null })).find(
+    const bankWeapon = WEAPONS.map((w, i) => ({
+        i,
+        item: w.attack > attackLevel() ? null : RANGED ? (sdk.getBankItems() ?? []).find((b) => b.id === RANGED_BOW_IDS[i] && b.count > 0) ?? null : sdk.findBankItem(w.pattern),
+    })).find(
         (b) => b.item && !unwieldable.has(b.item.name.toLowerCase())
     );
     if (bankWeapon?.item && bankWeapon.i < wornWeaponRank() && bankWeapon.i < weaponRank(bestInPack()?.name)) {
-        await bot.withdrawItem(bankWeapon.item, 1);
+        await bot.withdrawItem(bankWeapon.item, 1, { asNote: false });
         await untilTicks(sdk, () => !!bestInPack(), 6);
+    }
+    if (RANGED) {
+        const arrows = sdk.findBankItem(/^iron arrow$/i) ?? sdk.findBankItem(/^bronze arrow$/i);
+        if (arrows) await bot.withdrawItem(arrows, arrows.count);
+        const coins = sdk.findBankItem(/^coins$/i);
+        const noBow = !bankWeapon?.item && wornWeaponRank() >= WEAPONS.length && !bestInPack();
+        if ((noBow || (!arrows && quiverCount() < 50)) && coins) await bot.withdrawItem(coins, Math.min(coins.count, 15_000));
     }
     const haveFood = foodCount();
     if (haveFood < FOOD_WITHDRAW) {
@@ -611,6 +671,7 @@ async function bankTrip(): Promise<boolean> {
     await bot.closeBank();
     await closeUi(bot, sdk);
     await wieldBestInPack();
+    if (RANGED) await rangedKit();
     session.noteProgress('bank', BANK_NAME);
     if (WILD && deposited > 0 && flights > 0 && tickNow(sdk) - lastFlightTick > 600) flights = 0;
     log(`Banked ${deposited} horns | trip ${session.metrics().trips} | ${summary()}`);
@@ -692,7 +753,7 @@ async function buryBones(): Promise<void> {
 }
 
 function isLoot(name: string): boolean {
-    return HORN.test(name) || (BURY && BONES.test(name));
+    return HORN.test(name) || (BURY && BONES.test(name)) || (RANGED && ARROWS.test(name));
 }
 
 async function loot(spot: Spot): Promise<void> {
@@ -717,11 +778,15 @@ async function loot(spot: Spot): Promise<void> {
             )
             .sort((a, b) => (HORN.test(a.name) ? 0 : 1) - (HORN.test(b.name) ? 0 : 1) || (a.distance ?? 99) - (b.distance ?? 99))[0];
         if (!item) return;
-        const pattern = HORN.test(item.name) ? HORN : BONES;
+        const pattern = HORN.test(item.name) ? HORN : RANGED && ARROWS.test(item.name) ? ARROWS : BONES;
         const before = count(pattern);
         intent(`Loot ${item.name} @ ${item.x},${item.z}`);
         const r = await bot.pickupItem(item);
         const got = await untilTicks(sdk, () => count(pattern) > before || pos().isDead, 12);
+        if (RANGED && pattern === ARROWS && got) {
+            const a = sdk.findInventoryItem(ARROWS);
+            if (a) await bot.equipItem(a).catch(() => undefined);
+        }
         if (!got) {
             if (!r.success) session.noteFailure('loot', r.message);
             return;
