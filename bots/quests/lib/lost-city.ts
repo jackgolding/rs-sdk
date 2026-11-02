@@ -109,6 +109,9 @@ export async function toDungeon(q: Quest): Promise<void> {
         // (jackquests wore its melee training gear to the boat, 2026-11-02).
         for (const worn of q.sdk.getEquipment().filter(Boolean)) await q.bot.unequipItem(worn!).catch(() => undefined);
         await depositAllInventory(q.supply, [/rune$/i, /^shark$/i, /^coins$/i, /^knife$/i]);
+        // 20 sharks to Entrana, no more: a fuller pack left no slot for the bronze axe (user, 2026-11-02).
+        const extra = q.count(/^shark$/i) - 20;
+        if (extra > 0) await q.bot.depositItem(/^shark$/i, extra).catch(() => undefined);
         await q.bot.closeBank().catch(() => undefined);
         await q.talk(/^monk of entrana$/i, [/yes,? okay,? i'?m ready to go/i], PORT_SARIM_MONK);
         // Measured from the monk, not Draynor: the walk there is itself >40 tiles, which read as
