@@ -105,6 +105,9 @@ export async function toDungeon(q: Quest): Promise<void> {
     if (inDungeon(q)) return;
     if (!onEntrana(q)) {
         await q.goTo(SAFE_BANKS.draynor, 4);
+        // The monks refuse anyone wearing weapons or armour: everything worn comes off first
+        // (jackquests wore its melee training gear to the boat, 2026-11-02).
+        for (const worn of q.sdk.getEquipment().filter(Boolean)) await q.bot.unequipItem(worn!).catch(() => undefined);
         await depositAllInventory(q.supply, [/rune$/i, /^shark$/i, /^coins$/i, /^knife$/i]);
         await q.bot.closeBank().catch(() => undefined);
         await q.talk(/^monk of entrana$/i, [/yes,? okay,? i'?m ready to go/i], PORT_SARIM_MONK);
