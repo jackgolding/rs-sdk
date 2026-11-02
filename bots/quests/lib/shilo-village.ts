@@ -665,8 +665,15 @@ export async function readScroll(q: Quest, item: RegExp): Promise<void> {
 /** Mosol Rei's Wampum belt (needs Jungle Potion), shown to Trufitus: started. */
 export async function startQuest(q: Quest): Promise<void> {
     if (!held(q, ITEM.belt)) {
-        await toMainJungle(q, MOSOL, 4);
-        await q.talk(/^mosol rei$/i, [/yes, i'm sure and i'll take the wampum belt/i, /i'll go to see the shaman/i, /^what can we do/i, /who is she/i, /^why do i need to run/i], MOSOL);
+        // Up to three talks, finishing any chain left open: jacklove2's ended with Mosol's dialog
+        // still open (1 option) among 9 Undead Ones, and no belt (2026-11-02).
+        const choices = [/yes, i'm sure and i'll take the wampum belt/i, /i'll go to see the shaman/i, /^what can we do/i, /who is she/i, /^why do i need to run/i];
+        for (let attempt = 1; attempt <= 3 && !held(q, ITEM.belt); attempt++) {
+            await toMainJungle(q, MOSOL, 4);
+            await q.talk(/^mosol rei$/i, choices, MOSOL).catch((e) => q.log(`shilo: Mosol Rei talk ${attempt}: ${(e as Error).message}`));
+            if (q.sdk.getDialog()?.isOpen) await driveDialog(q.sdk, choices, { done: () => !!held(q, ITEM.belt), ticks: 80, log: q.log });
+            if (!held(q, ITEM.belt)) q.log(`shilo: no Wampum belt after Mosol Rei talk ${attempt} at ${where(q)}`);
+        }
         if (!held(q, ITEM.belt)) throw new Error('shilo: Mosol Rei gave no Wampum belt');
     }
     await toMainJungle(q, TRUFITUS, 4);
