@@ -133,7 +133,7 @@ const SUPER_ATTACK = /^super attack\(\d\)$/i;
 const LAW = /^law rune$/i;
 const AIR = /^air rune$/i;
 const EARTH = /^earth rune$/i;
-const DUELING_RING = /^ring of dueling\(\d\)$/i;
+import { DUELING_RING, hasDuelingRing, rubDuelingRing, wearDuelingRing } from './lib/dueling-ring';
 const MAGIC_TAB = 6;
 /** sdk/spells.ts: Camelot (Magic 45, 1 law 5 air), Lumbridge (Magic 31, 1 law 3 air 1 earth). */
 const CAMELOT_TELEPORT = 1174;
@@ -397,7 +397,7 @@ async function bankTrip(): Promise<boolean> {
     await withdrawUpTo(LAW, 2);
     await withdrawUpTo(AIR, 10);
     await withdrawUpTo(EARTH, 1);
-    await withdrawUpTo(DUELING_RING, 1);
+    if (!hasDuelingRing(sdk)) await withdrawUpTo(DUELING_RING, 1);
     await withdrawUpTo(SUPER_STRENGTH, 1);
     if (count(PRAYER_POT) < PRAYER_POTS_WANT) await brewPrayerPotions(bot, sdk, log, PRAYER_POTS_WANT - count(PRAYER_POT));
     const sharks = sdk.findBankItem(/^shark$/i) ? /^shark$/i : /^(swordfish|lobster)$/i;
@@ -410,6 +410,7 @@ async function bankTrip(): Promise<boolean> {
     // No axe held or banked (lost on a death): Bob's in Lumbridge (bob-axes.ts).
     if (!hasAxe(sdk)) await ensureAxeFromBob(bot, sdk, log);
     await prayAtAltar();
+    await wearDuelingRing(sdk, bot);
     for (const pattern of [...WEAPONS, SHIELD, ...ARMOUR]) {
         if (sdk.findEquipmentItem(pattern)) continue;
         const item = sdk.findInventoryItem(pattern);
@@ -417,7 +418,8 @@ async function bankTrip(): Promise<boolean> {
         if (WEAPONS.includes(pattern) && sdk.getEquipment().some((e) => WEAPONS.some((w) => w.test(e?.name ?? '')))) continue;
     }
     // No teleport, no trip (an emergency exit must exist before entering).
-    const canTeleport = (count(LAW) >= 1 && count(AIR) >= 3) || count(DUELING_RING) > 0;
+    // Camelot Teleport runes only: a ring's rub is interrupted by any hit, so it is no exit from a fight.
+    const canTeleport = (sdk.getSkill('Magic')?.level ?? 1) >= 45 && count(LAW) >= 1 && count(AIR) >= 5;
     const potted = count(PRAYER_POT) >= MIN_PRAYER_POTS;
     const ready = potted && canTeleport && count(COINS) >= ENTRY_FEE + BOAT_GP * 2 && foodCount() > LEAVE_FOOD && AXES.some((p) => sdk.findInventoryItem(p) || sdk.findEquipmentItem(p)) && !!sdk.findEquipmentItem(SHIELD);
     log(`Kit coins=${count(COINS)} food=${foodCount()} pots=${count(PRAYER_POT)} shield=${!!sdk.findEquipmentItem(SHIELD)} worn=${sdk.getEquipment().filter(Boolean).map((e) => e!.name).join(',')} ready=${ready}`);
@@ -435,7 +437,7 @@ async function bankTrip(): Promise<boolean> {
         // No emergency exit: Camelot Teleport runes and a ring (ABGARMY10/Jackpoo1 had no air runes, 2026-11-02).
         ...(!canTeleport && count(AIR) < 10 ? [{ label: 'air rune', pattern: AIR, count: 200 }] : []),
         ...(!canTeleport && count(LAW) < 2 ? [{ label: 'law rune', pattern: LAW, count: 20 }] : []),
-        ...(!canTeleport && !count(DUELING_RING) ? [{ label: 'ring of dueling(8)', pattern: /^ring of dueling\(8\)$/i, count: 1 }] : []),
+        ...(!hasDuelingRing(sdk) ? [{ label: 'ring of dueling(8)', pattern: /^ring of dueling\(8\)$/i, count: 1 }] : []),
         ...(!WEAPONS.some(has) ? [{ label: 'dragon longsword', pattern: /^dragon longsword$/i, count: 1 }] : []),
         ...(!has(/^(rune|dragon) (platelegs|plateskirt)$/i) ? [{ label: 'rune platelegs', pattern: /^rune platelegs$/i, count: 1 }] : []),
         ...(!has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i) ? [{ label: 'berserker helm', pattern: /^berserker helm$/i, count: 1 }] : []),
@@ -746,20 +748,14 @@ async function emergencyTeleport(): Promise<boolean> {
     await protectMelee(false);
     const magic = sdk.getSkill('Magic')?.level ?? 1;
     const spell = magic >= 45 && count(LAW) >= 1 && count(AIR) >= 5 ? CAMELOT_TELEPORT : magic >= 31 && count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1 ? LUMBRIDGE_TELEPORT : 0;
-    const ring = sdk.findInventoryItem(DUELING_RING);
-    const rub = ring?.optionsWithIndex.find((o) => /rub/i.test(o.text));
     if (spell) {
         await sdk.sendSetTab(MAGIC_TAB).catch(() => {});
         await sdk.waitForTicks(1).catch(() => {});
         await sdk.sendClickComponent(spell);
-    } else if (ring && rub) {
-        // Castle Wars, the ring's stop nearer Ardougne.
-        await sdk.sendUseItem(ring.slot, rub.opIndex);
-        for (let i = 0; i < 10 && inDungeon(); i++) {
-            const cw = sdk.getDialog()?.options.find((o) => /castle wars/i.test(o.text));
-            if (cw) await sdk.sendClickDialog(cw.index);
-            await sdk.waitForTicks(1).catch(() => {});
-        }
+    } else if (hasDuelingRing(sdk)) {
+        // Last resort only: the rub's destination choice is closed by any hit (ring_of_dueling.rs2
+        // p_choice3), so it cannot get out of a fight — Jackpoo1 died trying, 2026-11-02.
+        await rubDuelingRing(sdk, bot, /castle wars/i, () => !inDungeon());
     } else {
         return false;
     }
@@ -831,7 +827,7 @@ async function fightOne(): Promise<void> {
             await emergencyTeleport();
             return;
         }
-        if ((foodCount() <= 2 && pos().hp < pos().maxHp * 0.6) || ((sdk.getPrayerState()?.prayerPoints ?? 0) === 0 && !sdk.findInventoryItem(PRAYER_POT))) {
+        if (foodCount() <= 4 || ((sdk.getPrayerState()?.prayerPoints ?? 0) === 0 && !sdk.findInventoryItem(PRAYER_POT))) {
             session.log('warn', `Low on food (${foodCount()}) at ${pos().hp}/${pos().maxHp} — leaving`);
             return;
         }

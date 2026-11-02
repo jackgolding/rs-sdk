@@ -1340,11 +1340,11 @@ async function bankTrip(): Promise<boolean> {
         await withdrawCount(LAW, 2);
         await withdrawCount(AIR, 8);
         await withdrawCount(EARTH, 1);
-        if (!sdk.findInventoryItem(DUELING_RING)) await withdrawCount(DUELING_RING, 1);
+        if (!count(DUELING_RING)) await withdrawCount(DUELING_RING, 1);
         // Out of teleport runes in the bank (jacklove12/20 walked out of the lair, 2026-11-01):
         // ask the Jackpoo2 mule for a stock, at most every 30 minutes.
         const runesShort = count(LAW) < 2 || count(AIR) < 8;
-        if (runesShort && !sdk.findInventoryItem(DUELING_RING) && Date.now() - lastRuneAsk > 30 * 60_000) {
+        if (runesShort && Date.now() - lastRuneAsk > 30 * 60_000) {
             lastRuneAsk = Date.now();
             await bot.closeBank().catch(() => undefined);
             log(`teleport runes short (law ${count(LAW)}, air ${count(AIR)}): asking jackthief at Ardougne`);
@@ -1390,7 +1390,8 @@ async function bankTrip(): Promise<boolean> {
     if (MELEE) {
         const armed = !!sdk.findEquipmentItem(MELEE_WEAPON);
         // No teleport, no trip (Camelot / Lumbridge runes, or a ring of dueling).
-        const canTeleport = (count(LAW) >= 1 && count(AIR) >= 3) || !!sdk.findInventoryItem(DUELING_RING);
+        // Spell runes only: a ring's rub is closed by any hit (ring_of_dueling.rs2), Jackpoo1 died on one.
+        const canTeleport = (count(LAW) >= 1 && count(AIR) >= 5) || (count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1);
         if (!canTeleport) session.noteFailure('kit', 'no teleport out of the lair (runes or ring of dueling)');
         // Held but not wieldable (no Lost City: jacklove11 was served two it could not wield) is not asked again.
         if (!armed && !sdk.findInventoryItem(MELEE_WEAPON) && Date.now() - lastMuleAsk > 30 * 60_000) {
