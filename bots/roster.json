@@ -42,10 +42,9 @@
       "args": [
         "Jackpoo2",
         "--then",
-        "bots/quests/quest-mule.ts",
+        "bots/quests/thieving-route.ts",
         "Jackpoo2",
-        "--serve-only",
-        "--train"
+        "--knights"
       ],
       "noEffectMinutes": 60
     },

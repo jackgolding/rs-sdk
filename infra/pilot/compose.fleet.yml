@@ -1404,7 +1404,7 @@ services:
   quest-jackpoo2:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "Jackpoo2", "--then", "bots/quests/quest-mule.ts", "Jackpoo2", "--serve-only", "--train"]
+    command: ["bun", "bots/quests/todo-runner.ts", "Jackpoo2", "--then", "bots/quests/thieving-route.ts", "Jackpoo2", "--knights"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
