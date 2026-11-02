@@ -653,10 +653,10 @@ await runScript(async ({ bot, sdk }) => {
             // try once more: 7 accounts stopped short of air runes only (2026-11-01).
             const lines = [...lastShort.matchAll(/(\w+) rune ×(\d+)/g)].map((m) => ({ label: `${m[1]} rune`, pattern: new RegExp(`^${m[1]} rune$`, 'i'), count: Number(m[2]) }));
             if (lines.length) {
-                log(`asking Jackpoo2 for ${lines.map((l) => `${l.label}=${l.count}`).join(', ')}`);
+                log(`asking jackthief for ${lines.map((l) => `${l.label}=${l.count}`).join(', ')}`);
                 await bot.closeInterface().catch(() => undefined);
-                const ok = await requestFromMule({ sdk, bot, session: null, log } as never, lines, { mule: 'Jackpoo2', timeoutMs: 5 * 60_000 });
-                log(`mule Jackpoo2: ${ok ? 'served' : 'not all served'}`);
+                const ok = await requestFromMule({ sdk, bot, session: null, log } as never, lines, { mule: 'jackthief', timeoutMs: 5 * 60_000 });
+                log(`mule jackthief: ${ok ? 'served' : 'not all served'}`);
                 stock = await restock();
             }
         }

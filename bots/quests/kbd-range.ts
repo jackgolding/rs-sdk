@@ -1340,12 +1340,12 @@ async function bankTrip(): Promise<boolean> {
         if (runesShort && !sdk.findInventoryItem(DUELING_RING) && Date.now() - lastRuneAsk > 30 * 60_000) {
             lastRuneAsk = Date.now();
             await bot.closeBank().catch(() => undefined);
-            log(`teleport runes short (law ${count(LAW)}, air ${count(AIR)}): asking Jackpoo2 at Draynor`);
+            log(`teleport runes short (law ${count(LAW)}, air ${count(AIR)}): asking jackthief at Ardougne`);
             const ok = await requestFromMule({ sdk, bot, session: null, log } as never, [
                 { label: 'law rune', pattern: /^law rune$/i, count: 20 },
                 { label: 'air rune', pattern: /^air rune$/i, count: 100 }
-            ], { mule: 'Jackpoo2', timeoutMs: 5 * 60_000 });
-            log(`mule Jackpoo2: ${ok ? 'served' : 'not all served'}; law ${count(LAW)} air ${count(AIR)}`);
+            ], { mule: 'jackthief', timeoutMs: 5 * 60_000 });
+            log(`mule jackthief: ${ok ? 'served' : 'not all served'}; law ${count(LAW)} air ${count(AIR)}`);
             return false;
         }
         if (!sdk.findEquipmentItem(MELEE_WEAPON) && !sdk.findInventoryItem(MELEE_WEAPON)) {
@@ -1391,14 +1391,14 @@ async function bankTrip(): Promise<boolean> {
             // Jackpoo2 serves dragon longswords at Draynor (lib/sources.ts). Lost City to wield it.
             lastMuleAsk = Date.now();
             await bot.closeBank().catch(() => undefined);
-            log('no melee weapon: asking Jackpoo2 for a dragon longsword at Draynor');
-            const ok = await requestFromMule({ sdk, bot, session: null, log } as never, [{ label: 'dragon longsword', pattern: /^dragon longsword$/i, count: 1 }], { mule: 'Jackpoo2', timeoutMs: 5 * 60_000 });
+            log('no melee weapon: asking jackthief for a dragon longsword at Ardougne');
+            const ok = await requestFromMule({ sdk, bot, session: null, log } as never, [{ label: 'dragon longsword', pattern: /^dragon longsword$/i, count: 1 }], { mule: 'jackthief', timeoutMs: 5 * 60_000 });
             const dls = sdk.findInventoryItem(/^dragon longsword$/i);
             if (dls) {
                 await bot.equipItem(dls).catch(() => undefined);
                 await sdk.waitForTicks(2).catch(() => {});
             }
-            log(`mule Jackpoo2: ${ok ? 'served' : 'not served'}; wielding ${sdk.findEquipmentItem(MELEE_WEAPON)?.name ?? 'nothing'}`);
+            log(`mule jackthief: ${ok ? 'served' : 'not served'}; wielding ${sdk.findEquipmentItem(MELEE_WEAPON)?.name ?? 'nothing'}`);
             return false;
         }
         if (!armed) {

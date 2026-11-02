@@ -177,7 +177,7 @@ export async function dmMule(sdk: BotSDK, account: string, text: string): Promis
  * mule sit in a trade screen.
  */
 // jacklove2 and pigfat hold most of the fleet's air runes (76k, 54k): they restock Jackpoo2 too.
-export const MULE_RESTOCKERS = ['jackthief', 'jacklove2', 'pigfat'];
+export const MULE_RESTOCKERS = ['jackthief', 'jacklove2', 'pigfat', 'Jackpoo2'];
 export function isRestockRequest(from: string, text: string): boolean {
     return /^\s*quest-restock\b/i.test(text) && MULE_RESTOCKERS.some((r) => muleAccount(r).toLowerCase() === from.toLowerCase());
 }

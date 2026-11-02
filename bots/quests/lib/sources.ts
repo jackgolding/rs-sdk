@@ -84,7 +84,8 @@ export function mulesFor(item: string): string[] {
  * restocks Jackpoo2 by trade), so a quester Jackpoo2 cannot serve asks jackthief next instead
  * of stopping with NEEDS STOCK. Draynor first: most of these quests start there.
  */
-const JACKPOO2_THEN_JACKTHIEF = ['Jackpoo2', 'jackthief'];
+// jackthief took over Jackpoo2's mule stock (2026-11-02); Jackpoo2 went thieving.
+const JACKPOO2_THEN_JACKTHIEF = ['jackthief'];
 
 /** Exact, case-insensitive name match ('wool' must not match 'ball of wool'). */
 export function itemPattern(item: string): RegExp {
@@ -285,7 +286,7 @@ export const SOURCES: Record<string, Source> = {
     },
 
     /** Jackpoo2 holds the fleet's iron bars (121 in its bank snapshot, 2026-10-29) and serves them. */
-    'iron bar': { mule: true, muleSupply: 'Jackpoo2' },
+    'iron bar': { mule: true, muleSupply: 'jackthief' },
 
     'pot of flour': {
         inputs: () => [{ item: 'coins', count: 30 }],
@@ -468,11 +469,11 @@ export const SOURCES: Record<string, Source> = {
      * Harold only gets drunk on this (death_guard_equiproom.rs2 harold_drink2). The
      * premade one is what a bank holds; the bar is in the Gnome Stronghold, so a mule stocks it.
      */
-    'blurberry special': { obj: 'premade_blurberry_special', mule: true, muleSupply: 'Jackpoo2' },
+    'blurberry special': { obj: 'premade_blurberry_special', mule: true, muleSupply: 'jackthief' },
     /** Tenzing's winter supplies; no shop near Burthorpe sells either, so the mule stocks them
      * (jacklove4 gathered 50 of each with death-plateau-stock.ts, 2026-10-30). */
     bread: { mule: true, muleSupply: JACKPOO2_THEN_JACKTHIEF },
-    trout: { mule: true, muleSupply: 'Jackpoo2' },
+    trout: { mule: true, muleSupply: 'jackthief' },
 
     // ── Fight Arena: the pen fights (ogre 63, scorpion 44, Bouncer 137) are ranged; a mule stocks the kit
     'magic shortbow': { mule: true },
@@ -492,9 +493,9 @@ export const SOURCES: Record<string, Source> = {
         },
     },
     // Shops are emptied by other players' bots (jackquests waited hours on Aubury's chaos, 2026-11-01): the mule first.
-    'air rune': { ...runes('air rune', 4, AUBURY), muleSupply: 'Jackpoo2' },
+    'air rune': { ...runes('air rune', 4, AUBURY), muleSupply: 'jackthief' },
     // Shops are emptied by other players' bots (jackquests waited hours on Aubury's chaos, 2026-11-01): the mule first.
-    'chaos rune': { ...runes('chaos rune', 15, AUBURY), muleSupply: 'Jackpoo2' },
+    'chaos rune': { ...runes('chaos rune', 15, AUBURY), muleSupply: 'jackthief' },
     // ── Tools for the skill trainers (lib/training.ts) and Lost City
     axe: {
         obj: 'bronze_axe',
@@ -507,7 +508,7 @@ export const SOURCES: Record<string, Source> = {
         },
     },
     // The Lumbridge spawn is contested (jacklove11's Lost City failed twice on it, 2026-11-01): the mule first.
-    knife: { tool: true, muleSupply: 'Jackpoo2', get: (q, count) => pickUpSpawn(q, LUMBRIDGE_KNIFE, 'knife', count) },
+    knife: { tool: true, muleSupply: 'jackthief', get: (q, count) => pickUpSpawn(q, LUMBRIDGE_KNIFE, 'knife', count) },
     needle: {
         tool: true,
         inputs: () => [{ item: 'coins', count: 1 }],
@@ -791,7 +792,7 @@ export const SOURCES: Record<string, Source> = {
     'goblin mail': {
         // Asked of the Jackpoo2 mule first (jackquests' stock moved to jacklove4, 2026-10-29,
         // then everything to Jackpoo2, the one mule, 2026-10-30): bots crowding the goblin camps got no drop. Killed for if it does not trade.
-        muleSupply: 'Jackpoo2',
+        muleSupply: 'jackthief',
         get: async (q, count) => {
             await killForDrop(q, 'goblin mail', count, GOBLIN_CAMPS, /^goblin$/i);
         },
@@ -1454,7 +1455,7 @@ function impBead(colour: string): Source {
         // Jackpoo2 (the one mule) banks hundreds of each colour and serves them at Draynor bank
         // (moved from jacklove4, 2026-10-30).
         // Inline: SOURCES calls impBead before a module const down here is initialised.
-        muleSupply: 'Jackpoo2',
+        muleSupply: 'jackthief',
         get: async (q, count) => {
             for (let visit = 0; visit < IMP_SPOT_VISITS && q.count(item) < count; visit++) {
                 const missing = IMP_BEADS.filter((c) => c !== colour && q.count(`${c} bead`) === 0);
