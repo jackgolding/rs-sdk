@@ -48,7 +48,8 @@ await runTask({
                 return;
             }
             const share = Math.max(1, Math.floor(PACK / short.length));
-            const needs = short.map((w) => ({ label: w.label, pattern: w.pattern, count: Math.min(share, w.missing) }));
+            // Runes stack in one slot: ask for all of them (26 at a time made 14 trades for 350 natures).
+            const needs = short.map((w) => ({ label: w.label, pattern: w.pattern, count: /rune$/i.test(w.label) ? w.missing : Math.min(share, w.missing) }));
             const before = needs.map((n) => held(n.pattern));
             await requestFromMule({ sdk, bot, session: null, log: q.log } as never, needs, { mule: MULE, timeoutMs: 5 * 60_000 });
             const got = needs.reduce((n, need, i) => n + held(need.pattern) - before[i]!, 0);
