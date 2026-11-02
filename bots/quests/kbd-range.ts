@@ -1095,6 +1095,7 @@ async function meleeKill(): Promise<void> {
         await bot.dismissBlockingUI();
         await eatIfNeeded();
         await drinkAntipoison();
+        // Only in the fight: a dose drunk on the walk in is 3 minutes wasted (user, 2026-11-02).
         await antifire.maybeDrink();
         await drinkPrayerIfLow();
         await protectMelee(kbdTargetsMe());
@@ -1478,7 +1479,6 @@ try {
         await ui();
         await eatIfNeeded();
         await drinkAntipoison();
-        await antifire.maybeDrink();
         await drinkPrayerIfLow();
         if (pos().isDead) {
             await waitRespawn();
