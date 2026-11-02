@@ -1413,7 +1413,12 @@ async function bankTrip(): Promise<boolean> {
             lastKitAsk = Date.now();
             await bot.closeBank().catch(() => undefined);
             log(`kit short (${[...gear, ...stock].map((k) => k.label).join(', ')}): asking jackthief at Ardougne`);
-            if (gear.length) await requestFromMule({ sdk, bot, session: null, log } as never, gear, { mule: 'jackthief', timeoutMs: 5 * 60_000 });
+            if (gear.length) {
+                await requestFromMule({ sdk, bot, session: null, log } as never, gear, { mule: 'jackthief', timeoutMs: 5 * 60_000 });
+                // Worn at once: jacklove1 carried its new body through a whole trip (2026-11-02).
+                await equipLoadout();
+                log(`d'hide worn: body=${!!sdk.findEquipmentItem(DHIDE_BODY)} chaps=${!!sdk.findEquipmentItem(DHIDE_CHAPS)} vambs=${!!sdk.findEquipmentItem(VAMBRACES)}`);
+            }
             if (stock.length) {
                 await requestFromMule({ sdk, bot, session: null, log } as never, stock, { mule: 'jackthief', timeoutMs: 5 * 60_000, noted: true });
                 // Notes go into the bank: the next bank pass withdraws real sharks and pots.
