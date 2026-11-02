@@ -17,6 +17,7 @@
     --bad: #e07a5f;
     --warn: #e6c36a;
     --paused: #9a9286;
+    --swarm: #6fa8dc;
     --focus: #f0d7a8;
   }
   * { box-sizing: border-box; }
@@ -114,12 +115,14 @@
   tr.producing td:first-child { box-shadow: inset 3px 0 0 var(--good); }
   tr.bad td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
   tr.paused td:first-child { box-shadow: inset 3px 0 0 var(--paused); }
+  tr.swarm td:first-child { box-shadow: inset 3px 0 0 var(--swarm); }
   td.account { position: sticky; left: 0; background: #16140f; z-index: 1; }
   th.account { left: 0; z-index: 3; }
   .name { font-weight: 650; display: flex; align-items: center; gap: 6px; }
   .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--bad); }
   .dot.producing { background: var(--good); }
   .dot.paused { background: var(--paused); }
+  .dot.swarm { background: var(--swarm); }
   .dot.warn { background: var(--warn); }
   .pill {
     display: inline-block;
@@ -130,6 +133,7 @@
   }
   .pill.producing { color: var(--good); border-color: #355c32; }
   .pill.paused { color: var(--paused); }
+  .pill.swarm { color: var(--swarm); border-color: #34506b; }
   .pill.bad { color: var(--bad); border-color: #6e3d32; }
   .pill.warn { color: var(--warn); border-color: #6d5a28; }
   .pos a { color: var(--focus); text-decoration: none; }
@@ -373,6 +377,7 @@
       <option value="not">Not producing</option>
       <option value="producing">Producing</option>
       <option value="paused">Paused</option>
+      <option value="swarm">In swarm</option>
     </select>
     <button type="button" id="banks" title="Stop running grinds, log in accounts with no live client, open every roster bank, then start the grinds again. skip-bots are not force-logged in.">Check banks</button>
     <button type="button" id="refresh" aria-busy="false">
@@ -607,6 +612,7 @@ function age(ms) {
 function kindClass(kind) {
   if (kind === 'producing') return 'producing';
   if (kind === 'paused') return 'paused';
+  if (kind === 'swarm') return 'swarm';
   if (kind === 'restartable' || kind === 'finished') return 'warn';
   return 'bad';
 }
@@ -736,7 +742,8 @@ function visibleBots() {
   const kind = $('kind').value;
   return (state.fleet?.bots || []).filter((bot) => {
     if (view !== 'all' && bot.view !== view) return false;
-    if (kind === 'not' && (bot.kind === 'producing' || bot.kind === 'paused')) return false;
+    if (kind === 'not' && (bot.kind === 'producing' || bot.kind === 'paused' || bot.kind === 'swarm')) return false;
+    if (kind === 'swarm' && bot.kind !== 'swarm') return false;
     if (kind === 'producing' && bot.kind !== 'producing') return false;
     if (kind === 'paused' && bot.kind !== 'paused') return false;
     if (!q) return true;
@@ -815,7 +822,7 @@ function renderFleet(opts) {
         : (bot.area || (bot.x == null ? 'Map' : `${bot.x}, ${bot.z}`));
     const ageNote = bot.stateAge == null ? 'no state yet' : age(bot.stateAge);
     const coordNote = bot.x == null ? '' : `${bot.x}, ${bot.z}`;
-    const rowClass = bot.kind === 'producing' ? 'producing' : bot.kind === 'paused' ? 'paused' : 'bad';
+    const rowClass = bot.kind === 'producing' ? 'producing' : bot.kind === 'paused' ? 'paused' : bot.kind === 'swarm' ? 'swarm' : 'bad';
     const select = scriptSelect(bot);
     const extra = el('input', {
       class: 'extra',
@@ -1024,12 +1031,12 @@ function render(opts) {
   const when = new Date(fleet.generatedAt).toLocaleTimeString();
   const dataAgeMs = Date.now() - new Date(fleet.generatedAt).getTime();
   const dataAge = dataAgeMs > 10000 ? ` · data ${age(dataAgeMs)} old` : '';
-  const skipped = fleet.paused ? `${fleet.paused} paused` : 'none paused';
+  const skipped = `${fleet.paused ? `${fleet.paused} paused` : 'none paused'}${fleet.swarmed ? ` · ${fleet.swarmed} in swarm` : ''}`;
   const listed = fleet.notProducing.slice(0, 8);
   const extra = fleet.notProducing.length - listed.length;
   const names = fleet.notProducing.length
     ? `${listed.join(', ')}${extra > 0 ? ` +${extra}` : ''}`
-    : 'the rest are producing or paused';
+    : 'the rest are producing, in the swarm or paused';
   $('sub').textContent = `${skipped} · snapshot ${when}${dataAge} · ${names}`;
   const view = $('view');
   const current = view.value || 'all';

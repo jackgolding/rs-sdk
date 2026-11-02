@@ -370,6 +370,17 @@ function beginFleetBuild(): Promise<unknown> {
 }
 
 /** `fresh` skips the few-second cache so the desk Refresh button sees a new snapshot. */
+/** bots/swarm.json: lowercase account -> swarm job, for accounts the shared swarm process plays. */
+function swarmJobs(): Map<string, string> {
+    const path = join(process.env.FLEET_BOTS_DIR ? resolve(process.env.FLEET_BOTS_DIR) : join(ROOT, 'bots'), 'swarm.json');
+    try {
+        const cfg = JSON.parse(readFileSync(path, 'utf-8')) as { accounts?: Array<{ name?: string; bot?: string; job?: string }> };
+        return new Map((cfg.accounts ?? []).map((a) => [String(a.name ?? a.bot ?? '').toLowerCase(), a.job ?? 'job'] as [string, string]).filter(([n]) => n));
+    } catch {
+        return new Map();
+    }
+}
+
 async function fleetPayload(fresh = false): Promise<unknown> {
     const requestedAt = Date.now();
     if (!fresh && fleetCache && requestedAt - fleetCache.at < 5000) return fleetCache.body;
@@ -406,7 +417,11 @@ async function buildFleet(): Promise<unknown> {
         };
     }
     const byName = new Map(roster.map((bot) => [bot.name, bot]));
+    const swarm = swarmJobs();
     const bots = rows.map((row) => {
+        // A swarm account's own container is stopped, so the roster reads it as paused; it is working.
+        const swarmJob = swarm.get(row.name.toLowerCase());
+        if (swarmJob) row = { ...row, kind: 'swarm' as typeof row.kind, reason: `in the swarm (${swarmJob})` };
         const bot = byName.get(row.name);
         const extra = bot ? extraArgs(row.name, bot.args) : '';
         const lastLogLine = tailFile(LOGS.grind(row.name), 1).at(-1) ?? null;
@@ -415,7 +430,7 @@ async function buildFleet(): Promise<unknown> {
             view: bot?.view ?? '',
             script: bot?.script ?? '',
             extra,
-            activity: activityLabel({ script: bot?.script ?? '', extra, paused: row.paused, lastLogLine }),
+            activity: swarmJob ? `swarm ${swarmJob}` : activityLabel({ script: bot?.script ?? '', extra, paused: row.paused, lastLogLine }),
             command: bot?.command ?? row.restartCommand,
             paused: row.paused,
             pauseSource: bot?.pauseSource ?? null,
@@ -440,8 +455,9 @@ async function buildFleet(): Promise<unknown> {
         };
     });
     const producing = bots.filter((bot) => bot.kind === 'producing').length;
-    const notProducing = bots.filter((bot) => bot.kind !== 'producing' && bot.kind !== 'paused').map((bot) => bot.name);
+    const notProducing = bots.filter((bot) => bot.kind !== 'producing' && bot.kind !== 'paused' && bot.kind !== 'swarm').map((bot) => bot.name);
     const paused = bots.filter((bot) => bot.kind === 'paused').length;
+    const swarmed = bots.filter((bot) => bot.kind === 'swarm').length;
     // Gateway-down signal: most of the roster unreachable at once is a gateway
     // outage, not 40 simultaneous logouts. The banner says so explicitly.
     const unreachable = bots.filter(
@@ -450,8 +466,9 @@ async function buildFleet(): Promise<unknown> {
     const gatewayDown = bots.length > 0 && unreachable >= Math.max(2, Math.ceil(bots.length / 2));
     return {
         generatedAt: new Date().toISOString(),
-        headline: gatewayDown ? 'gateway unreachable' : `${producing} producing, ${notProducing.length} not producing`,
+        headline: gatewayDown ? 'gateway unreachable' : `${producing} producing, ${swarmed} in swarm, ${notProducing.length} not producing`,
         producing,
+        swarmed,
         notProducing,
         paused,
         views: [...new Set(roster.map((bot) => bot.view).filter(Boolean))],
