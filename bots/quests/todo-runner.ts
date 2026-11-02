@@ -50,6 +50,8 @@ interface TodoItem {
   addedAt: string;
   canaryRunId: string;
   done?: { at: string; runId: string };
+  /** Quest ids on this list that must be done first. */
+  after?: string[];
 }
 interface TodoFile {
   schemaVersion: number;
@@ -144,6 +146,21 @@ function mirrorDone(questId: string, done: NonNullable<ItemState['done']>): void
 
 const isDone = (i: TodoItem) => Boolean(i.done || state[i.questId]?.done);
 const exhausted = (i: TodoItem) => (state[i.questId]?.failures ?? 0) >= MAX_FAILURES;
+/**
+ * Quests that cannot start before another on the same list is done: a deferred Plague City let
+ * Biohazard run first and fail at Elena's shut door (ABGARMY07, 2026-11-02). An item may also
+ * list its own `after`. A prerequisite not on the list at all does not block.
+ */
+const QUEST_AFTER: Record<string, string[]> = {
+  biohazard: ['elena'],
+  upass: ['biohazard'],
+  dragon: ['lostcity'],
+};
+const blocked = (i: TodoItem) =>
+  (i.after ?? QUEST_AFTER[i.questId] ?? []).some((q) => {
+    const pre = queue.find((x) => x.questId === q);
+    return !!pre && !isDone(pre);
+  });
 
 const runsRoot = join(process.cwd(), 'quest-lab', 'runs');
 
@@ -258,7 +275,7 @@ async function runItem(item: TodoItem): Promise<void> {
 
 const RECHECK_MS = Number(process.env.TODO_RECHECK_MIN ?? 20) * 60_000;
 let queue = loadQueue();
-const pending = () => queue.filter(i => !isDone(i) && !exhausted(i));
+const pending = () => queue.filter(i => !isDone(i) && !exhausted(i) && !blocked(i));
 log(`${account} — ${pending().length} pending of ${queue.length}${thenCmd.length ? ` · then ${thenCmd.join(' ')}` : ''}`);
 for (const item of pending()) {
   const f = state[item.questId]?.failures ?? 0;
