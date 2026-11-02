@@ -1,6 +1,5 @@
 /**
- * Top an account's bank up from a mule at its bank, one pack per trade (quest-mule serves
- * unnoted). Made for the 2026-11-02 Ardougne muster: vials of water and snape grass to the
+ * Top an account's bank up from a mule at its bank, as bank notes in one trade. Made for the 2026-11-02 Ardougne muster: vials of water and snape grass to the
  * dragon accounts that already bank ranarr, so they brew their own prayer potions.
  *
  *   bun bots/quests/top-up.ts {botname} --want="vial of water=40,snape grass=30" [--mule=jackthief]
@@ -18,8 +17,6 @@ const WANT = (arg('want') ?? '')
     .map((s) => s.split('=').map((x) => x.trim()))
     .filter(([label, n]) => label && Number(n) > 0)
     .map(([label, n]) => ({ label: label!, target: Number(n), pattern: new RegExp(`^${esc(label!)}$`, 'i') }));
-/** Slots a trade may fill: the pack is emptied into the bank before each ask. */
-const PACK = 26;
 
 await runTask({
     id: 'top-up',
@@ -47,11 +44,10 @@ await runTask({
                 q.log(`top-up: bank holds every target — already complete`);
                 return;
             }
-            const share = Math.max(1, Math.floor(PACK / short.length));
-            // Runes stack in one slot: ask for all of them (26 at a time made 14 trades for 350 natures).
-            const needs = short.map((w) => ({ label: w.label, pattern: w.pattern, count: /rune$/i.test(w.label) ? w.missing : Math.min(share, w.missing) }));
+            // As bank notes: every line whole, in one trade (user, 2026-11-02).
+            const needs = short.map((w) => ({ label: w.label, pattern: w.pattern, count: w.missing }));
             const before = needs.map((n) => held(n.pattern));
-            await requestFromMule({ sdk, bot, session: null, log: q.log } as never, needs, { mule: MULE, timeoutMs: 5 * 60_000 });
+            await requestFromMule({ sdk, bot, session: null, log: q.log } as never, needs, { mule: MULE, timeoutMs: 5 * 60_000, noted: true });
             const got = needs.reduce((n, need, i) => n + held(need.pattern) - before[i]!, 0);
             if (got > 0) empty = 0;
             else if (++empty >= 2) throw new Error(`${MULE} served nothing twice (${needs.map((n) => n.label).join(', ')})`);

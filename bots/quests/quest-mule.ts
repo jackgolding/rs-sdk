@@ -185,7 +185,7 @@ function readNewChat(): ChatMsg[] {
     return [];
 }
 
-async function serveOnce(from: string, needs: Array<{ label: string; count: number }>): Promise<boolean> {
+async function serveOnce(from: string, needs: Array<{ label: string; count: number }>, noted = false): Promise<boolean> {
     // Withdraw everything first so a half-stock request fails before trading.
     if (!(await openBank())) {
         session.log('warn', `mule: bank would not open for ${from}`);
@@ -210,7 +210,8 @@ async function serveOnce(from: string, needs: Array<{ label: string; count: numb
             continue;
         }
         const before = countItems(sdk, pattern);
-        await bot.withdrawItem(match, Math.min(need.count, match.count ?? need.count));
+        // `noted` requests (bank top-ups) take the whole amount as notes: one slot, one trade.
+        await bot.withdrawItem(match, Math.min(need.count, match.count ?? need.count), { asNote: noted });
         await sdk.waitForTicks(2).catch(() => undefined);
         const amount = countItems(sdk, pattern) - before;
         if (amount <= 0) {
@@ -437,7 +438,7 @@ try {
             if (!req) continue;
             log(`mule: request from ${from}: ${req.needs.map((n) => `${n.label} x${n.count}`).join(', ')}`);
             if (TRAIN) await parkAtDraynor().catch(() => undefined);
-            await serveOnce(from, req.needs);
+            await serveOnce(from, req.needs, req.noted);
         }
         session.noteProgress('location', 'mule park');
         if (TRAIN && !trainOff) await trainStep();

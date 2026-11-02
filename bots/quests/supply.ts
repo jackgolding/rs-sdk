@@ -190,10 +190,14 @@ export interface MuleOptions {
     mule: string;
     /** Ms to wait for the mule trade (default 5 min). */
     timeoutMs?: number;
+    /** Ask for bank notes: the whole amount in one trade (bank top-ups). */
+    noted?: boolean;
 }
 
 export interface SupplyRequest {
     from: string;
+    /** `quest-supply noted …`: serve as bank notes (a top-up into the bank, not a quest pack). */
+    noted?: boolean;
     needs: Array<{ label: string; count: number }>;
 }
 
@@ -205,15 +209,16 @@ export interface SupplyRequest {
  * not a supply request.
  */
 export function parseSupplyRequest(from: string, text: string): SupplyRequest | null {
-    const match = /quest-supply\s+(.+)/i.exec(text.trim());
+    const match = /quest-supply\s+(noted\s+)?(.+)/i.exec(text.trim());
     if (!match) return null;
+    const noted = !!match[1];
     const needs: Array<{ label: string; count: number }> = [];
-    for (const item of match[1]!.matchAll(/([^=;|,]+?)\s*(?:=|\bx)\s*(\d+)/gi)) {
+    for (const item of match[2]!.matchAll(/([^=;|,]+?)\s*(?:=|\bx)\s*(\d+)/gi)) {
         const label = item[1]!.trim();
         if (label) needs.push({ label, count: Number(item[2]) });
     }
     if (needs.length === 0) return null;
-    return { from, needs };
+    return { from, needs, noted };
 }
 
 /**
@@ -241,7 +246,7 @@ export async function requestFromMule(
         // stocked label and count tested (WordEnc.filter), and ';' is in the chat charset.
         const detail = pending.map((n) => `${n.label}=${n.count - countItems(sdk, n.pattern)}`).join('; ');
         const account = muleAccount(opts.mule);
-        await dmMule(sdk, account, `quest-supply ${detail}`);
+        await dmMule(sdk, account, `quest-supply ${opts.noted ? 'noted ' : ''}${detail}`);
         ctx.log(`supply: requested from ${opts.mule}${account !== opts.mule ? ` (${account})` : ''}: ${detail}`);
         const want = pending.map((n) => ({ item: n.pattern, amount: n.count - countItems(sdk, n.pattern) }));
         const served = await bot.serveTrades({
