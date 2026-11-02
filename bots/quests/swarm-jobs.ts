@@ -428,7 +428,12 @@ abstract class JobBot {
 
         // Kit held far past the plan goes back too, or a pack full of it reads as "bank" forever
         // (jacklove7 held 28 tuna: 920 empty bank trips, 2026-11-02); the withdraw below tops back up to `count`.
-        const overHeld = s.inventory.find(i => !this.bankSkip.has(i.name.toLowerCase()) && plan.withdraw.some(w => w.match(i.name) && s.inventory.filter(j => w.match(j.name)).reduce((a, j) => a + j.count, 0) > w.count * 2));
+        // Kept items count too: the bank's preferred food can differ from the one held (jacklove7's tuna vs a cod plan).
+        const held = (m: (n: string) => boolean) => s.inventory.filter(j => m(j.name)).reduce((a, j) => a + j.count, 0);
+        const planned = plan.withdraw.reduce((a, w) => a + w.count, 0);
+        const overHeld = s.inventory.find(i => !this.bankSkip.has(i.name.toLowerCase()) && (
+            plan.withdraw.some(w => w.match(i.name) && held(w.match) > w.count * 2) ||
+            (!!plan.keep && plan.keep.test(i.name) && planned > 0 && held(n => plan.keep!.test(n)) > planned * 2)));
         const deposit = overHeld ?? s.inventory.find(i => !this.bankSkip.has(i.name.toLowerCase()) && !(plan.keep && plan.keep.test(i.name)) && !plan.withdraw.some(w => w.match(i.name)));
         // Over-held kit (e.g. 14 food left from last trip, plan wants 10) stays: the next withdraw tops up to `count`.
         if (deposit) {
