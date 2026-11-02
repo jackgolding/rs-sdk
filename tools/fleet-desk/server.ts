@@ -24,6 +24,7 @@ import { activityLabel } from './activity';
 import { buildLiteScene } from './scene';
 import { assignRosterScript, scriptError, setSkipList } from './roster-edit';
 import { tailFile } from './tail';
+import { boxHealth } from './box';
 import { questsPayload, type QuestsPayload } from './quests';
 
 const HOST = '127.0.0.1';
@@ -615,6 +616,9 @@ async function handle(req: Request): Promise<Response> {
             cacheAgeMs: fleetCache ? Date.now() - fleetCache.at : null,
             jobsRunning: [...jobs.values()].filter((job) => job.status === 'running').length,
         });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/box') {
+        return json(await boxHealth(process.env.FLEET_BOTS_DIR ? resolve(process.env.FLEET_BOTS_DIR) : join(ROOT, 'bots')));
     }
     if (req.method === 'GET' && url.pathname === '/api/jobs') {
         return json([...jobs.values()].sort((a, b) => b.startedAt - a.startedAt).slice(0, 12));

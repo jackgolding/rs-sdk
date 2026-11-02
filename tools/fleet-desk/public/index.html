@@ -88,6 +88,10 @@
   .headline { color: var(--brass); font-weight: 600; }
   .headline.bad { color: var(--bad); }
   .muted { color: var(--muted); }
+  #box { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); }
+  #box[hidden] { display: none; }
+  #box .warn { color: var(--warn); }
+  #box .bad { color: var(--bad); }
   .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-left: auto; }
   .tabs { display: flex; gap: 4px; }
   .tabs button[aria-pressed="true"] { border-color: var(--brass); color: var(--focus); }
@@ -354,6 +358,7 @@
   <div>
     <div id="headline" class="headline">Loading…</div>
     <div id="sub" class="muted"></div>
+    <div id="box" hidden title="VPS host health"></div>
   </div>
   <div class="tools">
     <div class="tabs">
@@ -1530,8 +1535,40 @@ fetch('/api/jobs').then((res) => res.json()).then((jobs) => {
   $('banks').disabled = true;
   track(bank).finally(() => { $('banks').disabled = false; });
 }).catch(() => undefined);
+// Host health strip: memory is what drops clients on the box, so it goes amber/red first.
+async function loadBox() {
+  const el = $('box');
+  try {
+    const b = await (await fetch('/api/box')).json();
+    if (!b) { el.hidden = true; return; }
+    const gb = (mb) => (mb / 1024).toFixed(1);
+    const memCls = b.memAvailableMb < 800 ? 'bad' : b.memAvailableMb < 1500 ? 'warn' : '';
+    const swapCls = b.swapUsedMb > 4096 ? 'bad' : b.swapUsedMb > 1024 ? 'warn' : '';
+    const loadCls = b.load5 > b.cores * 1.5 ? 'bad' : b.load5 > b.cores ? 'warn' : '';
+    const dropCls = b.clientDrops1h >= 10 ? 'bad' : b.clientDrops1h > 0 ? 'warn' : '';
+    const bit = (cls, text, title = '') => {
+      const span = document.createElement('span');
+      if (cls) span.className = cls;
+      if (title) span.title = title;
+      span.textContent = text;
+      return span;
+    };
+    el.replaceChildren(
+      bit(memCls, `mem ${gb(b.memAvailableMb)}/${gb(b.memTotalMb)} GB free`),
+      bit(swapCls, `swap ${gb(b.swapUsedMb)} GB`),
+      bit(loadCls, `load ${b.load1.toFixed(1)} / ${b.cores} cores`),
+      bit('', `${b.containers ?? '?'} containers`),
+      bit(dropCls, `${b.clientDrops1h} client drops 1h`, b.dropBots1h.join(', ')),
+    );
+    el.hidden = false;
+  } catch {
+    el.hidden = true;
+  }
+}
+loadBox();
 setInterval(() => {
   if (document.hidden || refreshing) return;
+  loadBox();
   loadFleet().catch(() => undefined);
   if (state.tab === 'quests') loadQuests();
 }, 20000);
