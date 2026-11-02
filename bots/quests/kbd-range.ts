@@ -47,7 +47,6 @@ import {
 } from './tiles';
 import { closeUi, leaveAdjacentClosedDoor, walkNear } from './movement';
 import { foodHeal, healAtBank, needsBankHeal } from './food-heal';
-import { LAVA_MAZE_EAST, southOfLavaMaze } from './rune-rocks-route';
 import { installGracefulShutdown } from '../../sdk/runner';
 import { PrayerFlicker } from './prayer-flick';
 import { fetchDukeShield } from './duke-shield';
@@ -1007,11 +1006,37 @@ async function walkKeepRoadToLadder(): Promise<boolean> {
     return distTo(KBD_LADDER.x, KBD_LADDER.z) <= 6;
 }
 
-async function walkLadderToKeep(): Promise<boolean> {
-    if (southOfLavaMaze(pos().x, pos().z) && pos().x < KEEP_ROAD_X - 4) {
-        await hopToward(LAVA_MAZE_EAST.x, LAVA_MAZE_EAST.z, 4);
+/**
+ * South of the keep fence, out the way we came in: the pathfinder's legs to the spider gate, then
+ * north through it. The old straight hop east from the ladder (lava maze east, then the road's
+ * hop list) has no route — ABGARMY13 paced 3036-3040,3833-3838 under NPC hits for 5 minutes
+ * in escape (2026-11-02).
+ */
+async function walkSouthOfFenceToKeep(): Promise<void> {
+    if (distTo(GATE.x, GATE.z) <= 8) await openNearbyGate();
+    const legs = findLongPath(0, pos().x, pos().z, SPIDER_GATE.x, SPIDER_GATE.z - 3);
+    log(`keep route ${pos().x},${pos().z}: ${legs.length} legs via ${legs.map((w) => `${w.x},${w.z}`).join(' ')}`);
+    for (const leg of legs) {
+        if (pos().isDead) return;
+        await eatIfNeeded();
+        if (distTo(GATE.x, GATE.z) <= 8) await openNearbyGate();
+        await hopToward(leg.x, leg.z, 2);
     }
+    const through = () => pos().z >= SPIDER_GATE.z + 2;
+    for (let i = 0; i < 6 && !through() && !pos().isDead; i++) {
+        await openNearbyGate();
+        await sdk.sendWalk(SPIDER_GATE.x, SPIDER_GATE.z + 3, true);
+        await sdk.waitForCondition((st) => (st.player?.worldZ ?? 0) >= SPIDER_GATE.z + 2, 6_000).catch(() => {});
+    }
+    log(`Keep fence ${through() ? 'crossed north' : 'not crossed'} @ ${pos().x},${pos().z}`);
+    if (!through()) return;
+    await hopToward(KEEP_ROAD_X, SPIDER_GATE.z + 2, 3);
+    await hopToward(KEEP_ROAD_X, 3954, 3);
+}
+
+async function walkLadderToKeep(): Promise<boolean> {
     if (inMembersGateCorridor()) await leaveMembersCorridor(true);
+    if (!pos().isDead && pos().z < SPIDER_GATE.z && !northOfKeepFence()) await walkSouthOfFenceToKeep();
     await walkWaypointsSend(LADDER_TO_KEEP, KEEP_WEB_NORTH);
     return atKeepWeb() || northOfKeepWeb() || insideKeep();
 }
