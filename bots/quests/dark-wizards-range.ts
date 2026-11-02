@@ -60,6 +60,8 @@ const heldCount = (q: Quest, re: RegExp) => q.sdk.getInventory().filter((i) => r
 const quiver = (q: Quest) => q.sdk.getEquipment().filter((e) => e && ARROWS.test(e.name)).reduce((n, e) => n + (e!.count ?? 1), 0);
 const hp = (q: Quest) => q.sdk.getSkill('Hitpoints');
 let bankTalismans = { water: 0, fire: 0 };
+/** Ranged level at which a better STRUNG bow than the worn one is banked (Infinity: none). */
+let nextBowAt = Infinity;
 
 /**
  * A wizard another player is fighting: its facing target is a player slot + 32768 and that slot
@@ -112,6 +114,7 @@ async function restock(q: Quest): Promise<boolean> {
     }
     const banked = (re: RegExp) => (sdk.getBankItems() ?? []).filter((b) => re.test(b.name)).reduce((n, b) => n + b.count, 0);
     bankTalismans = { water: banked(WATER_T), fire: banked(FIRE_T) };
+    const bankIds = new Set((sdk.getBankItems() ?? []).map((b) => b.id));
     // Strung bows only (by id); the best the level allows, else one from Lowe.
     let bow = bestBow(q);
     const lowe = loweBow(q);
@@ -148,6 +151,9 @@ async function restock(q: Quest): Promise<boolean> {
         }
     }
     if (wornBowId(q) !== bow) throw new Error(`could not wield bow ${bow}`);
+    // Only a banked better bow is worth a trip back (jacklove20 walked back at 20 and 30 for nothing).
+    nextBowAt = Math.min(Infinity, ...BOWS.filter(([id, need]) => need > levelOf(bow) && bankIds.has(id)).map(([, need]) => need));
+    q.log(`bow ${bow}; next banked upgrade at Ranged ${nextBowAt}`);
     // Coins left over from Lowe go back next restock.
     const arrowItem = sdk.findInventoryItem(ARROWS);
     if (arrowItem) await bot.equipItem(arrowItem);
@@ -201,7 +207,6 @@ await runTask({
                 q.log(`dark-wizards-range: bank holds ${bankTalismans.water} water and ${bankTalismans.fire} fire talismans, Ranged ${q.level('ranged')}, ${kills} kills — already complete`);
                 return;
             }
-            const bowAt = q.level('ranged');
             await q.goTo(CIRCLE, 6);
             let tripKills = 0;
             while (!q.stopRequested() && tripKills < MAX_KILLS_PER_TRIP) {
@@ -215,7 +220,7 @@ await runTask({
                 if (quiver(q) === 0 && !sdk.findInventoryItem(ARROWS)) break;
                 if (sdk.getInventory().length >= 27) break;
                 // A better bow unlocked (oak 5, willow 20, maple 30): go get it.
-                if (BOWS.some(([, need]) => need > bowAt && need <= q.level('ranged'))) break;
+                if (q.level('ranged') >= nextBowAt) break;
                 if (q.level('ranged') >= UNTIL) break;
                 if (TALISMANS > 0 && bankTalismans.water + heldCount(q, WATER_T) >= TALISMANS && bankTalismans.fire + heldCount(q, FIRE_T) >= TALISMANS) break;
                 const npc = pickWizard(q);
