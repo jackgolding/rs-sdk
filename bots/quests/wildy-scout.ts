@@ -85,8 +85,16 @@ await runTask({
                 const step = Math.min(12, d);
                 const tx = Math.round(p().worldX + ((x - p().worldX) / d) * step);
                 const tz = Math.round(p().worldZ + ((z - p().worldZ) / d) * step);
+                const sx = p().worldX;
+                const sz = p().worldZ;
                 await sdk.sendWalk(tx, tz, true);
                 await untilTicks(sdk, () => Math.hypot(p().worldX - tx, p().worldZ - tz) <= 2 || p().isDead, step * 2 + 4);
+                if (p().worldX === sx && p().worldZ === sz) {
+                    // Blocked straight line: side-step (alternating sides, growing) and re-aim.
+                    const side = (i % 2 === 0 ? 1 : -1) * (4 + 2 * Math.floor(i / 2));
+                    await sdk.sendWalk(sx + side, sz + (z > sz ? 3 : -3), true);
+                    await sdk.waitForTicks(4).catch(() => undefined);
+                }
             }
         };
 
