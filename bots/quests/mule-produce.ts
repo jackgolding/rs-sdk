@@ -277,7 +277,9 @@ async function deliver(q: Quest, mule: string): Promise<void> {
         return;
     }
     let ok = false;
-    for (let attempt = 1; attempt <= 3 && !ok && !q.stopRequested(); attempt++) {
+    // The mule serves one account at a time: a busy mule is waited out, not given up on (muster, 2026-11-02).
+    for (let attempt = 1; attempt <= 10 && !ok && !q.stopRequested(); attempt++) {
+        if (attempt > 1) await sdk.waitForTicks(40);
         await dmMule(sdk, account, 'quest-restock');
         q.log(`deliver: asked ${mule}${account !== mule ? ` (${account})` : ''} to take a restock (attempt ${attempt})`);
         // The mule banks its pack first (a few ticks), then waits in serveTrades.
