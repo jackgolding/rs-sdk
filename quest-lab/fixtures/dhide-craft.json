@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "questId": "dhide-craft",
+  "position": { "x": 2655, "z": 3283, "level": 0 },
+  "skills": "maxed",
+  "tutorial": true,
+  "bank": [
+    { "name": "coins", "count": 1000 },
+    { "name": "dragonhide_black", "count": 32 },
+    { "name": "ring_of_dueling_8", "count": 1 },
+    { "name": "lawrune", "count": 2 },
+    { "name": "airrune", "count": 5 },
+    { "name": "waterrune", "count": 2 }
+  ],
+  "worn": [],
+  "varps": {},
+  "target": { "varp": "cookquest", "unstarted": 0 },
+  "skillsOverride": { "crafting": 85 },
+  "note": "dhide-craft.ts at the Ardougne south bank: 32 black dragonhide (27 + 5 tanning trips, 10 bodies + 1 chaps), 1000 coins, a ring of dueling, Ardougne/Camelot Teleport runes (no Plague City, so Ardougne is refused and Camelot goes). No needle or thread banked: bought from Dommik. Crafting 85."
+}

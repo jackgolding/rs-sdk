@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "questId": "dhide-craft",
+  "position": {
+    "x": 2655,
+    "z": 3283,
+    "level": 0
+  },
+  "skills": "maxed",
+  "tutorial": true,
+  "bank": [
+    {
+      "name": "coins",
+      "count": 1000
+    },
+    {
+      "name": "dragonhide_black",
+      "count": 7
+    },
+    {
+      "name": "dragon_leather_black",
+      "count": 1
+    },
+    {
+      "name": "needle",
+      "count": 1
+    },
+    {
+      "name": "thread",
+      "count": 2
+    }
+  ],
+  "worn": [],
+  "varps": {},
+  "target": {
+    "varp": "cookquest",
+    "unstarted": 0
+  },
+  "skillsOverride": {
+    "crafting": 83
+  },
+  "note": "dhide-craft.ts with no ring and no teleport runes: walks to Al Kharid and back (toll both ways). 7 hides + 1 leather = 8 leather at Crafting 83: no bodies (84), 4 chaps (82). Needle and 2 thread banked."
+}
