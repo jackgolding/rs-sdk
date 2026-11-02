@@ -711,17 +711,33 @@ export async function ropeFissure(q: Quest): Promise<void> {
 async function useFissure(q: Quest, item: RegExp, what: string): Promise<void> {
     await toValley(q, MOUND, 1);
     const before = q.count(item);
-    let fissure = await findLoc(q, /^(fissure|mound of earth)$/i, undefined, { x: 2921, z: 2999 });
-    if (fissure && /mound/i.test(fissure.name)) {
-        // The dug mound turns back into a mound after 50 ticks: searching it shows the fissure again.
-        await opLoc(q, fissure, /^search$/i, [/no thanks/i], () => false, 6);
-        await driveDialog(q.sdk, [/no thanks/i], { ticks: 10 });
-        fissure = await findLoc(q, LOC_NAME.fissure, undefined, { x: 2921, z: 2999 });
+    // Up to three tries. From stage dug the mound's Look-at (op1) turns it into the Fissure for 50
+    // ticks with one mesbox (quest_zombiequeen.rs2 oploc1,ahzarhoon_entrance), and the item goes
+    // on at once. Search (op2) opens the crawl prompt instead; jacklove5's candle "did not go in"
+    // and the next try found "no fissure" by the mound it had just searched (2026-11-02).
+    for (let attempt = 1; attempt <= 3 && q.count(item) >= before; attempt++) {
+        let fissure = await findLoc(q, LOC_NAME.fissure, undefined, { x: 2921, z: 2999 }, 4);
+        if (!fissure) {
+            const mound = await findLoc(q, /^mound of earth$/i, /^look-at$/i, { x: 2921, z: 2999 }, 4);
+            if (!mound) {
+                q.log(`shilo: no mound or fissure by (2921,2999) from ${where(q)} (try ${attempt})`);
+                await q.sdk.waitForTicks(3);
+                continue;
+            }
+            await opLoc(q, mound, /^look-at$/i, [], () => false, 4);
+            await driveDialog(q.sdk, [/no thanks/i], { ticks: 10 });
+            await q.sdk.scanNearbyLocs(6).catch(() => undefined);
+            fissure = await findLoc(q, LOC_NAME.fissure, undefined, { x: 2921, z: 2999 }, 4);
+        }
+        if (!fissure) {
+            q.log(`shilo: the mound's Look-at showed no fissure (try ${attempt})`);
+            continue;
+        }
+        await useOnLoc(q, item, fissure, () => q.count(item) < before, [], 20);
+        await driveDialog(q.sdk, [], { ticks: 20 });
+        if (q.count(item) >= before) q.log(`shilo: ${what} did not go into the fissure (try ${attempt})`);
     }
-    if (!fissure) throw new Error(`shilo: no fissure near ${where(q)}`);
-    await useOnLoc(q, item, fissure, () => q.count(item) < before, [], 20);
-    await driveDialog(q.sdk, [], { ticks: 20 });
-    if (q.count(item) >= before) q.log(`shilo: ${what} did not go into the fissure`);
+    if (q.count(item) >= before) throw new Error(`shilo: ${what} did not go into the fissure near ${where(q)}`);
 }
 
 export async function descendFissure(q: Quest): Promise<void> {
