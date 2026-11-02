@@ -1393,7 +1393,9 @@ const RESTOCK_WAIT_TICKS = 2_000;
 export async function buyWaitingForRestock(q: Quest, shop: { x: number; z: number; npc: RegExp }, item: string, count: number): Promise<void> {
     const { buyAtShop } = await import('../quest-supplies');
     const pattern = itemPattern(item);
-    const deadline = tickNow(q.sdk) + RESTOCK_WAIT_TICKS;
+    // The restock budget starts at the first "out of stock", not at the call: the walk to the shop
+    // alone used it up and ABGARMY05 gave up the moment Varrock's buckets ran out (2026-11-02).
+    let deadline = Number.POSITIVE_INFINITY;
     while (q.count(item) < count && tickNow(q.sdk) < deadline) {
         // A full pack reads as 'out of stock' below and waited the whole restock budget.
         if (q.sdk.getInventory().length >= 28 && q.count(item) === 0) throw new Error(`pack is full — no room to buy ${item}`);
@@ -1405,6 +1407,7 @@ export async function buyWaitingForRestock(q: Quest, shop: { x: number; z: numbe
         if (q.sdk.getState()?.shop?.isOpen && !stock()) throw new Error(`shop at (${shop.x},${shop.z}) does not sell ${item}`);
         q.log(`${item} out of stock at (${shop.x},${shop.z}) — waiting for restock`);
         const t0 = tickNow(q.sdk);
+        if (!Number.isFinite(deadline)) deadline = t0 + RESTOCK_WAIT_TICKS;
         await untilTicks(q.sdk, (s) => !s.shop?.isOpen || (s.shop.shopItems.find((i) => pattern.test(i.name))?.count ?? 0) > 0, Math.max(1, deadline - t0));
         q.log(`restock wait ${tickNow(q.sdk) - t0}t (stock now ${stock()?.count ?? '?'})`);
     }
