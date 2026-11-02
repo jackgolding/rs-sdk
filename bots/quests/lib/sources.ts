@@ -403,9 +403,11 @@ export const SOURCES: Record<string, Source> = {
 
     // ── Demon Slayer: a bucket of water for the palace drain, 25 bones for Traiborn
     bucket: {
-        inputs: () => [{ item: 'coins', count: 2 }],
+        inputs: (count) => [{ item: 'coins', count: 3 * count }],
         get: async (q, count) => {
-            await q.ensure('coins', 1);
+            // Coins for every bucket, at the store's rising price: 1 coin was "enough" and
+            // ABGARMY05 (2 coins) bought one then failed 10 buys, "source for bucket left 3/4" (2026-11-02).
+            await q.ensure('coins', 3 * (count - q.count('bucket')) + 2);
             await buyWaitingForRestock(q, VARROCK_GENERAL_STORE, 'bucket', count);
         },
     },
