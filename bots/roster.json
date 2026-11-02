@@ -348,8 +348,9 @@
       "args": [
         "jacklove18",
         "--then",
-        "bots/quests/taverley-supplies.ts",
-        "jacklove18"
+        "bots/quests/unicorns.ts",
+        "jacklove18",
+        "--ranged"
       ],
       "noEffectMinutes": 60
     },
