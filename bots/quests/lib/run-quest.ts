@@ -180,7 +180,9 @@ export function runTask(def: { id: string; hub: SafeBankName; needs?: Need[]; ma
 const inAlKharid = (t: Tile) => t.x >= TOLL_X && t.z > 3080 && t.z < 3300;
 
 /** How long the prepare phase waits on a mule's trade (Source.muleSupply) before sourcing the item itself. */
-const MULE_WAIT_TICKS = 200;
+// 600, not 200: jackthief serves one account at a time, and a 200-tick wait gave up on
+// jacklove2's bread 1 s before the mule's trade opened (2026-11-02, Merlin's Crystal).
+const MULE_WAIT_TICKS = 600;
 /** Karamja: walkTo and travelTo have no way off the island. */
 // Whole island, west to Brimhaven's side (jacklove13 at 2804,3179 was outside the old
 // Musa Point box, 2026-10-29); the north edge stays below the Rimmington coast.
