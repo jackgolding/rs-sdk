@@ -40,8 +40,12 @@ async function climb(bot: BotActions, sdk: BotSDK, up: boolean): Promise<boolean
 }
 
 /** True when a shield is held afterwards. Safe to call when one is already held. */
+/** Set once the Duke offered no shield (Dragon Slayer not started): no more 40-minute round trips this run. */
+let dukeRefused = false;
+
 export async function fetchDukeShield(bot: BotActions, sdk: BotSDK, log: Log): Promise<boolean> {
     if (holding(sdk)) return true;
+    if (dukeRefused) return false;
     log('No dragonfire shield held — asking Duke Horacio for one');
     if (level(sdk) === 0) {
         await walkNear(bot, sdk, CASTLE_STAIRS.x, CASTLE_STAIRS.z, 2);
@@ -77,7 +81,12 @@ export async function fetchDukeShield(bot: BotActions, sdk: BotSDK, log: Log): P
             await sdk.waitForTicks(1).catch(() => undefined);
         }
         await bot.dismissBlockingUI().catch(() => undefined);
-        if (declined) break; // no shield on offer (Dragon Slayer not done)
+        if (declined) {
+            // No shield on offer (Dragon Slayer not started): ABGARMY14 walked Ardougne-Lumbridge
+            // twice for nothing (2026-11-02). One ask per run; a shield has to come from a bank.
+            dukeRefused = true;
+            break;
+        }
         if (!holding(sdk)) seen.push(`#${attempt} talked, no shield`);
     }
     if (seen.length) log(`Duke shield: ${seen.join(' | ')}`);
