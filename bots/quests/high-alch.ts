@@ -27,7 +27,11 @@ import {
 
 const FIRE_STAFF_PATTERN = /^(staff of fire|fire battlestaff|mystic fire staff|lava battlestaff|mystic lava staff)$/i;
 const NATURE_RUNE_PATTERN = /^nature rune$/i;
-const ALCH_TARGETS_PATTERN = /^(magic longbow|fire battlestaff)$/i;
+/** `--items=yew longbow`: alch only that item (exact name), for Magic XP (2026-11-02: strung yew longbows only). */
+const ITEMS_ARG = process.argv.find((a) => a.startsWith('--items='))?.slice('--items='.length);
+const ITEMS_PATTERN = ITEMS_ARG ? new RegExp(`^(${ITEMS_ARG.split(',').map((x) => x.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})$`, 'i') : null;
+const ALCH_TARGETS_PATTERN = ITEMS_PATTERN ?? /^(magic longbow|fire battlestaff)$/i;
+const FIRE_RUNE_PATTERN = /^fire rune$/i;
 const MAGIC_LONGBOW_PATTERN = /^magic longbow$/i;
 const FIRE_BATTLESTAFF_PATTERN = /^fire battlestaff$/i;
 
@@ -98,13 +102,14 @@ await runScript(async ({ bot, sdk }) => {
     console.log(`[alch] Starting High Alchemy script for ${botName}...`);
     let totalAlched = 0;
     const startMagicXp = sdk.getSkill('Magic')?.experience ?? 0;
+    let staffless = false;
 
     while (true) {
         await bot.dismissBlockingUI();
 
         // 1. Check if Fire Staff is equipped
         const equippedWeapon = sdk.findEquipmentItem(FIRE_STAFF_PATTERN);
-        if (!equippedWeapon) {
+        if (!equippedWeapon && !staffless) {
             console.log('[alch] Fire staff not equipped. Checking inventory...');
             const invStaff = sdk.findInventoryItem(FIRE_STAFF_PATTERN);
             if (invStaff) {
@@ -128,10 +133,22 @@ await runScript(async ({ bot, sdk }) => {
 
                 const bankStaff = sdk.findBankItem(FIRE_STAFF_PATTERN);
                 if (!bankStaff) {
-                    console.error('[alch] No fire staff (Staff of fire / Fire battlestaff / Lava staff) found in bank!');
+                    // No staff: 5 fire runes a cast instead, while the bank has them.
+                    const fire = sdk.findBankItem(FIRE_RUNE_PATTERN);
+                    if (!sdk.findInventoryItem(FIRE_RUNE_PATTERN) && fire && fire.count >= 5) {
+                        console.log(`[alch] No fire staff banked: withdrawing ${fire.count} fire runes instead`);
+                        await bot.withdrawItem(FIRE_RUNE_PATTERN, -1);
+                    }
                     await bot.closeBank();
-                    break;
+                    if ((sdk.findInventoryItem(FIRE_RUNE_PATTERN)?.count ?? 0) < 5) {
+                        console.error('[alch] No fire staff and no fire runes in the bank — already complete');
+                        break;
+                    }
+                    staffless = true;
                 }
+                if (!bankStaff) {
+                    // carry on with runes
+                } else {
 
                 console.log(`[alch] Withdrawing 1x ${bankStaff.name}...`);
                 const withdrawStaffRes = await bot.withdrawItem(FIRE_STAFF_PATTERN, 1, { asNote: false });
@@ -149,7 +166,12 @@ await runScript(async ({ bot, sdk }) => {
                     console.error(`[alch] Failed to equip fire staff: ${equipRes.message}`);
                     break;
                 }
+                }
             }
+        }
+        if (staffless && (sdk.findInventoryItem(FIRE_RUNE_PATTERN)?.count ?? 0) < 5) {
+            console.log('[alch] Out of fire runes — already complete');
+            break;
         }
 
         // 2. Check for Nature Runes in inventory
@@ -167,7 +189,7 @@ await runScript(async ({ bot, sdk }) => {
 
             const bankNatures = sdk.findBankItem(NATURE_RUNE_PATTERN);
             if (!bankNatures || bankNatures.count <= 0) {
-                console.error('[alch] Out of Nature runes in bank and inventory!');
+                console.error('[alch] Out of Nature runes in bank and inventory — already complete');
                 await bot.closeBank();
                 break;
             }
@@ -195,8 +217,23 @@ await runScript(async ({ bot, sdk }) => {
                 break;
             }
 
-            const bankBows = sdk.findBankItem(MAGIC_LONGBOW_PATTERN);
-            const bankStaves = sdk.findBankItem(FIRE_BATTLESTAFF_PATTERN);
+            if (ITEMS_PATTERN) {
+                const target = sdk.findBankItem(ITEMS_PATTERN);
+                if (!target || target.count <= 0) {
+                    console.log(`[alch] No ${ITEMS_ARG} left in the bank — already complete`);
+                    await bot.closeBank();
+                    break;
+                }
+                console.log(`[alch] Withdrawing ${target.count} noted ${target.name}...`);
+                const r = await bot.withdrawItem(ITEMS_PATTERN, -1, { asNote: true });
+                if (!r.success) {
+                    console.error(`[alch] Failed to withdraw ${target.name}: ${r.message}`);
+                    await bot.closeBank();
+                    break;
+                }
+            }
+            const bankBows = ITEMS_PATTERN ? null : sdk.findBankItem(MAGIC_LONGBOW_PATTERN);
+            const bankStaves = ITEMS_PATTERN ? null : sdk.findBankItem(FIRE_BATTLESTAFF_PATTERN);
 
             if (bankBows && bankBows.count > 0) {
                 console.log(`[alch] Withdrawing ${bankBows.count} noted Magic longbows...`);
@@ -214,7 +251,7 @@ await runScript(async ({ bot, sdk }) => {
                     await bot.closeBank();
                     break;
                 }
-            } else {
+            } else if (!ITEMS_PATTERN) {
                 console.log('[alch] No Magic longbows or Fire battlestaves left in bank or inventory!');
                 await bot.closeBank();
                 break;
@@ -235,6 +272,7 @@ await runScript(async ({ bot, sdk }) => {
                 break;
             }
 
+            if (staffless && (sdk.findInventoryItem(FIRE_RUNE_PATTERN)?.count ?? 0) < 5) break;
             const alchItem = sdk.getInventory().find((i) => ALCH_TARGETS_PATTERN.test(i.name));
             if (!alchItem || alchItem.count <= 0) {
                 console.log('[alch] Finished alching current batch, checking bank for more...');
