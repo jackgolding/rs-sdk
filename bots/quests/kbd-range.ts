@@ -384,9 +384,39 @@ async function ui(): Promise<void> {
     await closeUi(bot, sdk);
 }
 
+/**
+ * On the wilderness walk, anything hitting us — a player, the lesser demon by the gate, spiders,
+ * skeletons — gets Protect from Melee held and food eaten below 60%, and we keep running; the
+ * prayer comes off once nothing has hit for 8 ticks (user, 2026-11-02, after ABGARMY13 died on
+ * the walk). Teleports are out of reach above level 20, so running is the escape.
+ */
+let guardOn = false;
+async function travelGuard(): Promise<void> {
+    if (!MELEE || inKbdLair()) return;
+    const st = sdk.getState();
+    const hit = st?.player?.combat?.lastDamageTick ?? -1;
+    const beingHit = hit >= 0 && (st?.tick ?? 0) - hit <= 8;
+    if (beingHit) {
+        if (!guardOn) {
+            const by = st?.player?.combat?.targetType === 'player' ? (sdk.getNearbyPlayers() ?? []).find((pl) => pl.index === st.player!.combat.targetIndex)?.name ?? 'a player' : 'an npc';
+            session.log('warn', `Hit on the walk by ${by} @ ${pos().x},${pos().z} hp ${pos().hp}/${pos().maxHp} — praying and running`);
+            guardOn = true;
+        }
+        await protectMelee(true);
+        if (pos().hp < pos().maxHp * 0.6) {
+            const food = edible().sort((a, b) => foodHeal(b.name) - foodHeal(a.name))[0];
+            if (food) await bot.eatFood(food).catch(() => undefined);
+        }
+    } else if (guardOn) {
+        guardOn = false;
+        await protectMelee(false);
+    }
+}
+
 async function hopToward(x: number, z: number, tolerance = 4): Promise<boolean> {
     await bot.dismissBlockingUI();
     for (let i = 0; i < 80 && !pos().isDead; i++) {
+        await travelGuard();
         const p = pos();
         const d = Math.hypot(p.x - x, p.z - z);
         if (d <= tolerance) return true;
