@@ -1252,7 +1252,10 @@ async function goToLair(): Promise<boolean> {
     if (MELEE && !northOfDitch()) {
         const dressed = !!sdk.findEquipmentItem(MELEE_WEAPON) && !!sdk.findEquipmentItem(FIRE_SHIELD);
         const fed = sharkSlots() >= Math.min(8, FOOD_WITHDRAW);
-        const exit = (count(LAW) >= 1 && count(AIR) >= 5) || (count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1);
+        // Runes are an exit only at the spell's level: Camelot 45, Lumbridge 31 (KQ fork found Magic-1
+        // accounts "teleporting" and dying, 2026-11-02).
+        const magic = sdk.getSkill('Magic')?.level ?? 1;
+        const exit = (magic >= 45 && count(LAW) >= 1 && count(AIR) >= 5) || (magic >= 31 && count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1);
         // Prayer potions are optional (user, 2026-11-02): taken when there are any, never waited for.
         const pots = sdk.getInventory().filter((i) => PRAYER_POT.test(i.name)).length;
         if (!dressed || !fed || !exit) {
@@ -1337,7 +1340,7 @@ async function teleportOutOfLair(): Promise<boolean> {
             if (cw) await sdk.sendClickDialog(cw.index);
             await sdk.waitForTicks(1).catch(() => {});
         }
-    } else if (count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1) {
+    } else if (magic >= 31 && count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1) {
         await sdk.sendSetTab(MAGIC_TAB).catch(() => {});
         await sdk.waitForTicks(1).catch(() => {});
         await sdk.sendClickComponent(LUMBRIDGE_TELEPORT);
@@ -1564,7 +1567,8 @@ async function bankTrip(): Promise<boolean> {
         const armed = !!sdk.findEquipmentItem(MELEE_WEAPON);
         // No teleport, no trip (Camelot / Lumbridge runes, or a ring of dueling).
         // Spell runes only: a ring's rub is closed by any hit (ring_of_dueling.rs2), Jackpoo1 died on one.
-        const canTeleport = (count(LAW) >= 1 && count(AIR) >= 5) || (count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1);
+        const mlvl = sdk.getSkill('Magic')?.level ?? 1;
+        const canTeleport = (mlvl >= 45 && count(LAW) >= 1 && count(AIR) >= 5) || (mlvl >= 31 && count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1);
         if (!canTeleport) session.noteFailure('kit', 'no teleport out of the lair (runes or ring of dueling)');
         // Held but not wieldable (no Lost City: jacklove11 was served two it could not wield) is not asked again.
         if (!armed && !sdk.findInventoryItem(MELEE_WEAPON) && Date.now() - lastMuleAsk > 30 * 60_000) {
