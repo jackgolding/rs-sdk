@@ -149,8 +149,10 @@ const MELEE_WEAPONS = [
     /^adamant scimitar$/i
 ];
 const MELEE_WEAPON = /^(dragon (longsword|scimitar|battleaxe)|rune (scimitar|longsword|battleaxe)|adamant scimitar)$/i;
+/** Best first: a carried better helm replaces the worn one (equipMeleeLoadout). */
+const MELEE_HELMS = [/^berserker helm$/i, /^dragon med helm$/i, /^rune full helm$/i, /^rune med helm$/i, /^adamant full helm$/i, /^adamant med helm$/i];
 const MELEE_ARMOUR = [
-    /^(dragon|rune|adamant) (full helm|med helm)$/i,
+    /^(berserker helm|(dragon|rune|adamant) (full helm|med helm))$/i,
     /^(rune|adamant) (platebody|chainbody)$/i,
     /^(rune|adamant) (platelegs|plateskirt)$/i,
     /^amulet of (power|strength|glory(\([1-4]\))?)$/i,
@@ -475,6 +477,10 @@ async function equipMeleeLoadout(): Promise<void> {
     }
     // D'hide body/chaps/vambraces as well (user, 2026-11-02): body and legs only when no plate
     // piece already fills the slot.
+    // A carried better helm replaces the worn one (berserker > dragon med > rune > adamant).
+    const wornH = MELEE_HELMS.findIndex((p) => !!sdk.findEquipmentItem(p));
+    const heldH = MELEE_HELMS.findIndex((p) => !!sdk.findInventoryItem(p));
+    if (heldH >= 0 && (wornH < 0 || heldH < wornH)) await bot.equipItem(sdk.findInventoryItem(MELEE_HELMS[heldH]!)!).catch(() => undefined);
     // A carried amulet of strength replaces a worn power/glory.
     const str = sdk.findInventoryItem(/^amulet of strength$/i);
     if (str && !sdk.findEquipmentItem(/^amulet of strength$/i)) await bot.equipItem(str).catch(() => undefined);
@@ -1444,10 +1450,16 @@ async function bankTrip(): Promise<boolean> {
     }
     // Melee now wears the black d'hide jacklove16 made (user, 2026-11-02): a PK death loses it
     // (only longsword, shield and one more are kept), traded for less damage taken in the lair.
-    for (const pattern of MELEE ? [FIRE_SHIELD, DHIDE_BODY, DHIDE_CHAPS, VAMBRACES, /^(dragon|rune|adamant) (full helm|med helm)$/i, BOOTS, /^leather gloves$/i] : [FIRE_SHIELD, DHIDE_BODY, DHIDE_CHAPS, VAMBRACES, HELM, BOOTS, CHARGED_GLORY]) {
+    for (const pattern of MELEE ? [FIRE_SHIELD, DHIDE_BODY, DHIDE_CHAPS, VAMBRACES, BOOTS, /^leather gloves$/i] : [FIRE_SHIELD, DHIDE_BODY, DHIDE_CHAPS, VAMBRACES, HELM, BOOTS, CHARGED_GLORY]) {
         if (sdk.findEquipmentItem(pattern) || sdk.findInventoryItem(pattern)) continue;
         const bankItem = sdk.findBankItem(pattern);
         if (bankItem) await bot.withdrawItem(bankItem, 1);
+    }
+    // Melee: the best helm banked — berserker first (user, 2026-11-02), then dragon med, rune, adamant.
+    if (MELEE) {
+        const wornHelm = MELEE_HELMS.findIndex((p) => !!sdk.findEquipmentItem(p) || !!sdk.findInventoryItem(p));
+        const bankHelm = MELEE_HELMS.findIndex((p) => !!sdk.findBankItem(p));
+        if (bankHelm >= 0 && (wornHelm < 0 || bankHelm < wornHelm)) await bot.withdrawItem(sdk.findBankItem(MELEE_HELMS[bankHelm]!)!, 1);
     }
     // Melee: the best amulet banked — strength first, then power, then glory (user, 2026-11-02).
     if (MELEE) {
@@ -1482,6 +1494,7 @@ async function bankTrip(): Promise<boolean> {
                 [DHIDE_BODY, 'dragonhide body'],
                 [DHIDE_CHAPS, 'dragonhide chaps'],
                 [VAMBRACES, 'dragon vambraces'],
+                [/^berserker helm$/i, 'berserker helm'],
             ] as const
         )
             .filter(([p]) => !sdk.findEquipmentItem(p) && !sdk.findInventoryItem(p))
