@@ -672,6 +672,10 @@ export async function runQuest(def: QuestDef): Promise<void> {
                     // A wandering npc can be out of view from the edge of APPROACH: Romeo
                     // was not seen from 13 tiles off his square (2026-10-29). Close in on `at`.
                     if (!teleport && !(await untilTicks(sdk, () => !!sdk.findNearbyNpc(npc), 5))) await q.goTo(at, 3);
+                    // Seen but behind a door another player shut (Alrena in her house: "not reachable",
+                    // jacklove16 3x, 2026-11-02): walk right up — the walk opens doors on the way.
+                    const seenNpc = sdk.findNearbyNpc(npc);
+                    if (!teleport && seenNpc && seenNpc.reachable === false) await q.goTo(at, 1).catch(() => undefined);
                 }
                 const seen = await talkThrough(sdk, bot, npc, choices, log);
                 session.noteProgress('dialog', String(npc));
