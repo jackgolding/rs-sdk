@@ -585,9 +585,15 @@ async function drinkAntipoison(): Promise<void> {
 }
 
 function findKbd() {
+    // Alive also when it is on someone: a respawned KBD can keep its last life's hp 0 until it
+    // is hit, and nobody hits what they think is dead. ABGARMY14 died at 20:07 with 10 sharks, no
+    // "KBD up" logged by any of the three in the lair for 2+ minutes after a kill (2026-11-02).
     return (
         (sdk.getNearbyNpcs() ?? []).find(
-            (n) => KBD.test(n.name) && (n.hp === null || n.hp > 0) && n.optionsWithIndex.some((o) => /attack/i.test(o.text))
+            (n) =>
+                KBD.test(n.name) &&
+                (n.hp === null || n.hp > 0 || (n.targetIndex ?? -1) >= 0) &&
+                n.optionsWithIndex.some((o) => /attack/i.test(o.text))
         ) ?? null
     );
 }
