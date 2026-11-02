@@ -50,21 +50,37 @@ export async function fetchDukeShield(bot: BotActions, sdk: BotSDK, log: Log): P
             return false;
         }
     }
-    await bot.walkTo(DUKE.x, DUKE.z, 2).catch(() => undefined);
-    const duke = sdk.findNearbyNpc(/^duke horacio$/i);
-    if (duke) {
+    // Up to three asks: the Duke wanders his room, and a walk that stops short or a talk that
+    // never opens gave "none given" to a Dragon Slayer finisher (ABGARMY17, twice on 2026-11-02).
+    const seen: string[] = [];
+    for (let attempt = 1; attempt <= 3 && !holding(sdk); attempt++) {
+        await bot.walkTo(DUKE.x, DUKE.z, 2).catch(() => undefined);
+        const duke = sdk.findNearbyNpc(/^duke horacio$/i);
+        if (!duke) {
+            seen.push(`#${attempt} no Duke in view at ${sdk.getState()?.player?.worldX},${sdk.getState()?.player?.worldZ} L${level(sdk)}`);
+            await sdk.waitForTicks(5).catch(() => undefined);
+            continue;
+        }
         await bot.talkTo(duke).catch(() => undefined);
+        let declined = false;
         for (let i = 0; i < 16 && !holding(sdk); i++) {
             const d = sdk.getDialog();
             if (d?.isOpen && !d.isWaiting) {
                 const ask = d.options.find((o) => /seek a shield/i.test(o.text));
-                if (!ask && d.options.length > 1) break; // no shield on offer (Dragon Slayer not done)
+                if (!ask && d.options.length > 1) {
+                    seen.push(`#${attempt} options: ${d.options.map((o) => o.text).join(' / ')}`);
+                    declined = true;
+                    break;
+                }
                 await sdk.sendClickDialog(ask?.index ?? d.options[0]?.index ?? 0);
             }
             await sdk.waitForTicks(1).catch(() => undefined);
         }
         await bot.dismissBlockingUI().catch(() => undefined);
+        if (declined) break; // no shield on offer (Dragon Slayer not done)
+        if (!holding(sdk)) seen.push(`#${attempt} talked, no shield`);
     }
+    if (seen.length) log(`Duke shield: ${seen.join(' | ')}`);
     const got = holding(sdk);
     log(got ? 'Duke Horacio handed over a dragonfire shield' : 'Duke shield: none given (Dragon Slayer not complete?)');
     if (level(sdk) === 1) {
