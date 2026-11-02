@@ -1408,6 +1408,7 @@ async function bankTrip(): Promise<boolean> {
         const stock = [
             ...(sharkSlots() < 10 ? [{ label: 'shark', pattern: SHARK, count: 150 }] : []),
             ...(!count(ANTIPOISON) ? [{ label: 'antipoison(3)', pattern: /^antipoison\(3\)$/i, count: 6 }] : []),
+            ...(!count(ANTIFIRE) ? [{ label: 'antifire potion(3)', pattern: /^antifire potion\(3\)$/i, count: 4 }] : []),
         ];
         if (gear.length || stock.length) {
             lastKitAsk = Date.now();
@@ -1423,7 +1424,7 @@ async function bankTrip(): Promise<boolean> {
                 await requestFromMule({ sdk, bot, session: null, log } as never, stock, { mule: 'jackthief', timeoutMs: 5 * 60_000, noted: true });
                 // Notes go into the bank: the next bank pass withdraws real sharks and pots.
                 if ((await bot.openBank()).success) {
-                    for (const it of sdk.getInventory().filter((i) => (SHARK.test(i.name) || ANTIPOISON.test(i.name)) && !i.optionsWithIndex.some((o) => /eat|drink/i.test(o.text)))) {
+                    for (const it of sdk.getInventory().filter((i) => (SHARK.test(i.name) || ANTIPOISON.test(i.name) || ANTIFIRE.test(i.name)) && !i.optionsWithIndex.some((o) => /eat|drink/i.test(o.text)))) {
                         await bot.depositItem(it, -1).catch(() => undefined);
                     }
                     await bot.closeBank().catch(() => undefined);

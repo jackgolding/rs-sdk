@@ -438,6 +438,8 @@ async function bankTrip(): Promise<boolean> {
         ...(!canTeleport && count(AIR) < 10 ? [{ label: 'air rune', pattern: AIR, count: 200 }] : []),
         ...(!canTeleport && count(LAW) < 2 ? [{ label: 'law rune', pattern: LAW, count: 20 }] : []),
         ...(!hasDuelingRing(sdk) ? [{ label: 'ring of dueling(8)', pattern: /^ring of dueling\(8\)$/i, count: 1 }] : []),
+        // jacklove16's antifire (2026-11-02): with the shield, iron/steel breath does nothing.
+        ...(!count(ANTIFIRE) && potRoom > 2 ? [{ label: 'antifire potion(3)', pattern: /^antifire potion\(3\)$/i, count: 2 }] : []),
         ...(!WEAPONS.some(has) ? [{ label: 'dragon longsword', pattern: /^dragon longsword$/i, count: 1 }] : []),
         ...(!has(/^(rune|dragon) (platelegs|plateskirt)$/i) ? [{ label: 'rune platelegs', pattern: /^rune platelegs$/i, count: 1 }] : []),
         ...(!has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i) ? [{ label: 'berserker helm', pattern: /^berserker helm$/i, count: 1 }] : []),
