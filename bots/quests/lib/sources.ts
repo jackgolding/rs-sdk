@@ -639,7 +639,10 @@ export const SOURCES: Record<string, Source> = {
                 await q.ensure('bronze bar', 1);
                 await q.ensure('hammer', 1);
                 await q.goTo({ x: 2713, z: 3492 }, 2);
-                const res = await q.bot.smithAtAnvil('bronze wire');
+                // The SDK has no 'wire': bronze's fourth button in column 1123 (smithing.inv
+                // smithing_bronze5 stock4=bronzecraftwire) is the slot it calls 'nails'.
+                // jacklove16 stopped on "Unknown smithing product: bronze wire" (2026-11-02).
+                const res = await q.bot.smithAtAnvil('bronze nails');
                 if (!res.success) q.log(`bronze wire: ${res.message}`);
                 await untilTicks(q.sdk, () => q.count('bronze wire') > 0, 10);
             }
