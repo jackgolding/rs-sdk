@@ -40,8 +40,13 @@ const LOWE = { x: 3232, z: 3423, npc: /^lowe$/i };
 const ARROWS = /^(iron|bronze) arrow$/i;
 const FOOD = /^(shark|swordfish|lobster|bass|tuna|monkfish)$/i;
 const WIZARD = /^dark wizard$/i;
-/** Bones are buried where they drop; everything else a wizard drops is looted (user, 2026-11-02). */
+/** Bones are buried where they drop (user, 2026-11-02). */
 const BONES = /^bones$/i;
+/**
+ * What is picked up: talismans, runes, herbs (grimy show as "Herb"), rare-drop-table items, our
+ * arrows, bones to bury. Not the staffs, hats and robes the wizards also drop (user, 2026-11-02).
+ */
+const KEEP_LOOT = /talisman$|\brune$|^herb$|leaf$|weed$|^(marrentill|tarromin|harralander|avantoe|kwuarm|cadantine|lantadyme|dwarf weed|torstol|snapdragon|toadflax)$|^uncut |^(sapphire|emerald|ruby|diamond|dragonstone)$|half of a key|shield left half|^dragon |^rune (spear|2h sword|battleaxe|sq shield|kiteshield)$|^coins$|^(iron|bronze) arrow$|^bones$/i;
 const FOOD_TAKE = 10;
 const MAX_KILLS_PER_TRIP = 150;
 
@@ -168,7 +173,9 @@ async function loot(q: Quest): Promise<number> {
     let got = 0;
     for (let i = 0; i < 12; i++) {
         if (q.sdk.getInventory().length >= 28) break;
-        const g = q.sdk.findGroundItem(/./, { reachable: true });
+        const g = (q.sdk.getGroundItems() ?? [])
+            .filter((it) => KEEP_LOOT.test(it.name) && it.reachable !== false)
+            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
         if (!g || (g.distance ?? 99) > 6) break;
         const before = q.sdk.getInventory().reduce((n, it) => n + (it.count ?? 1), 0);
         await q.bot.pickupItem(g).catch(() => undefined);

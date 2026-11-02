@@ -724,6 +724,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inMelzarsMaze(pos())) await leaveMelzarsMaze(bot, sdk, log);
         // Iban's cavern is level 1 with no ladder: out of the pass before any climb (lib/underground-pass.ts).
         if (inUpassArea(pos())) await leaveUpass(q);
+        // Upstairs in Peer the Seer's house: climbTo finds no way down (jacklove12, 2026-11-02).
+        if (inSeerHouse(pos())) await leaveSeerHouse(q);
         if (pos().level !== 0) await q.climbTo(0);
         if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.

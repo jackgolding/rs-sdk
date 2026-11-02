@@ -299,6 +299,12 @@ export async function enterTomb(q: Quest): Promise<void> {
     if (inTomb(pos(q))) return;
     await bankForTomb(q);
     if (!holds(q, OBJ.pebble)) await withdrawQuestItems(q);
+    // Not banked either (lost): Golrie hands out another (jackquests, prod, 2026-11-02).
+    if (!holds(q, OBJ.pebble)) {
+        q.log('waterfall: no pebble held or banked — back to Golrie for another');
+        await getPebble(q);
+        await bankForTomb(q);
+    }
     await q.goTo({ x: TOMBSTONE.x, z: TOMBSTONE.z - 1 }, 2);
     const since = cursor(q);
     await useOn(q, OBJ.pebble, TOMBSTONE, /^tombstone of glarial$/i, () => inTomb(pos(q)) || saidSince(q, since, /nothing happens/i), 'pebble on the tombstone', 20);
