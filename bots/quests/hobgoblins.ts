@@ -37,6 +37,14 @@ const argv = process.argv.slice(2);
 const SPOT = (argv.find((a) => a.startsWith('--spot='))?.slice('--spot='.length) ?? 'craftguild').toLowerCase();
 if (SPOT !== 'craftguild' && SPOT !== 'westardy') throw new Error(`unknown --spot=${SPOT} (craftguild | westardy)`);
 const WEST_ARDY = SPOT === 'westardy';
+/**
+ * `--ranged` (ABGARMY03, 2026-11-02): the best STRUNG shortbow its Ranged level allows, from the
+ * bank by obj id (unstrung bows share the name), and every iron/bronze arrow; arrows are looted
+ * back. No dragon longsword spec in this mode.
+ */
+const RANGED = argv.includes('--ranged');
+const RANGED_BOWS: Array<[number, number]> = [[861, 50], [857, 40], [853, 30], [849, 20], [843, 5], [841, 1]];
+const ARROWS = /^(iron|bronze) arrow$/i;
 /** The northern West Ardougne group; the southern one shares its ground with wolves. */
 const WEST_ARDY_HOBS = { x: 2445, z: 3360 };
 const ARDOUGNE_NORTH_BANK = { x: 2616, z: 3333 };
@@ -263,11 +271,20 @@ function northOfDitch(): boolean {
     return inWilderness(pos().x, pos().z);
 }
 
+/** Wear the strung bow carried and put every carried arrow in the quiver. */
+async function wieldRanged(): Promise<void> {
+    const bow = sdk.getInventory().find((i) => RANGED_BOWS.some(([id]) => id === i.id));
+    if (bow) await bot.equipItem(bow).catch(() => undefined);
+    const arrows = sdk.findInventoryItem(ARROWS);
+    if (arrows) await bot.equipItem(arrows).catch(() => undefined);
+}
+
 function shouldKeep(name: string): boolean {
-    return DLONG.test(name);
+    return DLONG.test(name) || (RANGED && (ARROWS.test(name) || /shortbow$/i.test(name)));
 }
 
 function isLoot(name: string): boolean {
+    if (RANGED && ARROWS.test(name)) return true;
     return LIMPWURT.test(name) || (!NO_SNAPE && SNAPE.test(name)) || HERB.test(name) || GEM.test(name) || KEY_HALF.test(name) || RDT_RARE.test(name);
 }
 
@@ -619,7 +636,18 @@ async function bankTrip(): Promise<boolean> {
         const r = await bot.depositItem(item, -1);
         if (!r.success && !r.partial) break;
     }
-    if (!sdk.findEquipmentItem(DLONG) && !sdk.findInventoryItem(DLONG)) {
+    if (RANGED) {
+        const lvl = sdk.getSkill('Ranged')?.baseLevel ?? 1;
+        const worn = sdk.getEquipment().find((e) => e && RANGED_BOWS.some(([id]) => id === e.id));
+        const best = RANGED_BOWS.find(([id, need]) => need <= lvl && (worn?.id === id || (sdk.getBankItems() ?? []).some((b) => b.id === id)));
+        if (best && worn?.id !== best[0]) {
+            const b = (sdk.getBankItems() ?? []).find((x) => x.id === best[0]);
+            if (b) await bot.withdrawItem(b, 1, { asNote: false });
+        }
+        if (!best) session.log('warn', `--ranged: no strung shortbow banked for Ranged ${lvl}`);
+        const arrows = sdk.findBankItem(/^iron arrow$/i) ?? sdk.findBankItem(/^bronze arrow$/i);
+        if (arrows) await bot.withdrawItem(arrows, arrows.count);
+    } else if (!sdk.findEquipmentItem(DLONG) && !sdk.findInventoryItem(DLONG)) {
         const bankDlong = sdk.findBankItem(DLONG);
         if (bankDlong) await bot.withdrawItem(bankDlong, 1);
     }
@@ -634,7 +662,8 @@ async function bankTrip(): Promise<boolean> {
     session.captureBankStock();
     await bot.closeBank();
     const invDlong = sdk.findInventoryItem(DLONG);
-    if (invDlong && !sdk.findEquipmentItem(DLONG)) await bot.equipItem(invDlong);
+    if (!RANGED && invDlong && !sdk.findEquipmentItem(DLONG)) await bot.equipItem(invDlong);
+    if (RANGED) await wieldRanged();
     identifyFailedSlots.clear();
     const limp = beforeLimp - count(LIMPWURT);
     const herbs = beforeHerb - herbSlots();
@@ -690,7 +719,8 @@ try {
     if (inAlKharidRegion(pos())) await crossAlKharidToll(bot, sdk, false, { log });
     if (inMelzarsMaze(pos())) await leaveMelzarsMaze(bot, sdk, log);
     const heldDlong = sdk.findInventoryItem(DLONG);
-    if (heldDlong && !wearingDlong()) await bot.equipItem(heldDlong);
+    if (!RANGED && heldDlong && !wearingDlong()) await bot.equipItem(heldDlong);
+    if (RANGED && sdk.findInventoryItem(ARROWS)) await wieldRanged();
 
     while (!session.isStopped()) {
         if (session.stopRequested) {
