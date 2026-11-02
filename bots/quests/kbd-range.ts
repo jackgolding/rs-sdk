@@ -687,6 +687,14 @@ async function lootAfterKill(): Promise<void> {
     await dropEmptyVials();
     for (let i = 0; i < 12; i++) {
         await eatIfNeeded();
+        // The KBD back up: leave the loot for after this kill, with Protect from Melee on. The
+        // loot loop runs up to two minutes unprayed — jacklove20 and ABGARMY14 died in it
+        // (2026-11-02, ~30 min apart).
+        if (findKbd()) {
+            if (MELEE) await protectMelee(true);
+            log(`KBD back up while looting (pickup ${i}) — back to the fight`);
+            break;
+        }
         const scanned = await sdk.scanGroundItems(8).catch(() => []);
         const ground = [...(sdk.getGroundItems() ?? []), ...scanned];
         const unique = new Map<string, (typeof ground)[0]>();
