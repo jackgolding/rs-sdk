@@ -26,6 +26,7 @@ import { QUEST_STOCK, ensureSupplied, isRestockRequest, muleBank, parseSupplyReq
 import type { TradeItem } from '../../sdk/types';
 import { countItems } from './quest-lib';
 import { TREES, fletchFor } from './lib/training';
+import { tickNow } from './lib/ticks';
 
 const argv = process.argv.slice(2);
 const botArg = argv.find((a) => !a.startsWith('-'));
@@ -166,6 +167,7 @@ async function stockUp(): Promise<void> {
 
 interface ChatMsg {
     type?: number;
+    tick?: number;
     from?: string;
     sender?: string;
     text?: string;
@@ -420,6 +422,13 @@ try {
             if (!from || seen.has(from + text)) continue;
             seen.add(from + text);
             if (isRestockRequest(from, text)) {
+                // A restocker trades ~8 ticks after its DM and gives up ~150 later (mule-produce): an
+                // older DM left the mule waiting 3 min apiece for trades that never came (muster, 2026-11-02).
+                const age = msg.tick ? tickNow(sdk) - msg.tick : 0;
+                if (age > 120) {
+                    log(`mule: skipping stale restock from ${from} (${age}t old)`);
+                    continue;
+                }
                 if (TRAIN) await parkAtDraynor().catch(() => undefined);
                 await receiveRestock(from);
                 continue;
