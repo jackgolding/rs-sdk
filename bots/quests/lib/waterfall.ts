@@ -298,6 +298,7 @@ async function bankForTomb(q: Quest): Promise<void> {
 export async function enterTomb(q: Quest): Promise<void> {
     if (inTomb(pos(q))) return;
     await bankForTomb(q);
+    if (!holds(q, OBJ.pebble)) await withdrawQuestItems(q);
     await q.goTo({ x: TOMBSTONE.x, z: TOMBSTONE.z - 1 }, 2);
     const since = cursor(q);
     await useOn(q, OBJ.pebble, TOMBSTONE, /^tombstone of glarial$/i, () => inTomb(pos(q)) || saidSince(q, since, /nothing happens/i), 'pebble on the tombstone', 20);
@@ -305,10 +306,33 @@ export async function enterTomb(q: Quest): Promise<void> {
     q.log(`waterfall: in Glarial's tomb at ${where(q)}`);
 }
 
+/**
+ * The quest's own items back from the bank: a restarted run's prologue banks everything, and a
+ * resume past the tomb then hunted a pebble it had banked (jackquests, prod, 2026-11-02).
+ */
+async function withdrawQuestItems(q: Quest): Promise<void> {
+    const ids: number[] = Object.values(OBJ);
+    if (ids.every((id) => holds(q, id))) return;
+    await q.goTo(ARDOUGNE_NORTH_BANK, 4);
+    const opened = await q.bot.openBank();
+    if (!opened.success) return;
+    for (const id of ids) {
+        if (holds(q, id)) continue;
+        const b = (q.sdk.getBankItems() ?? []).find((x) => x.id === id && x.count > 0);
+        if (b) await q.bot.withdrawItem(b, 1, { asNote: false });
+    }
+    await untilTicks(q.sdk, () => false, 2);
+    await q.bot.closeBank().catch(() => undefined);
+    const back = ids.filter((id) => holds(q, id));
+    if (back.length) q.log(`waterfall: quest items back from the bank: ${back.join(', ')}`);
+}
+
 // ── stage 4 -> 5: the amulet, the urn, into the falls
 
 export async function tombItems(q: Quest): Promise<void> {
     const t0 = tickNow(q.sdk);
+    if (holds(q, OBJ.amulet) && (holds(q, OBJ.urnFull) || holds(q, OBJ.urnEmpty))) return;
+    if (!inTomb(pos(q))) await withdrawQuestItems(q);
     if (holds(q, OBJ.amulet) && (holds(q, OBJ.urnFull) || holds(q, OBJ.urnEmpty))) return;
     await enterTomb(q);
     if (!holds(q, OBJ.amulet)) {
