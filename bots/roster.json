@@ -419,8 +419,7 @@
         "--then",
         "bots/quests/hobgoblins.ts",
         "ABGARMY03",
-        "--no-snape",
-        "--ranged"
+        "--no-snape"
       ],
       "noEffectMinutes": 60
     },
