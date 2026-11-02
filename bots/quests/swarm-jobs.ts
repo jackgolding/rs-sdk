@@ -68,7 +68,9 @@ const BANK_ITEM_MODE_COMPONENT = 5387; // bank_main: "item" (un-note) button
 const ARDOUGNE_BANK: Tile = { x: 2655, z: 3283 };
 const KNIGHTS: Tile = { x: 2652, z: 3318 };
 const KNIGHT_RE = /^knight of ardougne$/i;
-const KNIGHT_RADIUS = 12; // only knights near the market; never chase one into a house
+const KNIGHT_RADIUS = 12;
+/** Smallest ground coin stack worth stopping a pickpocket for (user, 2026-11-02). */
+const LOOSE_GOLD_MIN = 1000; // only knights near the market; never chase one into a house
 const STUN_TICKS = 8; // pickpocket.dbrow stun_ticks for knights
 const PICK_RETRY_TICKS = 6;
 const MIN_PICK_HP = 5; // a failed knight pick is exactly 3 damage
@@ -529,6 +531,8 @@ abstract class JobBot {
 class KnightsBot extends JobBot {
     readonly hub = ARDOUGNE_BANK;
     private food: string | null = null;
+    /** Coin piles that would not route, by "x,z", skipped until the tick stored. */
+    private badPiles = new Map<string, number>();
     private bankHasFood = true;
     private lastHp = -1;
     private lastXp = -1;
@@ -664,6 +668,24 @@ class KnightsBot extends JobBot {
         const me = here(s);
         if (dist(me, KNIGHTS) > KNIGHT_RADIUS) {
             this.walk(KNIGHTS, 'to knights');
+            return;
+        }
+
+        // Loose coins: a stack of LOOSE_GOLD_MIN+ within 6 tiles is taken between pickpockets
+        // (other players' drops show once public; user, 2026-11-02).
+        const pile = (s.groundItems ?? [])
+            .filter(g => /^coins$/i.test(g.name) && g.count >= LOOSE_GOLD_MIN && g.distance <= 6 && g.reachable !== false)
+            .filter(g => (this.badPiles.get(`${g.x},${g.z}`) ?? 0) < this.tick)
+            .filter(() => s.inventory.length < 28 || s.inventory.some(i => /^coins$/i.test(i.name)))
+            .sort((a, b) => b.count - a.count)[0];
+        if (pile) {
+            const r = this.exec({ type: 'pickupItem', x: pile.x, z: pile.z, itemId: pile.id, reason: 'loose gold' });
+            if (!r.ok) {
+                this.badPiles.set(`${pile.x},${pile.z}`, this.tick + 50);
+            } else {
+                this.log.log('LOG', `Picking up ${pile.count} loose coins at ${pile.x},${pile.z}`);
+                this.wait(3);
+            }
             return;
         }
 

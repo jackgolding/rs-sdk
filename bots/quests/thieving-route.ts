@@ -1012,6 +1012,25 @@ async function stepEastOfMansion(): Promise<void> {
     }
 }
 
+/** Smallest ground coin stack worth stopping a pickpocket for (user, 2026-11-02). */
+const LOOSE_GOLD_MIN = 1000;
+const badPiles = new Map<string, number>();
+
+/** A coin stack of LOOSE_GOLD_MIN+ within 6 tiles (other players' drops once public). */
+async function takeLooseGold(): Promise<void> {
+    const now = Date.now();
+    const pile = (sdk.getGroundItems() ?? [])
+        .filter((g) => /^coins$/i.test(g.name) && g.count >= LOOSE_GOLD_MIN && (g.distance ?? 99) <= 6 && g.reachable !== false)
+        .filter((g) => (badPiles.get(`${g.x},${g.z}`) ?? 0) < now)
+        .sort((a, b) => b.count - a.count)[0];
+    if (!pile) return;
+    const before = coinCount();
+    await bot.pickupItem(pile).catch(() => undefined);
+    await sdk.waitForCondition(() => coinCount() > before, 4_000).catch(() => undefined);
+    if (coinCount() > before) session.log('log', `Picked up ${coinCount() - before} loose coins at ${pile.x},${pile.z}`);
+    else badPiles.set(`${pile.x},${pile.z}`, now + 60_000);
+}
+
 async function pickpocketOpen(pattern: RegExp, spot: { x: number; z: number }, label: string): Promise<'ok' | 'stunned' | 'fail' | 'none'> {
     if (inHouse(pos().x, pos().z)) await leaveHouse();
     if (label === 'knight' && pos().x < HANDELMORT_SAFE_EAST.x) {
@@ -2956,6 +2975,7 @@ try {
 
         await eatIfNeeded();
         await dropEmptyJugs();
+        await takeLooseGold();
         const level = thievingLevel();
         if (level !== lastLoggedLevel) {
             session.log('log', `LEVEL UP Thieving ${level} | ${coinCount()} gp | food ${foodCount()}`);
