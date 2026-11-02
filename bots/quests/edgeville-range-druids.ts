@@ -11,8 +11,13 @@ import { runScript } from '../../sdk/runner';
 import { walkKandarinToEdgeville } from './movement';
 
 const botName =
-    process.argv.slice(2).find((a) => !a.startsWith('-') && !/^(spiders|druids)$/i.test(a)) ?? '';
+    process.argv.slice(2).find((a) => !a.startsWith('-') && !/^(spiders|druids|thugs)$/i.test(a)) ?? '';
 const HUNT_SPIDERS = process.argv.slice(2).some((a) => /^spiders$/i.test(a));
+/**
+ * `thugs`: the thugs beside the druids (m48_155, 3123,9929; 24/128 herbs, wiki/npcs/thug.md)
+ * as well as the chaos druids, for a sub-99 ranger collecting herbs (user, 2026-11-02).
+ */
+const HUNT_THUGS = process.argv.slice(2).some((a) => /^thugs$/i.test(a));
 const IS_MULE = /^jacklove1$/i.test(botName) && !HUNT_SPIDERS;
 /** Opt-in: jacklove2-5 trade herb notes to jacklove1, which must be ranging here too. */
 const MULE_HERBS = process.argv.includes('--mule-herbs') && /^jacklove[1-5]$/i.test(botName);
@@ -30,7 +35,7 @@ const SPIDERS = { x: 3118, z: 9957 };
 const EGG_SOUTH = { x: 3118, z: 9950 };
 const EGG_NORTH = { x: 3118, z: 9958 };
 const CAMP = HUNT_SPIDERS ? SPIDERS : DRUIDS;
-const NPC = HUNT_SPIDERS ? /^(deadly )?red spider$/i : /^chaos druid$/i;
+const NPC = HUNT_SPIDERS ? /^(deadly )?red spider$/i : HUNT_THUGS ? /^(thug|chaos druid)$/i : /^chaos druid$/i;
 const EGGS = /^red spiders?'? eggs?$/i;
 const SKELETON_LINE = 9940;
 /** Underground wildy: z 9920 is level 1, every 8 tiles +1. Level 5 is z 9952. */
