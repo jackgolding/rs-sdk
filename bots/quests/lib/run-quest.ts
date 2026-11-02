@@ -745,7 +745,9 @@ export async function runQuest(def: QuestDef): Promise<void> {
         // a pack of herbs, reached the toll with no coins and could not pickpocket the fee with a
         // full pack (2026-10-30).
         if (sdk.getInventory().length > 0 && away(hub) > 30) {
+            // Never across the toll just to bank (jackquests, 0 coins at the gate, 2026-11-02).
             const nearest = (Object.keys(SAFE_BANKS) as SafeBankName[])
+                .filter((name) => inAlKharid(pos()) === inAlKharid(SAFE_BANKS[name]))
                 .map((name) => ({ name, d: away(SAFE_BANKS[name]) }))
                 .sort((a, b) => a.d - b.d)[0]!;
             if (nearest.name !== def.hub && nearest.d < away(hub)) {
