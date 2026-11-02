@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "questId": "waterfall",
+  "position": {
+    "x": 2655,
+    "z": 3283,
+    "level": 0
+  },
+  "skills": "maxed",
+  "tutorial": true,
+  "worn": [],
+  "varps": {
+    "waterfall_quest": 5
+  },
+  "target": {
+    "varp": "waterfall_quest",
+    "unstarted": 5
+  },
+  "bank": [
+    {
+      "name": "coins",
+      "count": 1000
+    },
+    {
+      "name": "lawrune",
+      "count": 5
+    },
+    {
+      "name": "rope",
+      "count": 1
+    },
+    {
+      "name": "airrune",
+      "count": 50
+    },
+    {
+      "name": "earthrune",
+      "count": 50
+    },
+    {
+      "name": "waterrune",
+      "count": 50
+    },
+    {
+      "name": "shark",
+      "count": 15
+    },
+    {
+      "name": "glarials_pebble_waterfall_quest",
+      "count": 1
+    },
+    {
+      "name": "glarials_amulet_waterfall_quest",
+      "count": 1
+    },
+    {
+      "name": "glarials_urn_full_waterfall_quest",
+      "count": 1
+    }
+  ],
+  "note": "falls -> pillars on a mid-level account (no armour in the falls, 40 combat stats): resume at stage 5 from the Ardougne bank, walk the river route in, Baxtorian's key from the crate past the skeletons, the inner door past the fire giants. Production died there (2026-11-02).",
+  "skillsOverride": {
+    "attack": 40,
+    "strength": 40,
+    "defence": 40,
+    "hitpoints": 40,
+    "prayer": 1,
+    "ranged": 1
+  }
+}

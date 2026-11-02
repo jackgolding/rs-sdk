@@ -120,13 +120,17 @@ export const inWaterfallArea = (p: { x: number; z: number; level?: number }) => 
 function cursor(q: Quest): number {
     return Math.max(0, ...(q.sdk.getState()?.gameMessages ?? []).map((m) => m.observationId ?? m.tick));
 }
+/** Game messages since `since`, newest last (for "did not take" lines). */
+function said(q: Quest, since: number): string[] {
+    return (q.sdk.getState()?.gameMessages ?? []).filter((m) => (m.observationId ?? m.tick) > since).map((m) => m.text).slice(-3);
+}
 function saidSince(q: Quest, since: number, text: RegExp): boolean {
     return (q.sdk.getState()?.gameMessages ?? []).some((m) => (m.observationId ?? m.tick) > since && text.test(m.text));
 }
 
-export async function eatIfLow(q: Quest): Promise<void> {
+export async function eatIfLow(q: Quest, below = 0.5): Promise<void> {
     const p = q.sdk.getState()?.player;
-    if (!p || p.hp > (p.maxHp ?? 10) * 0.5) return;
+    if (!p || p.isDead || p.hp <= 0 || p.hp > (p.maxHp ?? 10) * below) return;
     const food = q.sdk.getInventory().find((i) => i.optionsWithIndex?.some((o) => /^eat$/i.test(o.text)));
     if (food) await q.bot.eatFood(food).catch(() => undefined);
 }
@@ -173,11 +177,12 @@ async function useOn(q: Quest, objId: number, at: Tile, name: RegExp, done: () =
             await q.sdk.waitForTicks(3);
             continue;
         }
-        await q.sdk.sendUseItemOnLoc(item.slot, loc.x, loc.z, loc.id);
+        const since = cursor(q);
+        const sent = await q.sdk.sendUseItemOnLoc(item.slot, loc.x, loc.z, loc.id);
         await untilTicks(q.sdk, (s) => done() || !!s.dialog?.isOpen, ticks);
         if (q.sdk.getDialog()?.isOpen) await driveDialog(q.sdk, [], { done, ticks: 60, log: q.log });
         if (await untilTicks(q.sdk, done, 8)) return;
-        q.log(`waterfall: ${label} did not take from ${where(q)} (attempt ${attempt})`);
+        q.log(`waterfall: ${label} did not take from ${where(q)} (attempt ${attempt}; ${sent.success ? 'sent' : `not sent: ${sent.message}`}; said ${JSON.stringify(said(q, since))})`);
     }
     throw new Error(`waterfall: ${label} failed at ${where(q)}`);
 }
@@ -410,11 +415,78 @@ function idOf(q: Quest, name: RegExp): number {
 
 const inPuzzleRoom = (q: Quest) => inBox(pos(q), 2560, 2571, 9902, 9918);
 const inRaisedRoom = (q: Quest) => inBox(pos(q), 2598, 2610, 9902, 9918);
+/**
+ * In the fire giants' west room, 3 tiles short of the inner door (a wall on the north edge of
+ * 2568,9893). Not next to it: walkTo tries the Open of any door beside its path ("The door is
+ * locked") and a key used straight after that is answered "I can't reach that!"; the key's own
+ * interaction walks the last tiles.
+ */
+const INNER_DOOR_APPROACH = { x: 2567, z: 9890 };
+/** The corridor between the inner door and the pillar room's door (the key's ground spawn is in it, 2569,9897). */
+const pastInnerDoor = (p: { x: number; z: number }) => inBox(p, 2564, 2569, 9894, 9901);
+
+/**
+ * Eat at 60% while `fn` runs: the way from the crate (skeletons) to the inner door crosses the
+ * fire giants' room, and they hit through every walk and door. A 40-combat account with no
+ * armour died there in one unguarded walk (production, 2026-11-02). Same pattern as lib/crest.ts.
+ * Walks only: eating clears a pending interaction (OpHeldHandler -> clearPendingAction) but
+ * keeps the walk queue, so around a search or a key-on-door it cost an attempt each time;
+ * op/useOn eat before each attempt instead.
+ */
+async function fed<T>(q: Quest, fn: () => Promise<T>): Promise<T> {
+    let busy = false;
+    const timer = setInterval(() => {
+        if (busy) return;
+        busy = true;
+        eatIfLow(q, 0.6)
+            .catch(() => undefined)
+            .finally(() => (busy = false));
+    }, 300);
+    try {
+        return await fn();
+    } finally {
+        clearInterval(timer);
+        // A bite still in flight would land on the next op and clear it.
+        for (let i = 0; busy && i < 20; i++) await q.sdk.waitForTicks(1);
+    }
+}
+
+/** Throws once the account has died (or otherwise left the falls) since `life` was taken. */
+function lifeCheck(q: Quest) {
+    const life = q.sdk.getState()?.player?.lifeId;
+    return (what: string) => {
+        const p = q.sdk.getState()?.player;
+        const died = !!p && (p.isDead || (life !== undefined && p.lifeId !== undefined && p.lifeId !== life));
+        if (died || !inFalls(pos(q))) {
+            throw new Error(`waterfall: ${died ? 'died' : 'left the falls'} ${what} (now at ${where(q)}, carrying ${q.sdk.getInventory().map((i) => i.name).join(', ') || 'nothing'})`);
+        }
+    };
+}
+
+/** walkTo inside the falls; a death on the way is an error, not a failed walk to retry from Lumbridge. */
+async function walkFalls(q: Quest, to: Tile, tolerance: number, label: string): Promise<boolean> {
+    const res = await fed(q, () => q.bot.walkTo(to.x, to.z, tolerance)).catch((e: Error) => ({ success: false, message: e.message }));
+    if (!res.success) q.log(`waterfall: walk to ${label} (${to.x},${to.z}) from ${where(q)}: ${res.message}`);
+    // walkTo reports arrival within tolerance while the last step is still being taken: settle.
+    for (let i = 0, last = where(q); i < 6; i++) {
+        await q.sdk.waitForTicks(1);
+        if (where(q) === last) break;
+        last = where(q);
+    }
+    return res.success;
+}
 
 /**
  * Into the pillar room (from stage 8 on, the same key and door lead into the raised
  * room instead). From outside the falls the way in is the whole river route again;
  * at stage 8 the statue has kept the amulet, so the tomb's chest gives another.
+ *
+ * Inside: Baxtorian's crate (2589,9888, searched from its south tile) gives the key; the
+ * pillar room's door (2566,9901) is behind a second elf door (2568,9893), locked from both
+ * sides (its Open says so), which the key opens from the fire giants' room. Every leg is
+ * planned from which side of that inner door the account stands on — a walk at the pillar
+ * room's door from the giants' side has no route (the pathfinder keeps trying loc 2002,
+ * "cant_reach ... no route") and wandered the giants' room until the account died.
  */
 export async function enterPuzzleRoom(q: Quest): Promise<void> {
     if (inPuzzleRoom(q) || inRaisedRoom(q)) return;
@@ -423,21 +495,48 @@ export async function enterPuzzleRoom(q: Quest): Promise<void> {
         await enterFalls(q);
     }
     const t0 = tickNow(q.sdk);
-    if (!holds(q, OBJ.baxtorianKey)) {
-        await q.goTo({ x: BAXTORIAN_CRATE.x, z: BAXTORIAN_CRATE.z - 1 }, 2);
-        await op(q, BAXTORIAN_CRATE, /^crate$/i, /^search$/i, () => holds(q, OBJ.baxtorianKey), 'search the crate for Baxtorian\'s key', 20);
-    }
-    // The pillar room's door is behind a second elf door (2568,9893) off the fire giants' cave;
-    // the same key opens it (its Open says "locked" from either side).
-    const toDoor = () => q.bot.walkTo(PUZZLE_DOOR.x, PUZZLE_DOOR.z - 1, 1).then((r) => r.success).catch(() => false);
-    if (!(await toDoor())) {
-        await q.bot.walkTo(INNER_DOOR.x, INNER_DOOR.z, 2).catch(() => undefined);
-        const since = cursor(q);
-        await useOn(q, OBJ.baxtorianKey, INNER_DOOR, /^door$/i, () => saidSince(q, since, /open the door and walk through/i), 'Baxtorian\'s key on the inner door', 20);
-        await q.sdk.waitForTicks(3);
-        if (!(await toDoor())) throw new Error(`waterfall: no way to the pillar room's door from ${where(q)}`);
-    }
-    await useOn(q, OBJ.baxtorianKey, PUZZLE_DOOR, /^door$/i, () => inPuzzleRoom(q) || inRaisedRoom(q), 'Baxtorian\'s key on the door', 20);
+    const alive = lifeCheck(q);
+    const inside = () => inPuzzleRoom(q) || inRaisedRoom(q);
+    // A death inside op/useOn surfaces as their "failed at (Lumbridge)": say what happened instead.
+    const steps = async () => {
+        for (let lap = 1; lap <= 3 && !inside(); lap++) {
+            if (lap > 1) q.log(`waterfall: the pillar room's door, lap ${lap}, from ${where(q)}`);
+            if (!holds(q, OBJ.baxtorianKey)) {
+                if (pastInnerDoor(pos(q))) {
+                    // Shut in the corridor without the key: the inner door is locked this side too;
+                    // the key spawns on its floor.
+                    const ground = q.sdk.findGroundItem(/^a key$/i);
+                    if (!ground) throw new Error(`waterfall: past the inner door at ${where(q)} without Baxtorian's key, and none on the floor`);
+                    await q.bot.pickupItem(ground).catch(() => undefined);
+                    await untilTicks(q.sdk, () => holds(q, OBJ.baxtorianKey), 10);
+                } else {
+                    await walkFalls(q, { x: BAXTORIAN_CRATE.x, z: BAXTORIAN_CRATE.z - 1 }, 1, "Baxtorian's crate");
+                    alive('on the way to Baxtorian\'s crate');
+                    await op(q, BAXTORIAN_CRATE, /^crate$/i, /^search$/i, () => holds(q, OBJ.baxtorianKey), 'search the crate for Baxtorian\'s key', 20);
+                }
+                alive('fetching Baxtorian\'s key');
+                if (!holds(q, OBJ.baxtorianKey)) continue;
+                q.log(`waterfall: Baxtorian's key in hand at ${where(q)}`);
+            }
+            if (!pastInnerDoor(pos(q))) {
+                await walkFalls(q, INNER_DOOR_APPROACH, 1, 'the inner door');
+                alive('on the way to the inner door');
+                if (!holds(q, OBJ.baxtorianKey)) continue;
+                await useOn(q, OBJ.baxtorianKey, INNER_DOOR, /^door$/i, () => pastInnerDoor(pos(q)), "Baxtorian's key on the inner door", 20);
+                alive('at the inner door');
+                if (!pastInnerDoor(pos(q))) continue;
+            }
+            // The corridor is 7 tiles long: the key's interaction walks it (see INNER_DOOR_APPROACH).
+            if (!holds(q, OBJ.baxtorianKey)) continue;
+            await useOn(q, OBJ.baxtorianKey, PUZZLE_DOOR, /^door$/i, inside, "Baxtorian's key on the pillar room's door", 20);
+            if (!inside()) alive("at the pillar room's door");
+        }
+    };
+    await steps().catch((e: Error) => {
+        if (!/^waterfall: (died|left the falls)/.test(e.message)) alive(`(${e.message})`);
+        throw e;
+    });
+    if (!inside()) throw new Error(`waterfall: not into the pillar room after 3 laps (at ${where(q)}, key held: ${holds(q, OBJ.baxtorianKey)})`);
     q.log(`waterfall: in the pillar room at ${where(q)} in ${tickNow(q.sdk) - t0}t`);
 }
 
