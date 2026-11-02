@@ -64,11 +64,26 @@ function targetsMe(q: Quest, npc: { targetIndex: number }): boolean {
     const t = npc.targetIndex ?? -1;
     return t >= 32768 && !takenByOther(q, npc);
 }
-/** Free wizards, the ones already on us first, then the nearest. */
+/** Other players within `r` tiles of a spot. */
+function crowd(q: Quest, at: { x: number; z: number }, r: number): number {
+    return (q.sdk.getNearbyPlayers() ?? []).filter((p) => Math.hypot(p.x - at.x, p.z - at.z) <= r).length;
+}
+/** Free wizards: the ones already on us first, then near and away from other players. */
 function pickWizard(q: Quest) {
+    const score = (n: { distance: number; x: number; z: number }) => n.distance + 4 * crowd(q, n, 3);
     return (q.sdk.getNearbyNpcs() ?? [])
         .filter((n) => WIZARD.test(n.name) && n.reachable !== false && n.hp !== 0 && !takenByOther(q, n))
-        .sort((a, b) => Number(targetsMe(q, b)) - Number(targetsMe(q, a)) || a.distance - b.distance)[0];
+        .sort((a, b) => Number(targetsMe(q, b)) - Number(targetsMe(q, a)) || score(a) - score(b))[0];
+}
+/** Four sides of the dolmen; with nothing free, wait on the one with the fewest other players. */
+const SIDES = [
+    { x: CIRCLE.x, z: CIRCLE.z + 6 },
+    { x: CIRCLE.x, z: CIRCLE.z - 6 },
+    { x: CIRCLE.x + 6, z: CIRCLE.z },
+    { x: CIRCLE.x - 6, z: CIRCLE.z },
+];
+function quietSide(q: Quest) {
+    return [...SIDES].sort((a, b) => crowd(q, a, 6) - crowd(q, b, 6))[0]!;
 }
 const talismansDone = () => TALISMANS > 0 && bankTalismans.water >= TALISMANS && bankTalismans.fire >= TALISMANS;
 
@@ -181,8 +196,10 @@ await runTask({
                 if (TALISMANS > 0 && bankTalismans.water + heldCount(q, WATER_T) >= TALISMANS && bankTalismans.fire + heldCount(q, FIRE_T) >= TALISMANS) break;
                 const npc = pickWizard(q);
                 if (!npc) {
-                    await q.goTo(CIRCLE, 4).catch(() => undefined);
-                    await sdk.waitForTicks(3).catch(() => undefined);
+                    const side = quietSide(q);
+                    const me = sdk.getState()?.player;
+                    if (!me || Math.hypot(me.worldX - side.x, me.worldZ - side.z) > 3) await q.goTo(side, 2).catch(() => undefined);
+                    else await sdk.waitForTicks(2).catch(() => undefined);
                     continue;
                 }
                 // A short wait for the fight to start: a contested wizard fails fast and the next is tried.
