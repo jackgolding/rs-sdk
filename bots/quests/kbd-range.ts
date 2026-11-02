@@ -1496,6 +1496,9 @@ async function bankTrip(): Promise<boolean> {
                 { label: 'air rune', pattern: /^air rune$/i, count: 100 }
             ], { mule: 'jackthief', timeoutMs: 5 * 60_000 });
             log(`mule jackthief: ${ok ? 'served' : 'not all served'}; law ${count(LAW)} air ${count(AIR)}`);
+            // A declined/failed trade asks again in 5 minutes, not 30: jacklove20 looped bank
+            // trips half an hour with law 1 air 0 after one declined trade (2026-11-02).
+            if (count(LAW) < 2 || count(AIR) < 8) lastRuneAsk = Date.now() - 25 * 60_000;
             return false;
         }
         if (!sdk.findEquipmentItem(MELEE_WEAPON) && !sdk.findInventoryItem(MELEE_WEAPON)) {
