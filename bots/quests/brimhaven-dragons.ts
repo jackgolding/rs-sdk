@@ -27,6 +27,7 @@ import { PrayerFlicker } from './prayer-flick';
 import { fetchDukeShield } from './duke-shield';
 import { ensureAxeFromBob, hasAxe } from './bob-axes';
 import { brewPrayerPotions } from './prayer-brew';
+import { ANTIFIRE, AntifireUpkeep } from './lib/antifire';
 import { requestFromMule } from './supply';
 /** Last time this run asked jackthief for prayer potions. */
 let lastPotAsk = 0;
@@ -269,6 +270,8 @@ async function eatIfNeeded(): Promise<void> {
     if (r.success) session.noteProgress('inventory', 'eat');
 }
 
+const antifire = new AntifireUpkeep(sdk, (m) => session.log('log', m));
+
 async function drinkPrayerIfLow(): Promise<void> {
     const st = sdk.getPrayerState();
     if (!st || st.prayerPoints > Math.max(8, Math.floor(st.prayerLevel * 0.25))) return;
@@ -295,6 +298,7 @@ function keep(name: string): boolean {
         COINS.test(name) ||
         foodHeal(name) > 0 ||
         PRAYER_POT.test(name) ||
+        ANTIFIRE.test(name) ||
         SUPER_ATTACK.test(name) ||
         LAW.test(name) ||
         AIR.test(name) ||
@@ -386,6 +390,8 @@ async function bankTrip(): Promise<boolean> {
     await withdrawFirst([SHIELD]);
     for (const piece of ARMOUR) await withdrawFirst([piece]);
     await withdrawUpTo(PRAYER_POT, PRAYER_POTS_WANT);
+    // Antifire: with the shield, iron/steel breath does nothing (lib/antifire.ts).
+    await withdrawUpTo(ANTIFIRE, 2);
     await withdrawUpTo(SUPER_ATTACK, 1);
     // Two Camelot Teleports: the planned exit and an emergency one.
     await withdrawUpTo(LAW, 2);
@@ -795,6 +801,7 @@ async function fightOne(): Promise<void> {
         if (!still || (still.hp !== null && still.hp <= 0)) break;
         await bot.dismissBlockingUI();
         await eatIfNeeded();
+        await antifire.maybeDrink();
         await drinkPrayerIfLow();
         await protectMelee(true);
         const prayerOut = (sdk.getPrayerState()?.prayerPoints ?? 99) < 10 && !sdk.findInventoryItem(PRAYER_POT);

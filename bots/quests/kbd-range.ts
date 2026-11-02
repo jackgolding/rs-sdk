@@ -52,6 +52,7 @@ import { installGracefulShutdown } from '../../sdk/runner';
 import { PrayerFlicker } from './prayer-flick';
 import { fetchDukeShield } from './duke-shield';
 import { brewPrayerPotions } from './prayer-brew';
+import { ANTIFIRE, AntifireUpkeep } from './lib/antifire';
 import { requestFromMule } from './supply';
 
 /** Stalagmite loc_542 is (2707, 9818). Stand one tile west — KBD is east. */
@@ -361,7 +362,7 @@ function lootPriority(name: string): number {
 function shouldKeep(name: string): boolean {
     if (SHORTBOW.test(name) || ARROW.test(name) || EMPTY_VIAL.test(name)) return false;
     if (SHARK.test(name)) return true;
-    if (ANTIPOISON.test(name) || PRAYER_POT.test(name)) return true;
+    if (ANTIPOISON.test(name) || PRAYER_POT.test(name) || ANTIFIRE.test(name)) return true;
     if (KITCHEN_KNIFE.test(name)) return true;
     if (MELEE && isMeleeGear(name)) return true;
     if (MELEE && (DUELING_RING.test(name) || LAW.test(name) || AIR.test(name) || EARTH.test(name))) return true;
@@ -505,6 +506,8 @@ async function eatIfNeeded(): Promise<void> {
         log(`Ate ${food.name} +${r.hpGained} HP ${pos().hp}/${pos().maxHp} sharks=${sharkSlots()}`);
     }
 }
+
+const antifire = new AntifireUpkeep(sdk, (m) => log(m));
 
 async function drinkPrayerIfLow(): Promise<void> {
     const pts = sdk.getPrayerState()?.prayerPoints ?? 0;
@@ -1092,6 +1095,7 @@ async function meleeKill(): Promise<void> {
         await bot.dismissBlockingUI();
         await eatIfNeeded();
         await drinkAntipoison();
+        await antifire.maybeDrink();
         await drinkPrayerIfLow();
         await protectMelee(kbdTargetsMe());
         // Two sharks for the walk to the exit lever: the far fire breath still lands on the way
@@ -1323,6 +1327,8 @@ async function bankTrip(): Promise<boolean> {
     await withdrawCount(SHARK, FOOD_WITHDRAW);
     await withdrawCount(ANTIPOISON, ANTIPOISON_WITHDRAW);
     await withdrawCount(PRAYER_POT, PRAYER_POT_WITHDRAW);
+    // Antifire: with the shield, breath does nothing (lib/antifire.ts); 2 potions = 6 doses = 18 min.
+    await withdrawCount(ANTIFIRE, 2);
     if (!sdk.findInventoryItem(KITCHEN_KNIFE)) await withdrawCount(KITCHEN_KNIFE, 1);
     if (MELEE) {
         await withdrawCount(PRAYER_POT, MELEE_PRAYER_POTS);
@@ -1472,6 +1478,7 @@ try {
         await ui();
         await eatIfNeeded();
         await drinkAntipoison();
+        await antifire.maybeDrink();
         await drinkPrayerIfLow();
         if (pos().isDead) {
             await waitRespawn();
