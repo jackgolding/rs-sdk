@@ -281,7 +281,9 @@ async function killForKey(q: Quest, npc: number, label: string): Promise<boolean
         const me = q.sdk.getState()?.player;
         // The maze's rats join in: while one is on us, every attack on the key-holder is
         // "I'm already under attack!" (901 ticks of it on the ghost's floor, 2026-10-30). Kill it first.
-        const pest = (q.sdk.getNearbyNpcs() ?? []).find((n) => n.id !== npc && n.inCombat && n.distance <= 1 && (n.hp ?? 1) > 0);
+        // Reachable only: Melzar fighting us through his wall held ABGARMY04 on "Cannot reach
+        // Melzar the mad" for the demon's whole 900 ticks (2026-11-02).
+        const pest = (q.sdk.getNearbyNpcs() ?? []).find((n) => n.id !== npc && n.inCombat && n.distance <= 1 && n.reachable !== false && (n.hp ?? 1) > 0);
         if (pest && me?.combat?.targetIndex !== pest.index) {
             const res = await q.bot.attack(pest, ticksToMs(10));
             if (!res.success) q.log(`dragon: ${label}: the ${pest.name} on us: ${res.message}`);
