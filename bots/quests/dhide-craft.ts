@@ -49,6 +49,8 @@ const PRODUCTS = [
 ];
 /** 26 free slots beside needle and thread. */
 const FREE_SLOTS = 26;
+/** Pieces of one kind per pack: 8 bodies (24 leather), 8 chaps, 8 vambraces make 8 sets. */
+const SET_BATCH = 8;
 /** One thread lasts 5 crafts (leather.rs2 %thread_used); 8 bodies a pack use 2. */
 const THREAD_MIN = 3;
 const THREAD_BUY = 10;
@@ -248,13 +250,16 @@ async function craft(q: Quest): Promise<void> {
         await openBank(q);
         await depositAll(q, [NEEDLE, THREAD]);
         const banked = bankCount(q, LEATHER);
-        const p = PRODUCTS.find((x) => banked >= x.leather && q.level('crafting') >= x.level && !failed.has(x.name));
+        // Sets, not just bodies (user, 2026-11-02): the piece made fewest so far goes next.
+        const p = PRODUCTS.filter((x) => banked >= x.leather && q.level('crafting') >= x.level && !failed.has(x.name)).sort(
+            (a, b) => (made.get(a.name) ?? 0) - (made.get(b.name) ?? 0) || PRODUCTS.indexOf(a) - PRODUCTS.indexOf(b)
+        )[0];
         if (!p) break;
         await ensureTools(q);
         if (invCount(q, NEEDLE) === 0 || invCount(q, THREAD) === 0) throw new Error('dhide-craft: no needle or thread after ensureTools');
         await openBank(q);
-        // Whole items only (24 leather for bodies): what is left under 3 waits for chaps, then vambraces.
-        const take = Math.min(banked, FREE_SLOTS);
+        // Whole items only, SET_BATCH of one piece a pack, so bodies, chaps and vambraces stay level.
+        const take = Math.min(banked, FREE_SLOTS, SET_BATCH * p.leather);
         const n = take - (take % p.leather);
         await withdraw(q, LEATHER, n);
         const rest = bankCount(q, LEATHER);
