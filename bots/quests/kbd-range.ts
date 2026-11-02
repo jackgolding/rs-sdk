@@ -1253,19 +1253,13 @@ async function goToLair(): Promise<boolean> {
         const dressed = !!sdk.findEquipmentItem(MELEE_WEAPON) && !!sdk.findEquipmentItem(FIRE_SHIELD);
         const fed = sharkSlots() >= Math.min(8, FOOD_WITHDRAW);
         const exit = (count(LAW) >= 1 && count(AIR) >= 5) || (count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1);
-        // No prayer potions, no trip (user's rule): Protect from Melee carries the KBD fight.
+        // Prayer potions are optional (user, 2026-11-02): taken when there are any, never waited for.
         const pots = sdk.getInventory().filter((i) => PRAYER_POT.test(i.name)).length;
-        if (!dressed || !fed || !exit || pots < 2) {
+        if (!dressed || !fed || !exit) {
             session.log('warn', `Not leaving for the lair: weapon=${!!sdk.findEquipmentItem(MELEE_WEAPON)} shield=${!!sdk.findEquipmentItem(FIRE_SHIELD)} sharks=${sharkSlots()} teleport=${exit} prayer pots=${pots} — banking first`);
             if (!(await bankTrip())) return false;
             await equipLoadout();
             if (!sdk.findEquipmentItem(MELEE_WEAPON) || !sdk.findEquipmentItem(FIRE_SHIELD)) return false;
-            if (sdk.getInventory().filter((i) => PRAYER_POT.test(i.name)).length < 2) {
-                // Wait for jackthief's restock rather than hammer the bank: a short park.
-                session.log('warn', 'No prayer potions after banking — waiting 5 min for a restock');
-                await sdk.waitForTicks(1000).catch(() => undefined);
-                return false;
-            }
         }
     }
     if (session.metrics().phase !== 'travel') await session.setPhase('travel');
