@@ -226,12 +226,38 @@ async function armUp(q: Quest): Promise<void> {
     q.log(`merlin: wielding ${held.name} for the keep`);
 }
 
+/**
+ * Out of the crate mid-voyage (0_43_153_26_47): answer "get back out?" Yes; with the chain
+ * dropped, the Crate wall's Climb-out asks again (quest_arthur.rs2 leave_arhein_crate).
+ * jacklove5 sat in it at 2778,9839 while the Hide-in retries looked for Arhein's crate (2026-11-02).
+ */
+async function leaveCrate(q: Quest): Promise<void> {
+    for (let attempt = 1; attempt <= 4 && inCrate(pos(q)); attempt++) {
+        if (q.sdk.getDialog()?.isOpen) {
+            await driveDialog(q.sdk, [/^yes\.?$/i], { done: () => !inCrate(pos(q)), ticks: 200, log: q.log });
+            continue;
+        }
+        const wall = await findLoc(q, pos(q), /^crate wall$/i, /^climb-out$/i, 8);
+        if (!wall) {
+            q.log(`merlin: in the crate at ${where(q)} with no dialog and no Crate wall (attempt ${attempt})`);
+            await q.sdk.waitForTicks(3);
+            continue;
+        }
+        await q.bot.interactLoc(wall, /^climb-out$/i).catch((e) => q.log(`merlin: crate wall: ${(e as Error).message}`));
+        await untilTicks(q.sdk, (s) => !inCrate(pos(q)) || !!s.dialog?.isOpen, 10);
+    }
+}
+
 /** Arhein's crate (op2 Hide-in): the long mesbox chain ends with "get back out?" — Yes. */
 async function crateToKeep(q: Quest): Promise<void> {
     if (inKeep(pos(q))) return;
-    await q.goTo(CATHERBY_CRATE, 2);
     const t0 = tickNow(q.sdk);
-    await op(q, CATHERBY_CRATE, /^crate$/i, /^hide-in$/i, () => inKeep(pos(q)), 'hide in the crate', [/^yes\.?$/i], 30);
+    if (!inCrate(pos(q))) {
+        await q.goTo(CATHERBY_CRATE, 2);
+        await op(q, CATHERBY_CRATE, /^crate$/i, /^hide-in$/i, () => inKeep(pos(q)) || inCrate(pos(q)), 'hide in the crate', [/^yes\.?$/i], 30);
+    }
+    await leaveCrate(q);
+    if (!inKeep(pos(q))) throw new Error(`merlin: the crate did not land at the keep (${where(q)})`);
     q.log(`merlin: shipped to the keep at ${where(q)} in ${tickNow(q.sdk) - t0}t`);
 }
 
@@ -246,7 +272,7 @@ const KEEP_DOOR = { x: 2763, z: 3402 };
 export async function leaveKeep(q: Quest): Promise<void> {
     if (!inKeep(pos(q)) && !inCrate(pos(q))) return;
     if (inCrate(pos(q))) {
-        await driveDialog(q.sdk, [/^yes\.?$/i], { done: () => !inCrate(pos(q)), ticks: 200, log: q.log });
+        await leaveCrate(q);
         if (!inKeep(pos(q))) return;
     }
     if (pos(q).level !== 0) await q.climbTo(0);
