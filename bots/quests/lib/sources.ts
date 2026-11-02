@@ -640,13 +640,28 @@ export const SOURCES: Record<string, Source> = {
             for (let i = 0; i < count && q.count('bronze wire') < count; i++) {
                 await q.ensure('bronze bar', 1);
                 await q.ensure('hammer', 1);
-                await q.goTo({ x: 2713, z: 3492 }, 2);
-                // The SDK has no 'wire': bronze's fourth button in column 1123 (smithing.inv
-                // smithing_bronze5 stock4=bronzecraftwire) is the slot it calls 'nails'.
-                // jacklove16 stopped on "Unknown smithing product: bronze wire" (2026-11-02).
-                const res = await q.bot.smithAtAnvil('bronze nails');
-                if (!res.success) q.log(`bronze wire: ${res.message}`);
-                await untilTicks(q.sdk, () => q.count('bronze wire') > 0, 10);
+                // mule-produce's proven Seers anvil routine (reach, use the bar, wait for
+                // interface 994), not smithAtAnvil: it has no 'wire', and as 'bronze nails' its
+                // interface "did not open" for ABGARMY07 (2026-11-02). Bronze's fourth button in
+                // column 1123 (smithing.inv smithing_bronze5 stock4=bronzecraftwire), Make 1.
+                await q.goTo({ x: 2713, z: 3493 }, 1);
+                await q.reach(/^anvil$/i).catch(() => undefined);
+                for (let miss = 0; miss < 4 && q.count('bronze wire') < 1; miss++) {
+                    await closeUi(q.bot, q.sdk);
+                    const anvil = q.sdk.findNearbyLoc(/^anvil$/i);
+                    const bar = q.sdk.findInventoryItem(/^bronze bar$/i);
+                    if (!anvil || !bar) {
+                        q.log(`bronze wire: no ${anvil ? 'bronze bar' : 'anvil'} at ${q.sdk.getState()?.player?.worldX},${q.sdk.getState()?.player?.worldZ}`);
+                        break;
+                    }
+                    await q.sdk.sendUseItemOnLoc(bar.slot, anvil.x, anvil.z, anvil.id);
+                    if (!(await untilTicks(q.sdk, (s) => !!s.interface?.isOpen && s.interface.interfaceId === 994, 12))) {
+                        q.log(`bronze wire: the anvil interface did not open (miss ${miss + 1})`);
+                        continue;
+                    }
+                    await q.sdk.sendClickComponentWithOption(1123, 1, 3);
+                    await untilTicks(q.sdk, () => q.count('bronze wire') > 0, 10);
+                }
             }
         },
     },
