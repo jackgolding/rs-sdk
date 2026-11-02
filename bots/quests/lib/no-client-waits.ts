@@ -4,7 +4,7 @@
  * outage before reconnecting. Everything else in lib/ waits in ticks (ticks.ts);
  * this file is the conventions test's one other clock exemption.
  */
-import { appendFileSync, closeSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'fs';
+import { appendFileSync, closeSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
 export const sleepWithoutClient = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -17,6 +17,56 @@ const SLOT_DIR = join(process.cwd(), 'bots', '.quest-slots');
 /** A slot not refreshed this long belongs to a run that died without releasing it. */
 const SLOT_STALE_MS = 10 * 60_000;
 const SLOT_POLL_MS = 30_000;
+
+/** One quest start fleet-wide per window (user, 2026-11-02: starts in bursts lagged the box and dropped clients). */
+export const QUEST_START_GAP_MS = 5 * 60_000;
+
+/**
+ * Wait for this account's turn to start a quest: each QUEST_START_GAP_MS window can be claimed by
+ * exactly one account (an exclusive mkdir of the window's number under bots/.quest-slots/_starts),
+ * so N queued quests start one every 5 minutes instead of all at once. Wall-clock: no client yet.
+ */
+export async function awaitQuestStartTurn(id: string, account: string, grindLog: string): Promise<void> {
+    const dir = join(SLOT_DIR, '_starts');
+    try {
+        mkdirSync(dir, { recursive: true });
+    } catch {
+        return; // no shared dir (local dev): unpaced
+    }
+    const t0 = Date.now();
+    let noted = false;
+    for (;;) {
+        const window = Math.floor(Date.now() / QUEST_START_GAP_MS);
+        try {
+            mkdirSync(join(dir, String(window)));
+            writeFileSync(join(dir, String(window), 'who'), `${account} ${id} ${new Date().toISOString()}\n`);
+            if (noted) {
+                try {
+                    appendFileSync(grindLog, `${new Date().toISOString()} [${id}] quest start turn after ${Math.round((Date.now() - t0) / 1000)}s\n`);
+                } catch {
+                    /* the log must never break a run */
+                }
+            }
+            // Old windows are cleared by whoever starts next.
+            for (const f of readdirSync(dir)) if (Number(f) < window - 24) rmSync(join(dir, f), { recursive: true, force: true });
+            return;
+        } catch {
+            /* this window is taken: wait for the next */
+        }
+        if (!noted) {
+            noted = true;
+            const line = `waiting for a quest start turn (one fleet-wide every ${QUEST_START_GAP_MS / 60_000} min)`;
+            console.log(line);
+            try {
+                appendFileSync(grindLog, `${new Date().toISOString()} [${id}] ${line}\n`);
+            } catch {
+                /* the log must never break a run */
+            }
+        }
+        const next = (window + 1) * QUEST_START_GAP_MS - Date.now();
+        await sleepWithoutClient(Math.max(1_000, next + Math.floor(Math.random() * 20_000)));
+    }
+}
 
 /**
  * Claim one of `max` slots for quest `id`, waiting while all are taken; returns the release.
