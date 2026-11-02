@@ -149,6 +149,15 @@ async function bronzeAxe(q: Quest): Promise<void> {
         await eatIfLow(q);
         const drop = q.sdk.findGroundItem(/^bronze axe$/i, { reachable: true });
         if (drop) {
+            // A full pack (sharks) cannot take it: eat one to make room (user, 2026-11-02 — the
+            // axe dropped and sat there while jackquests killed 11 zombies).
+            if (q.sdk.getInventory().length >= 28) {
+                const food = q.sdk.findInventoryItem(/^shark$/i);
+                if (food) {
+                    await q.bot.eatFood(food).catch(() => undefined);
+                    await q.sdk.waitForTicks(2);
+                }
+            }
             await q.bot.pickupItem(drop);
             await untilTicks(q.sdk, have, 8);
             continue;
