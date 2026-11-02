@@ -100,6 +100,8 @@ async function dipMeats(q: Quest): Promise<void> {
 await runQuest({
     id: 'druid',
     hub: 'falador-east',
+    // Six accounts at once for the Herblore push (user, 2026-11-02): Kaqemeex and Sanfew serve everyone.
+    maxConcurrent: 8,
     journal: { label: 'Druidic Ritual', title: 'Druidic Ritual' },
     stages: [
         { id: 'unstarted', rule: { id: 'druid:unstarted', kind: 'unstarted', all: ['I can start this quest by speaking to Kaqemeex'] } },
