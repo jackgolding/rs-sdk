@@ -78,7 +78,7 @@ const TREE_HOP = 12;
 const HOP_LEAD = 4;
 const FOOD_WITHDRAW = MELEE_MODE() ? 20 : 12;
 /** One potion covers ~4 cures against ~1 poisoning per account per trip (local KBD study, 2026-11-01). */
-const ANTIPOISON_WITHDRAW = 1;
+const ANTIPOISON_WITHDRAW = 2;
 const PRAYER_POT_WITHDRAW = MELEE_MODE() ? 4 : 2;
 const KNIFE_RESTOCK_BELOW = 80;
 /** Melee: leave the lair with this many sharks left (no armour; three-account kills ate ~12 each). */
@@ -471,7 +471,9 @@ async function equipMeleeLoadout(): Promise<void> {
             }
         }
     }
-    for (const pattern of [FIRE_SHIELD, ...MELEE_ARMOUR]) {
+    // D'hide body/chaps/vambraces as well (user, 2026-11-02): body and legs only when no plate
+    // piece already fills the slot.
+    for (const pattern of [FIRE_SHIELD, ...MELEE_ARMOUR, DHIDE_BODY, DHIDE_CHAPS, VAMBRACES]) {
         if (sdk.findEquipmentItem(pattern)) continue;
         const item = sdk.findInventoryItem(pattern);
         if (item) await bot.equipItem(item);
@@ -1039,6 +1041,8 @@ async function protectMelee(on: boolean): Promise<void> {
  */
 /** Last time this run asked the mule for a weapon (once per 30 minutes at most). */
 let lastMuleAsk = 0;
+/** Last d'hide/shark/antipoison ask of jackthief (30 min apart). */
+let lastKitAsk = 0;
 /** Last time this run asked the mule for teleport runes. */
 let lastRuneAsk = 0;
 
@@ -1365,7 +1369,9 @@ async function bankTrip(): Promise<boolean> {
         const bankKnives = sdk.findBankItem(KNIVES);
         if (bankKnives) await bot.withdrawItem(bankKnives, Math.min(500, bankKnives.count));
     }
-    for (const pattern of MELEE ? [FIRE_SHIELD] : [FIRE_SHIELD, DHIDE_BODY, DHIDE_CHAPS, VAMBRACES, HELM, BOOTS, CHARGED_GLORY]) {
+    // Melee now wears the black d'hide jacklove16 made (user, 2026-11-02): a PK death loses it
+    // (only longsword, shield and one more are kept), traded for less damage taken in the lair.
+    for (const pattern of MELEE ? [FIRE_SHIELD, DHIDE_BODY, DHIDE_CHAPS, VAMBRACES] : [FIRE_SHIELD, DHIDE_BODY, DHIDE_CHAPS, VAMBRACES, HELM, BOOTS, CHARGED_GLORY]) {
         if (sdk.findEquipmentItem(pattern) || sdk.findInventoryItem(pattern)) continue;
         const bankItem = sdk.findBankItem(pattern);
         if (bankItem) await bot.withdrawItem(bankItem, 1);
@@ -1387,6 +1393,40 @@ async function bankTrip(): Promise<boolean> {
             `dfs=${!!sdk.findEquipmentItem(FIRE_SHIELD)} glory=${sdk.findEquipmentItem(ANY_GLORY)?.name ?? 'none'} ` +
             `style=${wantedStyle()} slots=${occupied()}`
     );
+    if (MELEE && Date.now() - lastKitAsk > 30 * 60_000) {
+        // jackthief holds the fleet's d'hide sets, sharks and antipoisons: ask for what this
+        // bank has run out of. Armour unnoted (worn at once); food and pots as bank notes.
+        const gear = (
+            [
+                [DHIDE_BODY, 'dragonhide body'],
+                [DHIDE_CHAPS, 'dragonhide chaps'],
+                [VAMBRACES, 'dragon vambraces'],
+            ] as const
+        )
+            .filter(([p]) => !sdk.findEquipmentItem(p) && !sdk.findInventoryItem(p))
+            .map(([pattern, label]) => ({ label, pattern, count: 1 }));
+        const stock = [
+            ...(sharkSlots() < 10 ? [{ label: 'shark', pattern: SHARK, count: 150 }] : []),
+            ...(!count(ANTIPOISON) ? [{ label: 'antipoison(3)', pattern: /^antipoison\(3\)$/i, count: 6 }] : []),
+        ];
+        if (gear.length || stock.length) {
+            lastKitAsk = Date.now();
+            await bot.closeBank().catch(() => undefined);
+            log(`kit short (${[...gear, ...stock].map((k) => k.label).join(', ')}): asking jackthief at Ardougne`);
+            if (gear.length) await requestFromMule({ sdk, bot, session: null, log } as never, gear, { mule: 'jackthief', timeoutMs: 5 * 60_000 });
+            if (stock.length) {
+                await requestFromMule({ sdk, bot, session: null, log } as never, stock, { mule: 'jackthief', timeoutMs: 5 * 60_000, noted: true });
+                // Notes go into the bank: the next bank pass withdraws real sharks and pots.
+                if ((await bot.openBank()).success) {
+                    for (const it of sdk.getInventory().filter((i) => (SHARK.test(i.name) || ANTIPOISON.test(i.name)) && !i.optionsWithIndex.some((o) => /eat|drink/i.test(o.text)))) {
+                        await bot.depositItem(it, -1).catch(() => undefined);
+                    }
+                    await bot.closeBank().catch(() => undefined);
+                }
+            }
+            return false;
+        }
+    }
     if (MELEE) {
         const armed = !!sdk.findEquipmentItem(MELEE_WEAPON);
         // No teleport, no trip (Camelot / Lumbridge runes, or a ring of dueling).
