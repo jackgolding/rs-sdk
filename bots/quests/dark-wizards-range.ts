@@ -49,6 +49,27 @@ const heldCount = (q: Quest, re: RegExp) => q.sdk.getInventory().filter((i) => r
 const quiver = (q: Quest) => q.sdk.getEquipment().filter((e) => e && ARROWS.test(e.name)).reduce((n, e) => n + (e!.count ?? 1), 0);
 const hp = (q: Quest) => q.sdk.getSkill('Hitpoints');
 let bankTalismans = { water: 0, fire: 0 };
+
+/**
+ * A wizard another player is fighting: its facing target is a player slot + 32768 and that slot
+ * is someone in view (our own slot is never in getNearbyPlayers). The circle is crowded, so these
+ * are skipped rather than waited on (user, 2026-11-02).
+ */
+function takenByOther(q: Quest, npc: { targetIndex: number }): boolean {
+    const t = npc.targetIndex ?? -1;
+    if (t < 32768) return false;
+    return (q.sdk.getNearbyPlayers() ?? []).some((p) => p.index === t - 32768);
+}
+function targetsMe(q: Quest, npc: { targetIndex: number }): boolean {
+    const t = npc.targetIndex ?? -1;
+    return t >= 32768 && !takenByOther(q, npc);
+}
+/** Free wizards, the ones already on us first, then the nearest. */
+function pickWizard(q: Quest) {
+    return (q.sdk.getNearbyNpcs() ?? [])
+        .filter((n) => WIZARD.test(n.name) && n.reachable !== false && n.hp !== 0 && !takenByOther(q, n))
+        .sort((a, b) => Number(targetsMe(q, b)) - Number(targetsMe(q, a)) || a.distance - b.distance)[0];
+}
 const talismansDone = () => TALISMANS > 0 && bankTalismans.water >= TALISMANS && bankTalismans.fire >= TALISMANS;
 
 /** Bank the pack, take the best bow, every arrow and some food; wear bow and arrows. */
@@ -77,8 +98,24 @@ async function restock(q: Quest): Promise<boolean> {
     if (food) await bot.withdrawItem(food, Math.min(FOOD_TAKE, food.count));
     await sdk.waitForTicks(2).catch(() => undefined);
     await bot.closeBank();
-    const bowItem = sdk.findInventoryItem(bow);
-    if (bowItem) await bot.equipItem(bowItem);
+    // The bow first, then the arrows; checked, since a bare-handed trip crawled (jacklove20, 2026-11-02).
+    for (let i = 0; i < 3 && !sdk.findEquipmentItem(bow); i++) {
+        let bowItem = sdk.findInventoryItem(bow);
+        if (!bowItem) {
+            if (!(await bot.openBank()).success) break;
+            const b = sdk.findBankItem(bow);
+            if (b) await bot.withdrawItem(b, 1, { asNote: false });
+            await sdk.waitForCondition(() => !!sdk.findInventoryItem(bow), 3_000).catch(() => undefined);
+            await bot.closeBank();
+            bowItem = sdk.findInventoryItem(bow);
+        }
+        if (bowItem) {
+            const r = await bot.equipItem(bowItem);
+            if (!r.success) q.log(`equip ${bowItem.name}: ${r.message}`);
+            await sdk.waitForCondition(() => !!sdk.findEquipmentItem(bow), 3_000).catch(() => undefined);
+        }
+    }
+    if (!sdk.findEquipmentItem(bow)) throw new Error(`could not wield ${bow.source}`);
     const arrowItem = sdk.findInventoryItem(ARROWS);
     if (arrowItem) await bot.equipItem(arrowItem);
     await sdk.waitForTicks(2).catch(() => undefined);
@@ -142,18 +179,17 @@ await runTask({
                 if (BOWS.some(([, need]) => need > bowAt && need <= q.level('ranged'))) break;
                 if (q.level('ranged') >= UNTIL) break;
                 if (TALISMANS > 0 && bankTalismans.water + heldCount(q, WATER_T) >= TALISMANS && bankTalismans.fire + heldCount(q, FIRE_T) >= TALISMANS) break;
-                const npc = sdk.findNearbyNpc(WIZARD, { reachable: true });
+                const npc = pickWizard(q);
                 if (!npc) {
                     await q.goTo(CIRCLE, 4).catch(() => undefined);
                     await sdk.waitForTicks(3).catch(() => undefined);
                     continue;
                 }
-                const r = await bot.attack(npc).catch(() => null);
-                if (!r?.success) {
-                    await sdk.waitForTicks(2).catch(() => undefined);
-                    continue;
-                }
-                // Until it dies (gone from view or 0 hp) or the fight stops for 10 ticks.
+                // A short wait for the fight to start: a contested wizard fails fast and the next is tried.
+                const r = await bot.attack(npc, 2_000).catch(() => null);
+                if (!r?.success) continue;
+                // Until it dies (gone from view or 0 hp); straight on to another the moment someone
+                // else has it, or our fight stalls for 4 ticks.
                 let idle = 0;
                 for (let t = 0; t < 80; t++) {
                     await sdk.waitForTicks(1).catch(() => undefined);
@@ -163,8 +199,9 @@ await runTask({
                         tripKills++;
                         break;
                     }
+                    if (takenByOther(q, n)) break;
                     idle = sdk.getState()?.player?.combat.inCombat ? 0 : idle + 1;
-                    if (idle >= 10) break;
+                    if (idle >= 4) break;
                 }
                 talismans += await loot(q);
                 if (kills % 25 === 0 && tripKills > 0) q.log(`kills ${kills} | Ranged ${q.level('ranged')} | arrows ${quiver(q)} | talismans looted ${talismans}`);
