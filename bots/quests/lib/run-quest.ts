@@ -674,8 +674,14 @@ export async function runQuest(def: QuestDef): Promise<void> {
                     if (!teleport && !(await untilTicks(sdk, () => !!sdk.findNearbyNpc(npc), 5))) await q.goTo(at, 3);
                     // Seen but behind a door another player shut (Alrena in her house: "not reachable",
                     // jacklove16 3x, 2026-11-02): walk right up — the walk opens doors on the way.
-                    const seenNpc = sdk.findNearbyNpc(npc);
-                    if (!teleport && seenNpc && seenNpc.reachable === false) await q.goTo(at, 1).catch(() => undefined);
+                    // goTo(at, 1) returned at once from 2 tiles off Edmond with an interior door between
+                    // (jacklove5): walk to the npc's own tile — walkTo opens doors on the way.
+                    for (let i = 0; i < 3; i++) {
+                        const seenNpc = sdk.findNearbyNpc(npc);
+                        if (teleport || !seenNpc || seenNpc.reachable !== false) break;
+                        await bot.walkTo(seenNpc.x, seenNpc.z, 1).catch(() => undefined);
+                        await sdk.waitForTicks(2).catch(() => undefined);
+                    }
                 }
                 const seen = await talkThrough(sdk, bot, npc, choices, log);
                 session.noteProgress('dialog', String(npc));
