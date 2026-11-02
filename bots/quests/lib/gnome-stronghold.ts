@@ -74,7 +74,9 @@ export async function crossGnomeGate(q: Quest, inward: boolean): Promise<void> {
     if (here(q).level !== 0) await q.climbTo(0);
     const side = inward ? GATE_SOUTH : GATE_NORTH;
     let refused = '';
-    for (let attempt = 1; attempt <= 4 && !crossed(); attempt++) {
+    // 8 tries: other players hold the gate open (no Open option for 5 ticks) and declining Femi's
+    // boxes ends that attempt — the gate only lets you through on the next (gnome_gate.rs2).
+    for (let attempt = 1; attempt <= 8 && !crossed(); attempt++) {
         await q.goTo(side, 2);
         await q.sdk.scanNearbyLocs(8).catch(() => undefined);
         const gate = (q.sdk.getNearbyLocs() ?? []).find(
