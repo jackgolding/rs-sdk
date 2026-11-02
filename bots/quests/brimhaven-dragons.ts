@@ -823,12 +823,15 @@ async function fightOne(): Promise<void> {
         await drinkPrayerIfLow();
         await protectMelee(true);
         const prayerOut = (sdk.getPrayerState()?.prayerPoints ?? 99) < 10 && !sdk.findInventoryItem(PRAYER_POT);
-        if (pos().hp < pos().maxHp * 0.5 && (foodCount() <= 4 || prayerOut)) {
+        // Teleport out (Camelot runes are required for the trip) at 2 food left, or low hp with no
+        // prayer left — never walk out under dragons (user, 2026-11-02, after Jackpoo1's death).
+        if (foodCount() <= 2 || (pos().hp < pos().maxHp * 0.5 && prayerOut)) {
+            session.log('warn', `Leaving by teleport: food ${foodCount()} at ${pos().hp}/${pos().maxHp}`);
             await emergencyTeleport();
             return;
         }
-        if (foodCount() <= 4 || ((sdk.getPrayerState()?.prayerPoints ?? 0) === 0 && !sdk.findInventoryItem(PRAYER_POT))) {
-            session.log('warn', `Low on food (${foodCount()}) at ${pos().hp}/${pos().maxHp} — leaving`);
+        if ((sdk.getPrayerState()?.prayerPoints ?? 0) === 0 && !sdk.findInventoryItem(PRAYER_POT)) {
+            session.log('warn', `Out of prayer at ${pos().hp}/${pos().maxHp} — leaving`);
             return;
         }
         // A prayer toggle cancels the attack (p_clearpendingaction): re-attack after one.
