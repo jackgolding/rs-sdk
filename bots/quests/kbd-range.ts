@@ -475,6 +475,9 @@ async function equipMeleeLoadout(): Promise<void> {
     }
     // D'hide body/chaps/vambraces as well (user, 2026-11-02): body and legs only when no plate
     // piece already fills the slot.
+    // A carried amulet of strength replaces a worn power/glory.
+    const str = sdk.findInventoryItem(/^amulet of strength$/i);
+    if (str && !sdk.findEquipmentItem(/^amulet of strength$/i)) await bot.equipItem(str).catch(() => undefined);
     for (const pattern of [FIRE_SHIELD, ...MELEE_ARMOUR, DHIDE_BODY, DHIDE_CHAPS, VAMBRACES]) {
         if (sdk.findEquipmentItem(pattern)) continue;
         const item = sdk.findInventoryItem(pattern);
@@ -1388,6 +1391,13 @@ async function bankTrip(): Promise<boolean> {
         if (sdk.findEquipmentItem(pattern) || sdk.findInventoryItem(pattern)) continue;
         const bankItem = sdk.findBankItem(pattern);
         if (bankItem) await bot.withdrawItem(bankItem, 1);
+    }
+    // Melee: the best amulet banked — strength first, then power, then glory (user, 2026-11-02).
+    if (MELEE) {
+        const AMULETS = [/^amulet of strength$/i, /^amulet of power$/i, /^amulet of glory(\(\d\))?$/i];
+        const wornRank = AMULETS.findIndex((p) => !!sdk.findEquipmentItem(p) || !!sdk.findInventoryItem(p));
+        const bankRank = AMULETS.findIndex((p) => !!sdk.findBankItem(p));
+        if (bankRank >= 0 && (wornRank < 0 || bankRank < wornRank)) await bot.withdrawItem(sdk.findBankItem(AMULETS[bankRank]!)!, 1);
     }
     await bot.closeBank();
     if (MELEE && nearSeers) await prayAtSeersAltar();
