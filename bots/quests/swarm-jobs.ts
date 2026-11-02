@@ -426,7 +426,10 @@ abstract class JobBot {
         // Wait for the previous move to land before sending another.
         if (this.tick - this.bankLastMoveTick < 2) return { status: 'busy' };
 
-        const deposit = s.inventory.find(i => !this.bankSkip.has(i.name.toLowerCase()) && !(plan.keep && plan.keep.test(i.name)) && !plan.withdraw.some(w => w.match(i.name)));
+        // Kit held far past the plan goes back too, or a pack full of it reads as "bank" forever
+        // (jacklove7 held 28 tuna: 920 empty bank trips, 2026-11-02); the withdraw below tops back up to `count`.
+        const overHeld = s.inventory.find(i => !this.bankSkip.has(i.name.toLowerCase()) && plan.withdraw.some(w => w.match(i.name) && s.inventory.filter(j => w.match(j.name)).reduce((a, j) => a + j.count, 0) > w.count * 2));
+        const deposit = overHeld ?? s.inventory.find(i => !this.bankSkip.has(i.name.toLowerCase()) && !(plan.keep && plan.keep.test(i.name)) && !plan.withdraw.some(w => w.match(i.name)));
         // Over-held kit (e.g. 14 food left from last trip, plan wants 10) stays: the next withdraw tops up to `count`.
         if (deposit) {
             if (++this.bankMoveTries > 40) {
