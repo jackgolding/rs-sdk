@@ -107,9 +107,12 @@ export async function toDungeon(q: Quest): Promise<void> {
         await q.goTo(SAFE_BANKS.draynor, 4);
         await depositAllInventory(q.supply, [/rune$/i, /^shark$/i, /^coins$/i, /^knife$/i]);
         await q.bot.closeBank().catch(() => undefined);
-        const before = pos(q);
         await q.talk(/^monk of entrana$/i, [/yes,? okay,? i'?m ready to go/i], PORT_SARIM_MONK);
-        if (!(await untilTicks(q.sdk, () => onEntrana(q) || Math.hypot(pos(q).x - before.x, pos(q).z - before.z) > 40, 40))) {
+        // Measured from the monk, not Draynor: the walk there is itself >40 tiles, which read as
+        // "sailed" and sent jackquests across the sea from Port Sarim (2026-11-02).
+        const before = pos(q);
+        const sailed = () => onEntrana(q) || pos(q).level > 0 || Math.hypot(pos(q).x - before.x, pos(q).z - before.z) > 40;
+        if (!(await untilTicks(q.sdk, sailed, 40))) {
             throw new Error(`lostcity: the monks did not sail us (at ${where(q)}; carrying ${q.sdk.getInventory().map((i) => i.name).join(', ')})`);
         }
         await driveDialog(q.sdk, [], { ticks: 20, log: q.log });
@@ -120,6 +123,7 @@ export async function toDungeon(q: Quest): Promise<void> {
             if (plank) await q.bot.interactLoc(plank, /cross/i);
             await untilTicks(q.sdk, () => pos(q).level === 0, 15);
         }
+        if (!onEntrana(q)) throw new Error(`lostcity: not on Entrana after the boat (at ${where(q)})`);
         q.log(`lostcity: on Entrana at ${where(q)}`);
     }
     // The ladder is one-way: without Lumbridge Teleport's runes the only way out is dying
