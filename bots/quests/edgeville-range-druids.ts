@@ -9,6 +9,8 @@ import { join } from 'path';
 import { ActivitySession } from '../../sdk/index';
 import { runScript } from '../../sdk/runner';
 import { walkKandarinToEdgeville } from './movement';
+import { crossGnomeGate, inStronghold } from './lib/gnome-stronghold';
+import type { Quest } from './lib/run-quest';
 
 const botName =
     process.argv.slice(2).find((a) => !a.startsWith('-') && !/^(spiders|druids|thugs)$/i.test(a)) ?? '';
@@ -218,6 +220,26 @@ await runScript(async ({ bot, sdk }) => {
         }
         if (sdk.getState()?.interface?.isOpen && !sdk.getState()?.bank?.isOpen) await bot.closeInterface();
         if (!inDungeon() && pos().x < 2990 && x >= 2990) {
+            // Handed over inside the Gnome Stronghold (an agility grind): walkTo has no route
+            // through its gate (jacklove15, 2026-11-02). brimhaven-dragons' way out.
+            if (inStronghold(pos())) {
+                const gq = {
+                    bot,
+                    sdk,
+                    log,
+                    goTo: (t: { x: number; z: number }, tol = 2) => walkNear(t.x, t.z, tol).then(() => undefined),
+                    climbTo: async (level: number) => {
+                        for (let i = 0; i < 4 && (sdk.getState()?.player?.level ?? 0) > level; i++) {
+                            const down = sdk.findNearbyLoc(/ladder|staircase|branch|rope|tree/i);
+                            const op = down?.optionsWithIndex.find((o) => /climb-down|climb down/i.test(o.text));
+                            if (!down || !op) break;
+                            await bot.interactLoc(down, op.text);
+                            await sdk.waitForTicks(4).catch(() => {});
+                        }
+                    }
+                } as unknown as Quest;
+                await crossGnomeGate(gq, false).catch((e) => log(`stronghold: leaving: ${(e as Error).message}`));
+            }
             log(`Kandarin @ ${pos().x},${pos().z} — walking to Edgeville over White Wolf`);
             await walkKandarinToEdgeville(bot, sdk, { eat: eatIfNeeded, walkNear });
         }
