@@ -14,6 +14,8 @@
  * coordinates + stock table). Unsourced items fail loudly as UNSOURCED so
  * the next author adds a verified source or a craft path — never a guess.
  */
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import type { BotActions } from '../../sdk/actions';
 import type { BotSDK } from '../../sdk/index';
 import type { TradeItem } from '../../sdk/types';
@@ -181,8 +183,19 @@ export async function dmMule(sdk: BotSDK, account: string, text: string): Promis
 export const MULE_RESTOCKERS = ['jackthief', 'jacklove2', 'pigfat', 'Jackpoo2', 'ABGARMY03', 'ABGARMY04', 'ABGARMY05', 'ABGARMY07', 'ABGARMY09', 'jacklove9',
     // KBD hides, dragon daggers, unicorn horns and snape grass to the mule (muster hand-over, 2026-11-02).
     'ABGARMY11', 'ABGARMY14', 'ABGARMY17', 'ABGARMY20', 'jacklove1', 'jacklove11', 'jacklove13', 'jacklove20', 'jacklove18', 'jacklove16'];
+/** Every fleet account (bots/roster.json): any of them may hand stock in (user, 2026-11-02). */
+function rosterNames(): string[] {
+    try {
+        const r = JSON.parse(readFileSync(join(process.cwd(), 'bots', 'roster.json'), 'utf-8')) as { bots?: Array<{ name: string }> } | Array<{ name: string }>;
+        return (Array.isArray(r) ? r : (r.bots ?? [])).map((b) => b.name);
+    } catch {
+        return [];
+    }
+}
 export function isRestockRequest(from: string, text: string): boolean {
-    return /^\s*quest-restock\b/i.test(text) && MULE_RESTOCKERS.some((r) => muleAccount(r).toLowerCase() === from.toLowerCase());
+    if (!/^\s*quest-restock\b/i.test(text)) return false;
+    const who = from.toLowerCase();
+    return [...MULE_RESTOCKERS, ...rosterNames()].some((r) => muleAccount(r).toLowerCase() === who);
 }
 
 export interface MuleOptions {
