@@ -69,7 +69,7 @@ function kit(from: string) {
 await runQuest({
     id: 'elena',
     hub: 'ardougne',
-    carry: ['gas mask', OBJ.picture, OBJ.book, OBJ.warrant, OBJ.smallKey, OBJ.hangoverCure, OBJ.chocolateyMilk],
+    carry: ['gas mask', 'spade', OBJ.picture, OBJ.book, OBJ.warrant, OBJ.smallKey, OBJ.hangoverCure, OBJ.chocolateyMilk],
     journal: { label: 'Plague City', title: 'Plague City' },
     stages: [
         stage('unstarted', 'unstarted', ['I can start this quest by speaking to']),
