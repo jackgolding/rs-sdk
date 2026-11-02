@@ -140,8 +140,12 @@ const countId = (q: Quest, id: number) => q.sdk.getInventory().filter((i) => i.i
 
 const inBox = (p: Tile, x0: number, x1: number, z0: number, z1: number) => p.x >= x0 && p.x <= x1 && p.z >= z0 && p.z <= z1;
 export const inPerfectMine = (p: Tile) => inBox(p, 2688, 2750, 9660, 9725);
-/** Boot's end of the Dwarven Mine, west of the Oracle's magic door (3051,9840: lib/dragon-slayer.ts). */
-export const inDwarvenMine = (p: Tile) => inBox(p, 2940, 3045, 9790, 9860);
+/**
+ * Boot's end of the Dwarven Mine, up to the Oracle's magic door (3051,9840: lib/dragon-slayer.ts).
+ * Its west tile (3050,9840) is inside: at 3045 goTo climbed out to walk there from the surface,
+ * and jacklove13 wandered into the wilderness to 2949,3900 (2026-11-02).
+ */
+export const inDwarvenMine = (p: Tile) => inBox(p, 2940, 3050, 9790, 9860);
 /** The Edgeville dungeon, from its ladder north to Chronozon (its wilderness starts at z 9920). */
 export const inEdgeDungeon = (p: Tile) => inBox(p, 3075, 3145, 9860, 9980);
 /** Underground places of this quest whose way up is out of a generic climb's sight. */
