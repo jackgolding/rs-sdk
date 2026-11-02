@@ -2,7 +2,8 @@
  * Range the dark wizards at the stone circle south of Varrock for their water and fire
  * talisman drops, training Ranged up to --until (user, 2026-11-02: the fleet has neither
  * talisman). Best shortbow the level allows and arrows from the bank, sharks to eat; loots
- * talismans and runes and picks its own arrows back up; banks at Varrock west.
+ * everything the wizards drop (bones buried) and its own arrows; banks at Varrock west. No strung
+ * bow banked for the level: one from Lowe's (shortbow / oak shortbow).
  *
  *   bun bots/quests/dark-wizards-range.ts {botname} [--until=40] [--talismans=2]
  *
@@ -10,6 +11,8 @@
  */
 import { runTask, type Quest } from './lib/run-quest';
 import { SAFE_BANKS } from './safe-stops';
+import { buyAtShop } from './quest-supplies';
+import { closeUi, walkNear } from './movement';
 
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const UNTIL = Number(arg('until') ?? 99);
@@ -20,30 +23,38 @@ const FIRE_T = /^fire talisman$/i;
 const BANK = SAFE_BANKS['varrock-west'];
 /** The stone circle the dark wizards (level 7 and 20) walk around. */
 const CIRCLE = { x: 3226, z: 3370 };
-/** Best first: the bow the Ranged level allows. */
-const BOWS: Array<[RegExp, number]> = [
-    [/^magic shortbow$/i, 50],
-    [/^yew shortbow$/i, 40],
-    [/^maple shortbow$/i, 30],
-    [/^willow shortbow$/i, 20],
-    [/^oak shortbow$/i, 5],
-    [/^shortbow$/i, 1],
+/**
+ * Best first: STRUNG shortbows by obj id, with the Ranged level each needs. An unstrung bow has
+ * the same name (jacklove20's bank held unstrung oak/willow/maple shortbows), so names won't do.
+ */
+const BOWS: Array<[number, number, string]> = [
+    [861, 50, 'magic shortbow'],
+    [857, 40, 'yew shortbow'],
+    [853, 30, 'maple shortbow'],
+    [849, 20, 'willow shortbow'],
+    [843, 5, 'oak shortbow'],
+    [841, 1, 'shortbow'],
 ];
+/** Lowe's Archery Emporium (archeryshop): shortbow and oak shortbow, the strung bows it sells. */
+const LOWE = { x: 3232, z: 3423, npc: /^lowe$/i };
 const ARROWS = /^(iron|bronze) arrow$/i;
 const FOOD = /^(shark|swordfish|lobster|bass|tuna|monkfish)$/i;
 const WIZARD = /^dark wizard$/i;
-const LOOT = /talisman$|^(nature|law|chaos|death|blood|cosmic|mind|body|water|fire|earth|air) rune$/i;
+/** Bones are buried where they drop; everything else a wizard drops is looted (user, 2026-11-02). */
+const BONES = /^bones$/i;
 const FOOD_TAKE = 10;
 const MAX_KILLS_PER_TRIP = 150;
 
-function bestBow(q: Quest): RegExp | null {
+const wornBowId = (q: Quest) => q.sdk.getEquipment().find((e) => e && BOWS.some(([id]) => id === e.id))?.id ?? null;
+const levelOf = (id: number | null) => BOWS.find(([b]) => b === id)?.[1] ?? -1;
+/** The best strung bow the level allows that is worn, carried or banked (bank must be open). */
+function bestBow(q: Quest): number | null {
     const lvl = q.level('ranged');
-    for (const [re, need] of BOWS) {
-        if (lvl < need) continue;
-        if (q.sdk.findEquipmentItem(re) || q.sdk.findInventoryItem(re) || q.sdk.findBankItem(re)) return re;
-    }
-    return null;
+    const have = new Set([wornBowId(q), ...q.sdk.getInventory().map((i) => i.id), ...(q.sdk.getBankItems() ?? []).map((b) => b.id)]);
+    return BOWS.find(([id, need]) => need <= lvl && have.has(id))?.[0] ?? null;
 }
+/** The best bow Lowe sells for this level. */
+const loweBow = (q: Quest) => (q.level('ranged') >= 5 ? { id: 843, re: /^oak shortbow$/i } : { id: 841, re: /^shortbow$/i });
 
 const heldCount = (q: Quest, re: RegExp) => q.sdk.getInventory().filter((i) => re.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0);
 const quiver = (q: Quest) => q.sdk.getEquipment().filter((e) => e && ARROWS.test(e.name)).reduce((n, e) => n + (e!.count ?? 1), 0);
@@ -101,39 +112,43 @@ async function restock(q: Quest): Promise<boolean> {
     }
     const banked = (re: RegExp) => (sdk.getBankItems() ?? []).filter((b) => re.test(b.name)).reduce((n, b) => n + b.count, 0);
     bankTalismans = { water: banked(WATER_T), fire: banked(FIRE_T) };
-    const bow = bestBow(q);
-    if (!bow) throw new Error('no shortbow the Ranged level allows in the bank or worn');
-    if (!sdk.findEquipmentItem(bow)) {
-        const b = sdk.findBankItem(bow);
+    // Strung bows only (by id); the best the level allows, else one from Lowe.
+    let bow = bestBow(q);
+    const lowe = loweBow(q);
+    if (bow === null || levelOf(bow) < levelOf(lowe.id)) bow = null;
+    if (bow !== null && wornBowId(q) !== bow) {
+        const b = (sdk.getBankItems() ?? []).find((x) => x.id === bow);
         if (b) await bot.withdrawItem(b, 1, { asNote: false });
     }
     const arrows = sdk.findBankItem(/^iron arrow$/i) ?? sdk.findBankItem(/^bronze arrow$/i);
     if (arrows) await bot.withdrawItem(arrows, arrows.count);
     const food = sdk.findBankItem(FOOD);
     if (food) await bot.withdrawItem(food, Math.min(FOOD_TAKE, food.count));
+    const coins = sdk.findBankItem(/^coins$/i);
+    if (bow === null && coins) await bot.withdrawItem(coins, Math.min(coins.count, 1000));
     await sdk.waitForTicks(2).catch(() => undefined);
     await bot.closeBank();
-    // The bow first, then the arrows; checked, since a bare-handed trip crawled (jacklove20, 2026-11-02).
-    for (let i = 0; i < 3 && !sdk.findEquipmentItem(bow); i++) {
-        let bowItem = sdk.findInventoryItem(bow);
-        // A noted bow (the bank was in note mode) has no wield option: bank it and take a real one.
-        const wieldable = (it: typeof bowItem) => !!it?.optionsWithIndex?.some((o) => /wield|wear|equip/i.test(o.text));
-        if (!bowItem || !wieldable(bowItem)) {
-            if (!(await bot.openBank()).success) break;
-            if (bowItem) await bot.depositItem(bowItem, -1).catch(() => undefined);
-            const b = sdk.findBankItem(bow);
-            if (b) await bot.withdrawItem(b, 1, { asNote: false });
-            await sdk.waitForCondition(() => !!sdk.findInventoryItem(bow), 3_000).catch(() => undefined);
-            await bot.closeBank();
-            bowItem = sdk.getInventory().find((i) => bow.test(i.name) && wieldable(i)) ?? null;
-        }
+    if (bow === null) {
+        q.log(`no strung bow banked for Ranged ${q.level('ranged')}: buying one from Lowe`);
+        await buyAtShop(
+            { bot, sdk, log: q.log, intent: () => undefined, walkNear: (x: number, z: number, t = 3) => walkNear(bot, sdk, x, z, t), closeUi: () => closeUi(bot, sdk) },
+            LOWE,
+            [{ pattern: lowe.re, amount: 1, label: 'bow' }]
+        ).catch((e) => q.log(`Lowe: ${e instanceof Error ? e.message : String(e)}`));
+        await closeUi(bot, sdk);
+        bow = sdk.getInventory().find((i) => i.id === lowe.id) ? lowe.id : null;
+        if (bow === null) throw new Error('no strung bow banked and Lowe sold none');
+    }
+    if (wornBowId(q) !== bow) {
+        const bowItem = sdk.getInventory().find((i) => i.id === bow);
         if (bowItem) {
             const r = await bot.equipItem(bowItem);
             if (!r.success) q.log(`equip ${bowItem.name}: ${r.message}`);
-            await sdk.waitForCondition(() => !!sdk.findEquipmentItem(bow), 3_000).catch(() => undefined);
+            await sdk.waitForCondition(() => wornBowId(q) === bow, 3_000).catch(() => undefined);
         }
     }
-    if (!sdk.findEquipmentItem(bow)) throw new Error(`could not wield ${bow.source}`);
+    if (wornBowId(q) !== bow) throw new Error(`could not wield bow ${bow}`);
+    // Coins left over from Lowe go back next restock.
     const arrowItem = sdk.findInventoryItem(ARROWS);
     if (arrowItem) await bot.equipItem(arrowItem);
     await sdk.waitForTicks(2).catch(() => undefined);
@@ -142,20 +157,26 @@ async function restock(q: Quest): Promise<boolean> {
     return quiver(q) > 0;
 }
 
-/** Talismans, runes and our own arrows near the circle. */
+/** Everything the wizards drop near us: talismans, runes, herbs, rare-drop-table items, our arrows; bones buried. */
 async function loot(q: Quest): Promise<number> {
     let got = 0;
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 12; i++) {
         if (q.sdk.getInventory().length >= 28) break;
-        const g = q.sdk.findGroundItem(LOOT, { reachable: true }) ?? q.sdk.findGroundItem(ARROWS, { reachable: true });
-        if (!g || (g.distance ?? 99) > 8) break;
-        const before = heldCount(q, LOOT) + heldCount(q, ARROWS);
+        const g = q.sdk.findGroundItem(/./, { reachable: true });
+        if (!g || (g.distance ?? 99) > 6) break;
+        const before = q.sdk.getInventory().reduce((n, it) => n + (it.count ?? 1), 0);
         await q.bot.pickupItem(g).catch(() => undefined);
-        await q.sdk.waitForCondition(() => heldCount(q, LOOT) + heldCount(q, ARROWS) > before, 4_000).catch(() => undefined);
+        await q.sdk.waitForCondition(() => q.sdk.getInventory().reduce((n, it) => n + (it.count ?? 1), 0) > before, 4_000).catch(() => undefined);
         if (/talisman$/i.test(g.name)) {
             got++;
             q.log(`LOOT ${g.name}`);
-        }
+        } else if (!BONES.test(g.name) && !ARROWS.test(g.name)) q.log(`loot ${g.name}${(g.count ?? 1) > 1 ? ` x${g.count}` : ''}`);
+    }
+    for (const bone of q.sdk.getInventory().filter((it) => BONES.test(it.name))) {
+        const bury = bone.optionsWithIndex.find((o) => /bury/i.test(o.text));
+        if (!bury) continue;
+        await q.sdk.sendUseItem(bone.slot, bury.opIndex).catch(() => undefined);
+        await q.sdk.waitForTicks(2).catch(() => undefined);
     }
     // Picked-up arrows go back in the quiver.
     const arrows = q.sdk.findInventoryItem(ARROWS);
