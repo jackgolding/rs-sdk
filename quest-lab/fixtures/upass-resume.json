@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "questId": "upass",
+  "position": {
+    "x": 2655,
+    "z": 3283,
+    "level": 0
+  },
+  "skills": "maxed",
+  "tutorial": true,
+  "worn": [],
+  "varps": {
+    "elenaquest": 29,
+    "biohazard": 16,
+    "upass": 7,
+    "ibanmulti": 1397082592
+  },
+  "target": {
+    "varp": "upass",
+    "unstarted": 7
+  },
+  "bank": [
+    {
+      "name": "coins",
+      "count": 1000
+    },
+    {
+      "name": "longbow",
+      "count": 1
+    },
+    {
+      "name": "bronze_arrow",
+      "count": 5
+    },
+    {
+      "name": "tinderbox",
+      "count": 1
+    },
+    {
+      "name": "rope",
+      "count": 2
+    },
+    {
+      "name": "spade",
+      "count": 1
+    },
+    {
+      "name": "bucket_empty",
+      "count": 1
+    },
+    {
+      "name": "rune_scimitar",
+      "count": 1
+    },
+    {
+      "name": "shark",
+      "count": 19
+    }
+  ],
+  "note": "Resume at found_doll (7): every earlier bit set, no doll parts yet; the doll is Nilhoof's spare."
+}

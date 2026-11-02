@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "questId": "upass",
+  "position": {
+    "x": 2655,
+    "z": 3283,
+    "level": 0
+  },
+  "skills": "maxed",
+  "tutorial": true,
+  "worn": [],
+  "varps": {
+    "elenaquest": 29,
+    "biohazard": 16
+  },
+  "target": {
+    "varp": "upass",
+    "unstarted": 0
+  },
+  "bank": [
+    {
+      "name": "coins",
+      "count": 1000
+    },
+    {
+      "name": "longbow",
+      "count": 1
+    },
+    {
+      "name": "bronze_arrow",
+      "count": 5
+    },
+    {
+      "name": "tinderbox",
+      "count": 1
+    },
+    {
+      "name": "rope",
+      "count": 2
+    },
+    {
+      "name": "spade",
+      "count": 1
+    },
+    {
+      "name": "bucket_empty",
+      "count": 1
+    }
+  ],
+  "note": "As upass.json without the mule items (sharks, melee weapon): must stop NEEDS STOCK after the prologue."
+}

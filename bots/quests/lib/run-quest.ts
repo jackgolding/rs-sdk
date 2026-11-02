@@ -66,6 +66,7 @@ import { inWaterfallArea, leaveWaterfall } from './waterfall';
 import { inPlagueArea, leavePlagueCity } from './plague-city';
 import { inJungleArea, leaveJungle } from './jungle-potion';
 import { inShiloArea, leaveShilo } from './shilo-village';
+import { inUpassArea, leaveUpass } from './underground-pass';
 import { inKeepArea, leaveKeep } from './merlins-crystal';
 import { inCrestUnderground, leaveCrestUnderground } from './crest';
 import { inMelzarsMaze, leaveMelzarsMaze } from './melzars-maze';
@@ -460,6 +461,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 }
                 const t0 = tickNow(sdk);
                 const from = pos();
+                // The Underground Pass and Iban's cavern (level 1, no ladder): out by its own exits before any climb (lib/underground-pass.ts).
+                if (inUpassArea(pos()) && !inUpassArea({ ...tile, level: tile.level ?? 0 })) await leaveUpass(q);
                 // walkTo cannot route between planes: from Sanfew's upstairs it reported
                 // the ground-floor target "unroutable" and travelTo's fallback took ~270t
                 // (druid, 2026-10-28). Change plane where we stand, then walk.
@@ -719,6 +722,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inStronghold(pos()) && pos().level !== 0) await leaveGrandTree(q);
         // Melzar's Maze, any floor or its basement: climbTo would take any of its ladders (lib/melzars-maze.ts).
         if (inMelzarsMaze(pos())) await leaveMelzarsMaze(bot, sdk, log);
+        // Iban's cavern is level 1 with no ladder: out of the pass before any climb (lib/underground-pass.ts).
+        if (inUpassArea(pos())) await leaveUpass(q);
         if (pos().level !== 0) await q.climbTo(0);
         if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.
@@ -864,6 +869,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         }
 
         // ── epilogue: back to the hub, naked, where the run started
+        if (inUpassArea(pos())) await leaveUpass(q);
         if (inMelzarsMaze(pos())) await leaveMelzarsMaze(bot, sdk, log);
         if (pos().level !== 0) await q.climbTo(0);
         await q.goTo(hub, 4);

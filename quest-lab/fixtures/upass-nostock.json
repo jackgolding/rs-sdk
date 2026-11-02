@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "questId": "upass",
+  "position": {
+    "x": 2655,
+    "z": 3283,
+    "level": 0
+  },
+  "skills": "maxed",
+  "tutorial": true,
+  "worn": [],
+  "varps": {
+    "elenaquest": 29,
+    "biohazard": 16
+  },
+  "target": {
+    "varp": "upass",
+    "unstarted": 0
+  },
+  "bank": [
+    {
+      "name": "coins",
+      "count": 2000
+    },
+    {
+      "name": "rune_scimitar",
+      "count": 1
+    },
+    {
+      "name": "shark",
+      "count": 19
+    }
+  ],
+  "note": "Plague City + Biohazard complete; only coins and the mule items banked (rune scimitar, 19 sharks): every sourced item (bow, arrows, tinderbox, rope, spade, bucket) is bought."
+}

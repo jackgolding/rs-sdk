@@ -127,6 +127,21 @@ export const GROUPS: Record<string, Array<{ item: string; skill: string; level: 
     ],
     /** Pirate's Treasure: worn into Wydin's back room, so worn ones count. */
     'white apron': [{ item: 'white apron', skill: 'defence', level: 1 }],
+    /** Underground Pass: a bow to fire the burning cloth arrow at the guide rope (weapon_bow category). */
+    bow: [
+        { item: 'magic longbow', skill: 'ranged', level: 50 },
+        { item: 'magic shortbow', skill: 'ranged', level: 50 },
+        { item: 'yew longbow', skill: 'ranged', level: 40 },
+        { item: 'yew shortbow', skill: 'ranged', level: 40 },
+        { item: 'maple longbow', skill: 'ranged', level: 30 },
+        { item: 'maple shortbow', skill: 'ranged', level: 30 },
+        { item: 'willow longbow', skill: 'ranged', level: 20 },
+        { item: 'willow shortbow', skill: 'ranged', level: 20 },
+        { item: 'oak longbow', skill: 'ranged', level: 5 },
+        { item: 'oak shortbow', skill: 'ranged', level: 5 },
+        { item: 'longbow', skill: 'ranged', level: 1 },
+        { item: 'shortbow', skill: 'ranged', level: 1 },
+    ],
     /** Black Knights' Fortress: the guard disguise is worn, so worn ones count. */
     'bronze med helm': [{ item: 'bronze med helm', skill: 'defence', level: 1 }],
     'iron chainbody': [{ item: 'iron chainbody', skill: 'defence', level: 1 }],
@@ -155,6 +170,10 @@ const LUMBRIDGE_KNIFE = { x: 3224, z: 3202 };
 /** Dommik's Crafting Store, Al Kharid: needle and thread 1gp. */
 const DOMMIK = { x: 3322, z: 3194, npc: /^dommik$/i };
 /** Arhein's store, Catherby: tinderbox. */
+/** Aemad's Adventuring Supplies, East Ardougne (ardougne_east.inv). */
+const AEMAD = { x: 2614, z: 3293, npc: /^(aemad|kortan)$/i };
+/** Chadwell's general store, West Ardougne (walled until Biohazard; the wall doors open after it). */
+const CHADWELL = { x: 2464, z: 3287, npc: /^chadwell$/i };
 const ARHEIN = { x: 2803, z: 3430, npc: /^arhein$/i };
 /** The Catherby candle maker (catherby.inv candleshop): candles 3gp. */
 const CANDLE_MAKER = { x: 2800, z: 3439, npc: /^candle maker$/i };
@@ -897,6 +916,29 @@ export const SOURCES: Record<string, Source> = {
         },
     },
     /** Ned, Draynor (ned.rs2): 15 coins a coil. */
+    // ── Underground Pass: a bow and arrows for the guide rope (one cloth arrow, a few spare for misses)
+    /** Chadwell's West Ardougne general store (ardougne_west.inv: longbow 96gp), through the city wall doors. */
+    bow: {
+        obj: 'longbow',
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 150 }],
+        get: async (q) => {
+            await q.ensure('coins', 150);
+            const { throughWallDoors } = await import('./underground-pass');
+            await throughWallDoors(q, true);
+            await buyWaitingForRestock(q, CHADWELL, 'longbow', 1);
+            await throughWallDoors(q, false);
+        },
+    },
+    /** Aemad's Adventuring Supplies, East Ardougne (bronze arrows 1gp, stock 500). */
+    'bronze arrow': {
+        obj: 'bronze_arrow',
+        inputs: (count) => [{ item: 'coins', count: 2 * count }],
+        get: async (q, count) => {
+            await q.ensure('coins', 2 * count);
+            await buyWaitingForRestock(q, AEMAD, 'bronze arrow', count);
+        },
+    },
     rope: {
         inputs: (count) => [{ item: 'coins', count: 15 * count }],
         get: async (q, count) => {
