@@ -244,10 +244,16 @@ async function killForKey(q: Quest, npc: number, label: string): Promise<boolean
     const t0 = tickNow(q.sdk);
     let lastSeen = t0;
     let target: NearbyNpc | undefined;
+    let pickTries = 0;
     while (keys() <= before && tickNow(q.sdk) - t0 < 900) {
-        const drop = q.sdk.findGroundItem(/^key$/i, { reachable: true });
-        if (drop && drop.distance <= 12) {
-            await q.bot.pickupItem(drop);
+        // Any key in the room, "unreachable" ones too: the drop lands on the npc's own tile
+        // (melzars_maze.rs2 obj_add(npc_coord)), and a demon killed at its pen's edge left
+        // jacklove13 and ABGARMY04 without a key they never tried for (2026-11-02).
+        const drop = q.sdk.findGroundItem(/^key$/i, { reachable: true }) ?? q.sdk.findGroundItem(/^key$/i);
+        if (drop && drop.distance <= 12 && pickTries < 6) {
+            pickTries++;
+            if (drop.reachable === false) await q.bot.walkTo(drop.x, drop.z, 1).catch(() => undefined);
+            await q.bot.pickupItem(drop).catch(() => undefined);
             await untilTicks(q.sdk, () => keys() > before, 10);
             continue;
         }
@@ -259,8 +265,9 @@ async function killForKey(q: Quest, npc: number, label: string): Promise<boolean
             await q.bot.walkTo(target.x, target.z, 1).catch(() => undefined);
         }
         if (!target) {
-            // Its kill-drop window: a respawn takes a while; nothing in sight at all means it is not this room.
-            if (tickNow(q.sdk) - lastSeen > 120) break;
+            // Its kill-drop window: a respawn takes a while (the demon's outlasted 120 ticks:
+            // ABGARMY04 gave up at 123t, 2026-11-02); nothing in sight for 300 means not this room.
+            if (tickNow(q.sdk) - lastSeen > 300) break;
             await q.sdk.waitForTicks(4);
             continue;
         }
@@ -292,7 +299,8 @@ async function killForKey(q: Quest, npc: number, label: string): Promise<boolean
         await q.sdk.waitForTicks(2);
     }
     const got = keys() > before;
-    q.log(`dragon: ${label}'s key ${got ? 'taken' : 'NOT found'} in ${tickNow(q.sdk) - t0}t at ${where(q)}`);
+    const floor = got ? '' : ` (keys on the floor: ${(q.sdk.getGroundItems() ?? []).filter((g) => /^key$/i.test(g.name)).map((g) => `${g.x},${g.z}${g.reachable === false ? ' unreachable' : ''}`).join(' ') || 'none'}; pickups tried ${pickTries})`;
+    q.log(`dragon: ${label}'s key ${got ? 'taken' : 'NOT found'} in ${tickNow(q.sdk) - t0}t at ${where(q)}${floor}`);
     return got;
 }
 
