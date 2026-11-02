@@ -1360,30 +1360,42 @@ async function prayAtAltar(tile: { x: number; z: number }, where: string): Promi
 async function teleportOutOfLair(): Promise<boolean> {
     if (!inKbdLair()) return false;
     await protectMelee(false);
-    const ring = sdk.findInventoryItem(DUELING_RING);
-    const rub = ring?.optionsWithIndex.find((o) => /rub/i.test(o.text));
     const magic = sdk.getSkill('Magic')?.level ?? 1;
-    if (magic >= 45 && count(LAW) >= 1 && count(AIR) >= 5) {
-        // Camelot: Seers bank and the Seers church altar are a short walk, then Ardougne to regroup.
-        await sdk.sendSetTab(MAGIC_TAB).catch(() => {});
-        await sdk.waitForTicks(1).catch(() => {});
-        await sdk.sendClickComponent(CAMELOT_TELEPORT);
-    } else if (ring && rub) {
-        await sdk.sendUseItem(ring.slot, rub.opIndex);
-        for (let i = 0; i < 10 && inKbdLair(); i++) {
-            const d = sdk.getDialog();
-            const cw = d?.options.find((o) => /castle wars/i.test(o.text));
-            if (cw) await sdk.sendClickDialog(cw.index);
+    // Up to three casts: one click that did not take logged "no ring, no runes" and walked
+    // Jackpoo5 off holding Camelot runes, then stalled it in the lair (2026-11-02).
+    let tried = 'nothing';
+    for (let attempt = 1; attempt <= 3 && inKbdLair() && !pos().isDead; attempt++) {
+        await bot.dismissBlockingUI().catch(() => undefined);
+        const ring = sdk.findInventoryItem(DUELING_RING);
+        const rub = ring?.optionsWithIndex.find((o) => /rub/i.test(o.text));
+        if (magic >= 45 && count(LAW) >= 1 && count(AIR) >= 5) {
+            // Camelot: Seers bank and the Seers church altar are a short walk, then Ardougne to regroup.
+            tried = 'Camelot Teleport';
+            await sdk.sendSetTab(MAGIC_TAB).catch(() => {});
             await sdk.waitForTicks(1).catch(() => {});
+            await sdk.sendClickComponent(CAMELOT_TELEPORT);
+        } else if (ring && rub) {
+            tried = 'ring of dueling';
+            await sdk.sendUseItem(ring.slot, rub.opIndex);
+            for (let i = 0; i < 10 && inKbdLair(); i++) {
+                const d = sdk.getDialog();
+                const cw = d?.options.find((o) => /castle wars/i.test(o.text));
+                if (cw) await sdk.sendClickDialog(cw.index);
+                await sdk.waitForTicks(1).catch(() => {});
+            }
+        } else if (magic >= 31 && count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1) {
+            tried = 'Lumbridge Teleport';
+            await sdk.sendSetTab(MAGIC_TAB).catch(() => {});
+            await sdk.waitForTicks(1).catch(() => {});
+            await sdk.sendClickComponent(LUMBRIDGE_TELEPORT);
+        } else {
+            break;
         }
-    } else if (magic >= 31 && count(LAW) >= 1 && count(AIR) >= 3 && count(EARTH) >= 1) {
-        await sdk.sendSetTab(MAGIC_TAB).catch(() => {});
-        await sdk.waitForTicks(1).catch(() => {});
-        await sdk.sendClickComponent(LUMBRIDGE_TELEPORT);
+        await sdk.waitForCondition((st) => (st.player?.worldZ ?? 9999) < 9000, 8_000).catch(() => {});
+        if (inKbdLair()) log(`${tried} attempt ${attempt} did not take (law ${count(LAW)} air ${count(AIR)} magic ${magic})`);
     }
-    await sdk.waitForCondition((st) => (st.player?.worldZ ?? 9999) < 9000, 12_000).catch(() => {});
     const out = !inKbdLair();
-    log(out ? `Teleported out of the lair to ${pos().x},${pos().z}` : 'No teleport out of the lair (no ring, no runes) — walking');
+    log(out ? `Teleported out of the lair to ${pos().x},${pos().z}` : `No teleport out of the lair (tried: ${tried}; law ${count(LAW)} air ${count(AIR)} magic ${magic}) — walking`);
     // Out low and maybe poisoned (jacklove1 died on the walk to the bank, 2026-11-01): eat what is left now.
     for (let i = 0; i < 28 && out && pos().hp < pos().maxHp - 15; i++) {
         const food = sdk.getInventory().find((it) => foodHeal(it.name) > 0);
