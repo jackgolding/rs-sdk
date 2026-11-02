@@ -715,7 +715,20 @@ async function useFissure(q: Quest, item: RegExp, what: string): Promise<void> {
     // ticks with one mesbox (quest_zombiequeen.rs2 oploc1,ahzarhoon_entrance), and the item goes
     // on at once. Search (op2) opens the crawl prompt instead; jacklove5's candle "did not go in"
     // and the next try found "no fissure" by the mound it had just searched (2026-11-02).
-    for (let attempt = 1; attempt <= 3 && q.count(item) >= before; attempt++) {
+    // One player at the mound at a time: loc_change is world-wide, so a second account's op on
+    // the mound/fissure turns it back for both (jacklove2's three tries failed with ABGARMY07 on
+    // its tile, 2026-11-02). Wait (bounded) until nobody else is within 4 tiles.
+    // Tie-break so two of ours never wait on each other: the name that sorts first goes ahead.
+    const me = (q.sdk.getState()?.player?.name ?? '').toLowerCase();
+    const crowded = () => (q.sdk.getNearbyPlayers() ?? []).some((pl) => Math.abs(pl.x - 2921) <= 4 && Math.abs(pl.z - 2999) <= 4 && pl.name.toLowerCase() < me);
+    for (let attempt = 1; attempt <= 5 && q.count(item) >= before; attempt++) {
+        const t0 = tickNow(q.sdk);
+        let noted = false;
+        while (crowded() && tickNow(q.sdk) - t0 < 300) {
+            if (!noted) q.log(`shilo: another player at the mound — waiting (try ${attempt})`);
+            noted = true;
+            await q.sdk.waitForTicks(5);
+        }
         let fissure = await findLoc(q, LOC_NAME.fissure, undefined, { x: 2921, z: 2999 }, 4);
         if (!fissure) {
             const mound = await findLoc(q, /^mound of earth$/i, /^look-at$/i, { x: 2921, z: 2999 }, 4);
