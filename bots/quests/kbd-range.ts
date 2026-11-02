@@ -1303,6 +1303,50 @@ async function teleportOutOfLair(): Promise<boolean> {
     return out;
 }
 
+/**
+ * The KBD melee pack — the same for every account (user, 2026-11-02): everything else (a looted
+ * adamant platebody, stray runes, spare gear) goes in the bank before the trip, each line is
+ * topped up or trimmed to its count, and the result is logged. Gear is worn, never carried.
+ */
+const MELEE_KIT: Array<{ pattern: RegExp; count: number; label: string; slots?: boolean }> = [
+    { pattern: SHARK, count: FOOD_WITHDRAW, label: 'shark', slots: true },
+    { pattern: PRAYER_POT, count: MELEE_PRAYER_POTS, label: 'prayer potion', slots: true },
+    { pattern: ANTIPOISON, count: ANTIPOISON_WITHDRAW, label: 'antipoison', slots: true },
+    { pattern: ANTIFIRE, count: 2, label: 'antifire', slots: true },
+    { pattern: LAW, count: 2, label: 'law rune' },
+    { pattern: AIR, count: 8, label: 'air rune' },
+    { pattern: EARTH, count: 1, label: 'earth rune' },
+];
+const isMeleeKit = (name: string) => MELEE_KIT.some((k) => k.pattern.test(name));
+
+async function settleMeleeKit(): Promise<void> {
+    const opened = sdk.getState()?.bank?.isOpen ? { success: true } : await bot.openBank();
+    if (!opened.success) return;
+    // Anything that is not kit: deposited (worn gear is untouched).
+    for (let i = 0; i < 28; i++) {
+        // Noted food/potions (a mule hand-over) cannot be eaten: banked too.
+        const noted = (x: { name: string; optionsWithIndex: { text: string }[] }) => /^(shark|.*potion.*|antipoison.*|antifire.*)$/i.test(x.name) && !x.optionsWithIndex.some((o) => /eat|drink/i.test(o.text));
+        const it = sdk.getInventory().find((x) => (x.count ?? 0) > 0 && (!isMeleeKit(x.name) || noted(x)));
+        if (!it) break;
+        const r = await bot.depositItem(it, -1);
+        if (!r.success && !r.partial) break;
+    }
+    const held = (k: (typeof MELEE_KIT)[number]) =>
+        k.slots ? sdk.getInventory().filter((i) => k.pattern.test(i.name)).length : sdk.getInventory().filter((i) => k.pattern.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0);
+    for (const k of MELEE_KIT) {
+        const extra = held(k) - k.count;
+        if (extra > 0) await bot.depositItem(k.pattern, extra).catch(() => undefined);
+        const short = k.count - held(k);
+        const b = sdk.findBankItem(k.pattern);
+        if (short > 0 && b) await bot.withdrawItem(b, Math.min(short, b.count), { asNote: false });
+    }
+    await sdk.waitForTicks(2).catch(() => undefined);
+    const line = MELEE_KIT.map((k) => `${k.label} ${held(k)}/${k.count}`).join(', ');
+    const worn = sdk.getEquipment().filter(Boolean).map((e) => e!.name).join(', ');
+    const missing = MELEE_KIT.filter((k) => held(k) < k.count).map((k) => k.label);
+    log(`Kit ${missing.length ? `SHORT (${missing.join(', ')})` : 'OK'}: ${line} | worn: ${worn}`);
+}
+
 async function bankTrip(): Promise<boolean> {
     if (session.metrics().phase !== 'bank') await session.setPhase('bank');
     if (MELEE) await teleportOutOfLair();
@@ -1387,7 +1431,7 @@ async function bankTrip(): Promise<boolean> {
     }
     // Melee now wears the black d'hide jacklove16 made (user, 2026-11-02): a PK death loses it
     // (only longsword, shield and one more are kept), traded for less damage taken in the lair.
-    for (const pattern of MELEE ? [FIRE_SHIELD, DHIDE_BODY, DHIDE_CHAPS, VAMBRACES] : [FIRE_SHIELD, DHIDE_BODY, DHIDE_CHAPS, VAMBRACES, HELM, BOOTS, CHARGED_GLORY]) {
+    for (const pattern of MELEE ? [FIRE_SHIELD, DHIDE_BODY, DHIDE_CHAPS, VAMBRACES, /^(dragon|rune|adamant) (full helm|med helm)$/i, BOOTS, /^leather gloves$/i] : [FIRE_SHIELD, DHIDE_BODY, DHIDE_CHAPS, VAMBRACES, HELM, BOOTS, CHARGED_GLORY]) {
         if (sdk.findEquipmentItem(pattern) || sdk.findInventoryItem(pattern)) continue;
         const bankItem = sdk.findBankItem(pattern);
         if (bankItem) await bot.withdrawItem(bankItem, 1);
@@ -1410,6 +1454,7 @@ async function bankTrip(): Promise<boolean> {
     // None banked: the Duke replaces it for any Dragon Slayer finisher (duke-shield.ts).
     if (MELEE && !sdk.findEquipmentItem(FIRE_SHIELD) && !sdk.findInventoryItem(FIRE_SHIELD)) await fetchDukeShield(bot, sdk, log);
     await equipLoadout();
+    if (MELEE) await settleMeleeKit();
     session.noteProgress('bank', `sharks ${sharkSlots()} knives ${count(KNIVES)}`);
     log(
         `Loadout sharks=${sharkSlots()} knives=${count(KNIVES)} body=${!!sdk.findEquipmentItem(DHIDE_BODY)} ` +
@@ -1430,6 +1475,7 @@ async function bankTrip(): Promise<boolean> {
             .map(([pattern, label]) => ({ label, pattern, count: 1 }));
         const stock = [
             ...(sharkSlots() < 10 ? [{ label: 'shark', pattern: SHARK, count: 150 }] : []),
+            ...(sdk.getInventory().filter((i) => PRAYER_POT.test(i.name)).length < MELEE_PRAYER_POTS ? [{ label: 'prayer potion(3)', pattern: /^prayer potion\(3\)$/i, count: 30 }] : []),
             ...(!count(ANTIPOISON) ? [{ label: 'antipoison(3)', pattern: /^antipoison\(3\)$/i, count: 6 }] : []),
             ...(!count(ANTIFIRE) ? [{ label: 'antifire potion(3)', pattern: /^antifire potion\(3\)$/i, count: 4 }] : []),
         ];
@@ -1447,7 +1493,7 @@ async function bankTrip(): Promise<boolean> {
                 await requestFromMule({ sdk, bot, session: null, log } as never, stock, { mule: 'jackthief', timeoutMs: 5 * 60_000, noted: true });
                 // Notes go into the bank: the next bank pass withdraws real sharks and pots.
                 if ((await bot.openBank()).success) {
-                    for (const it of sdk.getInventory().filter((i) => (SHARK.test(i.name) || ANTIPOISON.test(i.name) || ANTIFIRE.test(i.name)) && !i.optionsWithIndex.some((o) => /eat|drink/i.test(o.text)))) {
+                    for (const it of sdk.getInventory().filter((i) => (SHARK.test(i.name) || ANTIPOISON.test(i.name) || ANTIFIRE.test(i.name) || PRAYER_POT.test(i.name)) && !i.optionsWithIndex.some((o) => /eat|drink/i.test(o.text)))) {
                         await bot.depositItem(it, -1).catch(() => undefined);
                     }
                     await bot.closeBank().catch(() => undefined);
