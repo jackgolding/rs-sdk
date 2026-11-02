@@ -76,7 +76,9 @@ const SPIDER_GATE = { x: 3224, z: 3904 };
  */
 const TREE_HOP = 12;
 const HOP_LEAD = 4;
-const FOOD_WITHDRAW = MELEE_MODE() ? 20 : 12;
+// Melee: 12 sharks, not 20 — trips ate 1-9 and ran out of prayer first, and 20 left 2-3
+// slots for hides and bones (user, 2026-11-02).
+const FOOD_WITHDRAW = 12;
 /** One potion covers ~4 cures against ~1 poisoning per account per trip (local KBD study, 2026-11-01). */
 const ANTIPOISON_WITHDRAW = 2;
 const PRAYER_POT_WITHDRAW = MELEE_MODE() ? 4 : 2;
@@ -100,7 +102,7 @@ const CAMELOT_TELEPORT = 1174;
 /** Seers' Village church altar (loc 409, maps/m42_54): prayer back before the next trip. */
 const SEERS_ALTAR = { x: 2694, z: 3462 };
 /** Melee: Protect from Melee for the whole fight, ~1 point a tick-pair at 43+. */
-const MELEE_PRAYER_POTS = 4;
+const MELEE_PRAYER_POTS = 6;
 /** Lair floor west of the spawn: every melee account converges on the dragon from here. */
 const LAIR_MIDDLE = { x: 2709, z: 9818 };
 
@@ -633,7 +635,18 @@ async function buryDragonBones(): Promise<void> {
     }
 }
 
+/** Empty vials off the pack between kills (dropping mid-fight would cancel the attack). */
+async function dropEmptyVials(): Promise<void> {
+    for (let i = 0; i < 8; i++) {
+        const vial = sdk.findInventoryItem(EMPTY_VIAL);
+        if (!vial) return;
+        await sdk.sendDropItem(vial.slot);
+        await sdk.waitForTicks(1).catch(() => undefined);
+    }
+}
+
 async function lootAfterKill(): Promise<void> {
+    await dropEmptyVials();
     for (let i = 0; i < 12; i++) {
         await eatIfNeeded();
         const scanned = await sdk.scanGroundItems(8).catch(() => []);
