@@ -262,6 +262,16 @@ export class ActionExecutor {
                         'Failed to cast spell on ground item'
                     );
 
+                case 'spellOnLoc': {
+                    const result = this.wrapClientAction(
+                        this.client.spellOnLoc(action.x, action.z, action.locId, action.spellComponent),
+                        `Casting spell ${action.spellComponent} on loc ${action.locId} at (${action.x}, ${action.z})`,
+                        'Failed to cast spell on location'
+                    );
+                    if (result.success) this.showTileClickVisual(action.x, action.z);
+                    return result;
+                }
+
                 case 'setTab':
                     return this.wrapBool(
                         this.client.setTab(action.tabIndex),
@@ -522,6 +532,7 @@ export function formatAction(action: BotAction): string {
         case 'useItemOnNpc': return `Use slot ${action.itemSlot} on NPC #${action.npcIndex}`;
         case 'spellOnNpc': return `Cast ${action.spellComponent} on NPC #${action.npcIndex}`;
         case 'spellOnPlayer': return `Cast ${action.spellComponent} on player #${action.playerIndex}`;
+        case 'spellOnLoc': return `Cast ${action.spellComponent} on loc ${action.locId} at (${action.x}, ${action.z})`;
         case 'shopBuy': return `Buy slot ${action.slot} x${action.amount}`;
         case 'shopSell': return `Sell slot ${action.slot} x${action.amount}`;
         case 'wait': return `Wait ${action.ticks || 1} ticks`;

@@ -2203,6 +2203,33 @@ export class Client extends GameShell {
     }
 
     /**
+     * Cast a spell on a location (OPLOCT), e.g. a charge-orb spell on an obelisk.
+     */
+    spellOnLoc(worldX: number, worldZ: number, locId: number, spellComponent: number): ClientActionResult {
+        if (!this.ingame || !this.out || !this.localPlayer) {
+            return { success: false, reason: 'not_in_game' };
+        }
+        const destSceneX = worldX - this.mapBuildBaseX;
+        const destSceneZ = worldZ - this.mapBuildBaseZ;
+        if (destSceneX < 0 || destSceneX > 103 || destSceneZ < 0 || destSceneZ > 103) {
+            return { success: false, reason: 'out_of_scene' };
+        }
+        if (!LocType.list(locId)) {
+            return { success: false, reason: 'target_not_found' };
+        }
+        // As useItemOnLoc: attempt a route, always dispatch; the server owns reach.
+        const routed = this.routeToLoc(destSceneX, destSceneZ, locId);
+
+        this.writePacketOpcode(ClientProt.OPLOCT);
+        this.out.p2(worldX);
+        this.out.p2(worldZ);
+        this.out.p2(locId);
+        this.out.p2(spellComponent);
+
+        return { success: true, routed };
+    }
+
+    /**
      * Use an inventory item on a location (OPLOCU)
      */
     useItemOnLoc(itemSlot: number, worldX: number, worldZ: number, locId: number, interfaceId: number = 3214): ClientActionResult {

@@ -506,6 +506,7 @@ export type BotAction =
     | { type: 'spellOnPlayer'; playerIndex: number; spellComponent: number; reason: string }
     | { type: 'spellOnItem'; slot: number; spellComponent: number; reason: string }
     | { type: 'spellOnGroundItem'; x: number; z: number; itemId: number; spellComponent: number; reason: string }
+    | { type: 'spellOnLoc'; x: number; z: number; locId: number; spellComponent: number; reason: string }
     | { type: 'setTab'; tabIndex: number; reason: string }
     | { type: 'say'; message: string; reason: string }
     | { type: 'localChat'; message: string; reason: string }

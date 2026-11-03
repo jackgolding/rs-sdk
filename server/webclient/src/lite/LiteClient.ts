@@ -772,6 +772,9 @@ export class LiteClient {
     spellOnNpc(npcIndex: number, spellComponent: number): ClientActionResult {
         return A.spellOnNpc(this, npcIndex, spellComponent);
     }
+    spellOnLoc(worldX: number, worldZ: number, locId: number, spellComponent: number): ClientActionResult {
+        return A.spellOnLoc(this, worldX, worldZ, locId, spellComponent);
+    }
     spellOnPlayer(playerIndex: number, spellComponent: number): ClientActionResult {
         return A.spellOnPlayer(this, playerIndex, spellComponent);
     }

@@ -1610,6 +1610,15 @@ export class BotSDK {
         return this.sendAction({ type: 'spellOnGroundItem', x, z, itemId, spellComponent, reason: 'SDK' });
     }
 
+    /**
+     * Cast spell on a location (OPLOCT), e.g. a charge-orb spell on an obelisk or
+     * Legends' Quest's magic gate. The spellbook must be the visible side tab: the
+     * server drops the packet when the spell component is not visible.
+     */
+    async sendSpellOnLoc(x: number, z: number, locId: number, spellComponent: number): Promise<ActionResult> {
+        return this.sendAction({ type: 'spellOnLoc', x, z, locId, spellComponent, reason: 'SDK' });
+    }
+
     /** Switch to a UI tab by index. */
     async sendSetTab(tabIndex: number): Promise<ActionResult> {
         return this.sendAction({ type: 'setTab', tabIndex, reason: 'SDK' });

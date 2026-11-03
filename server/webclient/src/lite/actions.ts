@@ -325,6 +325,28 @@ export function useItemOnLoc(c: LiteClient, itemSlot: number, worldX: number, wo
     return { success: true, routed };
 }
 
+export function spellOnLoc(c: LiteClient, worldX: number, worldZ: number, locId: number, spellComponent: number): ClientActionResult {
+    if (!c.isInGame() || !c.localPlayer) {
+        return { success: false, reason: 'not_in_game' };
+    }
+    const dest = c.toSceneTile(worldX, worldZ);
+    if (!dest) {
+        return { success: false, reason: 'out_of_scene' };
+    }
+    if (!LocType.list(locId)) {
+        return { success: false, reason: 'target_not_found' };
+    }
+    // As useItemOnLoc: attempt the route, always dispatch; the server owns reach.
+    const routed = c.routeToLoc(dest.x, dest.z, locId);
+
+    c.writeOpcode(ClientProt.OPLOCT);
+    c.out.p2(worldX);
+    c.out.p2(worldZ);
+    c.out.p2(locId);
+    c.out.p2(spellComponent);
+    return { success: true, routed };
+}
+
 export function spellOnNpc(c: LiteClient, npcIndex: number, spellComponent: number): ClientActionResult {
     if (!c.isInGame() || !c.localPlayer) {
         return { success: false, reason: 'not_in_game' };
