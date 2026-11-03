@@ -245,8 +245,31 @@ export async function requestFromMule(
     opts: MuleOptions
 ): Promise<boolean> {
     const { sdk, bot } = ctx;
-    const pending = needs.filter((n) => countItems(sdk, n.pattern) < n.count);
-    if (pending.length === 0) return true;
+    // Ask only for what the pack can take: a full pack cannot accept the offer, and the trade
+    // ends "declined" for both sides (jacklove13's earth runes into a pack full of sharks and
+    // Khazard armour, 2026-11-03). Stackables (runes, coins, arrows, noted) take one slot a line
+    // (none if already held); anything else one slot each.
+    let free = 28 - sdk.getInventory().length;
+    const stacks = (n: SupplyNeed) => opts.noted || / rune$|^coins$| arrows?$|^(bronze|iron|steel|mithril|adamant|rune) (knife|knives|dart)s?$/i.test(n.label);
+    const pending: SupplyNeed[] = [];
+    for (const n of needs.filter((x) => countItems(sdk, x.pattern) < x.count)) {
+        const missing = n.count - countItems(sdk, n.pattern);
+        if (stacks(n)) {
+            const held = sdk.getInventory().some((i) => n.pattern.test(i.name));
+            if (!held && free < 1) continue;
+            if (!held) free--;
+            pending.push(n);
+        } else {
+            const fit = Math.min(missing, free);
+            if (fit <= 0) continue;
+            free -= fit;
+            pending.push({ ...n, count: countItems(sdk, n.pattern) + fit });
+        }
+    }
+    if (pending.length < needs.filter((x) => countItems(sdk, x.pattern) < x.count).length) {
+        ctx.log(`supply: pack has room for only part of the ask (${28 - sdk.getInventory().length} free)`);
+    }
+    if (pending.length === 0) return needs.every((n) => countItems(sdk, n.pattern) >= n.count);
     try {
         const at = muleBank(opts.mule);
         // Far walks need the pathfinder: hops only work within a short leg.
