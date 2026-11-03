@@ -1109,9 +1109,8 @@ export const SOURCES: Record<string, Source> = {
     /** Jatix's vials (Taverley), filled at Falador's fountain. */
     'vial of water': {
         obj: 'vial_water',
-        // jackthief banks ~480 (2026-11-01); Jatix sat at 0 vials for a 2000-tick restock wait and
-        // failed jacklove2's Heroes' Quest (2026-11-03). The shop + fountain stays the fallback.
-        muleSupply: 'jackthief',
+        // Not mule-served: jackthief's ~480 went into prayer brewing and it answered "out of vial
+        // of water" four times (2026-11-03), each a 4-minute wait. Jatix, then Aemad (below).
         inputs: (count) => [{ item: 'coins', count: 5 * count }],
         get: (q, count) => vialsOfWater(q, count),
     },
@@ -1182,7 +1181,16 @@ async function vialsOfWater(q: Quest, count: number): Promise<void> {
     if (need <= 0) return;
     if (q.count('vial') < need) {
         await q.ensure('coins', 1);
-        await buyWaitingForRestock(q, JATIX, 'vial', need);
+        // Jatix once, no restock wait: he sat at 0 for 2000 ticks and failed three Heroes'
+        // runs (2026-11-03). Aemad (East Ardougne) sells vials of water outright, stock 500.
+        const { buyAtShop } = await import('../quest-supplies');
+        await buyAtShop(q.supply, JATIX, [{ pattern: /^vial$/i, amount: need, label: 'vial' }]).catch((e) => q.log(`vial at Jatix: ${(e as Error).message}`));
+        await q.bot.closeShop().catch(() => undefined);
+        if (q.count('vial') < need) {
+            q.log('vial: Jatix is out — buying vials of water from Aemad');
+            await buyWaitingForRestock(q, AEMAD, 'vial of water', count);
+            if (q.count('vial of water') >= count) return;
+        }
     }
     await q.goTo(FALADOR_FOUNTAIN, 3);
     for (let i = 0; i < need * 2 && q.count('vial of water') < count; i++) {
