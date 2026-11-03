@@ -1333,7 +1333,7 @@ async function fight(q: Quest, name: RegExp, done: () => boolean, label: string,
             }
             lastSeen = tickNow(q.sdk);
             if (flicker) {
-                if (prayerPts(q) < 10) await drinkPrayer(q, 10);
+                if (prayerPts(q) < 15) await drinkPrayer(q, 15);
                 flicker.set(prayerPts(q) > 0 ? 'protect_from_melee' : null);
             }
             const combat = q.sdk.getState()?.player?.combat;
@@ -1399,7 +1399,8 @@ export async function bindUngadulu(q: Quest): Promise<void> {
 }
 
 async function fightFirst(q: Quest): Promise<void> {
-    await drinkPrayer(q, 30);
+    // The book drains 90% of what Prayer is left (and the blessing took its share): a dose first.
+    await drinkPrayer(q, 40);
     await fight(q, /^nezikchened$/i, () => false, 'Nezikchened (the octagram)', { quietTicks: 15 });
     await driveDialog(q.sdk, [], { ticks: 20 });
 }
@@ -1430,14 +1431,25 @@ export async function slayFirst(q: Quest): Promise<void> {
 }
 
 /** Ungadulu, freed, gives the seeds; the sacred water germinates them. */
+/**
+ * Ungadulu, freed, gives the seeds; sacred water germinates them (12 → 13). The octagram fight may
+ * have eaten the food, but a bank trip now would chop the jungle and boil the bowl dry: with water in
+ * the bowl there is no restock. An empty blessed bowl refills at the pool (stage 12 still fills it).
+ */
 export async function germinate(q: Quest): Promise<void> {
+    if (!heldId(q, ID.bowlBlessedPure)) await restock(q, [...BASE(q), BOWL, FOOD_KIT(4)], 'the seeds');
     if (!countId(q, ID.seeds) && !countId(q, ID.seedsGerm)) {
-        await restock(q, [...BASE(q), FOOD_KIT(4)], 'the seeds');
         await enterCaves(q);
         await enterOctagram(q);
         await q.talk(/^ungadulu$/i, [/i need to collect some yommi tree seeds/i, /^ok, thanks/i]);
     }
+    if (!countId(q, ID.seeds) && !countId(q, ID.seedsGerm)) throw new Error('legends: Ungadulu gave no Yommi seeds');
     if (!countId(q, ID.seedsGerm)) {
+        if (!heldId(q, ID.bowlBlessedPure)) {
+            q.log('legends: the bowl is dry: refilling it at the pool for the seeds');
+            await leaveCaves(q);
+            await reedInPool(q, () => !!heldId(q, ID.bowlBlessedPure));
+        }
         if (!heldId(q, ID.bowlBlessedPure)) throw new Error('legends: the bowl has no sacred water left to germinate the seeds');
         await combine(q, ID.seeds, ID.bowlBlessedPure, ID.seedsGerm);
         await driveDialog(q.sdk, [], { ticks: 15 });
