@@ -85,6 +85,16 @@ export const STUCK_DOORS: StuckDoor[] = [
         outside: { x: 2741, z: 3554 },
         area: { x1: 2726, z1: 3556, x2: 2752, z2: 3590 },
     },
+    {
+        // Lord Handelmort's garden, East Ardougne (the same wrought iron gate, loc_1557/1558 at
+        // 2635-2636,3307): out of the mansion, walkTo and travelTo stalled at (2641,3308) (Tribal
+        // Totem port, 2026-11-03). Cromperty's teleport is the only way in, so out only.
+        name: "Handelmort's garden gate",
+        door: { x: 2635, z: 3307 },
+        inside: { x: 2635, z: 3308 },
+        outside: { x: 2635, z: 3306 },
+        area: { x1: 2626, z1: 3308, x2: 2646, z2: 3319 },
+    },
 ];
 
 const within = (t: Tile, a: StuckDoor['area']) => t.x >= a.x1 && t.x <= a.x2 && t.z >= a.z1 && t.z <= a.z2;
