@@ -145,6 +145,14 @@ export const GROUPS: Record<string, Array<{ item: string; skill: string; level: 
     /** Black Knights' Fortress: the guard disguise is worn, so worn ones count. */
     'bronze med helm': [{ item: 'bronze med helm', skill: 'defence', level: 1 }],
     'iron chainbody': [{ item: 'iron chainbody', skill: 'defence', level: 1 }],
+    /**
+     * Heroes' Quest, Taverley's blue dragons: either shield, worn. Not keyed 'dragonfire shield':
+     * Dragon Slayer, Shilo and the KBD scripts count that name as an item.
+     */
+    'dragonbreath shield': [
+        { item: 'dragonfire shield', skill: 'defence', level: 1 },
+        { item: 'anti-dragon shield', skill: 'defence', level: 1 },
+    ],
     /** Shilo Village's Nazastarool: the best melee weapon banked, wielded for the fight. */
     'melee weapon': [
         { item: 'dragon scimitar', skill: 'attack', level: 60 },
@@ -1065,7 +1073,104 @@ export const SOURCES: Record<string, Source> = {
         },
     },
 
+    // ── Heroes' Quest (lib/heroes-quest.ts)
+    /**
+     * The Black Arm side's Hartigen disguise for Garv: Varrock's armourers (that side is in
+     * Varrock for Katrine anyway; a mule ask means a walk to jackthief's Ardougne bank).
+     */
+    'black full helm': {
+        inputs: () => [{ item: 'coins', count: 1200 }],
+        get: (q, count) => buyAtValaine(q, 'black full helm', count),
+    },
+    'black platelegs': {
+        inputs: () => [{ item: 'coins', count: 2200 }],
+        get: (q, count) => buyAtValaine(q, 'black platelegs', count),
+    },
+    'black platebody': {
+        inputs: () => [{ item: 'coins', count: 4200 }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, HORVIK, 'black platebody', count);
+        },
+    },
+    /** Blamish oil's herb (clean; Herblore 25 for the oil). No shop sells it: the mule's herb stock. */
+    harralander: { mule: true, muleSupply: 'jackthief' },
+    /** Jatix's vials (Taverley), filled at Falador's fountain. */
+    'vial of water': {
+        obj: 'vial_water',
+        inputs: (count) => [{ item: 'coins', count: 5 * count }],
+        get: (q, count) => vialsOfWater(q, count),
+    },
+    'fishing rod': {
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 10 }],
+        get: async (q) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, GERRANT, 'fishing rod', 1);
+        },
+    },
+    'fishing bait': {
+        inputs: (count) => [{ item: 'coins', count: 5 * count }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, GERRANT, 'fishing bait', count);
+        },
+    },
+    /** Taverley's blue dragons on the way to the lava: Duke Horacio replaces one for a Dragon Slayer. */
+    'dragonbreath shield': {
+        obj: 'antidragonbreathshield',
+        tool: true,
+        get: async (q) => {
+            const { fetchDukeShield } = await import('../duke-shield');
+            await fetchDukeShield(q.bot, q.sdk, q.log);
+        },
+    },
 };
+
+/** Horvik's armour shop, Varrock (varrock.inv armourshop): black platebody, stock 1. */
+const HORVIK = { x: 3229, z: 3438, npc: /^horvik$/i };
+/** Valaine's shop, upstairs in the Champions' Guild (champions_guild.inv championshop; 32 QP door). */
+const VALAINE = { x: 3193, z: 3361, level: 1 };
+const CHAMPIONS_STAIRS_FOOT = { x: 3189, z: 3356 };
+
+async function buyAtValaine(q: Quest, item: string, count: number): Promise<void> {
+    await q.ensure('coins', 1);
+    // Through the guild door on the ground floor first: a climb from the street takes any stairs.
+    await q.goTo(CHAMPIONS_STAIRS_FOOT, 2);
+    await q.goTo(VALAINE, 4);
+    for (let tries = 0; tries < 3 && q.count(item) < count; tries++) {
+        if (!q.sdk.getState()?.shop?.isOpen) await q.bot.openShop(/^valaine$/i).catch(() => undefined);
+        await q.bot.buyFromShop(itemPattern(item), count - q.count(item)).catch(() => undefined);
+        await q.sdk.waitForTicks(2);
+    }
+    await q.bot.closeShop().catch(() => undefined);
+    await q.climbTo(0);
+    if (q.count(item) < count) throw new Error(`Valaine did not sell ${item} (have ${q.count(item)}/${count})`);
+}
+
+const JATIX = { x: 2899, z: 3427, npc: /^jatix$/i };
+const FALADOR_FOUNTAIN = { x: 2950, z: 3379 };
+
+/** Empty vials from Jatix, then each filled at the Falador fountain. */
+async function vialsOfWater(q: Quest, count: number): Promise<void> {
+    const need = count - q.count('vial of water');
+    if (need <= 0) return;
+    if (q.count('vial') < need) {
+        await q.ensure('coins', 1);
+        await buyWaitingForRestock(q, JATIX, 'vial', need);
+    }
+    await q.goTo(FALADOR_FOUNTAIN, 3);
+    for (let i = 0; i < need * 2 && q.count('vial of water') < count; i++) {
+        await q.sdk.scanNearbyLocs(8).catch(() => undefined);
+        const fountain = q.sdk.findNearbyLoc(/^fountain$/i);
+        const vial = q.sdk.findInventoryItem(/^vial$/i);
+        if (!fountain || !vial) break;
+        const before = q.count('vial of water');
+        await q.bot.useItemOnLoc(vial, fountain).catch(() => undefined);
+        await untilTicks(q.sdk, () => q.count('vial of water') > before, 10);
+    }
+    if (q.count('vial of water') < count) throw new Error(`filled ${q.count('vial of water')}/${count} vials at the Falador fountain`);
+}
 
 // ── Priest in Peril helpers
 

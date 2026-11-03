@@ -69,6 +69,7 @@ import { inShiloArea, leaveShilo } from './shilo-village';
 import { inUpassArea, leaveUpass } from './underground-pass';
 import { inKeepArea, leaveKeep } from './merlins-crystal';
 import { inArravBuilding, leaveBuildings as leaveArravBuildings } from './shield-of-arrav';
+import { inHeroesArea, leaveHeroesAreas } from './heroes-quest';
 import { inCrestUnderground, leaveCrestUnderground } from './crest';
 import { inMelzarsMaze, leaveMelzarsMaze } from './melzars-maze';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
@@ -520,6 +521,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // Shield of Arrav's hideout (past its self-opening door), weapon store and Black Arm
                 // back rooms: their doors teleport you through, walkTo has no route out (lib/shield-of-arrav.ts).
                 if (inArravBuilding(pos()) && !inArravBuilding({ ...tile, level: tile.level ?? 0 })) await leaveArravBuildings(q);
+                // Heroes' Quest: Brimhaven's quest rooms, the ice caves' ladder pockets, Taverley's Dusty-key side (lib/heroes-quest.ts).
+                if (inHeroesArea(pos()) && !inHeroesArea({ ...tile, level: tile.level ?? 0 })) await leaveHeroesAreas(q);
                 // Family Crest's mines and the Edgeville dungeon: their ladders are out of a generic climb's sight (lib/crest.ts).
                 if (inCrestUnderground(pos()) && !inCrestUnderground(tile)) await leaveCrestUnderground(q);
                 if (pos().z >= UNDERGROUND_Z && tile.z < UNDERGROUND_Z) await climbOutOfUnderground(tile);
@@ -744,6 +747,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inSeerHouse(pos())) await leaveSeerHouse(q);
         // Shield of Arrav's hideout/weapon store/Black Arm rooms: their own doors and ladders out.
         if (inArravBuilding(pos())) await leaveArravBuildings(q);
+        // Heroes' Quest's rooms, ice caves and the Dusty-key side: their own ways out.
+        if (inHeroesArea(pos())) await leaveHeroesAreas(q);
         if (pos().level !== 0) await q.climbTo(0);
         if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.

@@ -363,8 +363,8 @@ async function throughPhoenixDoor(q: Quest, inward: boolean): Promise<void> {
     throw new Error(`arrav: the hideout door did not let us ${inward ? 'in' : 'out'} (${where(q)})`);
 }
 
-/** Straven, from the hideout's front corridor. */
-async function talkStraven(q: Quest, choices: Array<RegExp | string>): Promise<string> {
+/** Straven, from the hideout's front corridor (Heroes' Quest talks to him too). */
+export async function talkStraven(q: Quest, choices: Array<RegExp | string>): Promise<string> {
     await enterHideout(q);
     if (await behindPhoenixDoor(q)) await throughPhoenixDoor(q, false);
     return q.talk(/^straven$/i, choices);
