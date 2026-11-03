@@ -75,6 +75,7 @@ import { inLegendsArea, leaveLegends } from './legends-quest';
 import { inMelzarsMaze, leaveMelzarsMaze } from './melzars-maze';
 import { inMansionUpstairs, leaveMansionUpstairs } from './sinclair-mansion';
 import { inContest, leaveContest } from './fishing-contest';
+import { inCultCave, leaveCave as leaveCultCave } from './hazeel-cult';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, awaitQuestStartTurn, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -504,6 +505,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inMansionUpstairs(pos()) && !inMansionUpstairs({ ...tile, level: tile.level ?? 0 })) await leaveMansionUpstairs(q);
                 // Fishing Contest: the Hemenster yard's gate teleports you out; walkTo cannot use it (lib/fishing-contest.ts).
                 if (inContest(pos()) && !inContest(tile)) await leaveContest(q);
+                // Hazeel Cult: the cult cave and the sewer to its hideout — a raft back, then its stairs (lib/hazeel-cult.ts).
+                if (inCultCave(pos()) && !inCultCave(tile)) await leaveCultCave(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0, tile);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in
