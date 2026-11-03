@@ -251,9 +251,9 @@ async function serveOnce(from: string, needs: Array<{ label: string; count: numb
         const res = await bot.trade(from, {
             give,
             want: [],
-            timeout: 90_000,
+            timeout: 240_000,
             requestTimeout: 60_000,
-            rejectAfterMs: 60_000,
+            rejectAfterMs: 180_000,
             retryOnBusy: true,
         });
         log(`mule: trade with ${from} ${res.success ? 'ok' : `failed (${res.reason ?? res.message})`}`);

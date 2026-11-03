@@ -272,8 +272,10 @@ export async function requestFromMule(
                 ),
             maxTrades: 1,
             timeout: opts.timeoutMs ?? 5 * 60_000,
-            tradeTimeout: 90_000,
-            rejectAfterMs: 60_000,
+            // A multi-stack noted offer (every grimy "Herb" stack) takes the mule ~2 min to lay
+            // out: at 90 s ABGARMY09 declined jackthief's 163 herbs mid-offer (2026-11-03).
+            tradeTimeout: 240_000,
+            rejectAfterMs: 180_000,
         } as never);
         const got = served && (served as { trades?: unknown[] }).trades?.length;
         ctx.log(`supply: mule trade ${got ? 'received' : 'timed out'} (${opts.mule})`);
