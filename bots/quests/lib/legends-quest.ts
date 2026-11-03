@@ -350,6 +350,7 @@ async function walk(q: Quest, tile: Tile, tolerance = 1): Promise<void> {
 
 /** The client pathfinder reaches `tile` from here (doors masked). */
 async function reaches(q: Quest, tile: Tile): Promise<boolean> {
+    if (pos(q).x === tile.x && pos(q).z === tile.z) return true;
     const r = await q.sdk.sendFindPath(tile.x, tile.z, 400).catch(() => null);
     return !!r?.reachedDestination;
 }
@@ -391,6 +392,10 @@ function spentQuestItem(q: Quest, id: number): boolean {
     if (id === ID.book) return n >= STAGE_VALUE.freed!;
     if (id === ID.bullroarer) return n >= STAGE_VALUE.recipe! && n < STAGE_VALUE.slain!;
     if (id === ID.reed) return n >= STAGE_VALUE.dried!;
+    if (id === ID.snakeWeed || id === ID.ardrigal || id === ID.snakeMix || id === ID.ardrigalMix || id === ID.bravery) return n >= STAGE_VALUE.viyeldi!;
+    if (id === ID.crystalA || id === ID.crystalB || id === ID.crystalC || id === ID.heart || id === ID.heartGlow) return n >= STAGE_VALUE.recess!;
+    if (id === ID.dagger || id === ID.daggerDone || id === ID.holyForce) return n >= STAGE_VALUE.source!;
+    if (id === ID.seeds || id === ID.seedsGerm) return n >= STAGE_VALUE.totem!;
     return false;
 }
 
@@ -479,6 +484,13 @@ export async function restock(q: Quest, wants: Want[], why: string): Promise<voi
             await q.sdk.waitForTicks(2);
             if (heldOf(q, w) < w.count) missing.push(w);
         }
+    }
+    // The quest's own items come back too: run-quest's prologue banks everything, and a step may need
+    // the dagger, the bowl, a crystal or the seeds a banked run left behind. Only what is still of use.
+    for (const b of q.sdk.getBankItems().filter((b) => QUEST_ITEMS.has(b.id) && !spentQuestItem(q, b.id))) {
+        if (inv(q).some((i) => i.id === b.id) || inv(q).length >= 28) continue;
+        await q.bot.withdrawItem(b, b.count).catch(() => undefined);
+        await untilTicks(q.sdk, () => inv(q).some((i) => i.id === b.id), 4);
     }
     await q.bot.closeBank().catch(() => undefined);
     if (missing.length) throw new NeedsStock(missing.map((w) => ({ item: w.label, count: w.count - heldOf(q, w) })));
@@ -1392,7 +1404,8 @@ export async function askSource(q: Quest): Promise<void> {
 
 /** The bravery potion (Gujuo's recipe), drunk, then the trials to the winch and down the rope. */
 export async function descend(q: Quest): Promise<void> {
-    const brave = !!heldId(q, ID.bravery);
+    // Stage 16 means the potion was drunk (its bit is permanent): later descents need none.
+    const brave = !!heldId(q, ID.bravery) || stageNum(q) >= STAGE_VALUE.viyeldi!;
     const mixed = brave || !!heldId(q, ID.snakeMix);
     await gearUp(q);
     await restock(
@@ -1445,62 +1458,80 @@ export async function descend(q: Quest): Promise<void> {
 // ── the Viyeldi caves
 
 const inLanding = (p: Tile) => inBox(p, 2377, 2380, 4711, 4717);
+
+/** A tile beside obstacle `c` we can walk to (our own if already beside it), or null. */
+async function besideTile(q: Quest, c: Tile): Promise<Tile | null> {
+    if (dist(pos(q), c) <= 1.5) return pos(q);
+    for (const [dx, dz] of [[0, -1], [1, 0], [0, 1], [-1, 0]] as const) {
+        const t = { x: c.x + dx, z: c.z + dz };
+        if (await reaches(q, t)) return t;
+    }
+    return null;
+}
+const besideObstacle = async (q: Quest, c: Tile) => (await besideTile(q, c)) !== null;
+
+/**
+ * Cross the ledge/rock chain in `order`: each round ops the furthest link we stand beside (a slip
+ * throws us back a link or two, with damage and an Agility point; the next round picks up from there).
+ */
+async function crossChain(q: Quest, order: typeof VIY.chain, done: () => Promise<boolean>, label: string): Promise<void> {
+    const t0 = tickNow(q.sdk);
+    let last = -1;
+    let repeats = 0;
+    for (let round = 0; round < 20 && !(await done()); round++) {
+        let i = -1;
+        for (let k = 0; k < order.length; k++) if (await besideObstacle(q, order[k]!)) i = k;
+        if (i < 0) throw new Error(`legends: no ledge or rock to climb from ${where(q)} (${label})`);
+        repeats = i === last ? repeats + 1 : 0;
+        last = i;
+        if (repeats >= 4) throw new Error(`legends: stuck at the ${order[i]!.name} (${order[i]!.x},${order[i]!.z}) from ${where(q)} (${label})`);
+        const c = order[i]!;
+        const at = await besideTile(q, c);
+        if (at && dist(pos(q), at) > 1.5) await walk(q, at, 0);
+        const loc = await findLoc(q, c.name, /climb/i, c, 15).then((l) => (l && dist(l, c) <= 1 ? l : undefined));
+        if (!loc) throw new Error(`legends: no ${c.name} at (${c.x},${c.z})`);
+        const before = `${pos(q).x},${pos(q).z}`;
+        await opLoc(q, loc, /climb/i, [c.yes], () => `${pos(q).x},${pos(q).z}` !== before, 20);
+        await driveDialog(q.sdk, [], { ticks: 10 });
+        await q.sdk.waitForTicks(3);
+        await eatIfLow(q);
+    }
+    if (!(await done())) throw new Error(`legends: the ledges did not get us there (at ${where(q)}, ${label})`);
+    q.log(`legends: Viyeldi ledges (${label}) in ${tickNow(q.sdk) - t0}t`);
+}
+
 /** The landing pocket to the main cave by the ledges and rocks. */
 async function viyeldiDown(q: Quest): Promise<void> {
     if (await reaches(q, VIY.main)) return;
-    const t0 = tickNow(q.sdk);
-    for (let i = 0; i < 14 && !(await reaches(q, VIY.main)); i++) {
-        // The next obstacle: the first in the chain we can walk up to.
-        let next: (typeof VIY.chain)[number] | undefined;
-        for (const c of VIY.chain) {
-            if (await reaches(q, { x: c.x + 1, z: c.z }).catch(() => false)) next = c;
-            else if (await reaches(q, { x: c.x, z: c.z - 1 })) next = c;
-            else if (await reaches(q, { x: c.x - 1, z: c.z })) next = c;
-        }
-        // Prefer the furthest reachable link: the chain runs landing → main.
-        if (!next) throw new Error(`legends: no ledge or rock to climb from ${where(q)}`);
-        const loc = await findLoc(q, next.name, /climb/i, next, 1);
-        if (!loc) throw new Error(`legends: no ${next.name} at (${next.x},${next.z})`);
-        const before = `${pos(q).x},${pos(q).z}`;
-        await opLoc(q, loc, /climb/i, [next.yes], () => `${pos(q).x},${pos(q).z}` !== before, 20);
-        await driveDialog(q.sdk, [], { ticks: 10 });
-        await q.sdk.waitForTicks(2);
-        await eatIfLow(q);
-    }
-    if (!(await reaches(q, VIY.main))) throw new Error(`legends: could not reach the main Viyeldi cave (at ${where(q)})`);
-    q.log(`legends: Viyeldi ledges crossed in ${tickNow(q.sdk) - t0}t`);
+    await crossChain(q, VIY.chain, () => reaches(q, VIY.main), 'down');
 }
 
-/** Back up to the winch room: the chain in reverse, then the climbing rope. */
+/** From the main cave back to the rope's foot (the hat lies there). */
+async function walkToLanding(q: Quest): Promise<void> {
+    if (!inLanding(pos(q)) && !(await reaches(q, VIY.hat))) {
+        await crossChain(q, [...VIY.chain].reverse(), async () => inLanding(pos(q)) || (await reaches(q, VIY.hat)), 'up');
+    }
+    await walk(q, { x: 2379, z: 4713 }, 1);
+}
+
+/** Behind the barrier (the boulders' cave, z <= 4690): back through it to the main cave. */
+async function outOfSource(q: Quest): Promise<void> {
+    if (!(await reaches(q, VIY.source))) return;
+    await walk(q, { x: 2421, z: 4689 }, 1);
+    for (let attempt = 1; attempt <= 3 && pos(q).z <= 4690; attempt++) {
+        const barrier = await findLoc(q, /^shimmering field$/i, /walk-through/i, VIY.barrier, 4);
+        if (!barrier) throw new Error(`legends: no barrier near ${where(q)}`);
+        await opLoc(q, barrier, /walk-through/i, [], () => pos(q).z >= 4691, 10);
+    }
+    if (pos(q).z <= 4690) throw new Error(`legends: could not get back through the barrier (at ${where(q)})`);
+}
+
+/** Back up to the winch room: through the barrier if behind it, the chain in reverse, the climbing rope. */
 async function viyeldiUp(q: Quest): Promise<void> {
     if (!inViyeldi(pos(q))) return;
     const t0 = tickNow(q.sdk);
-    // Behind the barrier: through it first.
-    if (pos(q).z < 4690 || (await reaches(q, VIY.source))) {
-        const barrier = await findLoc(q, /^shimmering field$/i, /walk-through/i, VIY.barrier, 15);
-        if (barrier) {
-            await walk(q, { x: 2421, z: 4689 }, 2).catch(() => undefined);
-            await opLoc(q, barrier, /walk-through/i, [], () => pos(q).z > 4690, 10);
-        }
-    }
-    for (let i = 0; i < 14 && !inLanding(pos(q)); i++) {
-        if (await reaches(q, VIY.landing)) break;
-        const chain = [...VIY.chain].reverse();
-        let next: (typeof VIY.chain)[number] | undefined;
-        for (const c of chain) {
-            if ((await reaches(q, { x: c.x, z: c.z - 1 })) || (await reaches(q, { x: c.x + 1, z: c.z })) || (await reaches(q, { x: c.x, z: c.z + 1 })) || (await reaches(q, { x: c.x - 1, z: c.z }))) {
-                next = c;
-            }
-        }
-        if (!next) throw new Error(`legends: no way back toward the rope from ${where(q)}`);
-        const loc = await findLoc(q, next.name, /climb/i, next, 1);
-        if (!loc) throw new Error(`legends: no ${next.name} at (${next.x},${next.z})`);
-        const before = `${pos(q).x},${pos(q).z}`;
-        await opLoc(q, loc, /climb/i, [next.yes], () => `${pos(q).x},${pos(q).z}` !== before, 20);
-        await driveDialog(q.sdk, [], { ticks: 10 });
-        await q.sdk.waitForTicks(2);
-    }
-    await walk(q, VIY.landing, 1);
+    await outOfSource(q);
+    await walkToLanding(q);
     const rope = await findLoc(q, /^climbing rope$/i, /^climb$/i, VIY.rope, 4);
     if (!rope) throw new Error(`legends: no climbing rope near ${where(q)}`);
     await opLoc(q, rope, /^climb$/i, [], () => !inViyeldi(pos(q)), 15);
@@ -1611,7 +1642,7 @@ export async function slaySecond(q: Quest): Promise<void> {
     await armUp(q);
     if (heldId(q, ID.dagger)) {
         // The hat lies by the rope's foot.
-        if (await reaches(q, VIY.source)) await viyeldiUp(q).then(() => descend(q));
+        await outOfSource(q);
         if (!inLanding(pos(q))) await walkToLanding(q);
         // Taking his hat raises Viyeldi and starts his speech, which ends with npc_del: close it at
         // once (the script stops there, he stays up for his 100 ticks) and use the dagger on him.
@@ -1658,24 +1689,6 @@ export async function slaySecond(q: Quest): Promise<void> {
     await driveDialog(q.sdk, [], { ticks: 20 });
 }
 
-async function walkToLanding(q: Quest): Promise<void> {
-    // From the main cave: up the chain, without the rope.
-    for (let i = 0; i < 10 && !(await reaches(q, VIY.hat)); i++) {
-        const chain = [...VIY.chain].reverse();
-        let next: (typeof VIY.chain)[number] | undefined;
-        for (const c of chain) {
-            if ((await reaches(q, { x: c.x, z: c.z - 1 })) || (await reaches(q, { x: c.x + 1, z: c.z })) || (await reaches(q, { x: c.x, z: c.z + 1 })) || (await reaches(q, { x: c.x - 1, z: c.z }))) next = c;
-        }
-        if (!next) break;
-        const loc = await findLoc(q, next.name, /climb/i, next, 1);
-        if (!loc) break;
-        const before = `${pos(q).x},${pos(q).z}`;
-        await opLoc(q, loc, /climb/i, [next.yes], () => `${pos(q).x},${pos(q).z}` !== before, 20);
-        await driveDialog(q.sdk, [], { ticks: 10 });
-    }
-    await walk(q, { x: 2379, z: 4713 }, 1);
-}
-
 /** Push the boulder from its east side: the source flows; the blessed bowl fills (22 → 25). */
 export async function collectWater(q: Quest): Promise<void> {
     if (!inViyeldi(pos(q))) await descend(q);
@@ -1707,7 +1720,7 @@ export async function growTotem(q: Quest): Promise<void> {
     await leaveCaves(q);
     if (!inKharazi(pos(q))) throw new Error(`legends: not in the jungle after the caves (at ${where(q)})`);
     await walk(q, { x: SOIL.x + 1, z: SOIL.z }, 1);
-    const at = () => findLoc(q, /yommi|totem pole|fertile soil/i, undefined, SOIL, 1);
+    const at = () => findLoc(q, /yommi|totem pole|fertile soil/i, undefined, SOIL, 6).then((l) => (l && l.x === SOIL.x && l.z === SOIL.z ? l : undefined));
     const t0 = tickNow(q.sdk);
     // Each op changes the loc; a step that leaves it unchanged for 3 tries (or 600 ticks) stops.
     let lastName = '';
