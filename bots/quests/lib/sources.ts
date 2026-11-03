@@ -1670,7 +1670,18 @@ export async function buyWaitingForRestock(q: Quest, shop: { x: number; z: numbe
         if (q.sdk.getState()?.shop?.isOpen && !stock()) throw new Error(`shop at (${shop.x},${shop.z}) does not sell ${item}`);
         const listed = stock();
         if ((listed?.count ?? 0) > 0) {
-            if (++refusedWithStock >= 5) {
+            // Shop buys go in batches (Buy 10): 3 air runes short with 18 coins at 4gp was refused
+            // every time (ABGARMY10, 2026-11-03). Carry enough for a whole batch of ten, then retry.
+            const batch = Math.max(10, Math.ceil((count - q.count(item)) / 10) * 10);
+            const wanted = batch * (listed!.buyPrice ?? 1) + 5;
+            if (q.count('coins') < wanted && refusedWithStock < 5) {
+                await q.bot.closeShop().catch(() => undefined);
+                q.log(`${item}: buy refused with ${q.count('coins')} coins — topping up to ${wanted} for a batch of ${batch}`);
+                await q.ensure('coins', wanted);
+                refusedWithStock = 5; // one top-up; a refusal after it is real
+                continue;
+            }
+            if (++refusedWithStock >= 6) {
                 await q.bot.closeShop().catch(() => undefined);
                 throw new Error(
                     `${item}: buy refused 5x with ${listed!.count} in stock at (${shop.x},${shop.z}) — coins ${q.count('coins')}, price ${listed!.buyPrice ?? '?'}, pack ${q.sdk.getInventory().length}/28`
