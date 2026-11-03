@@ -225,7 +225,7 @@ await runQuest({
     ],
     journal: { label: "Hero's Quest", title: "Heroes' Quest" },
     // Pairs: both halves need a slot at once; Grip, the Ice Queen and the firebird are single.
-    maxConcurrent: 4,
+    maxConcurrent: 6, // three pairs: a half waiting on a partner holds a slot (ABGARMY10 waited while ABGARMY08 was deferred at 4, 2026-11-03)
     stages: side.stages,
     transitions,
 });
