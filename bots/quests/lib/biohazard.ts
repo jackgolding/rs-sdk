@@ -417,7 +417,7 @@ const ERRANDS = [
 /** Set once the inn has been visited: a vial still missing after it is lost, and Elena replaces it. */
 let innVisited = false;
 
-export async function smuggleVials(q: Quest): Promise<void> {
+export async function smuggleVials(q: Quest, round = 1): Promise<void> {
     const t0 = tickNow(q.sdk);
     // A missing vial may be with a boy (a resumed run): the inn first. Only a missing sample,
     // or a vial no boy brought back, sends us to Elena for another.
@@ -447,7 +447,17 @@ export async function smuggleVials(q: Quest): Promise<void> {
         if (!has(q, e.vial)) q.log(`biohazard: no vial back from ${e.boy.source}`);
     }
     innVisited = true;
-    if (!kitHeld(q) || !has(q, OBJ.touchPaper)) throw new Error(`biohazard: kit incomplete at the inn (carrying ${q.sdk.getInventory().map((i) => i.name).join(', ')})`);
+    if (!kitHeld(q) || !has(q, OBJ.touchPaper)) {
+        // A vial no boy brought back is lost: Elena replaces the kit and the errands run again in
+        // this run (innVisited is per process, so a retry never reached replaceKit; ABGARMY05
+        // stopped twice on "kit incomplete at the inn", 2026-11-03).
+        if (round < 3) {
+            q.log(`biohazard: kit incomplete at the inn (round ${round}) — Elena for a new kit, then the errands again`);
+            await replaceKit(q);
+            return smuggleVials(q, round + 1);
+        }
+        throw new Error(`biohazard: kit incomplete at the inn (carrying ${q.sdk.getInventory().map((i) => i.name).join(', ')})`);
+    }
     q.log(`biohazard: vials back in Varrock in ${tickNow(q.sdk) - t0}t`);
 }
 
