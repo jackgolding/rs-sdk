@@ -169,6 +169,8 @@ const ZAFF = { x: 3203, z: 3433, npc: /^zaff$/i };
 const LUMBRIDGE_KNIFE = { x: 3224, z: 3202 };
 /** Dommik's Crafting Store, Al Kharid: needle and thread 1gp. */
 const DOMMIK = { x: 3322, z: 3194, npc: /^dommik$/i };
+/** The Baker's stall, East Ardougne market (mule-produce.ts BAKERY). */
+const ARDOUGNE_BAKER = { x: 2662, z: 3307, npc: /^baker$/i };
 /** Arhein's store, Catherby: tinderbox. */
 /** Aemad's Adventuring Supplies, East Ardougne (ardougne_east.inv). */
 const AEMAD = { x: 2614, z: 3293, npc: /^(aemad|kortan)$/i };
@@ -495,7 +497,19 @@ export const SOURCES: Record<string, Source> = {
     'blurberry special': { obj: 'premade_blurberry_special', mule: true, muleSupply: 'jackthief' },
     /** Tenzing's winter supplies; no shop near Burthorpe sells either, so the mule stocks them
      * (jacklove4 gathered 50 of each with death-plateau-stock.ts, 2026-10-30). */
-    bread: { mule: true, muleSupply: JACKPOO2_THEN_JACKTHIEF },
+    /**
+     * Mule first; otherwise the Ardougne Baker's stall (ardougne_east.inv bakery: bread 10 at
+     * 12gp, +1 per 100 ticks — mule-produce.ts buys from it). A mule-only bread failed Merlin's
+     * Crystal 2/2 on jacklove13, ABGARMY17 and ABGARMY20 when jackthief's trade timed out (2026-11-03).
+     */
+    bread: {
+        muleSupply: JACKPOO2_THEN_JACKTHIEF,
+        inputs: (count) => [{ item: 'coins', count: 12 * count }],
+        get: async (q, count) => {
+            await q.ensure('coins', 12 * count);
+            await buyWaitingForRestock(q, ARDOUGNE_BAKER, 'bread', count);
+        },
+    },
     trout: { mule: true, muleSupply: 'jackthief' },
 
     // ── Fight Arena: the pen fights (ogre 63, scorpion 44, Bouncer 137) are ranged; a mule stocks the kit
