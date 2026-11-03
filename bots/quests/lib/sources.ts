@@ -283,7 +283,9 @@ export const SOURCES: Record<string, Source> = {
      * The prologue withdraws coins first; this only runs on a broke account (ABGARMY19 had
      * none for the Fortress disguise, 2026-10-29): pickpocket the men outside Lumbridge castle.
      */
-    coins: { get: (q, count) => pickpocketCoins(q, count) },
+    // jackthief first (prepare's mule round), pickpocketing only what it did not hand over:
+    // jacklove20 walked ~4800 ticks to Lumbridge to pickpocket 15 coins for Plague City (2026-11-03).
+    coins: { muleSupply: 'jackthief', get: (q, count) => pickpocketCoins(q, count) },
 
     pickaxe: {
         obj: 'bronze_pickaxe',
