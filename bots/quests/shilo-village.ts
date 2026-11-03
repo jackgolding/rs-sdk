@@ -54,9 +54,13 @@ const FOOD = 14;
  * from inside a dungeon to a shop. A step missing an item it needs says so itself.
  */
 let underway = false;
+const ARMOUR = /^(dragonhide body|dragonhide chaps|dragon vambraces|berserker helm|dragonfire shield|amulet of strength)$/i;
 const begin = async (q: Quest) => {
     underway = true;
     await wieldWeapon(q);
+    for (const it of q.sdk.getInventory().filter((i) => ARMOUR.test(i.name))) {
+        await q.bot.equipItem(it).catch(() => undefined);
+    }
 };
 
 /** Both fares from the mainland; once on Karamja, the fare home. */
@@ -91,6 +95,14 @@ await runQuest({
         'bone beads',
         'beads of the dead',
         'rashiliya corpse',
+        // Armour, worn at the first step (the guide: "wear all your armour"; jacklove5 and
+        // ABGARMY07 died at the tomb door in only a longsword, 2026-11-03). Whatever is banked.
+        'dragonhide body',
+        'dragonhide chaps',
+        'dragon vambraces',
+        'berserker helm',
+        'dragonfire shield',
+        'amulet of strength',
     ],
     journal: { label: 'Shilo Village', title: 'Shilo Village' },
     stages: [

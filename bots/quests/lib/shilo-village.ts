@@ -921,6 +921,9 @@ export async function fillBoneDoor(q: Quest): Promise<void> {
     await wearBeads(q);
     if (!inDolmenRoom(pos(q))) await toBoneDoor(q);
     await dungeonMode(q);
+    // Prayed while the bones go in: the undead swing at us through every objbox here, and two
+    // accounts died at this door (jacklove5, ABGARMY07, 2026-11-03).
+    protect(q, true);
     for (let attempt = 1; attempt <= 5 && !inDolmenRoom(pos(q)) && q.count(/^bones$/i) > 0; attempt++) {
         await eatIfLow(q);
         const door = await findLoc(q, LOC_NAME.tombDoors, undefined, { x: 2892, z: RASH.doorZ });
