@@ -1078,13 +1078,24 @@ export const SOURCES: Record<string, Source> = {
      * The Black Arm side's Hartigen disguise for Garv: Varrock's armourers (that side is in
      * Varrock for Katrine anyway; a mule ask means a walk to jackthief's Ardougne bank).
      */
+    /** Valaine only (stock 1, restocks in ~1000 ticks): waits upstairs for it. */
     'black full helm': {
         inputs: () => [{ item: 'coins', count: 1200 }],
-        get: (q, count) => buyAtValaine(q, 'black full helm', count),
+        get: async (q, count) => {
+            await buyAtValaine(q, 'black full helm', count, 1200);
+            if (q.count('black full helm') < count) throw new Error(`Valaine had no black full helm (have ${q.count('black full helm')}/${count})`);
+        },
     },
+    /**
+     * Valaine's (stock 1) restocks only every ~20000 ticks: an empty shelf there sends us to
+     * Louie's in Al Kharid (stock 1, ~1200 ticks), which the next fleet buyer then waits on.
+     */
     'black platelegs': {
         inputs: () => [{ item: 'coins', count: 2200 }],
-        get: (q, count) => buyAtValaine(q, 'black platelegs', count),
+        get: async (q, count) => {
+            await buyAtValaine(q, 'black platelegs', count, 0);
+            if (q.count('black platelegs') < count) await buyWaitingForRestock(q, LOUIE_LEGS, 'black platelegs', count);
+        },
     },
     'black platebody': {
         inputs: () => [{ item: 'coins', count: 4200 }],
@@ -1133,19 +1144,30 @@ const HORVIK = { x: 3229, z: 3438, npc: /^horvik$/i };
 const VALAINE = { x: 3193, z: 3361, level: 1 };
 const CHAMPIONS_STAIRS_FOOT = { x: 3189, z: 3356 };
 
-async function buyAtValaine(q: Quest, item: string, count: number): Promise<void> {
+/** Louie's Armoured Legs Bazaar, Al Kharid (alkharid.inv): black platelegs, stock 1. */
+const LOUIE_LEGS = { x: 3316, z: 3175, npc: /^louie legs$/i };
+
+/** Buy upstairs at Valaine's, waiting up to `waitTicks` for an empty shelf to restock. Never throws. */
+async function buyAtValaine(q: Quest, item: string, count: number, waitTicks: number): Promise<void> {
     await q.ensure('coins', 1);
     // Through the guild door on the ground floor first: a climb from the street takes any stairs.
     await q.goTo(CHAMPIONS_STAIRS_FOOT, 2);
     await q.goTo(VALAINE, 4);
-    for (let tries = 0; tries < 3 && q.count(item) < count; tries++) {
+    const pattern = itemPattern(item);
+    const stock = () => q.sdk.getState()?.shop?.shopItems.find((i) => pattern.test(i.name))?.count ?? 0;
+    const t0 = tickNow(q.sdk);
+    for (let tries = 0; tries < 6 && q.count(item) < count; tries++) {
         if (!q.sdk.getState()?.shop?.isOpen) await q.bot.openShop(/^valaine$/i).catch(() => undefined);
-        await q.bot.buyFromShop(itemPattern(item), count - q.count(item)).catch(() => undefined);
+        if (stock() > 0) await q.bot.buyFromShop(pattern, count - q.count(item)).catch(() => undefined);
         await q.sdk.waitForTicks(2);
+        if (q.count(item) >= count) break;
+        const left = waitTicks - (tickNow(q.sdk) - t0);
+        if (left <= 0) break;
+        q.log(`${item} out of stock at Valaine's — waiting for restock`);
+        await untilTicks(q.sdk, (s) => !s.shop?.isOpen || stock() > 0, left);
     }
     await q.bot.closeShop().catch(() => undefined);
     await q.climbTo(0);
-    if (q.count(item) < count) throw new Error(`Valaine did not sell ${item} (have ${q.count(item)}/${count})`);
 }
 
 const JATIX = { x: 2899, z: 3427, npc: /^jatix$/i };

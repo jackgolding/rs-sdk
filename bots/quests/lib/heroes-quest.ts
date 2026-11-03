@@ -264,7 +264,9 @@ function silence(q: Quest, pair: Pair): () => number {
     let at = tickNow(q.sdk);
     return () => {
         const now = JSON.stringify(readPartner(pair));
-        if (now !== last) {
+        // No pair file yet: a partner still queued for its start turn (two fleet-wide every 5 min)
+        // is not a partner that stopped; only PARTNER_WAIT_TICKS bounds that wait.
+        if (now !== last || now === 'null') {
             last = now;
             at = tickNow(q.sdk);
         }
