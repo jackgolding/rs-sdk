@@ -80,10 +80,8 @@
       "args": [
         "Jackpoo5",
         "--then",
-        "bots/quests/kbd-range.ts",
-        "Jackpoo5",
-        "--melee",
-        "--team-min=4"
+        "bots/quests/thieving-route.ts",
+        "Jackpoo5"
       ],
       "noEffectMinutes": 60
     },
@@ -107,10 +105,8 @@
       "args": [
         "jacklove1",
         "--then",
-        "bots/quests/kbd-range.ts",
-        "jacklove1",
-        "--melee",
-        "--team-min=4"
+        "bots/quests/thieving-route.ts",
+        "jacklove1"
       ],
       "noEffectMinutes": 60
     },
@@ -145,10 +141,8 @@
       "args": [
         "jacklove4",
         "--then",
-        "bots/quests/kbd-range.ts",
-        "jacklove4",
-        "--melee",
-        "--team-min=4"
+        "bots/quests/thieving-route.ts",
+        "jacklove4"
       ],
       "noEffectMinutes": 60
     },
@@ -284,10 +278,8 @@
       "args": [
         "jacklove13",
         "--then",
-        "bots/quests/kbd-range.ts",
-        "jacklove13",
-        "--melee",
-        "--team-min=4"
+        "bots/quests/thieving-route.ts",
+        "jacklove13"
       ],
       "noEffectMinutes": 60
     },
@@ -323,10 +315,8 @@
       "args": [
         "jacklove16",
         "--then",
-        "bots/quests/kbd-range.ts",
-        "jacklove16",
-        "--melee",
-        "--team-min=4"
+        "bots/quests/thieving-route.ts",
+        "jacklove16"
       ],
       "noEffectMinutes": 60
     },
@@ -376,10 +366,8 @@
       "args": [
         "jacklove20",
         "--then",
-        "bots/quests/kbd-range.ts",
-        "jacklove20",
-        "--melee",
-        "--team-min=4"
+        "bots/quests/thieving-route.ts",
+        "jacklove20"
       ],
       "noEffectMinutes": 60
     },
@@ -520,10 +508,8 @@
       "args": [
         "ABGARMY11",
         "--then",
-        "bots/quests/kbd-range.ts",
-        "ABGARMY11",
-        "--melee",
-        "--team-min=4"
+        "bots/quests/thieving-route.ts",
+        "ABGARMY11"
       ],
       "noEffectMinutes": 60
     },
@@ -546,10 +532,8 @@
       "args": [
         "ABGARMY13",
         "--then",
-        "bots/quests/kbd-range.ts",
-        "ABGARMY13",
-        "--melee",
-        "--team-min=4"
+        "bots/quests/thieving-route.ts",
+        "ABGARMY13"
       ],
       "noEffectMinutes": 60
     },
@@ -560,10 +544,8 @@
       "args": [
         "ABGARMY14",
         "--then",
-        "bots/quests/kbd-range.ts",
-        "ABGARMY14",
-        "--melee",
-        "--team-min=4"
+        "bots/quests/thieving-route.ts",
+        "ABGARMY14"
       ],
       "noEffectMinutes": 60
     },
@@ -587,10 +569,8 @@
       "args": [
         "ABGARMY16",
         "--then",
-        "bots/quests/kbd-range.ts",
-        "ABGARMY16",
-        "--melee",
-        "--team-min=4"
+        "bots/quests/thieving-route.ts",
+        "ABGARMY16"
       ],
       "noEffectMinutes": 60
     },
@@ -601,10 +581,8 @@
       "args": [
         "ABGARMY17",
         "--then",
-        "bots/quests/kbd-range.ts",
-        "ABGARMY17",
-        "--melee",
-        "--team-min=4"
+        "bots/quests/thieving-route.ts",
+        "ABGARMY17"
       ],
       "noEffectMinutes": 60
     },
@@ -639,10 +617,8 @@
       "args": [
         "ABGARMY20",
         "--then",
-        "bots/quests/kbd-range.ts",
-        "ABGARMY20",
-        "--melee",
-        "--team-min=4"
+        "bots/quests/thieving-route.ts",
+        "ABGARMY20"
       ],
       "noEffectMinutes": 90
     },
