@@ -1207,7 +1207,10 @@ async function meleeKill(): Promise<void> {
         }
         // Emergency exit (user: no deaths): the lair is wilderness level 0, the teleport is instant.
         const prayerOut = (sdk.getPrayerState()?.prayerPoints ?? 99) < 10 && !sdk.findInventoryItem(PRAYER_POT);
-        if (pos().hp < pos().maxHp * 0.5 && (foodCount() <= 5 || prayerOut)) {
+        // Below half HP is out, whatever is left: with prayer low the KBD out-hits a shark a tick,
+        // and ABGARMY11 (7 sharks) and ABGARMY16 (11 sharks, prayer 19) died eating, never meeting
+        // the old "food <= 5 or prayer out" condition (user, 2026-11-03).
+        if (pos().hp < pos().maxHp * 0.5) {
             session.log('warn', `Emergency teleport at ${pos().hp}/${pos().maxHp} food=${foodCount()} prayer=${sdk.getPrayerState()?.prayerPoints}`);
             await teleportOutOfLair();
             return;
