@@ -44,7 +44,7 @@ import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { HERBS, homeFromJungle, onIsland, pickHerb, toJungle } from './jungle-potion';
 import { PrayerFlicker } from '../prayer-flick';
 import { requestFromMule } from '../supply';
-import { itemPattern } from './sources';
+import { itemPattern, SOURCES } from './sources';
 
 interface Tile {
     x: number;
@@ -498,6 +498,13 @@ export async function restock(q: Quest, wants: Want[], why: string): Promise<voi
         await untilTicks(q.sdk, () => inv(q).some((i) => i.id === b.id), 4);
     }
     await q.bot.closeBank().catch(() => undefined);
+    // What a shop or a gather can produce (lib/sources.ts: papyrus at Aemad, charcoal at Jiminua, rope, vials): fetched, not a stop.
+    for (const w of [...missing]) {
+        const src = SOURCES[w.label];
+        if (!src?.get || src.mule) continue;
+        await q.ensure(w.label, w.min ?? w.count).catch((e) => q.log(`legends: sourcing ${w.label}: ${(e as Error).message}`));
+        if (heldOf(q, w) >= (w.min ?? w.count)) missing.splice(missing.indexOf(w), 1);
+    }
     if (missing.length) throw new NeedsStock(missing.map((w) => ({ item: w.label, count: w.count - heldOf(q, w) })));
     q.log(`legends: restocked for ${why}; carrying ${describe(q)}`);
 }
@@ -682,24 +689,33 @@ async function getMachete(q: Quest): Promise<void> {
 
 // ── mapping
 
+/**
+ * One section per zone (west, middle, east), each a Crafting roll that spends a papyrus. A local's hit
+ * mid-script can spend the papyrus and drop the section (radimus_notes.rs2 deletes it before the
+ * p_delay that sets the bit), so the kit carries spares and runs out to the bank for more.
+ */
+const MAP_KIT = (q: Quest): Want[] => [...BASE(q), want('papyrus', 5, { min: 1 }), want('charcoal', 3, { min: 1 }), FOOD_KIT(4)];
 export async function mapJungle(q: Quest): Promise<void> {
-    await restock(q, [...BASE(q), want('papyrus', 3), want('charcoal', 3), FOOD_KIT(4)], 'mapping');
+    await restock(q, MAP_KIT(q), 'mapping');
     if (!heldId(q, ID.machete)) await getMachete(q);
-    for (const section of ['middle', 'west', 'east'] as const) {
-        if (heldId(q, ID.notesDone)) break;
-        await toJungleTile(q, MAP_SPOTS[section], 3);
-        for (let attempt = 1; attempt <= 6 && !heldId(q, ID.notesDone); attempt++) {
-            const mark = lastMsgId(q);
-            await defend(q);
-            await opHeld(q, ID.notes, /^complete$/i, [], () => false, 8);
-            const text = msgsSince(q, mark);
-            if (/still have some sections|already completed this part/i.test(text) || heldId(q, ID.notesDone)) break;
-            if (!countId(q, inv(q).find((i) => /^papyrus$/i.test(i.name))?.id ?? -1)) throw new Error('legends: out of papyrus mapping the jungle');
-            q.log(`legends: mapping ${section} attempt ${attempt}: ${text.slice(0, 120)}`);
+    const done = new Set<string>();
+    for (let pass = 1; pass <= 3 && !heldId(q, ID.notesDone); pass++) {
+        for (const section of ['middle', 'west', 'east'] as const) {
+            if (heldId(q, ID.notesDone) || done.has(section)) continue;
+            for (let attempt = 1; attempt <= 6 && !heldId(q, ID.notesDone) && !done.has(section); attempt++) {
+                if (!held(q, /^papyrus$/i) || !held(q, /^charcoal$/i)) await restock(q, MAP_KIT(q), 'more papyrus and charcoal');
+                await toJungleTile(q, MAP_SPOTS[section], 3);
+                const mark = lastMsgId(q);
+                await defend(q);
+                await opHeld(q, ID.notes, /^complete$/i, [], () => false, 8);
+                const text = msgsSince(q, mark);
+                if (/still have some sections|already completed this part/i.test(text) || heldId(q, ID.notesDone)) done.add(section);
+                else q.log(`legends: mapping ${section} attempt ${attempt}: ${text.slice(0, 120) || 'no answer'}`);
+            }
+            if (done.has(section)) q.log(`legends: mapped the ${section} section at ${where(q)}`);
         }
-        q.log(`legends: mapped the ${section} section at ${where(q)}`);
     }
-    if (!heldId(q, ID.notesDone)) throw new Error('legends: the map is still incomplete after all three sections');
+    if (!heldId(q, ID.notesDone)) throw new Error('legends: the map is still incomplete after three passes');
 }
 
 export async function getBullroarer(q: Quest): Promise<void> {
