@@ -743,12 +743,20 @@ async function useFissure(q: Quest, item: RegExp, what: string): Promise<void> {
             fissure = await findLoc(q, LOC_NAME.fissure, undefined, { x: 2921, z: 2999 }, 4);
         }
         if (!fissure) {
-            q.log(`shilo: the mound's Look-at showed no fissure (try ${attempt})`);
+            const near = (await locs(q, 4)).map((l) => `${l.name}#${l.id}@${l.x},${l.z}`).join(' ');
+            q.log(`shilo: the mound's Look-at showed no fissure (try ${attempt}); near: ${near.slice(0, 160)}`);
             continue;
         }
+        const mark = messageId(q);
         await useOnLoc(q, item, fissure, () => q.count(item) < before, [], 20);
         await driveDialog(q.sdk, [], { ticks: 20 });
-        if (q.count(item) >= before) q.log(`shilo: ${what} did not go into the fissure (try ${attempt})`);
+        const said = messagesSince(q, mark);
+        // Already done on an earlier run (quest_zombiequeen.rs2 oplocu fissure): nothing to use up.
+        if (/already a rope attached|already seen inside the fissure/i.test(said)) {
+            q.log(`shilo: ${what}: ${said.slice(0, 80)} — already done`);
+            return;
+        }
+        if (q.count(item) >= before) q.log(`shilo: ${what} did not go into the fissure (try ${attempt}; ${fissure.name}#${fissure.id} @${fissure.x},${fissure.z}): ${said.slice(0, 140)}`);
     }
     if (q.count(item) >= before) throw new Error(`shilo: ${what} did not go into the fissure near ${where(q)}`);
 }
