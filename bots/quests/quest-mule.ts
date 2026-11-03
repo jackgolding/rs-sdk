@@ -275,7 +275,10 @@ async function serveOnce(from: string, needs: Array<{ label: string; count: numb
  * "is busy"), then bank what came over. Noted stacks deposit as items.
  */
 async function receiveRestock(from: string): Promise<void> {
-    if (await openBank().catch(() => false)) {
+    // Ready at once: the restocker requests its trade ~8 ticks after its DM, and a bank visit
+    // first (~20 s) missed it every time (ABGARMY09's prayer potions, 2026-11-03). Bank only when
+    // the pack could not take a noted stack or two.
+    if (sdk.getInventory().length > 24 && (await openBank().catch(() => false))) {
         await depositPack();
         await bot.closeBank().catch(() => undefined);
     }
