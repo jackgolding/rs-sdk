@@ -74,6 +74,7 @@ import { inCrestUnderground, leaveCrestUnderground } from './crest';
 import { inLegendsArea, leaveLegends } from './legends-quest';
 import { inMelzarsMaze, leaveMelzarsMaze } from './melzars-maze';
 import { inMansionUpstairs, leaveMansionUpstairs } from './sinclair-mansion';
+import { inGrailArea, leaveGrail } from './holy-grail';
 import { inContest, leaveContest } from './fishing-contest';
 import { inCultCave, leaveCave as leaveCultCave } from './hazeel-cult';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
@@ -503,6 +504,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inMelzarsMaze(pos()) && !inMelzarsMaze({ ...tile, level: tile.level ?? 0 })) await leaveMelzarsMaze(bot, sdk, log);
                 // The Sinclair Mansion's first floor: its doors hide the ladder from climbTo (lib/sinclair-mansion.ts).
                 if (inMansionUpstairs(pos()) && !inMansionUpstairs({ ...tile, level: tile.level ?? 0 })) await leaveMansionUpstairs(q);
+                // Holy Grail: the Fisher King's realms (whistle out) and the six heads' pocket north of Brimhaven (lib/holy-grail.ts).
+                if (inGrailArea(pos()) && !inGrailArea(tile)) await leaveGrail(q, tile);
                 // Fishing Contest: the Hemenster yard's gate teleports you out; walkTo cannot use it (lib/fishing-contest.ts).
                 if (inContest(pos()) && !inContest(tile)) await leaveContest(q);
                 // Hazeel Cult: the cult cave and the sewer to its hideout — a raft back, then its stairs (lib/hazeel-cult.ts).
@@ -777,6 +780,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         // Legends' Quest's jungle and caves: walkTo has no way out of either (lib/legends-quest.ts).
         if (inLegendsArea(pos())) await leaveLegends(q, hub);
         if (inMansionUpstairs(pos())) await leaveMansionUpstairs(q);
+        if (inGrailArea(pos())) await leaveGrail(q, hub);
         if (pos().level !== 0) await q.climbTo(0);
         if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.
