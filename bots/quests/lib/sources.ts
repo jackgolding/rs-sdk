@@ -1140,6 +1140,15 @@ export const SOURCES: Record<string, Source> = {
             await buyWaitingForRestock(q, GERRANT, 'fishing rod', 1);
         },
     },
+    /** Fishing Contest's carp bait: a spade on the vines in McGrubor's Wood (lib/fishing-contest.ts). */
+    'red vine worm': {
+        obj: 'red_vine_worm',
+        inputs: () => [{ item: 'spade', count: 1 }],
+        get: async (q, count) => {
+            const { digVineWorms } = await import('./fishing-contest');
+            await digVineWorms(q, count);
+        },
+    },
     'fishing bait': {
         inputs: (count) => [{ item: 'coins', count: 5 * count }],
         get: async (q, count) => {

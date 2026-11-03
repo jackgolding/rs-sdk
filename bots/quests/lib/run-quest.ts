@@ -74,6 +74,7 @@ import { inCrestUnderground, leaveCrestUnderground } from './crest';
 import { inLegendsArea, leaveLegends } from './legends-quest';
 import { inMelzarsMaze, leaveMelzarsMaze } from './melzars-maze';
 import { inMansionUpstairs, leaveMansionUpstairs } from './sinclair-mansion';
+import { inContest, leaveContest } from './fishing-contest';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, awaitQuestStartTurn, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -501,6 +502,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inMelzarsMaze(pos()) && !inMelzarsMaze({ ...tile, level: tile.level ?? 0 })) await leaveMelzarsMaze(bot, sdk, log);
                 // The Sinclair Mansion's first floor: its doors hide the ladder from climbTo (lib/sinclair-mansion.ts).
                 if (inMansionUpstairs(pos()) && !inMansionUpstairs({ ...tile, level: tile.level ?? 0 })) await leaveMansionUpstairs(q);
+                // Fishing Contest: the Hemenster yard's gate teleports you out; walkTo cannot use it (lib/fishing-contest.ts).
+                if (inContest(pos()) && !inContest(tile)) await leaveContest(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0, tile);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in
