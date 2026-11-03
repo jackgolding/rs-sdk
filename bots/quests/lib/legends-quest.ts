@@ -362,16 +362,19 @@ function describe(q: Quest): string {
 
 export interface Want {
     label: string;
-    /** Bank/inventory match: an obj id or a name pattern. */
+    /** Bank/inventory match: an obj id, a set of ids, or a name pattern. */
     id?: number;
+    ids?: number[];
     pattern?: RegExp;
     count: number;
     /** Withdraw what the bank has, up to count; never a stop. */
     optional?: boolean;
+    /** Not needed while this (held or banked) is had instead: two gold bars and a hammer, unless a bowl. */
+    unless?: Want;
 }
 const want = (label: string, count = 1, opts: Partial<Want> = {}): Want => ({ label, count, pattern: itemPattern(label), ...opts });
 const quest = (label: string, id: number, count = 1): Want => ({ label, id, count });
-const matches = (w: Want, it: { id: number; name: string }) => (w.id !== undefined ? it.id === w.id : w.pattern!.test(it.name));
+const matches = (w: Want, it: { id: number; name: string }) => (w.ids ? w.ids.includes(it.id) : w.id !== undefined ? it.id === w.id : w.pattern!.test(it.name));
 const heldOf = (q: Quest, w: Want) =>
     [...inv(q), ...q.sdk.getEquipment()].filter((i) => matches(w, i)).reduce((n, i) => n + (i.count ?? 1), 0);
 
@@ -382,12 +385,27 @@ const QUEST_ITEMS = new Set<number>([
     ID.dagger, ID.daggerDone, ID.holyForce, ID.totem, ID.gilded, ID.machete, ID.snakeWeed, ID.ardrigal,
 ]);
 
+/** Quest items past their use (banked at a restock to make room): the book once the demon is slain, the bullroarer below ground. */
+function spentQuestItem(q: Quest, id: number): boolean {
+    const n = stageNum(q);
+    if (id === ID.book) return n >= STAGE_VALUE.freed!;
+    if (id === ID.bullroarer) return n >= STAGE_VALUE.recipe! && n < STAGE_VALUE.slain!;
+    if (id === ID.reed) return n >= STAGE_VALUE.dried!;
+    return false;
+}
+
 const FOOD_KIT = (n: number): Want => ({ label: 'shark', pattern: FOOD, count: n });
 const POTS = (n: number): Want => ({ label: 'prayer potion', pattern: POTION, count: n, optional: true });
 const AXE = want('rune axe');
 const MAP = (q: Quest): Want => (stageNum(q) >= 2 ? quest('radimus notes (complete)', ID.notesDone) : quest('radimus notes', ID.notes));
 /** Coins: on the mainland both boats; on Karamja (or below it) the boat home. */
-const BASE = (q: Quest): Want[] => [want('coins', onIsland(pos(q)) || inLegendsArea(pos(q)) ? 30 : 100), AXE, quest('machete', ID.machete), MAP(q), ...(stageNum(q) >= 3 ? [quest('bullroarer', ID.bullroarer)] : [])];
+const BASE = (q: Quest): Want[] => [
+    want('coins', onIsland(pos(q)) || inLegendsArea(pos(q)) ? 30 : 100),
+    AXE,
+    quest('machete', ID.machete),
+    MAP(q),
+    ...(stageNum(q) >= 3 && !spentQuestItem(q, ID.bullroarer) ? [quest('bullroarer', ID.bullroarer)] : []),
+];
 
 /** The trials' kit to the gem room (gems and runes only until the Book of Binding is held or used). */
 const TRIALS = (q: Quest, toWinch: boolean): Want[] => {
@@ -395,8 +413,10 @@ const TRIALS = (q: Quest, toWinch: boolean): Want[] => {
     return [
         want('lockpick'),
         { label: 'pickaxe', pattern: /^(rune|adamant|mithril|steel|iron|bronze|dragon) pickaxe$/i, count: 1 },
-        ...(needBook ? GEM_ROCKS.map((g) => want(g.gem)) : []),
-        ...(needBook ? [want('soul rune'), want('mind rune'), want('earth rune'), want('law rune', 2)] : []),
+        // Optional: a resumed run may have set them already (each rock and the wall keep their bit);
+        // stockCheck stopped an unstocked account at the start.
+        ...(needBook ? GEM_ROCKS.map((g) => want(g.gem, 1, { optional: true })) : []),
+        ...(needBook ? [want('soul rune', 1, { optional: true }), want('mind rune', 1, { optional: true }), want('earth rune', 1, { optional: true }), want('law rune', 2, { optional: true })] : []),
         ...(toWinch ? [want('unpowered orb'), want('cosmic rune', 3), want('water rune', 30), want('rope')] : []),
     ];
 };
@@ -408,7 +428,7 @@ const TRIALS = (q: Quest, toWinch: boolean): Want[] => {
  */
 export async function restock(q: Quest, wants: Want[], why: string): Promise<void> {
     // Optional lines (prayer potions, armour) are taken when we are at a bank anyway, never a trip of their own.
-    const short = () => wants.filter((w) => !w.optional && heldOf(q, w) < w.count);
+    const short = () => wants.filter((w) => !w.optional && heldOf(q, w) < w.count && !(w.unless && heldOf(q, w.unless) > 0));
     if (!short().length) return;
     q.log(`legends: restock for ${why}: short ${short().map((w) => `${w.label} ${heldOf(q, w)}/${w.count}`).join(', ')}`);
     if (onIsland(pos(q)) || inLegendsArea(pos(q))) {
@@ -422,13 +442,26 @@ export async function restock(q: Quest, wants: Want[], why: string): Promise<voi
     }
     if (!opened) throw new Error(`legends: could not open a bank at ${where(q)}`);
     for (const it of [...inv(q)]) {
-        if (QUEST_ITEMS.has(it.id) || wants.some((w) => matches(w, it))) continue;
+        if ((QUEST_ITEMS.has(it.id) && !spentQuestItem(q, it.id)) || wants.some((w) => matches(w, it))) continue;
         await q.bot.depositItem(it, -1).catch(() => undefined);
     }
-    await q.sdk.waitForTicks(2);
-    // Over-held stackables and extra copies go back too (a spare law rune, leftover sharks are fine).
-    const missing: Want[] = [];
+    // Extra copies of a wanted unstackable (ten sharks held, four wanted) go back too: room for the next ones.
     for (const w of wants) {
+        const copies = inv(q).filter((i) => matches(w, i) && (i.count ?? 1) === 1);
+        for (const extra of copies.slice(w.count)) await q.bot.depositItem(extra, 1).catch(() => undefined);
+    }
+    await q.sdk.waitForTicks(2);
+    const missing: Want[] = [];
+    // An `unless` stand-in in the bank first (the bowl made last run): then its line is not needed.
+    for (const alt of [...new Set(wants.map((w) => w.unless).filter((u): u is Want => !!u))]) {
+        const banked = heldOf(q, alt) ? undefined : q.sdk.getBankItems().find((b) => matches(alt, b));
+        if (banked) {
+            await q.bot.withdrawItem(banked, 1);
+            await untilTicks(q.sdk, () => heldOf(q, alt) > 0, 4);
+        }
+    }
+    for (const w of wants) {
+        if (w.unless && heldOf(q, w.unless) > 0) continue;
         const need = w.count - heldOf(q, w);
         if (need <= 0) continue;
         const banked = q.sdk.getBankItems().find((b) => matches(w, b));
@@ -436,7 +469,8 @@ export async function restock(q: Quest, wants: Want[], why: string): Promise<voi
             if (!w.optional) missing.push(w);
             continue;
         }
-        await q.bot.withdrawItem(banked, Math.min(need, banked.count));
+        const r = await q.bot.withdrawItem(banked, Math.min(need, banked.count)).catch((e) => ({ success: false, message: String(e) }));
+        if (!r.success) q.log(`legends: withdraw ${w.label} ×${need}: ${(r as { message?: string }).message ?? 'failed'}`);
         await untilTicks(q.sdk, () => heldOf(q, w) >= Math.min(w.count, heldOf(q, w) + banked.count), 4);
         if (heldOf(q, w) < w.count && !w.optional) {
             // A second stack of the same pattern (shark/swordfish) may cover the rest.
@@ -459,8 +493,9 @@ export async function stockCheck(q: Quest): Promise<void> {
     const lines: Want[] = [
         AXE,
         want('lockpick'),
-        ...(stageNum(q) < STAGE_VALUE.summoned! ? GEM_ROCKS.map((g) => want(g.gem)) : []),
-        ...(stageNum(q) < STAGE_VALUE.summoned! ? [want('soul rune'), want('mind rune'), want('earth rune'), want('law rune', 2)] : []),
+        // Spent from stage 8 on (a resumed run may have set the rocks' and wall's bits already).
+        ...(stageNum(q) < STAGE_VALUE.asked! ? GEM_ROCKS.map((g) => want(g.gem)) : []),
+        ...(stageNum(q) < STAGE_VALUE.asked! ? [want('soul rune'), want('mind rune'), want('earth rune'), want('law rune', 2)] : []),
         ...(stageNum(q) < STAGE_VALUE.viyeldi! ? [want('unpowered orb'), want('cosmic rune', 3), want('water rune', 30)] : []),
         ...(stageNum(q) < STAGE_VALUE.asked! ? [want('gold bar', 2)] : []),
         FOOD_KIT(15),
@@ -473,7 +508,8 @@ export async function stockCheck(q: Quest): Promise<void> {
     let short = lines.filter((w) => total(w) < w.count);
     const pots = q.sdk.getBankItems().filter((b) => POTION.test(b.name)).reduce((n, b) => n + b.count, 0) + countPots(q);
     await q.bot.closeBank().catch(() => undefined);
-    const ask = [...short, ...(pots < 4 ? [{ label: 'prayer potion(3)', pattern: /^prayer potion\(3\)$/i, count: 4 - pots }] : [])];
+    // Prayer potions ride along on a request that is going anyway; alone they are not worth the wait.
+    const ask = short.length ? [...short, ...(pots < 4 ? [{ label: 'prayer potion(3)', pattern: /^prayer potion\(3\)$/i, count: 4 - pots }] : [])] : [];
     if (ask.length) {
         q.log(`legends: stock short ${ask.map((w) => `${w.label} ×${w.count}`).join(', ')} — asking jackthief`);
         await requestFromMule(
@@ -788,6 +824,7 @@ export async function askGujuoWater(q: Quest): Promise<void> {
 
 // ── the golden bowl and the pool
 
+const BOWL: Want = { label: 'golden bowl', ids: [ID.bowl, ID.bowlWater, ID.bowlPure, ID.bowlBlessed, ID.bowlBlessedWater, ID.bowlBlessedPure], count: 1 };
 const bowlAny = (q: Quest) => [ID.bowl, ID.bowlWater, ID.bowlPure, ID.bowlBlessed, ID.bowlBlessedWater, ID.bowlBlessedPure].some((id) => !!heldId(q, id));
 const blessed = (q: Quest) => [ID.bowlBlessed, ID.bowlBlessedWater, ID.bowlBlessedPure].some((id) => !!heldId(q, id));
 
@@ -862,10 +899,11 @@ export async function fillBowl(q: Quest): Promise<void> {
         q,
         [
             ...BASE(q),
-            ...(bowlAny(q) ? [] : [want('gold bar', 2), want('hammer')]),
+            want('gold bar', 2, { unless: BOWL }),
+            want('hammer', 1, { unless: BOWL }),
             ...(book ? [] : TRIALS(q, false)),
             POTS(2),
-            FOOD_KIT(5),
+            FOOD_KIT(4),
         ],
         'the bowl and the book'
     );
@@ -890,7 +928,7 @@ type Region = 'A' | 'octagram' | 'B' | 'east' | 'D' | 'E' | 'F' | 'G' | 'out';
 const ANCHOR: Record<'A' | 'B' | 'D' | 'E' | 'F' | 'G', Tile> = {
     A: { x: 2778, z: 9336 },
     B: { x: 2806, z: 9338 },
-    D: { x: 2805, z: 9300 },
+    D: { x: 2801, z: 9300 },
     E: { x: 2785, z: 9305 },
     F: { x: 2765, z: 9300 },
     G: { x: 2765, z: 9330 },
@@ -901,7 +939,7 @@ async function caveRegion(q: Quest): Promise<Region> {
     const p = pos(q);
     if (!inShamanCaves(p)) return 'out';
     if (inOctagram(p)) return 'octagram';
-    if (inBox(p, 2805, 2814, 9313, 9332)) return 'east';
+    if (inBox(p, 2805, 2814, 9314, 9332)) return 'east';
     for (const r of ['A', 'B', 'D', 'E', 'F', 'G'] as const) if (await reaches(q, ANCHOR[r])) return r;
     return 'east';
 }
@@ -1159,7 +1197,16 @@ async function getBook(q: Quest): Promise<void> {
         await useOnLoc(q, itemPattern(g.gem), rock, () => !held(q, itemPattern(g.gem)), [], 15);
         q.log(`legends: ${g.gem} on the rock at (${g.x},${g.z}): ${msgsSince(q, mark).slice(0, 100)}`);
     }
-    for (let i = 0; i < 10 && !book(); i++) {
+    // Every gem placed on an earlier run (the rocks keep their bits): searching a rock re-runs the
+    // puzzle's finish and the book appears again (quest_legends.rs2 oploc2,lg_gemplacerock).
+    if (!book() && !GEM_ROCKS.some((g) => held(q, itemPattern(g.gem)))) {
+        await q.sdk.scanGroundItems(12).catch(() => undefined);
+        if (!book()) {
+            const rock = await findLoc(q, /^carved rock$/i, /^search$/i, pos(q), 15);
+            if (rock) await opLoc(q, rock, /^search$/i, [], () => !!book(), 10);
+        }
+    }
+    for (let i = 0; i < 40 && !book(); i++) {
         await q.sdk.scanGroundItems(12).catch(() => undefined);
         await q.sdk.waitForTicks(3);
     }
@@ -1281,6 +1328,14 @@ export async function bindUngadulu(q: Quest): Promise<void> {
     await enterCaves(q);
     await toCaveRegion(q, 'A');
     await summonFirst(q);
+    // The demon swings at once and hits hard (attack 165): fight in this step, not after the journal reads.
+    await fightFirst(q);
+}
+
+async function fightFirst(q: Quest): Promise<void> {
+    await drinkPrayer(q, 30);
+    await fight(q, /^nezikchened$/i, () => false, 'Nezikchened (the octagram)', { quietTicks: 15 });
+    await driveDialog(q.sdk, [], { ticks: 20 });
 }
 
 async function summonFirst(q: Quest): Promise<void> {
@@ -1305,9 +1360,7 @@ export async function slayFirst(q: Quest): Promise<void> {
         await enterCaves(q);
         await summonFirst(q);
     }
-    await drinkPrayer(q, 30);
-    await fight(q, /^nezikchened$/i, () => false, 'Nezikchened (the octagram)', { quietTicks: 15 });
-    await driveDialog(q.sdk, [], { ticks: 20 });
+    await fightFirst(q);
 }
 
 /** Ungadulu, freed, gives the seeds; the sacred water germinates them. */
@@ -1560,28 +1613,28 @@ export async function slaySecond(q: Quest): Promise<void> {
         // The hat lies by the rope's foot.
         if (await reaches(q, VIY.source)) await viyeldiUp(q).then(() => descend(q));
         if (!inLanding(pos(q))) await walkToLanding(q);
-        for (let attempt = 1; attempt <= 3 && heldId(q, ID.dagger); attempt++) {
-            let v = q.sdk.getNearbyNpcs().find((n) => /^viyeldi$/i.test(n.name));
-            if (!v) {
-                const hat = q.sdk.getGroundItems?.().find((g) => /^blue hat$/i.test(g.name));
-                if (hat) {
-                    const opt = (hat as { optionsWithIndex?: Array<{ text: string; opIndex: number }> }).optionsWithIndex?.find((o) => /take/i.test(o.text));
-                    await q.sdk.sendPickup(hat.x, hat.z, hat.id);
-                    void opt;
+        // Taking his hat raises Viyeldi and starts his speech, which ends with npc_del: close it at
+        // once (the script stops there, he stays up for his 100 ticks) and use the dagger on him.
+        const viyeldi = () => q.sdk.getNearbyNpcs().find((n) => /^viyeldi$/i.test(n.name));
+        for (let attempt = 1; attempt <= 4 && heldId(q, ID.dagger); attempt++) {
+            if (!viyeldi()) {
+                await q.sdk.scanGroundItems(6).catch(() => undefined);
+                const hat = q.sdk.getGroundItems().find((g) => /^blue hat$/i.test(g.name));
+                if (!hat) {
+                    q.log(`legends: no blue hat near ${where(q)}`);
+                    await q.sdk.waitForTicks(5);
+                    continue;
                 }
-                await untilTicks(q.sdk, () => dialogOpen(q) || !!q.sdk.getNearbyNpcs().find((n) => /^viyeldi$/i.test(n.name)), 15);
-                // His speech ends with him slumping back; use the dagger while he stands.
-                v = q.sdk.getNearbyNpcs().find((n) => /^viyeldi$/i.test(n.name));
+                await q.sdk.sendPickup(hat.x, hat.z, hat.id);
+                await untilTicks(q.sdk, () => dialogOpen(q) || !!viyeldi(), 15);
             }
-            if (v) await useOnNpc(q, ID.dagger, v, () => !!heldId(q, ID.daggerDone), [], 10);
             if (dialogOpen(q)) {
-                v = q.sdk.getNearbyNpcs().find((n) => /^viyeldi$/i.test(n.name));
-                if (v) {
-                    const d = heldId(q, ID.dagger);
-                    if (d) await q.sdk.sendUseItemOnNpc(d.slot, v.index);
-                }
-                await driveDialog(q.sdk, [], { done: () => !!heldId(q, ID.daggerDone), ticks: 40 });
+                await q.sdk.sendCloseModal().catch(() => undefined);
+                await untilTicks(q.sdk, () => !dialogOpen(q), 3);
             }
+            const v = viyeldi();
+            if (v) await useOnNpc(q, ID.dagger, v, () => !!heldId(q, ID.daggerDone), [], 10);
+            await driveDialog(q.sdk, [], { done: () => !!heldId(q, ID.daggerDone), ticks: 20 });
             await untilTicks(q.sdk, () => !!heldId(q, ID.daggerDone), 10);
         }
         if (!heldId(q, ID.daggerDone)) throw new Error('legends: Viyeldi was not slain with the dagger');

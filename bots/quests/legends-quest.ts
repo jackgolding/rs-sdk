@@ -90,7 +90,8 @@ await runQuest({
         stage('spoke', 'active', ['is acting weird and talking']),
         stage('asked', 'active', ['Ungadulu acted strange and mentioned sacred water'], { none: ['I have some sacred water', 'I used sacred water on flames'] }),
         stage('filled', 'active', ['I have some sacred water'], { none: ['I used sacred water on flames'] }),
-        stage('summoned', 'active', ['I need to release Ungadulu so that']),
+        // The book raises the demon (11) and the same step fights it: a resumed run can still start here.
+        { ...stage('summoned', 'active', ['I need to release Ungadulu so that']), optional: true },
         stage('freed', 'active', ['I then slew the demon'], { none: ['germinated Yommi tree seeds', 'I used sacred water to germinate'] }),
         stage('germinated', 'active', ['I have some germinated Yommi tree seeds']),
         stage('dried', 'active', ['I need to get some more sacred water in order']),
@@ -122,7 +123,7 @@ await runQuest({
         { from: 'entrance', to: 'spoke', run: step(speakUngadulu) },
         { from: 'spoke', to: 'asked', run: step(askGujuoWater) },
         { from: 'asked', to: 'filled', run: step(fillBowl) },
-        { from: 'filled', to: 'summoned', run: step(bindUngadulu) },
+        { from: 'filled', to: 'freed', run: step(bindUngadulu) },
         { from: 'summoned', to: 'freed', run: step(slayFirst) },
         { from: 'freed', to: 'germinated', run: step(germinate) },
         { from: 'germinated', to: 'dried', run: step(dryPool) },
