@@ -194,8 +194,10 @@ export const inViyeldi = (p: Tile) => inBox(p, 2368, 2431, 4672, 4735);
 const inClearing = (p: Tile) => inBox(p, 2750, 2890, 2940, 2950);
 /** The Legends' Guild main hall, behind doors walkTo cannot open (legends_door.rs2). */
 const inGuildHall = (p: Tile) => inBox(p, 2715, 2745, 3373, 3395) && (p.level ?? 0) === 0;
+/** Inside the guild's mithril gates: bot.walkTo plans a long walk out through the hall (doors masked) and sticks. */
+const inGuildGrounds = (p: Tile) => inBox(p, 2715, 2745, 3350, 3395) && (p.level ?? 0) === 0;
 /** Anywhere goTo cannot walk out of: run-quest's goTo and prologue call leaveLegends from these. */
-export const inLegendsArea = (p: Tile) => inKharazi(p) || inShamanCaves(p) || inViyeldi(p) || inClearing(p) || inGuildHall(p);
+export const inLegendsArea = (p: Tile) => inKharazi(p) || inShamanCaves(p) || inViyeldi(p) || inClearing(p) || inGuildGrounds(p);
 
 // ── small helpers
 const inv = (q: Quest) => q.sdk.getInventory();
@@ -612,6 +614,7 @@ async function leaveJungle(q: Quest): Promise<void> {
  */
 export async function leaveLegends(q: Quest, tile: Tile): Promise<void> {
     if (inGuildHall(pos(q)) && !inGuildHall(tile)) await leaveHall(q);
+    if (inGuildGrounds(pos(q)) && !inGuildGrounds(tile)) await outOfGuildGate(q);
     if (inViyeldi(pos(q)) && !inViyeldi(tile)) await viyeldiUp(q);
     if (inShamanCaves(pos(q)) && !inShamanCaves(tile)) await leaveCaves(q);
     if (inKharazi(pos(q)) && !inKharazi(tile)) await leaveJungle(q);
@@ -1873,6 +1876,19 @@ export async function handIn(q: Quest): Promise<void> {
     await q.talk(/^radimus erkle$/i, []);
 }
 
+/** Out through the mithril gates (they open for anyone on the quest or past it, legends_gate.rs2). */
+async function outOfGuildGate(q: Quest): Promise<void> {
+    await walk(q, { x: 2728, z: 3351 }, 1);
+    for (let attempt = 1; attempt <= 3 && pos(q).z >= 3350; attempt++) {
+        const gate = await findLoc(q, /^gate$/i, /^open$/i, { x: 2728, z: 3349 }, 6);
+        if (!gate) throw new Error(`legends: no guild gate near ${where(q)}`);
+        await opLoc(q, gate, /^open$/i, [], () => pos(q).z < 3349, 8);
+        if (pos(q).z >= 3349) await q.sdk.sendWalk(2728, 3347);
+        await untilTicks(q.sdk, () => pos(q).z < 3349, 6);
+    }
+    if (pos(q).z >= 3349) throw new Error(`legends: could not get out of the guild gates (at ${where(q)})`);
+}
+
 /** Out of the main hall by its doors (they open for a member, legends_door.rs2). */
 async function leaveHall(q: Quest): Promise<void> {
     await walk(q, { x: 2728, z: 3374 }, 1).catch(() => undefined);
@@ -1884,6 +1900,11 @@ async function leaveHall(q: Quest): Promise<void> {
         await untilTicks(q.sdk, () => !inGuildHall(pos(q)), 6);
     }
     if (inGuildHall(pos(q))) throw new Error(`legends: could not leave the guild hall (at ${where(q)})`);
+    // Clear of the doors' swing: from (2728,3372) bot.walkTo plans back through the hall (doors masked).
+    for (let i = 0; i < 3 && pos(q).z > 3369; i++) {
+        await q.sdk.sendWalk(2728, 3368);
+        await untilTicks(q.sdk, () => pos(q).z <= 3369, 6);
+    }
 }
 
 export async function train(q: Quest): Promise<void> {
