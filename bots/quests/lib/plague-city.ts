@@ -360,6 +360,15 @@ export async function tryPlagueHouse(q: Quest): Promise<void> {
     await enterWestArdougne(q);
     if (pos(q).level !== 0) await q.climbTo(0);
     await q.goTo(PLAGUE_PORCH, 1);
+    // The door only advances the quest with a Mourner within 14 tiles (doors.rs2
+    // west_ardougne_plague_house_doors: npc_find(coord, mournertwb, 14, 0)); without one it is
+    // just "a black cross on the door" (Jackpoo5 failed 2/2, 2026-11-03). They wander: wait.
+    for (let w = 0; w < 40; w++) {
+        const m = q.sdk.findNearbyNpc(/^mourner$/i);
+        if (m && (m.distance ?? 99) <= 12) break;
+        if (w === 0) q.log('plague: waiting for a Mourner near the plague house door');
+        await q.sdk.waitForTicks(5);
+    }
     let cleared = false;
     const done = () => (cleared ||= /hopes up|apply to the head mourner/i.test(dialogText(q)));
     const seen = await op(q, PLAGUE_DOOR, /^door$/i, /^open$/i, done, 'the plague house door', [/i fear not a mere plague/i, /how do i get clearance/i], 20).catch((e) => {
