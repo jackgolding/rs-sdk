@@ -976,7 +976,15 @@ export const SOURCES: Record<string, Source> = {
     /** Hudo's Grand Tree Groceries (gnome.inv gnomeshop_hudo: dwellberries 3, chocolate dust 5, milk 5). */
     dwellberries: { inputs: (count) => [{ item: 'coins', count: 40 * count }], get: (q, count) => buyGroceries(q, /^dwellberries$/i, 'dwellberries', count) },
     'chocolate dust': { inputs: (count) => [{ item: 'coins', count: 40 * count }], get: (q, count) => buyGroceries(q, /^chocolate dust$/i, 'chocolate dust', count) },
-    'bucket of milk': { obj: 'bucket_milk', inputs: (count) => [{ item: 'coins', count: 40 * count }], get: (q, count) => buyGroceries(q, /^bucket of milk$/i, 'bucket of milk', count) },
+    'bucket of milk': {
+        obj: 'bucket_milk',
+        inputs: (count) => [{ item: 'coins', count: 40 * count }],
+        get: async (q, count) => {
+            // Coins first: listed as an input but never ensured, so a coinless account looped at Hudo.
+            await q.ensure('coins', 40 * (count - q.count('bucket of milk')));
+            await buyGroceries(q, /^bucket of milk$/i, 'bucket of milk', count);
+        },
+    },
     /** No shop stocks it: three ground spawns among the hobgoblins (level 28) south-west of the Crafting Guild. */
     'snape grass': { get: (q, count) => pickSpawns(q, 'snape grass', count, SNAPE_GRASS_SPAWNS) },
 

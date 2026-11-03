@@ -219,14 +219,17 @@ export async function buyGroceries(q: Quest, item: RegExp, label: string, count:
     const stock = () => q.sdk.getState()?.shop?.shopItems?.find((s) => item.test(s.name));
     if (!stock()) throw new Error(`Hudo does not sell ${label}`);
     let lastBuy = tickNow(q.sdk);
+    let failed = 0;
     while (held() < count && q.sdk.getState()?.shop?.isOpen) {
         const s = stock();
         if (s && s.count > 0) {
             const had = held();
             const r = await q.bot.buyFromShop(item, Math.min(s.count, count - had));
             if (held() === had) {
-                q.log(`groceries: buy ${label}: ${r.message}`);
+                q.log(`groceries: buy ${label}: ${r.message} (coins ${q.count('coins')}, pack ${q.sdk.getInventory().length}/28)`);
                 await q.sdk.waitForTicks(2);
+                // In stock but every buy refused (no coins, full pack): jacklove20 looped 83 min (2026-11-03).
+                if (++failed >= 6) break;
             }
             lastBuy = tickNow(q.sdk);
             continue;
