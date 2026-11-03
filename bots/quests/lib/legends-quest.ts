@@ -1383,8 +1383,11 @@ const ARMOUR: Want[] = ['dragonhide body', 'dragonhide chaps', 'dragon vambraces
 );
 const FIGHT_KIT = (q: Quest): Want[] => [WEAPON, FOOD_KIT(10), POTS(3)];
 
-/** The weapon (and whatever armour is banked) worn before a fight phase's own restock fills the pack. */
-async function gearUp(q: Quest): Promise<void> {
+/**
+ * The weapon (and whatever armour is banked) worn before a step's own restock fills the pack. Every
+ * step: the jungle's savages and wolves and the caves' deathwings set on an unarmed account too.
+ */
+export async function gearUp(q: Quest): Promise<void> {
     if (heldOf(q, WEAPON) < 1) await restock(q, [WEAPON, ...ARMOUR], 'weapon and armour');
     await armUp(q);
 }

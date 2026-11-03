@@ -32,6 +32,7 @@ import {
     dryPool,
     fillBowl,
     findCave,
+    gearUp,
     forgeHeart,
     germinate,
     getBullroarer,
@@ -69,6 +70,7 @@ const step = (fn: (q: Quest) => Promise<void>) => async (q: Quest) => {
         if (p && Math.hypot(p.worldX - 2655, p.worldZ - 3283) < 12) await stockCheck(q);
     }
     try {
+        await gearUp(q);
         await fn(q);
     } catch (err) {
         // A failed step must not leave the account standing among the jungle's savages or the caves'
