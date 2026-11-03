@@ -191,8 +191,9 @@ async function serveOnce(from: string, needs: Array<{ label: string; count: numb
         session.log('warn', `mule: bank would not open for ${from}`);
         return false;
     }
-    // --train carries an axe, a knife and logs: bank the pack so the request fits.
-    if (TRAIN) await depositPack();
+    // Bank the pack first, always: a restock received as the mule was stopping (150 prayer
+    // potions, 2026-11-03) stayed in the pack, and the stock count reads only the bank (have=0).
+    await depositPack();
     // Serve what is in stock: one line out (nails, 2026-11-01) used to send nothing at all,
     // and the requester then went without the lines this mule did hold. The requester takes a
     // partial trade (supply.ts accepts any offered line) and asks its next mule for the rest.
