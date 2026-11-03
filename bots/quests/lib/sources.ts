@@ -1080,7 +1080,7 @@ export const SOURCES: Record<string, Source> = {
      */
     /** Valaine only (stock 1, restocks in ~1000 ticks): waits upstairs for it. */
     'black full helm': {
-        inputs: () => [{ item: 'coins', count: 1200 }],
+        inputs: () => [{ item: 'coins', count: 2500 }],
         get: async (q, count) => {
             await buyAtValaine(q, 'black full helm', count, 1200);
             if (q.count('black full helm') < count) throw new Error(`Valaine had no black full helm (have ${q.count('black full helm')}/${count})`);
@@ -1091,14 +1091,14 @@ export const SOURCES: Record<string, Source> = {
      * Louie's in Al Kharid (stock 1, ~1200 ticks), which the next fleet buyer then waits on.
      */
     'black platelegs': {
-        inputs: () => [{ item: 'coins', count: 2200 }],
+        inputs: () => [{ item: 'coins', count: 4000 }],
         get: async (q, count) => {
             await buyAtValaine(q, 'black platelegs', count, 0);
             if (q.count('black platelegs') < count) await buyWaitingForRestock(q, LOUIE_LEGS, 'black platelegs', count);
         },
     },
     'black platebody': {
-        inputs: () => [{ item: 'coins', count: 4200 }],
+        inputs: () => [{ item: 'coins', count: 8000 }],
         get: async (q, count) => {
             await q.ensure('coins', 1);
             await buyWaitingForRestock(q, HORVIK, 'black platebody', count);
