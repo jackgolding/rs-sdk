@@ -1182,7 +1182,9 @@ async function meleeKill(): Promise<void> {
         await sdk.waitForTicks(3);
         return;
     }
-    await protectMelee(kbdTargetsMe());
+    // Always while the KBD is up, team or not (flicked, so cheap): ABGARMY11 died at team=2 with
+    // Protect OFF, 59 -> 0 HP in 16 s while eating (2026-11-03).
+    await protectMelee(true);
     await setStabStyle();
     log(`KBD up — protect from melee ${sdk.isPrayerActive('protect_from_melee') ? 'on' : 'OFF'} prayer=${sdk.getPrayerState()?.prayerPoints} sharks=${foodCount()} team=${(sdk.getNearbyPlayers() ?? []).length + 1}`);
     const hpXp = () => sdk.getSkill('Hitpoints')?.experience ?? 0;
@@ -1196,7 +1198,7 @@ async function meleeKill(): Promise<void> {
         // Only in the fight: a dose drunk on the walk in is 3 minutes wasted (user, 2026-11-02).
         await antifire.maybeDrink();
         await drinkPrayerIfLow();
-        await protectMelee(kbdTargetsMe());
+        await protectMelee(true);
         // Two sharks for the walk to the exit lever: the far fire breath still lands on the way
         // (qlck1 left at 0 sharks, 44 HP, and died by the lever).
         if (foodCount() <= 3) {
