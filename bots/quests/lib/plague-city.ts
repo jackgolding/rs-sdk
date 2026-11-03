@@ -444,9 +444,21 @@ export async function cureBravek(q: Quest): Promise<void> {
 /** Bravek's warrant: he hands another at 27 if it was lost ("Ah now what was it you wanted"). */
 async function getWarrant(q: Quest): Promise<void> {
     if (holds(q, OBJ.warrant)) return;
-    await intoBraveksRoom(q);
-    await q.talk(/^bravek$/i, [/they won't listen to me/i]);
-    if (!holds(q, OBJ.warrant)) throw new Error('plague: Bravek gave no warrant');
+    // bravek.rs2: at 27 with no warrant he re-asks, then the same multi3 ("They won't listen to me!")
+    // hands it over. On a slow server the talk returned mid-dialog ("...I need permission to
+    // enter. Click here to continue") before the choice came up (jacklove20, 2026-11-03): keep
+    // driving any dialog still open, and talk again up to three times.
+    const seen: string[] = [];
+    for (let attempt = 1; attempt <= 3 && !holds(q, OBJ.warrant); attempt++) {
+        await intoBraveksRoom(q);
+        let s = await q.talk(/^bravek$/i, [/they won't listen to me/i]);
+        if (!holds(q, OBJ.warrant) && (await untilTicks(q.sdk, (st) => !!st.dialog?.isOpen, 6))) {
+            s += await driveDialog(q.sdk, [/they won't listen to me/i], { done: () => holds(q, OBJ.warrant), ticks: 80, log: q.log });
+        }
+        await untilTicks(q.sdk, () => holds(q, OBJ.warrant), 5);
+        seen.push(`#${attempt}: ${s.slice(-160)}`);
+    }
+    if (!holds(q, OBJ.warrant)) throw new Error(`plague: Bravek gave no warrant (${seen.join(' | ')})`);
 }
 
 export async function rescueElena(q: Quest): Promise<void> {
