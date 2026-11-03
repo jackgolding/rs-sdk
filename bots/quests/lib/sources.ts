@@ -1078,18 +1078,40 @@ async function withdrawUnstackable(q: Quest, item: string, count: number, bank: 
 
 /** Men outside Lumbridge castle (npc spawns 3223,3240 and 3216,3219). */
 const LUMBRIDGE_MEN = { x: 3223, z: 3240 };
+/**
+ * Clusters of Man spawns (npc ids 1-3, name "Man") from the map files, surface only. The nearest
+ * one is used: jacklove13 walked Ardougne→Lumbridge (~an hour) for 12 coins (2026-11-03).
+ */
+const MEN_SPOTS = [
+    LUMBRIDGE_MEN,
+    { x: 2697, z: 3492 }, // Seers' Village (m42_54: 2693,3489 / 2694,3497 / 2698,3491)
+    { x: 2804, z: 3430 }, // Catherby (m43_53: 2803,3431 / 2805,3428)
+    { x: 2596, z: 3105 }, // Yanille (m40_48: 2596,3104 / 2596,3106)
+    { x: 3240, z: 3402 }, // Varrock east of the square (m50_53)
+    { x: 3097, z: 3510 }, // Edgeville (m48_54, seven spawns)
+    { x: 2974, z: 3375 }, // Falador north (m46_52: 2967,3373 / 2981,3378)
+];
+
+function nearestMen(q: Quest): { x: number; z: number } {
+    const p = q.sdk.getState()?.player;
+    if (!p || p.worldZ > 6000) return LUMBRIDGE_MEN;
+    const d = (s: { x: number; z: number }) => Math.max(Math.abs(s.x - p.worldX), Math.abs(s.z - p.worldZ));
+    return MEN_SPOTS.reduce((a, b) => (d(b) < d(a) ? b : a));
+}
 
 /** Shop sources ask for 1 coin (the prologue normally withdrew the real amount); a broke account earns a working float. */
 const COIN_FLOAT = 300;
 
 async function pickpocketCoins(q: Quest, asked: number): Promise<void> {
     const count = Math.max(asked, COIN_FLOAT);
-    await q.goTo(LUMBRIDGE_MEN, 6);
+    const spot = nearestMen(q);
+    q.log(`coins: pickpocketing men at ${spot.x},${spot.z}`);
+    await q.goTo(spot, 6);
     const t0 = tickNow(q.sdk);
     for (let tries = 0; q.count('coins') < count && tickNow(q.sdk) - t0 < 3000; tries++) {
         const man = q.sdk.findNearbyNpc(/^man$/i);
         if (!man) {
-            await q.goTo(LUMBRIDGE_MEN, 3);
+            await q.goTo(spot, 3);
             await q.sdk.waitForTicks(5);
             continue;
         }
