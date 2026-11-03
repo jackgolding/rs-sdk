@@ -192,8 +192,10 @@ export const inShamanCaves = (p: Tile) => inBox(p, 2752, 2815, 9280, 9343);
 export const inViyeldi = (p: Tile) => inBox(p, 2368, 2431, 4672, 4735);
 /** The foresters' clearing north of our way in (west of Shilo): home from here is the Brimhaven boat. */
 const inClearing = (p: Tile) => inBox(p, 2750, 2890, 2940, 2950);
+/** The Legends' Guild main hall, behind doors walkTo cannot open (legends_door.rs2). */
+const inGuildHall = (p: Tile) => inBox(p, 2715, 2745, 3374, 3395) && (p.level ?? 0) === 0;
 /** Anywhere goTo cannot walk out of: run-quest's goTo and prologue call leaveLegends from these. */
-export const inLegendsArea = (p: Tile) => inKharazi(p) || inShamanCaves(p) || inViyeldi(p) || inClearing(p);
+export const inLegendsArea = (p: Tile) => inKharazi(p) || inShamanCaves(p) || inViyeldi(p) || inClearing(p) || inGuildHall(p);
 
 // ── small helpers
 const inv = (q: Quest) => q.sdk.getInventory();
@@ -372,6 +374,8 @@ export interface Want {
     optional?: boolean;
     /** Not needed while this (held or banked) is had instead: two gold bars and a hammer, unless a bowl. */
     unless?: Want;
+    /** Enough to skip a bank trip (food: 6 of 10 held is no reason to sail home); topped up to count at a bank. */
+    min?: number;
 }
 const want = (label: string, count = 1, opts: Partial<Want> = {}): Want => ({ label, count, pattern: itemPattern(label), ...opts });
 const quest = (label: string, id: number, count = 1): Want => ({ label, id, count });
@@ -399,7 +403,7 @@ function spentQuestItem(q: Quest, id: number): boolean {
     return false;
 }
 
-const FOOD_KIT = (n: number): Want => ({ label: 'shark', pattern: FOOD, count: n });
+const FOOD_KIT = (n: number): Want => ({ label: 'shark', pattern: FOOD, count: n, min: Math.ceil(n / 2) });
 const POTS = (n: number): Want => ({ label: 'prayer potion', pattern: POTION, count: n, optional: true });
 const AXE = want('rune axe');
 const MAP = (q: Quest): Want => (stageNum(q) >= 2 ? quest('radimus notes (complete)', ID.notesDone) : quest('radimus notes', ID.notes));
@@ -433,7 +437,7 @@ const TRIALS = (q: Quest, toWinch: boolean): Want[] => {
  */
 export async function restock(q: Quest, wants: Want[], why: string): Promise<void> {
     // Optional lines (prayer potions, armour) are taken when we are at a bank anyway, never a trip of their own.
-    const short = () => wants.filter((w) => !w.optional && heldOf(q, w) < w.count && !(w.unless && heldOf(q, w.unless) > 0));
+    const short = () => wants.filter((w) => !w.optional && heldOf(q, w) < (w.min ?? w.count) && !(w.unless && heldOf(q, w.unless) > 0));
     if (!short().length) return;
     q.log(`legends: restock for ${why}: short ${short().map((w) => `${w.label} ${heldOf(q, w)}/${w.count}`).join(', ')}`);
     if (onIsland(pos(q)) || inLegendsArea(pos(q))) {
@@ -471,18 +475,19 @@ export async function restock(q: Quest, wants: Want[], why: string): Promise<voi
         if (need <= 0) continue;
         const banked = q.sdk.getBankItems().find((b) => matches(w, b));
         if (!banked) {
-            if (!w.optional) missing.push(w);
+            if (!w.optional && heldOf(q, w) < (w.min ?? w.count)) missing.push(w);
             continue;
         }
         const r = await q.bot.withdrawItem(banked, Math.min(need, banked.count)).catch((e) => ({ success: false, message: String(e) }));
         if (!r.success) q.log(`legends: withdraw ${w.label} ×${need}: ${(r as { message?: string }).message ?? 'failed'}`);
-        await untilTicks(q.sdk, () => heldOf(q, w) >= Math.min(w.count, heldOf(q, w) + banked.count), 4);
+        const target = heldOf(q, w) + Math.min(need, banked.count);
+        await untilTicks(q.sdk, () => heldOf(q, w) >= target, 6);
         if (heldOf(q, w) < w.count && !w.optional) {
             // A second stack of the same pattern (shark/swordfish) may cover the rest.
             const more = q.sdk.getBankItems().find((b) => matches(w, b) && b.id !== banked.id);
             if (more) await q.bot.withdrawItem(more, w.count - heldOf(q, w));
             await q.sdk.waitForTicks(2);
-            if (heldOf(q, w) < w.count) missing.push(w);
+            if (heldOf(q, w) < (w.min ?? w.count)) missing.push(w);
         }
     }
     // The quest's own items come back too: run-quest's prologue banks everything, and a step may need
@@ -598,6 +603,7 @@ async function leaveJungle(q: Quest): Promise<void> {
  * order, to the foresters' clearing (walkable to Shilo and Brimhaven). `tile` inside the same area: nothing.
  */
 export async function leaveLegends(q: Quest, tile: Tile): Promise<void> {
+    if (inGuildHall(pos(q)) && !inGuildHall(tile)) await leaveHall(q);
     if (inViyeldi(pos(q)) && !inViyeldi(tile)) await viyeldiUp(q);
     if (inShamanCaves(pos(q)) && !inShamanCaves(tile)) await leaveCaves(q);
     if (inKharazi(pos(q)) && !inKharazi(tile)) await leaveJungle(q);
@@ -1232,12 +1238,25 @@ async function getBook(q: Quest): Promise<void> {
     q.log('legends: the Book of Binding is ours');
 }
 
+type SpellOnLoc = (x: number, z: number, id: number, spell: number) => Promise<unknown>;
+const spellOnLoc = (q: Quest): SpellOnLoc | null => {
+    const f = (q.sdk as unknown as { sendSpellOnLoc?: SpellOnLoc }).sendSpellOnLoc;
+    return typeof f === 'function' ? f : null;
+};
+/** Thrown before any walk toward the magic gate when the SDK cannot cast on a loc. */
+export const GATE_BLOCKED =
+    'BLOCKED at the magic trial gate: it opens only to a Charge Orb spell cast on it (charge_orb.rs2), and this SDK has no sendSpellOnLoc (OPLOCT) — deploy the sdk/lite-client spell-on-loc change, then rerun';
+export function assertGateCastable(q: Quest): void {
+    if (spellOnLoc(q)) return;
+    const line = `${GATE_BLOCKED} (stopped before the gate at journal stage ${q.stage})`;
+    q.log(`legends: ${line}`);
+    throw new Error(`legends: ${line}`);
+}
+
 /** Charge Water Orb on the magic trial gate (F → G). Needs sdk.sendSpellOnLoc (OPLOCT). */
 async function magicGate(q: Quest): Promise<void> {
-    const cast = (q.sdk as unknown as { sendSpellOnLoc?: (x: number, z: number, id: number, spell: number) => Promise<unknown> }).sendSpellOnLoc;
-    if (typeof cast !== 'function') {
-        throw new Error('legends: the magic trial gate takes a Charge Orb spell cast on it, and this SDK has no sendSpellOnLoc (OPLOCT) — update the fleet image');
-    }
+    assertGateCastable(q);
+    const cast = spellOnLoc(q)!;
     await walk(q, { x: 2763, z: 9311 }, 1);
     for (let attempt = 1; attempt <= 3 && pos(q).z < 9318; attempt++) {
         const gate = await findLoc(q, /^ancient gate$/i, undefined, CAVE.magicGateSouth, 4);
@@ -1404,6 +1423,8 @@ export async function askSource(q: Quest): Promise<void> {
 
 /** The bravery potion (Gujuo's recipe), drunk, then the trials to the winch and down the rope. */
 export async function descend(q: Quest): Promise<void> {
+    // Before any restock or walk: a fleet image without spell-on-loc cannot pass the magic gate.
+    assertGateCastable(q);
     // Stage 16 means the potion was drunk (its bit is permanent): later descents need none.
     const brave = !!heldId(q, ID.bravery) || stageNum(q) >= STAGE_VALUE.viyeldi!;
     const mixed = brave || !!heldId(q, ID.snakeMix);
@@ -1777,6 +1798,8 @@ export async function slayFinal(q: Quest): Promise<void> {
 /** The good totem in place, then Gujuo's gift (35 → 40 → 45). */
 export async function replaceTotem(q: Quest): Promise<void> {
     if (!heldId(q, ID.gilded)) {
+        // The prologue banked the totem (and the bullroarer): both back first.
+        await restock(q, [...BASE(q), { ...quest('totem', ID.totem), optional: true }, FOOD_KIT(4)], 'the good totem');
         if (heldId(q, ID.totem)) {
             await toJungleTile(q, { x: TOTEM.x + 1, z: TOTEM.z + 1 }, 1);
             const pole = await findLoc(q, /^totem pole$/i, undefined, TOTEM, 2);
@@ -1786,9 +1809,7 @@ export async function replaceTotem(q: Quest): Promise<void> {
         }
         // Gujuo walks up with the gift (or comes to the bullroarer).
         const gotGift = () => !!heldId(q, ID.gilded);
-        if (!(await untilTicks(q.sdk, () => dialogOpen(q) || gotGift(), 20)) && !gotGift()) {
-            await restock(q, [...BASE(q)], 'Gujuo, the gift');
-        }
+        await untilTicks(q.sdk, () => dialogOpen(q) || gotGift(), 20);
         await withGujuo(q, [/^ok thanks for your help/i], null, gotGift, 'the gilded totem');
     }
     if (!heldId(q, ID.gilded)) throw new Error('legends: no gilded totem from Gujuo');
@@ -1804,12 +1825,27 @@ export async function handIn(q: Quest): Promise<void> {
     await q.talk(/^radimus erkle$/i, []);
 }
 
+/** Out of the main hall by its doors (they open for a member, legends_door.rs2). */
+async function leaveHall(q: Quest): Promise<void> {
+    await walk(q, { x: 2728, z: 3374 }, 1).catch(() => undefined);
+    for (let attempt = 1; attempt <= 3 && inGuildHall(pos(q)); attempt++) {
+        const door = await findLoc(q, /^legends guild door$/i, /^open$/i, { x: 2728, z: 3373 }, 6);
+        if (!door) throw new Error(`legends: no hall door near ${where(q)}`);
+        await opLoc(q, door, /^open$/i, [], () => !inGuildHall(pos(q)), 10);
+        if (inGuildHall(pos(q))) await q.sdk.sendWalk(2728, 3371);
+        await untilTicks(q.sdk, () => !inGuildHall(pos(q)), 6);
+    }
+    if (inGuildHall(pos(q))) throw new Error(`legends: could not leave the guild hall (at ${where(q)})`);
+}
+
 export async function train(q: Quest): Promise<void> {
     await throughGuildGate(q);
     if (pos(q).z < 3373) {
         await walk(q, GUILD_DOOR_OUT, 1);
         const door = await findLoc(q, /^legends guild door$/i, /^open$/i, { x: 2728, z: 3373 }, 4);
         if (door) await opLoc(q, door, /^open$/i, [], () => pos(q).z > 3373, 10);
+        if (pos(q).z <= 3373) await q.sdk.sendWalk(2728, 3375);
+        await untilTicks(q.sdk, () => pos(q).z > 3373, 6);
     }
     await walk(q, RADIMUS_HALL, 2);
     const skill = (process.env.LEGENDS_TRAIN ?? 'prayer').toLowerCase();

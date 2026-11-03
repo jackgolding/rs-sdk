@@ -38,6 +38,7 @@ import {
     growTotem,
     handIn,
     JOURNAL,
+    leaveLegends,
     mapJungle,
     meetGujuo,
     meetSpirit,
@@ -67,7 +68,14 @@ const step = (fn: (q: Quest) => Promise<void>) => async (q: Quest) => {
         const p = q.sdk.getState()?.player;
         if (p && Math.hypot(p.worldX - 2655, p.worldZ - 3283) < 12) await stockCheck(q);
     }
-    await fn(q);
+    try {
+        await fn(q);
+    } catch (err) {
+        // A failed step must not leave the account standing among the jungle's savages or the caves'
+        // deathwings until the next attempt (two local deaths that way, 2026-11-04): out first.
+        await leaveLegends(q, { x: 2655, z: 3283 }).catch((e) => q.log(`legends: could not get clear after the failure: ${(e as Error).message}`));
+        throw err;
+    }
 };
 
 await runQuest({
@@ -101,13 +109,15 @@ await runQuest({
         stage('recess', 'active', ['I made a glowing dragon heart stone']),
         // Echned's dialog sets 19 and, a few pages on, 20.
         { ...stage('spirit', 'active', ['A strange spirit seems to be guarding']), optional: true },
-        stage('dagger', 'active', ['The spirit gave me a dagger and said']),
+        // With Viyeldi slain (this route) the dagger line stays for good: 20 is the stage still seeking the water.
+        stage('dagger', 'active', ['The spirit gave me a dagger and said', 'I need to find a way to get some sacred water']),
         stage('source', 'active', ['I found the source of the sacred water']),
         stage('water', 'active', ['I now have some pure sacred water']),
         stage('totem', 'active', ["I've got a Yommi tree totem pole"]),
         // The totem on the corrupted pole sets 32; the fight that follows is the same step.
         { ...stage('final', 'active', ['I have to defeat the demon Nezikchened']), optional: true },
-        stage('slain', 'active', ['I fought Nezikchened and finally defeated him'], { none: ['I replaced the evil totem'] }),
+        // Two texts: Viyeldi spared, or (this route) slain and his fighters summoned first.
+        stage('slain', 'active', ['I fought Nezikchened and finally defeated him|I fought them all and eventually defeated Nezikchened'], { none: ['I replaced the evil totem'] }),
         stage('gilded', 'active', ['I replaced the evil totem with the good one'], { none: ['handed the totem pole and map'] }),
         stage('returned', 'active', ['asked me to join him inside the']),
         // Radimus' four trainings run in one dialog; 55-70 are passed through.
