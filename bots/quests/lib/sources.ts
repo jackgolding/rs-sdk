@@ -626,6 +626,15 @@ export const SOURCES: Record<string, Source> = {
             await buyWaitingForRestock(q, ARHEIN, 'tinderbox', 1);
         },
     },
+    /** Murder Mystery's flour barrel fills an empty pot. Arhein's store, Catherby (catherby.inv: stock 2). */
+    pot: {
+        obj: 'pot_empty',
+        inputs: (count) => [{ item: 'coins', count: 20 + 5 * count }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, ARHEIN, 'pot', count);
+        },
+    },
     potato: { get: (q, count) => pickLocs(q, 'potato', /^potato$/i, RELLEKKA_POTATOES, count) },
 
     // ── Shilo Village: a light dropped into the fissure, the beads' wire, a weapon for Nazastarool

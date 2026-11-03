@@ -73,6 +73,7 @@ import { inHeroesArea, leaveHeroesAreas } from './heroes-quest';
 import { inCrestUnderground, leaveCrestUnderground } from './crest';
 import { inLegendsArea, leaveLegends } from './legends-quest';
 import { inMelzarsMaze, leaveMelzarsMaze } from './melzars-maze';
+import { inMansionUpstairs, leaveMansionUpstairs } from './sinclair-mansion';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, awaitQuestStartTurn, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -498,6 +499,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // Melzar's Maze: the east door wants the Maze key and climbTo would take any ladder in it
                 // (ABGARMY09 stranded after Dragon Slayer, 2026-11-01). Out by its own rooms (lib/melzars-maze.ts).
                 if (inMelzarsMaze(pos()) && !inMelzarsMaze({ ...tile, level: tile.level ?? 0 })) await leaveMelzarsMaze(bot, sdk, log);
+                // The Sinclair Mansion's first floor: its doors hide the ladder from climbTo (lib/sinclair-mansion.ts).
+                if (inMansionUpstairs(pos()) && !inMansionUpstairs({ ...tile, level: tile.level ?? 0 })) await leaveMansionUpstairs(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0, tile);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in
@@ -767,6 +770,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inHeroesArea(pos())) await leaveHeroesAreas(q);
         // Legends' Quest's jungle and caves: walkTo has no way out of either (lib/legends-quest.ts).
         if (inLegendsArea(pos())) await leaveLegends(q, hub);
+        if (inMansionUpstairs(pos())) await leaveMansionUpstairs(q);
         if (pos().level !== 0) await q.climbTo(0);
         if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.

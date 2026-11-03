@@ -74,6 +74,17 @@ export const STUCK_DOORS: StuckDoor[] = [
         outside: { x: 3108, z: 3162 },
         area: { x1: 3100, z1: 3157, x2: 3106, z2: 3166 },
     },
+    {
+        // The Sinclair Mansion grounds' wrought iron gate (loc_1557/1558, m42_55) in the dry stone
+        // wall: walkTo stops at it both ways ("Stuck at (2741,3555)" in, "Stuck at (2741,3576)"
+        // out) and travelTo pins itself on the hedges west of it (Murder Mystery port, 2026-11-03).
+        name: 'Sinclair Mansion gate',
+        enter: true,
+        door: { x: 2741, z: 3555 },
+        inside: { x: 2741, z: 3556 },
+        outside: { x: 2741, z: 3554 },
+        area: { x1: 2726, z1: 3556, x2: 2752, z2: 3590 },
+    },
 ];
 
 const within = (t: Tile, a: StuckDoor['area']) => t.x >= a.x1 && t.x <= a.x2 && t.z >= a.z1 && t.z <= a.z2;
