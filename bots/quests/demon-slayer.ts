@@ -80,7 +80,11 @@ async function drainKey(q: Quest): Promise<void> {
         await untilTicks(q.sdk, (s) => (s.player?.worldZ ?? 0) > 9000, 10);
     }
     if (pos(q).z < 9000) throw new Error('could not climb down the palace manhole');
+    // The key lies ~300 ticks (demon_slayer.rs2 obj_add: lootdrop_duration*3/2): log each leg's
+    // time; jacklove1 and ABGARMY11 got there 846t and 1178t after the pour (2026-11-03).
+    q.log(`drain: in the sewer ${tickNow(q.sdk) - t0}t after the pour`);
     await q.bot.walkTo(SEWER_KEY.x, SEWER_KEY.z, 2);
+    q.log(`drain: at the key spot ${tickNow(q.sdk) - t0}t after the pour`);
     for (let i = 0; i < 8 && !hasKey(q, KEY.drain); i++) {
         await q.sdk.scanGroundItems(10).catch(() => undefined);
         const key = q.sdk.findGroundItem(/^key$/i);
