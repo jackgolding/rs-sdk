@@ -77,6 +77,7 @@ import { inMansionUpstairs, leaveMansionUpstairs } from './sinclair-mansion';
 import { inGrailArea, leaveGrail } from './holy-grail';
 import { inContest, leaveContest } from './fishing-contest';
 import { inCultCave, leaveCave as leaveCultCave } from './hazeel-cult';
+import { inGnomeVillage, inKhazardStronghold, leaveGnomeVillage, leaveKhazardStronghold } from './tree-gnome-village';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, awaitQuestStartTurn, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -510,6 +511,9 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inContest(pos()) && !inContest(tile)) await leaveContest(q);
                 // Hazeel Cult: the cult cave and the sewer to its hideout — a raft back, then its stairs (lib/hazeel-cult.ts).
                 if (inCultCave(pos()) && !inCultCave(tile)) await leaveCultCave(q);
+                // Tree Gnome Village: the village's loose railing and the Khazard stronghold's one-way door (lib/tree-gnome-village.ts).
+                if (inGnomeVillage(pos()) && !inGnomeVillage({ ...tile, level: tile.level ?? 0 })) await leaveGnomeVillage(q);
+                if (inKhazardStronghold(pos()) && !inKhazardStronghold(tile)) await leaveKhazardStronghold(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0, tile);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in

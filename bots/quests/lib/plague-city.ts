@@ -95,7 +95,10 @@ export const where = (q: Quest) => `(${pos(q).x},${pos(q).z},L${pos(q).level})`;
 const inBox = (p: Tile, x0: number, x1: number, z0: number, z1: number) => p.x >= x0 && p.x <= x1 && p.z >= z0 && p.z <= z1;
 
 /** Inside the West Ardougne wall (the east wall runs at x 2557-2558; Edmond's garden is 2566). */
-export const inWestArdougne = (p: Tile) => inBox(p, 2410, 2557, 3264, 3335);
+// Less the strips outside its west wall (x 2459-2460, z <= 3306) and south wall (z 3279-3280, x <= 2508):
+// the Khazard battlefield and Tree Gnome Village's warlord (2457,3302) — leavePlagueCity's manhole
+// walk from there ended at the east gate (qlqbtg1, 2026-11-03).
+export const inWestArdougne = (p: Tile) => inBox(p, 2410, 2557, 3264, 3335) && !inBox(p, 2410, 2458, 3264, 3304) && !inBox(p, 2410, 2508, 3264, 3278);
 /** The plague sewer under the wall: manhole/pipe (2530,9703) to the mud pile (2561,9738). */
 export const inPlagueSewer = (p: Tile) => inBox(p, 2500, 2580, 9690, 9760);
 /** The plague house's cellar (Elena's cell). */
