@@ -47,7 +47,7 @@ await runTask({
             // As bank notes: every line whole, in one trade (user, 2026-11-02).
             const needs = short.map((w) => ({ label: w.label, pattern: w.pattern, count: w.missing }));
             const before = needs.map((n) => held(n.pattern));
-            await requestFromMule({ sdk, bot, session: null, log: q.log } as never, needs, { mule: MULE, timeoutMs: 5 * 60_000, noted: true });
+            await requestFromMule({ sdk, bot, session: null, log: q.log } as never, needs, { mule: MULE, timeoutMs: 12 * 60_000, noted: true } /* 12 min: jackthief serves a queue one by one; at 5 min ABGARMY09 left 9 s before its 150 ranarr came (2026-11-03) */);
             const got = needs.reduce((n, need, i) => n + held(need.pattern) - before[i]!, 0);
             if (got > 0) empty = 0;
             else if (++empty >= 2) throw new Error(`${MULE} served nothing twice (${needs.map((n) => n.label).join(', ')})`);
