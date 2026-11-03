@@ -435,11 +435,23 @@ try {
             await bot.closeBank().catch(() => undefined);
         }
         const seen = new Set<string>();
-        const batch = readNewChat();
-        // Newest request per account only: an account asking again supersedes its older asks.
-        const newest = new Map<string, number>();
-        batch.forEach((m, i) => newest.set(String(m.from ?? m.sender ?? ''), i));
-        for (const [i, msg] of batch.entries()) {
+        // A queue re-read before every item, restock DMs jumping it: read once per round, a restock
+        // DM sat behind minutes of serving, went stale (>120t) and ABGARMY09's 150 prayer potions
+        // were never taken, 10 attempts twice (2026-11-03).
+        const queue: ChatMsg[] = [];
+        const latest = new Map<string, number>();
+        const pull = () => {
+            for (const m of readNewChat()) {
+                const f = String(m.from ?? m.sender ?? '');
+                latest.set(f, Math.max(latest.get(f) ?? -1, m.tick ?? 0));
+                if (isRestockRequest(f, String(m.text ?? ''))) queue.unshift(m);
+                else queue.push(m);
+            }
+        };
+        pull();
+        for (let guard = 0; queue.length > 0 && guard < 200; guard++) {
+            pull();
+            const msg = queue.shift()!;
             const text = String(msg.text ?? '');
             const from = String(msg.from ?? msg.sender ?? '');
             if (!from || seen.has(from + text)) continue;
@@ -462,8 +474,9 @@ try {
             // fails "no_response"/"player_not_found" and backs up the queue (jacklove5's 05:41 shield
             // ask was served 06:42, after the KBD accounts' asks queued up, 2026-11-03).
             const reqAge = msg.tick ? tickNow(sdk) - msg.tick : 0;
-            if (newest.get(from) !== i || reqAge > (req.noted ? 2300 : 550)) {
-                log(`mule: skipping ${newest.get(from) !== i ? 'superseded' : 'stale'} request from ${from} (${reqAge}t old)`);
+            const superseded = (msg.tick ?? 0) < (latest.get(from) ?? 0);
+            if (superseded || reqAge > (req.noted ? 2300 : 550)) {
+                log(`mule: skipping ${superseded ? 'superseded' : 'stale'} request from ${from} (${reqAge}t old)`);
                 continue;
             }
             log(`mule: request from ${from}: ${req.needs.map((n) => `${n.label} x${n.count}`).join(', ')}`);
