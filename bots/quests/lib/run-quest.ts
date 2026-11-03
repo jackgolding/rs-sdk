@@ -71,6 +71,7 @@ import { inKeepArea, leaveKeep } from './merlins-crystal';
 import { inArravBuilding, leaveBuildings as leaveArravBuildings } from './shield-of-arrav';
 import { inHeroesArea, leaveHeroesAreas } from './heroes-quest';
 import { inCrestUnderground, leaveCrestUnderground } from './crest';
+import { inLegendsArea, leaveLegends } from './legends-quest';
 import { inMelzarsMaze, leaveMelzarsMaze } from './melzars-maze';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
@@ -512,6 +513,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inShiloArea(pos()) && !inShiloArea(tile)) await leaveShilo(q, tile);
                 // Tai Bwo Wannai's jungle and the Rogues Purse cave: out by the hand holds, home by the Brimhaven boat (lib/jungle-potion.ts).
                 if (inJungleArea(pos())) await leaveJungle(q, tile);
+                // Legends' Quest: the Kharazi jungle (chopped in and out), the shaman caves, the Viyeldi caves (lib/legends-quest.ts).
+                if (inLegendsArea(pos()) && !inLegendsArea(tile)) await leaveLegends(q, tile);
                 // Left on Karamja by a failed Pirate's Treasure run (jacklove13, 2026-10-29).
                 if (pos().level === 0 && onKaramja(pos()) && !onKaramja(tile)) await sailFromKaramja();
                 // Left on Entrana (jacklove6 after a Lost City run, 2026-10-29): the monks' boat back.
@@ -762,6 +765,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inArravBuilding(pos())) await leaveArravBuildings(q);
         // Heroes' Quest's rooms, ice caves and the Dusty-key side: their own ways out.
         if (inHeroesArea(pos())) await leaveHeroesAreas(q);
+        // Legends' Quest's jungle and caves: walkTo has no way out of either (lib/legends-quest.ts).
+        if (inLegendsArea(pos())) await leaveLegends(q, hub);
         if (pos().level !== 0) await q.climbTo(0);
         if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.

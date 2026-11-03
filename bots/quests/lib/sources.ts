@@ -153,6 +153,13 @@ export const GROUPS: Record<string, Array<{ item: string; skill: string; level: 
         { item: 'dragonfire shield', skill: 'defence', level: 1 },
         { item: 'anti-dragon shield', skill: 'defence', level: 1 },
     ],
+    /** Any dose: Legends' Quest drinks them under Nezikchened. */
+    'prayer potion': [
+        { item: 'prayer potion(4)', skill: 'prayer', level: 1 },
+        { item: 'prayer potion(3)', skill: 'prayer', level: 1 },
+        { item: 'prayer potion(2)', skill: 'prayer', level: 1 },
+        { item: 'prayer potion(1)', skill: 'prayer', level: 1 },
+    ],
     /** Shilo Village's Nazastarool: the best melee weapon banked, wielded for the fight. */
     'melee weapon': [
         { item: 'dragon scimitar', skill: 'attack', level: 60 },
@@ -185,6 +192,8 @@ const AEMAD = { x: 2614, z: 3293, npc: /^(aemad|kortan)$/i };
 /** Chadwell's general store, West Ardougne (walled until Biohazard; the wall doors open after it). */
 const CHADWELL = { x: 2464, z: 3287, npc: /^chadwell$/i };
 const ARHEIN = { x: 2803, z: 3430, npc: /^arhein$/i };
+/** Jiminua's Jungle Store, Karamja (wiki/shops/jiminuas-jungle-store.md): charcoal 67gp, papyrus 15gp. */
+const JIMINUA = { x: 2767, z: 3122, npc: /^jiminua$/i };
 /** The Catherby candle maker (catherby.inv candleshop): candles 3gp. */
 const CANDLE_MAKER = { x: 2800, z: 3439, npc: /^candle maker$/i };
 /** Harry's Fishing Shop, Catherby: harpoon 5gp (fishing-route.ts HARRY). */
@@ -1129,6 +1138,51 @@ export const SOURCES: Record<string, Source> = {
             await buyWaitingForRestock(q, GERRANT, 'fishing bait', count);
         },
     },
+    // ── Legends' Quest (lib/legends-quest.ts). Bought in East Ardougne where Aemad stocks it; the
+    // rest is mule stock (jackthief at the Ardougne bank, the quest's hub) — the Magic Guild store's
+    // soul rune needs Magic 66 to walk in, cosmic runes are Mage Arena-only, and the gems, orb and
+    // lockpick are nobody's shop stock.
+    /** Radimus' map: one papyrus a section (three), a botched attempt can ruin one. Aemad: 13gp, stock 50. */
+    papyrus: {
+        inputs: (count) => [{ item: 'coins', count: 15 * count }],
+        get: async (q, count) => {
+            await q.ensure('coins', 15 * count);
+            await buyWaitingForRestock(q, AEMAD, 'papyrus', count);
+        },
+    },
+    /** Only Jiminua (Karamja) and Obli (Shilo) sell it: mule stock first, else Jiminua's store on the island. */
+    charcoal: {
+        muleSupply: 'jackthief',
+        inputs: (count) => [{ item: 'coins', count: 70 * count + 60 }],
+        get: async (q, count) => {
+            const { toJungle } = await import('./jungle-potion');
+            await q.ensure('coins', 70 * count + 30);
+            await toJungle(q, JIMINUA, 4);
+            await buyWaitingForRestock(q, JIMINUA, 'charcoal', count);
+        },
+    },
+    /** The Yommi tree takes nothing but a rune axe (quest_legends.rs2 yommitree_*): the Woodcutting group's best is not enough. */
+    'rune axe': { tool: true, mule: true, muleSupply: 'jackthief' },
+    /** The shaman caves' ancient gate (Thieving 50). A Brimhaven-dungeon ground spawn; no shop. */
+    lockpick: { tool: true, mule: true, muleSupply: 'jackthief' },
+    /** The marked wall's S-M-E-L-L. */
+    'soul rune': { obj: 'soulrune', mule: true, muleSupply: 'jackthief' },
+    'mind rune': { obj: 'mindrune', mule: true, muleSupply: 'jackthief' },
+    /** Charge Water Orb (Magic 56: 30 water, 3 cosmic, an unpowered orb) on the magic trial gate. */
+    'cosmic rune': { obj: 'cosmicrune', mule: true, muleSupply: 'jackthief' },
+    'unpowered orb': { obj: 'stafforb', mule: true, muleSupply: 'jackthief' },
+    /** The gem room's seven carved rocks (cut gems). */
+    opal: { mule: true, muleSupply: 'jackthief' },
+    jade: { mule: true, muleSupply: 'jackthief' },
+    'red topaz': { obj: 'red_topaz', mule: true, muleSupply: 'jackthief' },
+    sapphire: { mule: true, muleSupply: 'jackthief' },
+    emerald: { mule: true, muleSupply: 'jackthief' },
+    ruby: { mule: true, muleSupply: 'jackthief' },
+    diamond: { mule: true, muleSupply: 'jackthief' },
+    /** The golden bowl (Smithing 50, two bars at an anvil). */
+    'gold bar': { obj: 'gold_bar', mule: true, muleSupply: 'jackthief' },
+    /** Nezikchened's three fights drain prayer (90%, 18, 75%): whatever doses the bank or jackthief holds. */
+    'prayer potion': { obj: '4doseprayerrestore', muleSupply: 'jackthief' },
     /** Taverley's blue dragons on the way to the lava: Duke Horacio replaces one for a Dragon Slayer. */
     'dragonbreath shield': {
         obj: 'antidragonbreathshield',
