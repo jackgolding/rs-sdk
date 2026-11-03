@@ -43,8 +43,17 @@ const bank = (q: Quest, id: number) => (q.sdk.getBankItems() ?? []).filter((b) =
 const herbLevel = (q: Quest) => q.sdk.getSkill('Herblore')?.baseLevel ?? 1;
 
 async function openBank(q: Quest): Promise<void> {
-    const r = await q.bot.openBank();
-    if (!r.success) throw new Error(`openBank: ${r.message}`);
+    // Three tries: a single timeout ended ABGARMY09's run twice mid-brew (2026-11-03).
+    let msg = '';
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        if (q.sdk.getState()?.bank?.isOpen) return;
+        const r = await q.bot.openBank();
+        if (r.success) return;
+        msg = r.message ?? '';
+        await q.bot.closeInterface().catch(() => undefined);
+        await q.sdk.waitForTicks(3).catch(() => undefined);
+    }
+    throw new Error(`openBank: ${msg}`);
 }
 async function depositAll(q: Quest, keep: number[] = []): Promise<void> {
     for (let i = 0; i < 28; i++) {
