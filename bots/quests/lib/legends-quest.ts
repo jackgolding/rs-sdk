@@ -193,7 +193,7 @@ export const inViyeldi = (p: Tile) => inBox(p, 2368, 2431, 4672, 4735);
 /** The foresters' clearing north of our way in (west of Shilo): home from here is the Brimhaven boat. */
 const inClearing = (p: Tile) => inBox(p, 2750, 2890, 2940, 2950);
 /** The Legends' Guild main hall, behind doors walkTo cannot open (legends_door.rs2). */
-const inGuildHall = (p: Tile) => inBox(p, 2715, 2745, 3374, 3395) && (p.level ?? 0) === 0;
+const inGuildHall = (p: Tile) => inBox(p, 2715, 2745, 3373, 3395) && (p.level ?? 0) === 0;
 /** Anywhere goTo cannot walk out of: run-quest's goTo and prologue call leaveLegends from these. */
 export const inLegendsArea = (p: Tile) => inKharazi(p) || inShamanCaves(p) || inViyeldi(p) || inClearing(p) || inGuildHall(p);
 
@@ -690,6 +690,7 @@ export async function mapJungle(q: Quest): Promise<void> {
         await toJungleTile(q, MAP_SPOTS[section], 3);
         for (let attempt = 1; attempt <= 6 && !heldId(q, ID.notesDone); attempt++) {
             const mark = lastMsgId(q);
+            await defend(q);
             await opHeld(q, ID.notes, /^complete$/i, [], () => false, 8);
             const text = msgsSince(q, mark);
             if (/still have some sections|already completed this part/i.test(text) || heldId(q, ID.notesDone)) break;
@@ -739,6 +740,7 @@ async function withGujuo(q: Quest, choices: Array<RegExp | string>, goal: RegExp
             await enterJungle(q);
             // The bullroarer only calls inside legends_zones kharazi_jungle (z ≤ 2935): off the edge strip.
             if (pos(q).z > 2932 && !gujuo(q)) await walk(q, { x: 2828, z: 2928 }, 2);
+            await defend(q);
         }
         if (dialogOpen(q)) {
             await talk();
@@ -1332,6 +1334,22 @@ async function fight(q: Quest, name: RegExp, done: () => boolean, label: string,
     q.log(`legends: ${label} over in ${tickNow(q.sdk) - t0}t (done ${done()}); hp ${hp(q)}/${maxHp(q)}, prayer ${prayerPts(q)}, ${q.count(FOOD)} food, ${eaten} eaten`);
 }
 
+/** The jungle's and the caves' aggressive locals: a hit closes any open dialog (the map, Gujuo's blessing). */
+const LOCALS = /^(jungle savage|jungle wolf|oomlie bird|jungle spider|snake|deathwing|lesser demon)$/i;
+/** Kill whatever local is on us (targeting a player from beside us) before a dialog step. */
+async function defend(q: Quest): Promise<void> {
+    const onUs = () =>
+        q.sdk
+            .getNearbyNpcs()
+            .filter((n) => LOCALS.test(n.name) && n.targetIndex >= 32768 && (n.distance ?? 99) <= 2)
+            .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+    for (let i = 0; i < 4 && onUs(); i++) {
+        const npc = onUs()!;
+        const idx = npc.index;
+        await fight(q, new RegExp(`^${npc.name}$`, 'i'), () => !q.sdk.getNearbyNpcs().some((n) => n.index === idx), `a ${npc.name} on us`, { maxTicks: 200, quietTicks: 3 });
+    }
+}
+
 /** Wield the best melee weapon held, wear any armour held. */
 async function armUp(q: Quest): Promise<void> {
     for (const it of inv(q).filter((i) => /^(dragon|rune|adamant) (scimitar|longsword|battleaxe|mace)$|^(dragonhide (body|chaps)|dragon vambraces|berserker helm|dragon med helm|amulet of strength|dragonfire shield)$/i.test(i.name))) {
@@ -1753,6 +1771,7 @@ export async function growTotem(q: Quest): Promise<void> {
         same = n === lastName ? same + 1 : 0;
         lastName = n;
         const mark = lastMsgId(q);
+        if (n === 'fertile soil' || n === 'totem pole') await defend(q);
         const changed = async () => ((await at())?.name.toLowerCase() ?? '') !== n;
         if (n === 'fertile soil') {
             if (!countId(q, ID.seedsGerm)) throw new Error('legends: no germinated seeds to plant');
