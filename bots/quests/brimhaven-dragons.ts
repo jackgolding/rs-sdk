@@ -616,7 +616,18 @@ async function crossLeg(leg: Leg, inward: boolean): Promise<boolean> {
     const done = () => (inward ? leg.crossedIn(pos().x, pos().z) : leg.crossedOut(pos().x, pos().z));
     if (done()) return true;
     if (distTo(stand.x, stand.z) > 2) await bot.walkTo(stand.x, stand.z, 2);
+    // Off the usual line (ABGARMY08 at 2667,9538 for 2 h, 2026-11-03): no route to this leg's
+    // stand, and the nearest "vines" in reach were the wrong ones. Back to where the previous leg
+    // comes out, then on to the stand.
+    const idx = LEGS.indexOf(leg);
+    if (distTo(stand.x, stand.z) > 3 && idx > 0) {
+        const prev = inward ? LEGS[idx - 1]!.pitSide : (LEGS[idx + 1]?.entrySide ?? stand);
+        log(`route: ${leg.label}: no way to ${stand.x},${stand.z} from ${pos().x},${pos().z}; via ${prev.x},${prev.z}`);
+        await bot.walkTo(prev.x, prev.z, 2).catch(() => undefined);
+        await bot.walkTo(stand.x, stand.z, 2).catch(() => undefined);
+    }
     for (let attempt = 0; attempt < 8 && !done() && !pos().isDead; attempt++) {
+        if (distTo(stand.x, stand.z) > 6) break; // not at this leg: chopping other vines does nothing
         await eatIfNeeded();
         await sdk.scanNearbyLocs(6).catch(() => {});
         const near = !inward && leg.pitLoc ? leg.pitLoc : null;
