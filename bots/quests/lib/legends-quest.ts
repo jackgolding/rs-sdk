@@ -471,7 +471,8 @@ export async function restock(q: Quest, wants: Want[], why: string): Promise<voi
     }
     for (const w of wants) {
         if (w.unless && heldOf(q, w.unless) > 0) continue;
-        const need = w.count - heldOf(q, w);
+        // At the bank (the mainland) coins mean both boats again, whatever the island-side want said.
+        const need = (w.label === 'coins' ? Math.max(w.count, 100) : w.count) - heldOf(q, w);
         if (need <= 0) continue;
         const banked = q.sdk.getBankItems().find((b) => matches(w, b));
         if (!banked) {
@@ -1305,8 +1306,8 @@ function ours(q: Quest, name: RegExp): NearbyNpc | undefined {
  * Melee `name` to death under Protect from Melee, eating and drinking. Returns when `done` holds or
  * no such npc has been seen for `quietTicks`. Throws out of food at 30% hp.
  */
-async function fight(q: Quest, name: RegExp, done: () => boolean, label: string, opts: { maxTicks?: number; quietTicks?: number } = {}): Promise<void> {
-    const flicker = q.level('prayer') >= PROTECT_MELEE_LEVEL ? new PrayerFlicker(q.sdk, q.log, { flick: false }) : null;
+async function fight(q: Quest, name: RegExp, done: () => boolean, label: string, opts: { maxTicks?: number; quietTicks?: number; pray?: boolean } = {}): Promise<void> {
+    const flicker = opts.pray !== false && q.level('prayer') >= PROTECT_MELEE_LEVEL ? new PrayerFlicker(q.sdk, q.log, { flick: false }) : null;
     const t0 = tickNow(q.sdk);
     let lastSeen = tickNow(q.sdk);
     let lastAttack = -99;
@@ -1362,7 +1363,7 @@ async function defend(q: Quest): Promise<void> {
     for (let i = 0; i < 4 && onUs(); i++) {
         const npc = onUs()!;
         const idx = npc.index;
-        await fight(q, new RegExp(`^${npc.name}$`, 'i'), () => !q.sdk.getNearbyNpcs().some((n) => n.index === idx), `a ${npc.name} on us`, { maxTicks: 200, quietTicks: 3 });
+        await fight(q, new RegExp(`^${npc.name}$`, 'i'), () => !q.sdk.getNearbyNpcs().some((n) => n.index === idx), `a ${npc.name} on us`, { maxTicks: 200, quietTicks: 3, pray: false });
     }
 }
 
