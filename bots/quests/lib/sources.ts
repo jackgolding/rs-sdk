@@ -1244,7 +1244,9 @@ function nearestMen(q: Quest): { x: number; z: number } {
 const COIN_FLOAT = 300;
 
 async function pickpocketCoins(q: Quest, asked: number): Promise<void> {
-    const count = Math.max(asked, COIN_FLOAT);
+    // A real amount (Baraek's 20gp bribe) is just that: the 300 float took ABGARMY08 3016 ticks
+    // in Varrock for a 20gp ask (2026-11-03). Only a 1-coin shop placeholder earns the float.
+    const count = asked > 1 ? asked : COIN_FLOAT;
     const spot = nearestMen(q);
     q.log(`coins: pickpocketing men at ${spot.x},${spot.z}`);
     await q.goTo(spot, 6);
