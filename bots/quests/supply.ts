@@ -277,8 +277,12 @@ export async function requestFromMule(
             tradeTimeout: 240_000,
             rejectAfterMs: 180_000,
         } as never);
-        const got = served && (served as { trades?: unknown[] }).trades?.length;
-        ctx.log(`supply: mule trade ${got ? 'received' : 'timed out'} (${opts.mule})`);
+        // `trades` holds failed sessions too: "received" was logged for trades the mule then
+        // logged as declined (2026-11-03). Report the sessions' own outcome.
+        const sessions = ((served as { trades?: Array<{ success?: boolean; reason?: string; message?: string }> }).trades ?? []);
+        const ok = sessions.find((t) => t.success);
+        const last = sessions.at(-1);
+        ctx.log(`supply: mule trade ${ok ? 'received' : last ? `failed (${last.reason ?? last.message ?? '?'})` : 'timed out'} (${opts.mule})`);
         return pending.every((n) => countItems(sdk, n.pattern) >= n.count);
     } catch {
         return false;
