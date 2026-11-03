@@ -636,7 +636,10 @@ export async function reportToGrip(q: Quest): Promise<void> {
 }
 
 /** Partner stages before the kill (it still needs the Miscellaneous key). */
-const PHOENIX_BEFORE_GRIP = new Set(['p_unstarted', 'p_started', 'p_straven', 'p_alfonse', 'p_charlie']);
+// The stage id at the start is plain 'unstarted' (heroes-quest.ts): missing it here made a Black
+// Arm half read a just-started partner as past Grip — "jacklove13 already has the misckey" — and
+// go lure with the key still in its pack, deadlocking both halves (2026-11-03).
+const PHOENIX_BEFORE_GRIP = new Set(['unstarted', 'p_unstarted', 'p_started', 'p_straven', 'p_alfonse', 'p_charlie']);
 
 /**
  * Black Arm at 11: the Miscellaneous key to the partner, then Grip's cupboard until his keyring
@@ -726,7 +729,7 @@ async function lureGrip(q: Quest, pair: Pair): Promise<void> {
 
 /** Black Arm at 12: one candlestick to the partner (unless it already has its armband), then Katrine. */
 /** Phoenix stages that still need a candlestick from us (the kill done, Straven not yet paid). */
-const PHOENIX_BEFORE_ARMBAND = new Set(['p_unstarted', 'p_started', 'p_straven', 'p_alfonse', 'p_charlie', 'p_grip']);
+const PHOENIX_BEFORE_ARMBAND = new Set(['unstarted', 'p_unstarted', 'p_started', 'p_straven', 'p_alfonse', 'p_charlie', 'p_grip']);
 /** The partner has its candlestick, or is past needing one. */
 const phoenixHasCandle = (p: PairState) => p.has.candle > 0 || !PHOENIX_BEFORE_ARMBAND.has(p.stage);
 
