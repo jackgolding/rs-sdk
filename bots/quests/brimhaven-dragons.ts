@@ -665,7 +665,13 @@ async function goToPit(): Promise<boolean> {
         if (!(await enterDungeon())) return false;
     }
     for (let i = Math.max(0, legsCrossed()); i < LEGS.length; i++) {
-        if (!(await crossLeg(LEGS[i]!, true))) return false;
+        if (!(await crossLeg(LEGS[i]!, true))) {
+            // Boxed in (user, 2026-11-03: "if you get boxed in you can just teleport out"):
+            // out by teleport and start the trip again from the bank, not 3 h of retries.
+            log(`route: ${LEGS[i]!.label} in not crossed — teleporting out to start again`);
+            await emergencyTeleport();
+            return false;
+        }
     }
     if (distTo(PIT.x, PIT.z) > 10) await bot.walkTo(PIT.x, PIT.z, 4);
     return inPit();
@@ -674,7 +680,10 @@ async function goToPit(): Promise<boolean> {
 async function leaveDungeon(): Promise<boolean> {
     await protectMelee(false);
     for (let i = Math.min(LEGS.length, legsCrossed()) - 1; i >= 0; i--) {
-        if (!(await crossLeg(LEGS[i]!, false))) return false;
+        if (!(await crossLeg(LEGS[i]!, false))) {
+            log(`route: ${LEGS[i]!.label} out not crossed — teleporting out`);
+            return emergencyTeleport();
+        }
     }
     if (distTo(DUNGEON_ENTRY.x, DUNGEON_ENTRY.z) > 3) await bot.walkTo(DUNGEON_ENTRY.x, DUNGEON_ENTRY.z, 2);
     await sdk.scanNearbyLocs(4).catch(() => {});
