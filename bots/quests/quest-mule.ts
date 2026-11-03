@@ -219,7 +219,25 @@ async function serveOnce(from: string, needs: Array<{ label: string; count: numb
             continue;
         }
         give.push({ item: pattern, amount });
-        served.push(`${need.label} x${amount}`);
+        let total = amount;
+        // Noted requests take every stack sharing the name (grimy herbs are all "Herb", one id
+        // per herb): one note slot per stack, each offered whole (-1), as an offered stack
+        // leaves the pack and the same pattern then finds the next (user, 2026-11-03: herbs).
+        for (let extra = 0; noted && total < need.count && extra < 20; extra++) {
+            const taken = new Set(sdk.getInventory().filter((i) => pattern.test(i.name)).map((i) => i.id));
+            const next = (sdk.getBankItems?.() ?? []).find((i) => pattern.test(i.name) && (i.count ?? 0) > 0 && !taken.has(i.id));
+            if (!next) break;
+            const was = countItems(sdk, pattern);
+            await bot.withdrawItem(next, Math.min(need.count - total, next.count ?? need.count), { asNote: true });
+            await sdk.waitForTicks(2).catch(() => undefined);
+            const got = countItems(sdk, pattern) - was;
+            if (got <= 0) break;
+            give.push({ item: pattern, amount: -1 });
+            total += got;
+        }
+        // Several stacks: the first is offered whole too, so each entry takes one stack.
+        if (total > amount) give[give.findIndex((g) => g.item === pattern)]!.amount = -1;
+        served.push(`${need.label} x${total}`);
     }
     await bot.closeBank().catch(() => undefined);
     if (give.length === 0) {

@@ -115,6 +115,41 @@ async function brewPack(q: Quest, r: Recipe): Promise<number> {
     return inv(q, r.product) - before;
 }
 
+/** Identify levels from herbs.obj (guam-irit-potions.ts). Grimy herbs are all named "Herb". */
+const UNID_LEVELS: Record<number, number> = {
+    199: 3, 201: 5, 203: 11, 205: 20, 207: 25, 3049: 30, 209: 40, 211: 48, 213: 54, 3051: 59, 215: 65, 2485: 67, 217: 70, 219: 75,
+};
+
+/**
+ * Identify every grimy herb the level allows, 28 at a time (op1 on each), so the swarm's herb
+ * hand-overs to jackthief become brewable (user, 2026-11-03). Returns herbs identified.
+ */
+async function identifyBank(q: Quest): Promise<number> {
+    let total = 0;
+    for (let load = 0; load < 80 && !q.stopRequested(); load++) {
+        await openBank(q);
+        await depositAll(q);
+        const lvl = herbLevel(q);
+        const grimy = (q.sdk.getBankItems() ?? []).find((b) => /^herb$/i.test(b.name) && b.count > 0 && (UNID_LEVELS[b.id] ?? 99) <= lvl);
+        if (!grimy) break;
+        await q.bot.withdrawItem(grimy, Math.min(28, grimy.count), { asNote: false });
+        await q.sdk.waitForCondition(() => q.sdk.getInventory().some((i) => /^herb$/i.test(i.name)), 3_000).catch(() => undefined);
+        await q.bot.closeBank();
+        let n = 0;
+        for (const it of [...q.sdk.getInventory()]) {
+            if (!/^herb$/i.test(it.name)) continue;
+            const before = q.sdk.getInventory().filter((i) => /^herb$/i.test(i.name)).length;
+            await q.sdk.sendUseItem(it.slot, 1);
+            await q.sdk.waitForCondition(() => q.sdk.getInventory().filter((i) => /^herb$/i.test(i.name)).length < before, 2_000).catch(() => undefined);
+            n++;
+        }
+        total += n;
+        if (n === 0) break;
+    }
+    if (total) q.log(`identify: ${total} grimy herbs identified (Herblore ${herbLevel(q)})`);
+    return total;
+}
+
 function canBrew(q: Quest, r: Recipe): boolean {
     if (herbLevel(q) < r.level) return false;
     if (r.training && UNTIL > 0 && herbLevel(q) >= UNTIL) return false;
@@ -128,6 +163,7 @@ await runTask({
     task: async (q) => {
         const made = new Map<string, number>();
         const lvl0 = herbLevel(q);
+        await identifyBank(q);
         for (const key of ORDER) {
             const r = RECIPES[key]!;
             let misses = 0;
