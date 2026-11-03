@@ -72,10 +72,10 @@ const antipoisonStock = (q: Quest, want: number): void => {
     if (have < want) throw new NeedsStock([{ item: ANTIPOISON.item, count: want - have }]);
 };
 /** The Chronozon leg's antipoison, checked (not withdrawn) at the prologue of a run past Johnathon. */
-const legAntipoison = (q: Quest): Need[] => {
-    antipoisonStock(q, CHRON_ANTIPOISON);
-    return [];
-};
+// Only Johnathon's antipoison is required (user, 2026-11-03: "it should be able to finish the quest
+// with just 1"). The Chronozon leg runs under Protect from Melee, which zeroes the spiders' hits, and
+// takes up to CHRON_ANTIPOISON only if the bank has them (lib/crest.ts stockForChronozon).
+const legAntipoison = (_q: Quest): Need[] => [];
 /**
  * Coins for the Al Kharid toll (four crossings), claimed only while the bank is open
  * (the prologue): a mid-run claim would pickpocket for coins the toll fetches itself.
@@ -135,8 +135,8 @@ await runQuest({
             from: 'avan_piece',
             to: 'spoken_johnathon',
             needs: (q) => {
-                antipoisonStock(q, 1 + CHRON_ANTIPOISON);
-                return [ANTIPOISON, ...coins(q)];
+                antipoisonStock(q, 1);
+                return [{ ...ANTIPOISON, count: 1 }, ...coins(q)];
             },
             run: async (q) => {
                 await toJohnathon(q);
