@@ -28,6 +28,9 @@ const stage = (id: string, kind: 'unstarted' | 'active' | 'complete', all: strin
 
 await runQuest({
     id: 'junglepotion',
+    // One at a time: with 3 accounts at Trufitus his dialog "did not open" for the others, 3 tries
+    // running (jacklove7, ABGARMY20 failed 2/2 on the first transition, 2026-11-03).
+    maxConcurrent: 1,
     hub: 'ardougne',
     skills: { herblore: 3 },
     carry: ['snake weed', 'ardrigal', 'sito foil', 'volencia moss', 'rogues purse'],
