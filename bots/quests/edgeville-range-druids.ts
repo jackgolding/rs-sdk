@@ -72,7 +72,11 @@ const ARROW = /^(bronze|iron|steel|mithril|adamant|rune) arrows?$/i;
 const MAGIC_SHORTBOW = /^magic shortbow$/i;
 const SHORTBOW = /^shortbow$/i;
 const LOWE_BOWS = [SHORTBOW, /^oak shortbow$/i, /^longbow$/i, /^oak longbow$/i];
-const BOW = /bow/i;
+/**
+ * A bow, not "Bow string": /bow/i took jacklove15's bowstring for its bow, so it never equipped one
+ * and never went to Lowe (Ranged XP flat, 2026-11-03).
+ */
+const BOW = /^(oak |willow |maple |yew |magic )?(short|long)bow$/i;
 const RUNE_PICK = /^rune pickaxe$/i;
 const KEEP =
     /^(tuna|bass|swordfish|lobster|shark|coins|(bronze|iron|steel|mithril|adamant|rune) arrows?|magic shortbow|shortbow|.+bow)$/i;
@@ -142,8 +146,10 @@ await runScript(async ({ bot, sdk }) => {
     const hasMagicShortbow = () =>
         !!(sdk.findEquipmentItem(MAGIC_SHORTBOW) || sdk.findInventoryItem(MAGIC_SHORTBOW));
     const hasShortbow = () => !!(sdk.findEquipmentItem(SHORTBOW) || sdk.findInventoryItem(SHORTBOW));
+    // Worn, or carried with a Wield option: an unstrung bow shares its strung name (fleet lesson).
     const hasBow = () =>
-        hasMagicShortbow() || hasShortbow() || !!(sdk.findEquipmentItem(BOW) || sdk.findInventoryItem(BOW));
+        !!sdk.findEquipmentItem(BOW) ||
+        sdk.getInventory().some((i) => BOW.test(i.name) && i.optionsWithIndex.some((o) => /^(wield|wear)$/i.test(o.text)));
     const hasPickaxe = () => !!(sdk.findEquipmentItem(RUNE_PICK) || sdk.findInventoryItem(RUNE_PICK));
     const hasHerbs = () => herbSlots() > 0;
     const wantMsb = () => rangedLevel() >= RANGED_MSB;
@@ -440,7 +446,7 @@ await runScript(async ({ bot, sdk }) => {
     }
 
     async function restockArrowsAtLowe(): Promise<void> {
-        if (arrowCount() >= ARROW_RESTOCK_BELOW) {
+        if (arrowCount() >= ARROW_RESTOCK_BELOW && hasBow()) {
             log(`Arrows ok (${arrowCount()}) — skip Lowe`);
             return;
         }
