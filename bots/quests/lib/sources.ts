@@ -1656,6 +1656,9 @@ export async function buyWaitingForRestock(q: Quest, shop: { x: number; z: numbe
     // The restock budget starts at the first "out of stock", not at the call: the walk to the shop
     // alone used it up and ABGARMY05 gave up the moment Varrock's buckets ran out (2026-11-02).
     let deadline = Number.POSITIVE_INFINITY;
+    // A buy refused while the shop HAS stock (coins, pack) is not a restock wait: ABGARMY10
+    // looped 201 times in an hour at Aubury with 850 air runes listed and 18 coins (2026-11-03).
+    let refusedWithStock = 0;
     while (q.count(item) < count && tickNow(q.sdk) < deadline) {
         // A full pack reads as 'out of stock' below and waited the whole restock budget.
         if (q.sdk.getInventory().length >= 28 && q.count(item) === 0) throw new Error(`pack is full — no room to buy ${item}`);
@@ -1665,6 +1668,17 @@ export async function buyWaitingForRestock(q: Quest, shop: { x: number; z: numbe
         if (!q.sdk.getState()?.shop?.isOpen) await q.bot.openShop(shop.npc);
         const stock = () => q.sdk.getState()?.shop?.shopItems.find((i) => pattern.test(i.name));
         if (q.sdk.getState()?.shop?.isOpen && !stock()) throw new Error(`shop at (${shop.x},${shop.z}) does not sell ${item}`);
+        const listed = stock();
+        if ((listed?.count ?? 0) > 0) {
+            if (++refusedWithStock >= 5) {
+                await q.bot.closeShop().catch(() => undefined);
+                throw new Error(
+                    `${item}: buy refused 5x with ${listed!.count} in stock at (${shop.x},${shop.z}) — coins ${q.count('coins')}, price ${listed!.buyPrice ?? '?'}, pack ${q.sdk.getInventory().length}/28`
+                );
+            }
+            await q.sdk.waitForTicks(3);
+            continue;
+        }
         q.log(`${item} out of stock at (${shop.x},${shop.z}) — waiting for restock`);
         const t0 = tickNow(q.sdk);
         if (!Number.isFinite(deadline)) deadline = t0 + RESTOCK_WAIT_TICKS;
