@@ -1109,6 +1109,9 @@ export const SOURCES: Record<string, Source> = {
     /** Jatix's vials (Taverley), filled at Falador's fountain. */
     'vial of water': {
         obj: 'vial_water',
+        // jackthief banks ~480 (2026-11-01); Jatix sat at 0 vials for a 2000-tick restock wait and
+        // failed jacklove2's Heroes' Quest (2026-11-03). The shop + fountain stays the fallback.
+        muleSupply: 'jackthief',
         inputs: (count) => [{ item: 'coins', count: 5 * count }],
         get: (q, count) => vialsOfWater(q, count),
     },
