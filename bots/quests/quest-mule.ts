@@ -435,7 +435,11 @@ try {
             await bot.closeBank().catch(() => undefined);
         }
         const seen = new Set<string>();
-        for (const msg of readNewChat()) {
+        const batch = readNewChat();
+        // Newest request per account only: an account asking again supersedes its older asks.
+        const newest = new Map<string, number>();
+        batch.forEach((m, i) => newest.set(String(m.from ?? m.sender ?? ''), i));
+        for (const [i, msg] of batch.entries()) {
             const text = String(msg.text ?? '');
             const from = String(msg.from ?? msg.sender ?? '');
             if (!from || seen.has(from + text)) continue;
@@ -454,6 +458,14 @@ try {
             }
             const req = parseSupplyRequest(from, text);
             if (!req) continue;
+            // Requesters stop waiting (quests ~600 ticks, noted top-ups ~2400): serving later only
+            // fails "no_response"/"player_not_found" and backs up the queue (jacklove5's 05:41 shield
+            // ask was served 06:42, after the KBD accounts' asks queued up, 2026-11-03).
+            const reqAge = msg.tick ? tickNow(sdk) - msg.tick : 0;
+            if (newest.get(from) !== i || reqAge > (req.noted ? 2300 : 550)) {
+                log(`mule: skipping ${newest.get(from) !== i ? 'superseded' : 'stale'} request from ${from} (${reqAge}t old)`);
+                continue;
+            }
             log(`mule: request from ${from}: ${req.needs.map((n) => `${n.label} x${n.count}`).join(', ')}`);
             if (TRAIN) await parkAtDraynor().catch(() => undefined);
             await serveOnce(from, req.needs, req.noted);
