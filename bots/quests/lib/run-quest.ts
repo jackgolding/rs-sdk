@@ -201,6 +201,8 @@ const ENTRANA_DOCK = { x: 2835, z: 3336 };
 const UNDERGROUND_Z = 6400;
 const MAGIC_TAB = 6;
 const FALADOR_TELEPORT = 1170;
+const CAMELOT_TELEPORT = 1174;
+const LUMBRIDGE_TELEPORT = 1167;
 /** Ladders up that are out of view from much of their dungeon: the Taverley dungeon's (lib/taverley-dragons.ts). */
 const KNOWN_LADDERS_UP: Tile[] = [{ x: 2884, z: 9797 }];
 /** Arrival radius goTo asks travelTo for before bot.walkTo finishes the approach. */
@@ -313,17 +315,28 @@ export async function runQuest(def: QuestDef): Promise<void> {
 
         /** Falador Teleport (Magic 37: 1 law, 3 air, 1 water) when the pack holds the runes; true once above ground. */
         async function faladorTeleport(): Promise<boolean> {
-            const runes = q.count('law rune') >= 1 && q.count('air rune') >= 3 && q.count('water rune') >= 1;
-            if (!runes || (sdk.getSkill('magic')?.level ?? 1) < 37) return false;
-            for (let attempt = 1; attempt <= 3 && pos().z >= UNDERGROUND_Z; attempt++) {
-                await sdk.sendSetTab(MAGIC_TAB).catch(() => undefined);
-                await sdk.waitForTicks(1);
-                await sdk.sendClickComponent(FALADOR_TELEPORT);
-                await untilTicks(sdk, () => pos().z < UNDERGROUND_Z, 7);
+            const magic = sdk.getSkill('magic')?.level ?? 1;
+            // Falador (37: 1 law 3 air 1 water), else Camelot (45: 1 law 5 air) — the Brimhaven
+            // dragon kit carries Camelot runes only, and a shepherd restart left ABGARMY08 in the
+            // dungeon failing every quest at "no path" (2026-11-03). Then Lumbridge (31: 1 law 3 air 1 earth).
+            const options = [
+                { name: 'Falador', id: FALADOR_TELEPORT, ok: magic >= 37 && q.count('law rune') >= 1 && q.count('air rune') >= 3 && q.count('water rune') >= 1 },
+                { name: 'Camelot', id: CAMELOT_TELEPORT, ok: magic >= 45 && q.count('law rune') >= 1 && q.count('air rune') >= 5 },
+                { name: 'Lumbridge', id: LUMBRIDGE_TELEPORT, ok: magic >= 31 && q.count('law rune') >= 1 && q.count('air rune') >= 3 && q.count('earth rune') >= 1 },
+            ].filter((o) => o.ok);
+            for (const spell of options) {
+                for (let attempt = 1; attempt <= 3 && pos().z >= UNDERGROUND_Z; attempt++) {
+                    await sdk.sendSetTab(MAGIC_TAB).catch(() => undefined);
+                    await sdk.waitForTicks(1);
+                    await sdk.sendClickComponent(spell.id);
+                    await untilTicks(sdk, () => pos().z < UNDERGROUND_Z, 7);
+                }
+                if (pos().z < UNDERGROUND_Z) {
+                    log(`teleported out of the underground to ${spell.name} (${pos().x},${pos().z})`);
+                    return true;
+                }
             }
-            if (pos().z >= UNDERGROUND_Z) return false;
-            log(`teleported out of the underground to Falador (${pos().x},${pos().z})`);
-            return true;
+            return false;
         }
 
         /** Up the nearest reachable ladder/stairs until above ground; logs and returns if there is none in view. */
