@@ -54,20 +54,22 @@ export function buildCollision(index: LocIndex, baseX: number, baseZ: number, ma
                 const worldX = baseX + x;
                 const worldZ = baseZ + z;
 
-                for (const layer of [LocLayer.WALL, LocLayer.WALL_DECOR, LocLayer.GROUND, LocLayer.GROUND_DECOR]) {
-                    const value = readLoc(index, overlay, layer, level, worldX, worldZ);
-                    if (!value) {
-                        continue;
-                    }
+                // The collision map a loc lands on follows the same bridge
+                // rule as ClientBuild.loadLocations: level 1 LinkBelow pushes
+                // it down one.
+                let trueLevel = level;
+                if ((index.mapFlags(1, worldX, worldZ) & MapFlag.LinkBelow) !== 0) {
+                    trueLevel--;
+                }
+                if (trueLevel < 0) {
+                    continue;
+                }
 
-                    // The collision map a loc lands on follows the same bridge
-                    // rule as ClientBuild.loadLocations: level 1 LinkBelow pushes
-                    // it down one.
-                    let trueLevel = level;
-                    if ((index.mapFlags(1, worldX, worldZ) & MapFlag.LinkBelow) !== 0) {
-                        trueLevel--;
-                    }
-                    if (trueLevel < 0) {
+                for (const layer of [LocLayer.WALL, LocLayer.WALL_DECOR, LocLayer.GROUND, LocLayer.GROUND_DECOR]) {
+                    // `level` is the map file's; server loc changes (the overlay) are keyed by
+                    // the adjusted level the server keeps its locs on (GameMap `actualLevel`).
+                    const value = readLoc(index, overlay, layer, level, trueLevel, worldX, worldZ);
+                    if (!value) {
                         continue;
                     }
 
@@ -81,9 +83,9 @@ export function buildCollision(index: LocIndex, baseX: number, baseZ: number, ma
     }
 }
 
-function readLoc(index: LocIndex, overlay: ReadonlyMap<number, number> | undefined, layer: LocLayer, level: number, worldX: number, worldZ: number): number {
+function readLoc(index: LocIndex, overlay: ReadonlyMap<number, number> | undefined, layer: LocLayer, level: number, overlayLevel: number, worldX: number, worldZ: number): number {
     if (overlay) {
-        const key = ((layer & 0x3) * 0x40000000) + ((level & 0x3) * 0x10000000) + ((worldX & 0x3fff) * 0x4000) + (worldZ & 0x3fff);
+        const key = ((layer & 0x3) * 0x40000000) + ((overlayLevel & 0x3) * 0x10000000) + ((worldX & 0x3fff) * 0x4000) + (worldZ & 0x3fff);
         const override = overlay.get(key);
         if (override !== undefined) {
             return override === -1 ? 0 : override;

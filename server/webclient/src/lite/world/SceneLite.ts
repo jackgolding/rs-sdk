@@ -14,6 +14,7 @@
 
 import { LocLayer } from '#/dash3d/LocLayer.js';
 import LocType from '#/config/LocType.js';
+import { MapFlag } from '#/dash3d/MapFlag.js';
 
 import { LocIndex, valueAngle, valueLocId, valueShape } from './LocIndex.js';
 
@@ -105,7 +106,7 @@ export class SceneLite {
 
     /** Static loc id at a world coord, ignoring the overlay - for LOC_DEL bookkeeping. */
     staticLocIdAt(layer: LocLayer, level: number, worldX: number, worldZ: number): number {
-        const value = this.index.lookup(layer, level, worldX, worldZ);
+        const value = this.index.lookup(layer, staticLevel(this.index, level, worldX, worldZ), worldX, worldZ);
         return value ? valueLocId(value) : 0;
     }
 
@@ -162,7 +163,7 @@ export class SceneLite {
             return override === DELETED ? 0 : override;
         }
 
-        return this.index.lookup(layer, level, worldX, worldZ);
+        return this.index.lookup(layer, staticLevel(this.index, level, worldX, worldZ), worldX, worldZ);
     }
 
     /**
@@ -194,6 +195,21 @@ export class SceneLite {
 
         return typecode | 0;
     }
+}
+
+/**
+ * The map file level whose locs the scene shows at `level` on this tile. ClientBuild.finishBuild
+ * calls World.pushDown on every LinkBelow tile (bridges, the fishing platform): the file's level 1
+ * becomes scene level 0, 2 -> 1, 3 -> 2 and the file's level 0 goes to scene level 3. The browser's
+ * world.sceneType/wallType/... read the pushed-down scene, and the server keys its locs (and every
+ * LOC_ADD_CHANGE/LOC_DEL) by the same adjusted level (GameMap.loadLocations, `actualLevel`), so the
+ * overlay needs no adjustment; only the static file lookup does.
+ */
+export function staticLevel(index: LocIndex, level: number, worldX: number, worldZ: number): number {
+    if ((index.mapFlags(1, worldX, worldZ) & MapFlag.LinkBelow) === 0) {
+        return level;
+    }
+    return level < 3 ? level + 1 : 0;
 }
 
 function layerOf(shape: number): LocLayer {

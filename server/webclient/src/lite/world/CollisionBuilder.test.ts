@@ -58,7 +58,9 @@ const REGIONS: Array<[string, number, number]> = [
     ['varrock', 402, 427],
     ['falador', 371, 422],
     ['draynor', 385, 412],
-    ['alkharid', 410, 391]
+    ['alkharid', 410, 391],
+    // the fishing platform: a LinkBelow map square (Sea Slug)
+    ['fishing platform', 347, 410]
 ];
 
 describe('CollisionBuilder matches the browser client', () => {

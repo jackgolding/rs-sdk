@@ -35,7 +35,7 @@ function makeClient(name: string): LiteClient {
         connection: { out: Packet.alloc(1), isClosed: false } as never,
         // Static index that answers "nothing here" - overlay entries are the
         // only locs the scene will see, so their removal is observable.
-        locIndex: { lookup: () => 0 } as never,
+        locIndex: { lookup: () => 0, mapFlags: () => 0 } as never,
         username: name,
         password: 'x'
     });
