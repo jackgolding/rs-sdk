@@ -271,6 +271,9 @@ export async function identifyHerbs(q: Quest): Promise<void> {
     }
 }
 
+/** A brew's makings held: tarromin (or a herb to identify) and a vial of water, or the unfinished potion; and ashes. */
+export const canBrew = (q: Quest) => q.level('herblore') >= 15 && heldId(q, OBJ.ashes) > 0 && (heldId(q, OBJ.unf) > 0 || (heldId(q, OBJ.tarromin, OBJ.herb) > 0 && heldId(q, OBJ.vial) > 0));
+
 /** Serum 207: identify the herbs, tarromin into vials of water, ashes in (-> 10). Brews `count` (3 doses each). */
 export async function brewSerum(q: Quest, count = 2): Promise<void> {
     if (q.level('herblore') < 15) throw new Error(`mortton: Serum 207 needs Herblore 15 (have ${q.level('herblore')})`);
@@ -325,8 +328,10 @@ export async function serumTalk(q: Quest, who: 'razmire' | 'ulsquire', choices: 
         if (n.distance > 2) await walk(q, { x: n.tileX ?? n.x, z: n.tileZ ?? n.z }, 1);
         if (n.id === clear) await q.sdk.sendInteractNpc(n.index, 1);
         else {
+            // Out of serum: brew another from the pack's tarromin (the prologue's budget brought a vial and ashes per herb).
+            if (!itemId(q, ...SERUMS) && canBrew(q)) await brewSerum(q, 1);
             const serum = itemId(q, ...SERUMS);
-            if (!serum) throw new Error(`mortton: ${label}: no Serum 207 left`);
+            if (!serum) throw new Error(`mortton: ${label}: no Serum 207 left (tarromin ${heldId(q, OBJ.tarromin, OBJ.herb)}, unf ${heldId(q, OBJ.unf)}, vials ${heldId(q, OBJ.vial)}, ashes ${heldId(q, OBJ.ashes)})`);
             await q.sdk.sendUseItemOnNpc(serum.slot, n.index);
         }
         await untilTicks(q.sdk, (s) => !!s.dialog?.isOpen, 15);

@@ -288,6 +288,14 @@ export interface HuntSpot {
 const FALADOR_FARM_COWS: HuntSpot = { x: 3027, z: 3307, npc: /^cow$/i };
 const FALADOR_FARM_CHICKENS: HuntSpot = { x: 3015, z: 3287, npc: /^chicken$/i };
 const PORT_SARIM_GIANT_RATS: HuntSpot = { x: 2995, z: 3191, npc: /^giant rat$/i };
+/** Swamp toad ground spawns south of Taverley (m45_53 obj 2150). */
+const TAVERLEY_SWAMP_TOADS = [
+    { x: 2903, z: 3400 },
+    { x: 2907, z: 3394 },
+    { x: 2908, z: 3410 },
+];
+/** toadflaxvial: the unfinished agility potion ("Unfinished potion", a name every unf shares). */
+const TOADFLAX_UNF = 3002;
 const TAVERLEY_BEARS: HuntSpot = { x: 2965, z: 3465, npc: /^bear$/i };
 /** Every chicken drops bones (Demon Slayer's 25 for Traiborn). East Lumbridge coop, old demon-slayer.ts. */
 const LUMBRIDGE_EAST_CHICKENS: HuntSpot = { x: 3228, z: 3300, npc: /^chicken$/i };
@@ -775,6 +783,68 @@ export const SOURCES: Record<string, Source> = {
         },
     },
     /** Gerrant's Fishy Business, Port Sarim (port_sarim.inv fishingshop). */
+    /** Gerrant's Fishy Business, Port Sarim (port_sarim.inv: net 5gp). The karambwanji in Tai Bwo Wannai Trio. */
+    'small fishing net': {
+        obj: 'net',
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 10 }],
+        get: async (q) => {
+            await q.ensure('coins', 10);
+            await buyWaitingForRestock(q, GERRANT, 'small fishing net', 1);
+        },
+    },
+    /**
+     * Tai Bwo Wannai Trio: Tamayu drinks 4 doses. No shop sells agility potions; brewed here (Herblore 34,
+     * brew_potion.struct 3dose1agility: toadflax into a vial of water, toad's legs in), else jackthief's stock.
+     */
+    'agility potion(3)': {
+        obj: '3dose1agility',
+        muleSupply: 'jackthief',
+        levels: { herblore: 34 },
+        inputs: (count) => [
+            { item: 'toadflax', count },
+            { item: "toad's legs", count },
+            { item: 'vial of water', count },
+        ],
+        get: async (q, count) => {
+            for (let i = 0; i < 2 * count && q.count('agility potion(3)') < count; i++) {
+                await q.ensure('toadflax', 1);
+                await q.ensure("toad's legs", 1);
+                await q.ensure('vial of water', 1);
+                const unf = () => q.sdk.getInventory().find((x) => x.id === TOADFLAX_UNF);
+                if (!unf()) {
+                    const herb = q.sdk.findInventoryItem(/^toadflax$/i)!;
+                    const vial = q.sdk.findInventoryItem(/^vial of water$/i)!;
+                    await q.sdk.sendUseItemOnItem(herb.slot, vial.slot).catch(() => undefined);
+                    await untilTicks(q.sdk, (s) => !!unf() || !!s.dialog?.isOpen, 8);
+                    if (q.sdk.getDialog()?.isOpen) await driveDialog(q.sdk, [/^make 1|^1$|toadflax|unfinished/i], { done: () => !!unf(), ticks: 8 });
+                    if (!unf()) continue;
+                }
+                const before = q.count('agility potion(3)');
+                const legs = q.sdk.findInventoryItem(/^toad's legs$/i)!;
+                await q.sdk.sendUseItemOnItem(legs.slot, unf()!.slot).catch(() => undefined);
+                await untilTicks(q.sdk, (s) => q.count('agility potion(3)') > before || !!s.dialog?.isOpen, 8);
+                if (q.sdk.getDialog()?.isOpen) await driveDialog(q.sdk, [/^make 1|^1$|agility/i], { done: () => q.count('agility potion(3)') > before, ticks: 8 });
+            }
+        },
+    },
+    /** Agility potion herb (clean). No shop, no spawn (random herb drops only): the mule's herb stock. */
+    toadflax: { mule: true, muleSupply: 'jackthief' },
+    /** Swamp toads south of Taverley (m45_53 obj 2150 x3, ~100t respawn), legs pulled off (gnome_cooking swamp_toad.rs2). */
+    "toad's legs": {
+        obj: 'toads_legs',
+        get: async (q, count) => {
+            for (let round = 0; round < 4 && q.count("toad's legs") < count; round++) {
+                const toads = q.count(/^swamp toad$/i);
+                if (q.count("toad's legs") + toads < count) await pickSpawns(q, 'swamp toad', count - q.count("toad's legs"), TAVERLEY_SWAMP_TOADS);
+                for (const toad of q.sdk.getInventory().filter((i) => /^swamp toad$/i.test(i.name))) {
+                    const op = toad.optionsWithIndex.find((o) => /remove-legs/i.test(o.text));
+                    await q.sdk.sendUseItem(toad.slot, op?.opIndex ?? 1).catch(() => undefined);
+                    await untilTicks(q.sdk, () => !q.sdk.getInventory().some((i) => i.slot === toad.slot && /^swamp toad$/i.test(i.name)), 4);
+                }
+            }
+        },
+    },
     'lobster pot': {
         obj: 'lobster_pot',
         inputs: (count) => [{ item: 'coins', count: 40 * count }],
@@ -1160,6 +1230,12 @@ export const SOURCES: Record<string, Source> = {
     },
     /** Blamish oil's herb (clean; Herblore 25 for the oil). No shop sells it: the mule's herb stock. */
     harralander: { mule: true, muleSupply: 'jackthief' },
+    /**
+     * Shades of Mort'ton's Serum 207 herb (clean; one per 3 doses). No shop stocks it and no spawn places it: Herbi
+     * Flax's table gives two once, cured Mort'ton villagers sometimes hand back 1-3 (afflicted.rs2), monsters' random
+     * herb drops (shared_droptables.rs2). Asked only when the serum budget is short: the mule's herb stock.
+     */
+    tarromin: { mule: true, muleSupply: 'jackthief' },
     /** Jatix's vials (Taverley), filled at Falador's fountain. */
     'vial of water': {
         obj: 'vial_water',
