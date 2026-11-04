@@ -338,6 +338,8 @@ function reachable(q: Quest, t: Tile): boolean {
 function pocket(q: Quest): Pocket | null {
     if (!inTirannwn(pos(q))) return null;
     for (const p of POCKETS) if (reachable(q, p.at)) return p.name;
+    // The one-tile gaps between the old camp's cross-overs: oldCampWest goes on from either.
+    if (pos(q).z === 3149 && (pos(q).x === 2234 || pos(q).x === 2237)) return 'TRACKER';
     return null;
 }
 
@@ -358,9 +360,12 @@ async function crossOver(q: Quest, loc: { id: number; x: number; z: number }, st
     if (!there()) throw new Error(`regicide: could not cross ${label} (at ${where(q)})`);
 }
 
-/** Step over a tripwire (an Agility roll; a snag is damage, the step still happens). */
-async function stepOver(q: Quest, wire: Tile, stand: Tile, landed: Tile, label: string): Promise<void> {
-    const there = () => pos(q).x === landed.x && pos(q).z === landed.z;
+/**
+ * Step over a tripwire (an Agility roll; a snag is damage, the step still happens). The step moves 2 tiles past the
+ * wire (a teleport, the exact-move, another teleport: (2215,3153) -> (2215,3156)), so `landed` is a predicate.
+ */
+async function stepOver(q: Quest, wire: Tile, stand: Tile, landed: () => boolean, label: string): Promise<void> {
+    const there = landed;
     for (let attempt = 1; attempt <= 4 && !there(); attempt++) {
         await eatIfLow(q);
         await walk(q, stand, 0);
@@ -376,6 +381,16 @@ const X2 = 3938;
 const X3 = 3939;
 const X1_CAMP = 3999;
 const X2_CAMP = 3998;
+
+/**
+ * West over the old camp's three cross-overs (x 2238, 2235, 2232 at z 3148; 2 wide, a one-tile gap between). Landing on
+ * (2231,3149) at stage 8 calls the old camp's guard (quest_regicide.rs2 spawn_tyras_guard).
+ */
+async function oldCampWest(q: Quest): Promise<void> {
+    if (pos(q).x > 2237 || pos(q).z !== 3149) await crossOver(q, { id: X3, x: 2238, z: 3148 }, { x: 2240, z: 3149 }, { x: 2237, z: 3149 }, 'the old camp cross-over (2238) west');
+    if (pos(q).x > 2234) await crossOver(q, { id: X2, x: 2235, z: 3148 }, { x: 2237, z: 3149 }, { x: 2234, z: 3149 }, 'the old camp cross-over (2235) west');
+    await crossOver(q, { id: X1, x: 2232, z: 3148 }, { x: 2234, z: 3149 }, { x: 2231, z: 3149 }, 'the old camp cross-over (2232) west');
+}
 
 /** The joins: each is a function crossing from `a` to `b` (the reverse is listed separately). */
 const EDGES: Array<{ a: Pocket; b: Pocket; go: (q: Quest, there: () => boolean) => Promise<void> }> = [
@@ -401,10 +416,18 @@ const EDGES: Array<{ a: Pocket; b: Pocket; go: (q: Quest, there: () => boolean) 
             await opLoc(q, 3931, { x: 2197, z: 3237 }, 1, t, 'the log east over the river', { ticks: 15 });
         },
     },
-    { a: 'TRACKER', b: 'WOODS', go: (q) => crossOver(q, { id: X1, x: 2232, z: 3148 }, { x: 2234, z: 3149 }, { x: 2231, z: 3149 }, 'the old camp cross-over west') },
-    { a: 'WOODS', b: 'TRACKER', go: (q) => crossOver(q, { id: X1, x: 2232, z: 3148 }, { x: 2231, z: 3149 }, { x: 2234, z: 3149 }, 'the old camp cross-over east') },
-    { a: 'WOODS', b: 'NORTHWOODS', go: (q) => stepOver(q, { x: 2215, z: 3154 }, { x: 2215, z: 3153 }, { x: 2215, z: 3155 }, 'the tripwire north') },
-    { a: 'NORTHWOODS', b: 'WOODS', go: (q) => stepOver(q, { x: 2215, z: 3154 }, { x: 2215, z: 3155 }, { x: 2215, z: 3153 }, 'the tripwire south') },
+    { a: 'TRACKER', b: 'WOODS', go: (q) => oldCampWest(q) },
+    {
+        a: 'WOODS',
+        b: 'TRACKER',
+        go: async (q) => {
+            if (pos(q).x < 2234) await crossOver(q, { id: X1, x: 2232, z: 3148 }, { x: 2231, z: 3149 }, { x: 2234, z: 3149 }, 'the old camp cross-over (2232) east');
+            if (pos(q).x < 2237) await crossOver(q, { id: X2, x: 2235, z: 3148 }, { x: 2234, z: 3149 }, { x: 2237, z: 3149 }, 'the old camp cross-over (2235) east');
+            await crossOver(q, { id: X3, x: 2238, z: 3148 }, { x: 2237, z: 3149 }, { x: 2240, z: 3149 }, 'the old camp cross-over (2238) east');
+        },
+    },
+    { a: 'WOODS', b: 'NORTHWOODS', go: (q) => stepOver(q, { x: 2215, z: 3154 }, { x: 2215, z: 3153 }, () => pos(q).z >= 3155, 'the tripwire north') },
+    { a: 'NORTHWOODS', b: 'WOODS', go: (q) => stepOver(q, { x: 2215, z: 3154 }, { x: 2215, z: 3155 }, () => pos(q).z <= 3153, 'the tripwire south') },
     {
         a: 'NORTHWOODS',
         b: 'APPROACH',
@@ -570,7 +593,7 @@ export async function guard(q: Quest, defeated: () => Promise<boolean>): Promise
     await wieldWeapon(q);
     for (let attempt = 1; attempt <= 3 && !(await defeated()); attempt++) {
         if (pocket(q) !== 'WOODS') await toPocket(q, 'TRACKER');
-        if (pocket(q) === 'TRACKER') await crossOver(q, { id: X1, x: 2232, z: 3148 }, { x: 2234, z: 3149 }, { x: 2231, z: 3149 }, 'the old camp cross-over west');
+        if (pocket(q) === 'TRACKER') await oldCampWest(q);
         if (await fightGuard(q, defeated)) return;
         // The old camp's guard comes once (regicide_seen_guard): the camp's own cross-over calls another before 9.
         q.log('regicide: no guard at the old camp; trying the camp cross-over');

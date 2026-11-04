@@ -10,10 +10,14 @@
  * the dense wood, which needs stage 8.
  *
  * WORK IN PROGRESS. Staging (2026-11-04, qlqhrg1): unstarted -> received -> lathas -> scouts -> iorwerth -> pendant ->
- * footprints -> tracker2 journal-verified (two restarts in Tirannwn: out by Falador Teleport, back through the pass).
- * Written after that: the guard (9), Tyras's camp (10), Iorwerth's book (11). Not written: the bomb (coal tar through
- * the Rimmington chemist's still, quicklime, sulphur, the loom's cloth fuse) and the catapult (12), Iorwerth's
- * letter (13), Arianwyn (14), Lathas (complete).
+ * footprints -> tracker2 -> guard -> camp -> book, every stage journal-verified; four restarts in Tirannwn (out by
+ * Falador Teleport, back through the pass). Not written: the bomb and the catapult (12), Iorwerth's letter (13),
+ * Arianwyn (14), Lathas (complete); a run stops with "no transition from stage book". The bomb's facts, from the
+ * content: a barrel (ground spawns in Iorwerth's and Tyras's camps), coal tar (the tar pits by the old camp), the
+ * Rimmington chemist's still (2927,3212; a blind valve/coal minigame, .ql/still.ts simulates a coal policy that
+ * works), limestone (rocks at 2317-2325,3265-3272, a pocket past the pitfall at 2276-2278,3261-3263) burnt to
+ * quicklime at Tyras's furnace (gloves), sulphur from the formations, both ground with a pestle into pots, 4 balls
+ * of wool on Iorwerth's loom for the fuse, a cooked rabbit for the catapult's guard, then the catapult (2185,3183).
  */
 import { runQuest, type Quest, type Need } from './lib/run-quest';
 import * as reg from './lib/regicide';
