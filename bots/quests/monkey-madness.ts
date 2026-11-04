@@ -62,7 +62,7 @@ const onAtoll = (step: (q: Quest) => Promise<void>, wants: (q: Quest) => Want[] 
         await step(q);
     } catch (e) {
         // Out of food (or the Aunt's jail ate the step's time): the transition's next attempt restocks first.
-        if (!/out of food and prayer|no talisman from the monkey child|village walk|still boxed in|no knockout at the ravine|still in the jail|needs monkey bones again/i.test((e as Error).message)) throw e;
+        if (!/out of food and prayer|no talisman from the monkey child|village walk|still boxed in|not down the temple trapdoor|no knockout at the ravine|still in the jail|needs monkey bones again/i.test((e as Error).message)) throw e;
         q.log(`${(e as Error).message} — retrying the step after a restock`);
     }
 };
