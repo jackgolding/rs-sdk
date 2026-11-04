@@ -278,7 +278,7 @@ async function toEastBank(q: Quest): Promise<void> {
 }
 
 /** Into Mort Myre by its gate. */
-async function intoSwamp(q: Quest): Promise<void> {
+export async function intoSwamp(q: Quest): Promise<void> {
     if (inSwamp(pos(q)) || inCamp(pos(q))) return;
     await leaveGrotto(q);
     if (inSwamp(pos(q)) || inCamp(pos(q))) return;

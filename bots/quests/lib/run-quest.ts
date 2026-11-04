@@ -92,6 +92,7 @@ import { inNatureSpiritArea, leaveNatureSpirit } from './nature-spirit';
 import { inHorrorArea, leaveHorror } from './horror';
 import { inChompyArea, leaveChompyCave } from './chompybird';
 import { inTrollArea, leaveTrollArea } from './troll-stronghold';
+import { inHauntedMineArea, leaveHauntedMine } from './haunted-mine';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, awaitQuestStartTurn, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -557,6 +558,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inChompyArea(pos()) && !inChompyArea({ ...tile, level: tile.level ?? 0 })) await leaveChompyCave(q);
                 // Troll Stronghold: past the Death Plateau rocks, the arena, the pass, Trollheim and the stronghold (lib/troll-stronghold.ts).
                 if (inTrollArea(pos()) && !inTrollArea({ ...tile, level: tile.level ?? 0 })) await leaveTrollArea(q);
+                // Haunted Mine: Mort'ton and the mine under Mort Ridge (not at z + 6400): teleport out (lib/haunted-mine.ts).
+                if (inHauntedMineArea(pos()) && !inHauntedMineArea({ ...tile, level: tile.level ?? 0 })) await leaveHauntedMine(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0, tile);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in
@@ -841,6 +844,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inHorrorArea(pos())) await leaveHorror(q);
         if (inChompyArea(pos())) await leaveChompyCave(q);
         if (inTrollArea(pos())) await leaveTrollArea(q);
+        if (inHauntedMineArea(pos())) await leaveHauntedMine(q);
         if (pos().level !== 0) await q.climbTo(0);
         if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.
