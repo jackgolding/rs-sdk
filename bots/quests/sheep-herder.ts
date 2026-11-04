@@ -27,7 +27,7 @@ await runQuest({
     id: 'sheepherder',
     hub: 'ardougne',
     // Shared sheep and one prod spawn: a few at a time.
-    maxConcurrent: 3,
+    maxConcurrent: 1, // the sheep are shared world-wide: three herders at once pushed sheep 2 back and forth until all three failed (2026-11-04)
     carry: [OBJ.feed, OBJ.jacket, OBJ.trousers, OBJ.prod, ...SHEEP.map((s) => s.bones)],
     journal: { label: 'Sheep Herder', title: 'Sheep Herder' },
     stages: [
