@@ -721,6 +721,15 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // sheep pen, ~200 ticks at Falador's wall on Doric's mine leg, and looped at
                 // the same wall on Druid's 276-tile rats -> bears leg (2026-10-28). travelTo
                 // stays as the fallback for routes walkTo cannot find.
+                // Just crossed west at the toll (or left beside it): the long path from the gate runs back through it
+                // to the Al Kharid side (ABGARMY20 at 3265,3227 after paying, 2026-11-04). Step out west first.
+                {
+                    const p1 = pos();
+                    if (p1.level === 0 && p1.x >= 3260 && p1.x < TOLL_X && p1.z >= 3220 && p1.z <= 3234 && !inAlKharid(tile) && away(tile) > 20) {
+                        log(`west of the toll gate at (${p1.x},${p1.z}) — stepping west before the route`);
+                        await bot.walkTo(3250, 3227, 3).catch(() => undefined);
+                    }
+                }
                 if (away(tile) > tolerance) {
                     // walkTo measures arrival its own way; trust its success.
                     let res = await bot.walkTo(tile.x, tile.z, tolerance);
