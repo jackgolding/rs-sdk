@@ -90,6 +90,7 @@ import { inScorpionArea, leaveScorpionArea } from './scorpion-catcher';
 import { inWorkshopArea, leaveWorkshop } from './elemental-workshop';
 import { inNatureSpiritArea, leaveNatureSpirit } from './nature-spirit';
 import { inHorrorArea, leaveHorror } from './horror';
+import { inChompyArea, leaveChompyCave } from './chompybird';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, awaitQuestStartTurn, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -551,6 +552,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inNatureSpiritArea(pos()) && !inNatureSpiritArea({ ...tile, level: tile.level ?? 0 })) await leaveNatureSpirit(q);
                 // Horror from the Deep: the lighthouse, its caves, the causeway past the basalt rocks, the agility course's start (lib/horror.ts).
                 if (inHorrorArea(pos()) && !inHorrorArea({ ...tile, level: tile.level ?? 0 })) await leaveHorror(q);
+                // Big Chompy Bird Hunting: Rantz's cave, out by its own exit (lib/chompybird.ts).
+                if (inChompyArea(pos()) && !inChompyArea({ ...tile, level: tile.level ?? 0 })) await leaveChompyCave(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0, tile);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in
@@ -833,6 +836,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inScorpionArea(pos())) await leaveScorpionArea(q);
         if (inNatureSpiritArea(pos())) await leaveNatureSpirit(q);
         if (inHorrorArea(pos())) await leaveHorror(q);
+        if (inChompyArea(pos())) await leaveChompyCave(q);
         if (pos().level !== 0) await q.climbTo(0);
         if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.

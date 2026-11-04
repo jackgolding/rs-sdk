@@ -1176,6 +1176,14 @@ export const SOURCES: Record<string, Source> = {
         inputs: () => [{ item: 'coins', count: 40 }],
         get: (q, count) => lureSalmon(q, count),
     },
+    /** Big Chompy Bird Hunting's ogre arrows (4 a shaft). Gerrant stocks 1000 (port_sarim.inv fishingshop), 2gp base. */
+    feather: {
+        inputs: (count) => [{ item: 'coins', count: 4 * count + 20 }],
+        get: async (q, count) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, GERRANT, 'feather', count);
+        },
+    },
     'fishing bait': {
         inputs: (count) => [{ item: 'coins', count: 5 * count }],
         get: async (q, count) => {
