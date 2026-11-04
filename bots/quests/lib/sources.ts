@@ -1151,6 +1151,19 @@ export const SOURCES: Record<string, Source> = {
             await digVineWorms(q, count);
         },
     },
+    // ── Family Crest: Caleb wants one of each cooked fish (lib/crest.ts FISH). jackthief banks tuna and
+    // shrimps; Jackpoo5 stopped on "need 1 salmon … no source procedure" (2026-11-04), so salmon also
+    // has a source of its own: lure at Barbarian Village (Fishing 30), cook on the palace range.
+    shrimps: { muleSupply: 'jackthief', mule: true },
+    tuna: { muleSupply: 'jackthief', mule: true },
+    bass: { muleSupply: 'jackthief', mule: true },
+    swordfish: { muleSupply: 'jackthief', mule: true },
+    salmon: {
+        muleSupply: 'jackthief',
+        levels: { fishing: 30, cooking: 25 },
+        inputs: () => [{ item: 'coins', count: 40 }],
+        get: (q, count) => lureSalmon(q, count),
+    },
     'fishing bait': {
         inputs: (count) => [{ item: 'coins', count: 5 * count }],
         get: async (q, count) => {
@@ -1264,6 +1277,50 @@ const JATIX = { x: 2899, z: 3427, npc: /^jatix$/i };
 const FALADOR_FOUNTAIN = { x: 2950, z: 3379 };
 
 /** Empty vials from Jatix, then each filled at the Falador fountain. */
+/** Barbarian Village's river: rod (Lure/Bait) fishing spots along x 3100-3110, z 3424-3434. */
+const BARBARIAN_FISH = { x: 3104, z: 3428 };
+
+/**
+ * Cooked salmon: a fly fishing rod and feathers from Gerrant (port_sarim.inv: fly_fishing_rod 5,
+ * feather 1000), lure at Barbarian Village until `count` raw salmon (trout are dropped), then the
+ * Varrock palace range. A burnt one is fished again; bounded in ticks.
+ */
+async function lureSalmon(q: Quest, count: number): Promise<void> {
+    const RAW = /^raw salmon$/i;
+    const COOKED = /^salmon$/i;
+    const cooked = () => q.sdk.getInventory().filter((i) => COOKED.test(i.name)).length;
+    const raw = () => q.sdk.getInventory().filter((i) => RAW.test(i.name)).length;
+    const t0 = tickNow(q.sdk);
+    for (let round = 1; round <= 3 && cooked() < count; round++) {
+        if (!q.sdk.findInventoryItem(/^fly fishing rod$/i)) {
+            await q.ensure('coins', 10);
+            await buyWaitingForRestock(q, GERRANT, 'fly fishing rod', 1);
+        }
+        const want = count - cooked();
+        if (q.count('feather') < want * 2 + 5) {
+            await q.ensure('coins', want * 2 + 10);
+            await buyWaitingForRestock(q, GERRANT, 'feather', want * 2 + 5);
+        }
+        await q.goTo(BARBARIAN_FISH, 6);
+        const tf = tickNow(q.sdk);
+        while (raw() < want && tickNow(q.sdk) - tf < 1500) {
+            for (const t of q.sdk.getInventory().filter((i) => /^raw trout$/i.test(i.name))) await q.sdk.sendDropItem(t.slot).catch(() => undefined);
+            const spot = q.sdk.findNearbyNpc(/^fishing spot$/i);
+            if (!spot) {
+                await q.goTo(BARBARIAN_FISH, 3);
+                await q.sdk.waitForTicks(5);
+                continue;
+            }
+            const before = raw();
+            await q.bot.interactNpc(spot, /lure/i).catch(() => undefined);
+            await untilTicks(q.sdk, () => raw() > before, 30);
+        }
+        q.log(`salmon: ${raw()} raw after ${tickNow(q.sdk) - tf}t at Barbarian Village`);
+        while (raw() > 0 && cooked() < count) await cookAtPalaceRange(q, RAW, COOKED);
+    }
+    if (cooked() < count) throw new Error(`salmon: ${cooked()}/${count} cooked after ${tickNow(q.sdk) - t0}t`);
+}
+
 async function vialsOfWater(q: Quest, count: number): Promise<void> {
     const need = count - q.count('vial of water');
     if (need <= 0) return;
