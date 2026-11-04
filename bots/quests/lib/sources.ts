@@ -1556,8 +1556,19 @@ export const SOURCES: Record<string, Source> = {
         levels: { crafting: 18 },
         inputs: () => [{ item: 'silver bar', count: 1 }, { item: 'sickle mould', count: 1 }],
         get: async (q) => {
-            await q.ensure('sickle mould', 1);
+            // A mule-only input is not asked for by ensure (it throws NEEDS STOCK, jacklove16 2026-11-04):
+            // ask jackthief first, at his Ardougne bank (q.goTo handles the routes and tolls), then Dommik.
+            if (q.count('silver bar') === 0) {
+                await q.goTo({ x: 2655, z: 3283 }, 3);
+                const { requestFromMule } = await import('../supply');
+                await requestFromMule(
+                    { sdk: q.sdk, bot: q.bot, session: null, log: q.log } as never,
+                    [{ label: 'silver bar', pattern: /^silver bar$/i, count: 1 }],
+                    { mule: 'jackthief', timeoutMs: ticksToMs(600) }
+                ).catch((e) => q.log(`silver bar from jackthief: ${(e as Error).message}`));
+            }
             await q.ensure('silver bar', 1);
+            await q.ensure('sickle mould', 1);
             await q.goTo(ALKHARID_FURNACE, 2);
             for (let attempt = 1; attempt <= 3 && q.count('silver sickle') === 0 && q.count('silver bar') > 0; attempt++) {
                 await q.sdk.scanNearbyLocs(8).catch(() => undefined);
