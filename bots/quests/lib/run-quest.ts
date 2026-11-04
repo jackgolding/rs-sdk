@@ -596,7 +596,10 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // Monkey Madness: the glider hangars, Crash Island, Ape Atoll (lib/monkey-madness.ts).
                 if (inMonkeyMadnessArea(pos()) && !inMonkeyMadnessArea({ ...tile, level: tile.level ?? 0 })) await leaveMonkeyMadness(q);
                 // Scorpion Catcher: the Barbarian Outpost (out by its gate), the Sorcerer's Tower, Taverley's secret room (lib/scorpion-catcher.ts).
-                if (inScorpionArea(pos()) && !inScorpionArea({ ...tile, level: tile.level ?? 0 })) await leaveScorpionArea(q);
+                // Not for a trip deeper into Taverley dungeon: its entrance ladder lands inside the Scorpion box
+                // (2884,9798), and the hook climbed Druidic Ritual back up to the surface (jackquests ×3, 2026-11-04).
+                const intoTaverleyDungeon = tile.x >= 2800 && tile.x <= 2980 && tile.z >= 9700 && tile.z <= 9900 && (tile.level ?? 0) === 0;
+                if (inScorpionArea(pos()) && !inScorpionArea({ ...tile, level: tile.level ?? 0 }) && !intoTaverleyDungeon) await leaveScorpionArea(q);
                 // In Search of the Myreque: the hollows' landing (boat), north of the bridge, Mort'ton's dock, the tunnels and hideout (lib/myreque.ts).
                 // Before Nature Spirit's: its swamp box covers the hollows, and its gate walk has no way out of the landing.
                 if (inMyrequeArea(pos()) && !inMyrequeArea({ ...tile, level: tile.level ?? 0 })) await leaveMyreque(q);
