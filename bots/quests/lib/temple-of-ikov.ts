@@ -145,8 +145,32 @@ async function gate(q: Quest, g: { x: number; z: number; id: number }, through: 
 
 // ── 0 -> 10
 
+/** Wear the bow so a full kit has a slot for what Lucien hands over (the pack is otherwise 28 exactly). */
+async function freeASlot(q: Quest): Promise<void> {
+    if (q.sdk.getInventory().length < 28) return;
+    const bow = q.sdk.getInventory().find((i) => /(yew|magic) (short|long)bow$/i.test(i.name));
+    if (bow) await q.bot.equipItem(bow).catch(() => undefined);
+}
+
 export async function start(q: Quest): Promise<void> {
+    await freeASlot(q);
     await q.talk(/^lucien$/i, [/i'?m a mighty hero/i, /that sounds like a laugh/i], LUCIEN);
+}
+
+/**
+ * Lucien's pendant (worn to open the door of fear). A full pack at the start talk left jacklove4 without
+ * one, and the door refused (2026-11-04). lucien.rs2: any talk while none is held, worn or banked gives
+ * another.
+ */
+async function ensurePendant(q: Quest): Promise<void> {
+    if (held(q, OBJ.pendantL) || worn(q, OBJ.pendantL)) return;
+    q.log('ikov: no pendant of Lucien — back to Lucien for another');
+    if (inIkovDungeon(pos(q))) await leaveIkov(q);
+    await freeASlot(q);
+    await q.talk(/^lucien$/i, [], LUCIEN);
+    await driveDialog(q.sdk, [], { ticks: 20, log: q.log });
+    if (!held(q, OBJ.pendantL)) throw new Error('ikov: Lucien gave no pendant');
+    await intoDungeon(q);
 }
 
 // ── 10 -> 40: boots, lever, arrows, trap, Fire Warrior
@@ -203,6 +227,7 @@ async function crossBridge(q: Quest, dir: 'west' | 'east'): Promise<void> {
 
 async function leverPiece(q: Quest): Promise<void> {
     if (held(q, OBJ.lever)) return;
+    await ensurePendant(q);
     await wear(q, OBJ.boots);
     await wear(q, OBJ.pendantL);
     await gate(q, FEAR_GATE, () => northSide(pos(q)), { x: 2661, z: 9814 }, 'the door of fear north');
