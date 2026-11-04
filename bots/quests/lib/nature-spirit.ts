@@ -324,7 +324,9 @@ export async function leaveNatureSpirit(q: Quest): Promise<void> {
 
 // ── the spirit
 
-const spiritNpc = (q: Quest) => (q.sdk.getNearbyNpcs() ?? []).find((n) => n.id === NPC.spirit);
+// By id, else by name: jacklove16/ABGARMY08 stood on the faith stone with "Filliman Tarlock" a tile away
+// and the id check said "spirit absent" through every ritual attempt (2026-11-04).
+const spiritNpc = (q: Quest) => (q.sdk.getNearbyNpcs() ?? []).find((n) => n.id === NPC.spirit) ?? (q.sdk.getNearbyNpcs() ?? []).find((n) => /^filliman tarlock$/i.test(n.name));
 
 /** Op the grotto door: the spirit appears and talks. */
 async function summonSpirit(q: Quest, once: RegExp[], end: RegExp[] = [/^ok,? thanks/i]): Promise<string> {
