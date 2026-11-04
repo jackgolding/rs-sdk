@@ -445,6 +445,12 @@ export async function buyFromRazmire(q: Quest, store: 'general' | 'building', it
         }
     }
     if (open()) await q.bot.closeShop().catch(() => undefined);
+    // Olive oil the store would not sell (jacklove16 ×2, 2026-11-04: "Failed to buy", then "not found"):
+    // Ulsquire hands out one olive oil(3) after the rebuild (ulsquire_shauncy.rs2 ulsquire_temple_built).
+    if (want().some(([re]) => re.test('Olive oil(3)'))) {
+        q.log("mortton: no olive oil from Razmire — asking Ulsquire for his");
+        await serumTalk(q, 'ulsquire', [/what should i do when the temple is built/i], () => !want().some(([re]) => re.test('Olive oil(3)')), "Ulsquire's olive oil").catch((e: Error) => q.log(e.message));
+    }
     if (want().length) throw new Error(`mortton: Razmire's ${store} store: still short ${want().map(([re, n]) => `${re} ${n - q.count(re)}`).join(', ')}`);
 }
 
