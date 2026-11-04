@@ -840,7 +840,7 @@ async function crossBridge(q: Quest, b: Bridge, toward: 'N' | 'S' | 'E' | 'W', a
 
 // ── the cavern's platforms (one tile on each; the graph of bridges between them)
 
-type Platform = 'CAVERN' | 'WITCH' | 'CAT' | 'DEMONS' | 'OTHAINIAN' | 'SOUTH' | 'MONKS' | 'TEMPLE' | 'CAGES';
+export type Platform = 'CAVERN' | 'WITCH' | 'CAT' | 'DEMONS' | 'OTHAINIAN' | 'SOUTH' | 'MONKS' | 'TEMPLE' | 'CAGES';
 const PLATFORMS: Record<Platform, Tile> = {
     CAVERN: { x: 2173, z: 4725, level: 1 },
     WITCH: { x: 2155, z: 4582, level: 1 },
@@ -873,7 +873,7 @@ function platform(q: Quest): Platform | null {
 }
 
 /** Over the cavern's bridges to `goal` (from the dwarfs' level, Kardia's house or any platform). */
-async function toPlatform(q: Quest, goal: Platform): Promise<void> {
+export async function toPlatform(q: Quest, goal: Platform): Promise<void> {
     for (let hops = 0; hops < 12; hops++) {
         if (pos(q).level === 0 && inCavernLower(pos(q))) await stairs(q, true);
         if (inWitchHouse(pos(q)) && !platform(q)) {

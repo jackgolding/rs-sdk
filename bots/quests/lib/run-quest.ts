@@ -91,6 +91,7 @@ import { inScorpionArea, leaveScorpionArea } from './scorpion-catcher';
 import { inWorkshopArea, leaveWorkshop } from './elemental-workshop';
 import { inNatureSpiritArea, leaveNatureSpirit } from './nature-spirit';
 import { inMyrequeArea, leaveMyreque } from './myreque';
+import { inRegicideArea, leaveRegicide } from './regicide';
 import { inHorrorArea, leaveHorror } from './horror';
 import { inChompyArea, leaveChompyCave } from './chompybird';
 import { inTrollArea, leaveTrollArea } from './troll-stronghold';
@@ -507,6 +508,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 const from = pos();
                 // The Underground Pass and Iban's cavern (level 1, no ladder): out by its own exits before any climb (lib/underground-pass.ts).
                 if (inUpassArea(pos()) && !inUpassArea({ ...tile, level: tile.level ?? 0 })) await leaveUpass(q);
+                // Regicide: the ruined temple's copy (level 1), the voyage temple and Tirannwn: teleport out (lib/regicide.ts).
+                if (inRegicideArea(pos()) && !inRegicideArea({ ...tile, level: tile.level ?? 0 })) await leaveRegicide(q);
                 // walkTo cannot route between planes: from Sanfew's upstairs it reported
                 // the ground-floor target "unroutable" and travelTo's fallback took ~270t
                 // (druid, 2026-10-28). Change plane where we stand, then walk.
@@ -843,6 +846,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inMelzarsMaze(pos())) await leaveMelzarsMaze(bot, sdk, log);
         // Iban's cavern is level 1 with no ladder: out of the pass before any climb (lib/underground-pass.ts).
         if (inUpassArea(pos())) await leaveUpass(q);
+        if (inRegicideArea(pos())) await leaveRegicide(q);
         // Upstairs in Peer the Seer's house: climbTo finds no way down (jacklove12, 2026-11-02).
         if (inSeerHouse(pos())) await leaveSeerHouse(q);
         // Shield of Arrav's hideout/weapon store/Black Arm rooms: their own doors and ladders out.
