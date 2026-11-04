@@ -83,6 +83,7 @@ import { inMillYard, leaveMill } from './gertrudes-cat';
 import { inCannonArea, leaveCannonArea } from './dwarf-cannon';
 import { inWatchtowerArea, leaveWatchtowerArea } from './watchtower';
 import { inObservatoryArea, leaveObservatory } from './observatory';
+import { inTouristTrapArea, leaveTouristTrap } from './tourist-trap';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, awaitQuestStartTurn, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -529,6 +530,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inWatchtowerArea(pos())) await leaveWatchtowerArea(q, { ...tile, level: tile.level ?? 0 });
                 // Observatory: the goblin cavern and the dome on its cliff (lib/observatory.ts).
                 if (inObservatoryArea(pos()) && !inObservatoryArea({ ...tile, level: tile.level ?? 0 })) await leaveObservatory(q);
+                // Tourist Trap: the mining camp (key gate), its mine (slave clothes) and the desert past the Shantay Pass (lib/tourist-trap.ts).
+                if (inTouristTrapArea(pos()) && !inTouristTrapArea({ ...tile, level: tile.level ?? 0 })) await leaveTouristTrap(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0, tile);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in
@@ -804,6 +807,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         // Watchtower's tower floors, caves, island and plateau; the Observatory's cavern and dome.
         if (inWatchtowerArea(pos())) await leaveWatchtowerArea(q, hub);
         if (inObservatoryArea(pos())) await leaveObservatory(q);
+        if (inTouristTrapArea(pos())) await leaveTouristTrap(q);
         if (pos().level !== 0) await q.climbTo(0);
         if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.
