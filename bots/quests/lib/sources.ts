@@ -532,7 +532,9 @@ export const SOURCES: Record<string, Source> = {
     // ── Fight Arena: the pen fights (ogre 63, scorpion 44, Bouncer 137) are ranged; a mule stocks the kit
     'magic shortbow': { mule: true },
     'rune arrow': { mule: true },
-    shark: { mule: true },
+    // jackthief banks thousands (restocks from the ABGARMY grinders); with no muleSupply nobody asked it, and
+    // Heroes' Quest stopped on NEEDS STOCK shark x1/x4 on jacklove13 and ABGARMY20 (2026-11-04).
+    shark: { mule: true, muleSupply: 'jackthief' },
     /** khazard_barman.rs2 only sells it once the bored guard has talked: bought inside the quest step. */
     'khali brew': { spawnable: false },
 
