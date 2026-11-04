@@ -395,6 +395,13 @@ export async function enterFalls(q: Quest): Promise<void> {
         const across = () => pos(q).z <= 3469 || onLedge(pos(q));
         if (!across()) {
             await q.bot.walkTo(ISLAND_EDGE.x, ISLAND_EDGE.z, 1).catch(() => undefined);
+            // walkTo left jacklove1/jacklove7 on the landing (2512,3480), where the rope gets "I can't reach
+            // that!" four times (2026-11-04): step to the edge with direct walks and check we got there.
+            for (let i = 0; i < 4 && Math.max(Math.abs(pos(q).x - ISLAND_EDGE.x), Math.abs(pos(q).z - ISLAND_EDGE.z)) > 1; i++) {
+                await q.sdk.sendWalk(ISLAND_EDGE.x, ISLAND_EDGE.z, true).catch(() => undefined);
+                await untilTicks(q.sdk, () => Math.max(Math.abs(pos(q).x - ISLAND_EDGE.x), Math.abs(pos(q).z - ISLAND_EDGE.z)) <= 1, 8);
+            }
+            q.log(`waterfall: at the island edge? ${where(q)}`);
             await useOn(q, idOf(q, /^rope$/i), CROSSING_ROCK, /^rock$/i, across, 'rope on the rock', 20);
         }
         await untilTicks(q.sdk, () => pos(q).z <= 3468, 10);
