@@ -824,7 +824,12 @@ export async function runQuest(def: QuestDef): Promise<void> {
         // job banks it at the nearest bank first. jacklove10 set off from Al Kharid to Falador with
         // a pack of herbs, reached the toll with no coins and could not pickpocket the fee with a
         // full pack (2026-10-30).
-        if (sdk.getInventory().length > 0 && away(hub) > 30) {
+        // Still underground (no ladder up and no teleport): distances on the underground z picked a
+        // "nearest" bank at random (Draynor, Seers) and banked quest items where the quest never
+        // withdraws them — a Scorpion Catcher shield and an Ikov pendant were lost that way in
+        // staging (2026-11-04). Keep the pack; the walk to the hub banks it there.
+        if (pos().z >= UNDERGROUND_Z) log(`prologue: still underground at (${pos().x},${pos().z}) — no side-bank stop`);
+        else if (sdk.getInventory().length > 0 && away(hub) > 30) {
             // Never across the toll just to bank (jackquests, 0 coins at the gate, 2026-11-02).
             const nearest = (Object.keys(SAFE_BANKS) as SafeBankName[])
                 .filter((name) => inAlKharid(pos()) === inAlKharid(SAFE_BANKS[name]))
