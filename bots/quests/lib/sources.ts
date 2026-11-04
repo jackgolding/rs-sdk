@@ -1244,6 +1244,24 @@ export const SOURCES: Record<string, Source> = {
     'dragon bones': { obj: 'dragon_bones', mule: true, muleSupply: 'jackthief' },
     'death rune': { ...runes('death rune', 180), muleSupply: 'jackthief' },
     'guam leaf': { obj: 'guam_leaf', mule: true, muleSupply: 'jackthief' },
+    /** Temple of Ikov: Winelda's twenty roots (unnoted). */
+    'limpwurt root': { obj: 'limpwurt_root', mule: true, muleSupply: 'jackthief' },
+    // ── The Dig Site: the panning guide's tea and the barrel's vial
+    'cup of tea': {
+        inputs: (count) => [{ item: 'coins', count: 20 * count }],
+        get: async (q, count) => {
+            await q.ensure('coins', 20 * count);
+            await buyWaitingForRestock(q, { x: 3271, z: 3411, npc: /^tea seller$/i }, 'cup of tea', count);
+        },
+    },
+    vial: {
+        obj: 'vial_empty',
+        inputs: (count) => [{ item: 'coins', count: 5 * count }],
+        get: async (q, count) => {
+            await q.ensure('coins', 5 * count);
+            await buyWaitingForRestock(q, JATIX, 'vial', count);
+        },
+    },
     /** Observatory: the professor's lens (no shop sells it; sand and soda ash are a Crafting trip). */
     'molten glass': { obj: 'molten_glass', mule: true, muleSupply: 'jackthief' },
     'pestle and mortar': {
