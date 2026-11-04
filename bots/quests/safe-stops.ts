@@ -26,6 +26,7 @@ import {
     FALADOR_EAST_BANK,
     FALADOR_WEST_BANK,
     SEERS_BANK,
+    VARROCK_EAST_BANK,
     VARROCK_WEST_BANK,
     YANILLE_BANK,
     type Tile,
@@ -35,7 +36,7 @@ import { walkSendHops } from './movement';
 /** Local copies in thieving-route.ts / lost-city.ts agree on this stand. */
 const EDGEVILLE_BANK: Tile = { x: 3094, z: 3492 };
 
-export type SafeBankName = 'draynor' | 'catherby' | 'ardougne' | 'yanille' | 'falador-east' | 'edgeville' | 'varrock-west' | 'seers' | 'al-kharid' | 'falador-west';
+export type SafeBankName = 'draynor' | 'catherby' | 'ardougne' | 'yanille' | 'falador-east' | 'edgeville' | 'varrock-west' | 'seers' | 'al-kharid' | 'falador-west' | 'varrock-east';
 
 /** The stops nearestBank() chooses between — fixed, so new quest hubs don't move fleet banking. */
 const FLEET_BANKS: SafeBankName[] = ['draynor', 'catherby', 'ardougne', 'yanille', 'falador-east', 'edgeville'];
@@ -55,6 +56,8 @@ export const SAFE_BANKS: Record<SafeBankName, Tile> = {
     'al-kharid': AL_KHARID_BANK,
     /** crystal-keys.ts: the bank nearest the Taverley crystal chest. */
     'falador-west': FALADOR_WEST_BANK,
+    /** elemental-runecraft.ts: the bank nearest the earth ruins. */
+    'varrock-east': VARROCK_EAST_BANK,
 };
 
 export interface RouteLeg {

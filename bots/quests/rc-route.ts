@@ -213,3 +213,57 @@ export function planAirRoute(): AltarRoute {
         portal: AIR_PORTAL
     });
 }
+
+/**
+ * Water: `runecraft_water` altar_coord `0_49_49_49_29` (ruins centre 3185,3165),
+ * enter `0_42_75_37_32`, exit `0_49_49_46_26`. Ruins `m49_49.jm2` loc 2454 at
+ * 3184,3164 (SW corner). Altar `m42_75.jm2` loc 2480 (angle 3), portal loc 2467.
+ */
+export const WATER_RUINS: LocFootprint = { x: 3184, z: 3164, width: 3, length: 3, angle: 0, shape: 10 };
+export const WATER_RUINS_ID = 2454;
+export const WATER_ENTER: Tile = { x: 2725, z: 4832 };
+export const WATER_EXIT: Tile = { x: 3182, z: 3162 };
+export const WATER_ALTAR: LocFootprint = { x: 2715, z: 4835, width: 3, length: 3, angle: 3, shape: 10 };
+export const WATER_ALTAR_ID = 2480;
+export const WATER_PORTAL: LocFootprint = { x: 2727, z: 4832, width: 1, length: 1, angle: 0, shape: 10 };
+export const WATER_PORTAL_ID = 2467;
+/** Draynor booths, `m48_50.jm2` loc 2213 (angle 1). The bank floor is east of them. */
+export const DRAYNOR_BOOTHS: Tile[] = [3242, 3243, 3245].map((z) => ({ x: 3091, z }));
+
+/**
+ * Earth: `runecraft_earth` altar_coord `0_51_54_42_18` (ruins centre 3306,3474),
+ * enter `0_41_75_33_30`, exit `0_51_54_39_21`. Ruins `m51_54.jm2` loc 2455 at
+ * 3305,3473. Altar `m41_75.jm2` loc 2481 (angle 2), portal loc 2468.
+ */
+export const EARTH_RUINS: LocFootprint = { x: 3305, z: 3473, width: 3, length: 3, angle: 0, shape: 10 };
+export const EARTH_RUINS_ID = 2455;
+export const EARTH_ENTER: Tile = { x: 2657, z: 4830 };
+export const EARTH_EXIT: Tile = { x: 3303, z: 3477 };
+export const EARTH_ALTAR: LocFootprint = { x: 2657, z: 4840, width: 3, length: 3, angle: 2, shape: 10 };
+export const EARTH_ALTAR_ID = 2481;
+export const EARTH_PORTAL: LocFootprint = { x: 2655, z: 4829, width: 1, length: 1, angle: 0, shape: 10 };
+export const EARTH_PORTAL_ID = 2468;
+/** Varrock east booths, `m50_53.jm2` loc 2213. The bank floor is north of them. */
+export const VARROCK_EAST_BOOTHS: Tile[] = [3252, 3253, 3254, 3256].map((x) => ({ x, z: 3419 }));
+
+export function planWaterRoute(): AltarRoute {
+    return planAltarRoute({
+        booths: DRAYNOR_BOOTHS,
+        ruins: WATER_RUINS,
+        enter: WATER_ENTER,
+        exit: WATER_EXIT,
+        altar: WATER_ALTAR,
+        portal: WATER_PORTAL
+    });
+}
+
+export function planEarthRoute(): AltarRoute {
+    return planAltarRoute({
+        booths: VARROCK_EAST_BOOTHS,
+        ruins: EARTH_RUINS,
+        enter: EARTH_ENTER,
+        exit: EARTH_EXIT,
+        altar: EARTH_ALTAR,
+        portal: EARTH_PORTAL
+    });
+}
