@@ -49,6 +49,7 @@ const bootKit = (q: Quest) => [...kit(q), ...(hasBoots(q) ? [] : [{ item: 'coins
 
 await runQuest({
     id: 'troll',
+    requires: ["Death Plateau"],
     hub: 'falador-west',
     journal,
     skills: { agility: 15 },

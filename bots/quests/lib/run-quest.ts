@@ -182,6 +182,12 @@ export interface QuestDef {
     transitions: Transition[];
     skills?: Record<string, number>;
     /**
+     * Journal titles of quests that must be complete before an unstarted run begins (Holy Grail
+     * without Merlin's Crystal looped on King Arthur's knight dialog; Myreque without Nature Spirit
+     * died at the holy barrier, 2026-11-04). Checked only at the first stage; resumed runs skip it.
+     */
+    requires?: string[];
+    /**
      * Quest items picked up along the way (Witch's House's magnet). A resumed run's
      * naked prologue banks them, and some quests will not hand out another while one
      * is banked, so the prologue withdraws these again.
@@ -471,6 +477,13 @@ export async function runQuest(def: QuestDef): Promise<void> {
         const untrainable = Object.fromEntries(Object.entries(def.skills ?? {}).filter(([skill]) => !TRAINERS[skill]));
         if (Object.keys(untrainable).length && !requireSkills({ sdk, bot, session, log }, untrainable).ok) {
             throw new Error(`skill gate: account cannot do this quest yet (needs ${Object.entries(untrainable).map(([s, l]) => `${s} ${l}`).join(', ')})`);
+        }
+        if (run && def.requires?.length && start === def.stages[0]!.id) {
+            for (const title of def.requires) {
+                const read = await readJournalCheckpoint(sdk, { label: title, title }, { id: `requires:${title}`, kind: 'complete', all: ['QUEST COMPLETE'] });
+                await sdk.sendCloseModal().catch(() => undefined);
+                if (read.verdict?.verdict !== 'PASS') throw new Error(`prerequisite gate: ${title} not complete (journal ${read.verdict?.verdict ?? 'unread'})`);
+            }
         }
 
         const q: Quest = {

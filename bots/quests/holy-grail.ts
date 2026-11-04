@@ -33,6 +33,7 @@ const realmKit = (q: Quest) => {
 
 await runQuest({
     id: 'grail',
+    requires: ["Merlin's Crystal"],
     hub: 'seers',
     carry: [OBJ.napkin, OBJ.whistle, OBJ.excalibur, OBJ.grail, OBJ.bell],
     journal: { label: 'Holy Grail', title: 'Holy Grail' },

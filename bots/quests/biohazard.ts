@@ -44,6 +44,7 @@ const ROBES: Need[] = [{ item: 'priest gown', count: 2 }];
 
 await runQuest({
     id: 'biohazard',
+    requires: ["Plague City"],
     hub: 'ardougne',
     // The HQ mourner (level 13, 19hp) is fought naked.
     skills: { attack: 15, strength: 15, defence: 15, hitpoints: 20 },
