@@ -120,6 +120,12 @@ async function pickUp(q: Quest, id: number, near: Tile, want: number, label: str
 // ── Camelot
 
 export async function seeMerlin(q: Quest): Promise<void> {
+    // goTo walks to the same x,z on L0 and stops there ("arrived on the wrong floor", ABGARMY20 2/2 and
+    // jacklove2, 2026-11-04): climb Camelot's stairs toward the workshop first.
+    if (pos(q).level !== 1) {
+        await q.goTo({ x: MERLIN_DOOR_OUT.x, z: MERLIN_DOOR_OUT.z }, 6);
+        if (pos(q).level !== 1) await q.climbTo(1, MERLIN_DOOR_OUT);
+    }
     await q.goTo(MERLIN_DOOR_OUT, 1);
     for (let attempt = 1; attempt <= 3 && !q.sdk.findNearbyNpc(/^merlin$/i); attempt++) {
         await q.sdk.scanNearbyLocs(5).catch(() => undefined);
