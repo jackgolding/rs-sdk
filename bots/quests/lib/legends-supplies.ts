@@ -91,7 +91,13 @@ async function useOnLoc(q: Quest, item: RegExp, at: Tile, name: RegExp, done: ()
         q.log(`use ${item} on ${name}: ${it ? `no ${name} near (${at.x},${at.z})` : 'none held'} at ${where(q)}`);
         return false;
     }
-    await q.sdk.sendUseItemOnLoc(it.slot, loc.x, loc.z, loc.id);
+    // bot.useItemOnLoc routes and opens doors: the raw send at Entrana's range (inside a house) did
+    // nothing on prod for four 10-minute trips (ABGARMY09, 2026-11-04). Raw send after q.reach as a fallback.
+    const r = await q.bot.useItemOnLoc(it, loc).catch(() => null);
+    if (!r?.success) {
+        await q.reach(name).catch(() => undefined);
+        await q.sdk.sendUseItemOnLoc(it.slot, loc.x, loc.z, loc.id);
+    }
     await untilTicks(q.sdk, (s) => done() || !!s.dialog?.isOpen, ticks + 20);
     if (q.sdk.getDialog()?.isOpen) await driveDialog(q.sdk, choices, { done, ticks: 20, log: q.log });
     return untilTicks(q.sdk, done, ticks);
