@@ -98,6 +98,7 @@ import { inTrollArea, leaveTrollArea } from './troll-stronghold';
 import { inHauntedMineArea, leaveHauntedMine } from './haunted-mine';
 import { inMiscArea, leaveIsland as leaveMiscellania } from './miscellania';
 import { inRomanceArea, leaveRomanceArea } from './troll-romance';
+import { inMorttonSouth, leaveMortton } from './shades-of-mortton';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, awaitQuestStartTurn, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -576,6 +577,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inHauntedMineArea(pos()) && !inHauntedMineArea({ ...tile, level: tile.level ?? 0 })) await leaveHauntedMine(q);
                 // Throne of Miscellania: the islands, off by the pier's longship to Rellekka (lib/miscellania.ts).
                 if (inMiscArea(pos()) && !inMiscArea(tile)) await leaveMiscellania(q);
+                // Shades of Mort'ton: the town's south half, outside Mort Myre's box — north into the swamp (lib/shades-of-mortton.ts).
+                if (inMorttonSouth(pos()) && !inMorttonSouth({ ...tile, level: tile.level ?? 0 })) await leaveMortton(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0, tile);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in
@@ -873,6 +876,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inTrollArea(pos())) await leaveTrollArea(q);
         if (inHauntedMineArea(pos())) await leaveHauntedMine(q);
         if (inMiscArea(pos())) await leaveMiscellania(q);
+        if (inMorttonSouth(pos())) await leaveMortton(q);
         if (pos().level !== 0) await q.climbTo(0);
         if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.
