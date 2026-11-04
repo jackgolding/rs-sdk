@@ -480,9 +480,17 @@ export async function runQuest(def: QuestDef): Promise<void> {
         }
         if (run && def.requires?.length && start === def.stages[0]!.id) {
             for (const title of def.requires) {
-                const read = await readJournalCheckpoint(sdk, { label: title, title }, { id: `requires:${title}`, kind: 'complete', all: ['QUEST COMPLETE'] });
-                await sdk.sendCloseModal().catch(() => undefined);
-                if (read.verdict?.verdict !== 'PASS') throw new Error(`prerequisite gate: ${title} not complete (journal ${read.verdict?.verdict ?? 'unread'})`);
+                // UNKNOWN is an unread journal (it did not open in time), not "not done": retry, and only a
+                // FAIL blocks (jacklove4's Holy Grail was refused right after Merlin's Crystal, 2026-11-04).
+                let verdict: string | undefined;
+                for (let attempt = 1; attempt <= 3 && verdict !== 'PASS' && verdict !== 'FAIL'; attempt++) {
+                    const read = await readJournalCheckpoint(sdk, { label: title, title }, { id: `requires:${title}`, kind: 'complete', all: ['QUEST COMPLETE'] });
+                    await sdk.sendCloseModal().catch(() => undefined);
+                    verdict = read.verdict?.verdict;
+                    if (verdict !== 'PASS' && verdict !== 'FAIL') await sdk.waitForTicks(3);
+                }
+                if (verdict === 'FAIL') throw new Error(`prerequisite gate: ${title} not complete`);
+                if (verdict !== 'PASS') log(`prerequisite ${title}: journal unread (${verdict ?? 'no verdict'}) — going ahead`);
             }
         }
 

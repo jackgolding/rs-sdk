@@ -186,6 +186,9 @@ const ZAFF = { x: 3203, z: 3433, npc: /^zaff$/i };
 const LUMBRIDGE_KNIFE = { x: 3224, z: 3202 };
 /** Dommik's Crafting Store, Al Kharid: needle and thread 1gp. */
 const DOMMIK = { x: 3322, z: 3194, npc: /^dommik$/i };
+/** Al Kharid's furnace (lib/crest.ts FURNACE) and Father Urhney's hut in the Lumbridge swamp (restless-ghost.ts URHNEY). */
+const ALKHARID_FURNACE = { x: 3274, z: 3186 };
+const URHNEY_HUT = { x: 3235, z: 3153 };
 /** The Baker's stall, East Ardougne market (mule-produce.ts BAKERY). */
 const ARDOUGNE_BAKER = { x: 2662, z: 3307, npc: /^baker$/i };
 /** Arhein's store, Catherby: tinderbox. */
@@ -1520,9 +1523,55 @@ export const SOURCES: Record<string, Source> = {
         },
     },
     /** Nature Spirit: The Restless Ghost's amulet (Father Urhney replaces a lost one) — bank stock, not sourced here. */
-    'ghostspeak amulet': { obj: 'amulet_of_ghostspeak', mule: true, tool: true },
-    /** Nature Spirit: silver bar + sickle mould (Crafting 18) — bank/mule stock, not sourced here. */
-    'silver sickle': { obj: 'silver_sickle', mule: true, tool: true },
+    /** Father Urhney hands a spare to anyone past "spoken to Urhney" holding none anywhere (father_urhney.rs2). */
+    'ghostspeak amulet': {
+        obj: 'amulet_of_ghostspeak',
+        tool: true,
+        get: async (q) => {
+            await q.goTo(URHNEY_HUT, 3);
+            const text = await q.talk(/^father urhney$/i, [/lost the amulet/i]).catch((e) => `${(e as Error).message}`);
+            await untilTicks(q.sdk, () => q.count('ghostspeak amulet') > 0, 5);
+            if (q.count('ghostspeak amulet') === 0) q.log(`ghostspeak amulet: Urhney gave none: ${String(text).slice(-160)}`);
+        },
+    },
+    /** Dommik (alkharid.inv craftingshop2) stocks six sickle moulds. */
+    'sickle mould': {
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 20 }],
+        get: async (q) => {
+            await q.ensure('coins', 20);
+            await buyWaitingForRestock(q, DOMMIK, 'sickle mould', 1);
+        },
+    },
+    /** Silver bars: jackthief's stock (smelting silver ore is not sourced here). */
+    'silver bar': { obj: 'silver_bar', mule: true, muleSupply: 'jackthief' },
+    /**
+     * Nature Spirit: a silver bar on a furnace with a sickle mould held opens jewellery.rs2 craft_silver's
+     * three-way menu (Crafting 18). Al Kharid's furnace, beside Dommik. Jackpoo/jacklove16 stopped on
+     * "NEEDS STOCK: silver sickle" (2026-11-04).
+     */
+    'silver sickle': {
+        obj: 'silver_sickle',
+        tool: true,
+        levels: { crafting: 18 },
+        inputs: () => [{ item: 'silver bar', count: 1 }, { item: 'sickle mould', count: 1 }],
+        get: async (q) => {
+            await q.ensure('sickle mould', 1);
+            await q.ensure('silver bar', 1);
+            await q.goTo(ALKHARID_FURNACE, 2);
+            for (let attempt = 1; attempt <= 3 && q.count('silver sickle') === 0 && q.count('silver bar') > 0; attempt++) {
+                await q.sdk.scanNearbyLocs(8).catch(() => undefined);
+                const furnace = q.sdk.findNearbyLoc(/^furnace$/i);
+                const bar = q.sdk.findInventoryItem(/^silver bar$/i);
+                if (!furnace || !bar) break;
+                await q.bot.useItemOnLoc(bar, furnace).catch(() => undefined);
+                await untilTicks(q.sdk, (st) => !!st.dialog?.isOpen, 10);
+                if (q.sdk.getDialog()?.isOpen) await driveDialog(q.sdk, [/silver sickle/i, /^make 1|^1$/i], { done: () => q.count('silver sickle') > 0, ticks: 20, log: q.log });
+                await untilTicks(q.sdk, () => q.count('silver sickle') > 0, 10);
+            }
+            if (q.count('silver sickle') === 0) throw new Error('silver sickle: the furnace made none');
+        },
+    },
     /** Elemental Workshop's 4 coal: mined at the Coal Trucks west of Seers (lib/elemental-workshop.ts). */
     coal: {
         levels: { mining: 30 },
