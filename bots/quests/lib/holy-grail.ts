@@ -369,7 +369,23 @@ export async function toFisherKing(q: Quest): Promise<void> {
     await intoCastle(q);
     // The stairs (spiral 2761,4680) are 12 tiles south of the bell's landing, past the hall doors:
     // out of climbTo's sight from there.
-    if (pos(q).level === 0) await q.goTo(CASTLE_STAIRS_FOOT, 2);
+    // The hall doors between the bell's landing and the stairs: shut, the route is "5 tiles short" (ABGARMY05 ×2,
+    // 2026-11-04). Open the nearest closed door and walk again.
+    for (let attempt = 1; attempt <= 3 && pos(q).level === 0 && Math.hypot(pos(q).x - CASTLE_STAIRS_FOOT.x, pos(q).z - CASTLE_STAIRS_FOOT.z) > 2; attempt++) {
+        const ok = await q.goTo(CASTLE_STAIRS_FOOT, 2).then(() => true).catch((e) => {
+            q.log(`grail: to the castle stairs (attempt ${attempt}): ${(e as Error).message.slice(0, 120)}`);
+            return false;
+        });
+        if (ok) break;
+        await q.sdk.scanNearbyLocs(8).catch(() => undefined);
+        const door = (q.sdk.getNearbyLocs() ?? [])
+            .filter((l) => /door/i.test(l.name) && l.options.some((o) => /^open$/i.test(o)))
+            .sort((a, b) => Math.hypot(a.x - pos(q).x, a.z - pos(q).z) - Math.hypot(b.x - pos(q).x, b.z - pos(q).z))[0];
+        if (!door) break;
+        q.log(`grail: opening ${door.name} at (${door.x},${door.z})`);
+        await q.bot.openDoor(door).catch(() => undefined);
+        await q.sdk.waitForTicks(2);
+    }
     if (pos(q).level === 0) await q.climbTo(1, FISHER_KING);
     await reachNpc(q, /^the fisher king$/i);
     const seen = await q.talk(/^the fisher king$/i, [/you don'?t look too well/i]);
