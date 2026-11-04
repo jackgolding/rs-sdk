@@ -577,13 +577,14 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inJungleArea(pos())) await leaveJungle(q, tile);
                 // Legends' Quest: the Kharazi jungle (chopped in and out), the shaman caves, the Viyeldi caves (lib/legends-quest.ts).
                 if (inLegendsArea(pos()) && !inLegendsArea(tile)) await leaveLegends(q, tile);
+                // Inside the Gnome Stronghold: walkTo has no route through Femi's gate (fatpig after a
+                // client drop at the fishing spots, 2026-10-31). Before the Karamja check: with the Grand
+                // Tree at 80 the crossing flies the glider to Karamja instead (jacklove16, 2026-11-04).
+                if (inStronghold(pos()) && !inStronghold(tile) && tile.z < UNDERGROUND_Z) await crossGnomeGate(q, false);
                 // Left on Karamja by a failed Pirate's Treasure run (jacklove13, 2026-10-29).
                 if (pos().level === 0 && onKaramja(pos()) && !onKaramja(tile)) await sailFromKaramja();
                 // Left on Entrana (jacklove6 after a Lost City run, 2026-10-29): the monks' boat back.
                 if (pos().level === 0 && onEntrana(pos()) && !onEntrana(tile) && tile.z < UNDERGROUND_Z) await sailFromEntrana();
-                // Inside the Gnome Stronghold: walkTo has no route through Femi's gate (fatpig after a
-                // client drop at the fishing spots, 2026-10-31).
-                if (inStronghold(pos()) && !inStronghold(tile) && tile.z < UNDERGROUND_Z) await crossGnomeGate(q, false);
                 // The Entrana dungeon's ladder is one-way: Lumbridge Teleport out (lib/lost-city.ts), as
                 // the quest does. jacklove18 sat at (2860,9730) failing every quest's first walk.
                 if (inEntranaDungeon(q) && !(tile.z > 9700 && tile.z < 9800 && tile.x >= 2816 && tile.x <= 2879)) {
