@@ -81,6 +81,7 @@ import { inGnomeVillage, inKhazardStronghold, leaveGnomeVillage, leaveKhazardStr
 import { inGrandTreeArea, leaveGrandTreeArea } from './grand-tree';
 import { inMillYard, leaveMill } from './gertrudes-cat';
 import { inCannonArea, leaveCannonArea } from './dwarf-cannon';
+import { inObservatoryArea, leaveObservatory } from './observatory';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, awaitQuestStartTurn, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -523,6 +524,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inMillYard(pos()) && !inMillYard(tile)) await leaveMill(q);
                 // Dwarf Cannon: the goblin cave (out by its mud pile) and the watchtower (lib/dwarf-cannon.ts).
                 if (inCannonArea(pos()) && !inCannonArea({ ...tile, level: tile.level ?? 0 })) await leaveCannonArea(q);
+                // Observatory: the goblin cavern and the dome on its cliff (lib/observatory.ts).
+                if (inObservatoryArea(pos()) && !inObservatoryArea({ ...tile, level: tile.level ?? 0 })) await leaveObservatory(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0, tile);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in
@@ -795,6 +798,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inLegendsArea(pos())) await leaveLegends(q, hub);
         if (inMansionUpstairs(pos())) await leaveMansionUpstairs(q);
         if (inGrailArea(pos())) await leaveGrail(q, hub);
+        // The Observatory's goblin cavern and dome (lib/observatory.ts).
+        if (inObservatoryArea(pos())) await leaveObservatory(q);
         if (pos().level !== 0) await q.climbTo(0);
         if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.

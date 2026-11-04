@@ -1240,6 +1240,20 @@ export const SOURCES: Record<string, Source> = {
     diamond: { mule: true, muleSupply: 'jackthief' },
     /** The golden bowl (Smithing 50, two bars at an anvil). */
     'gold bar': { obj: 'gold_bar', mule: true, muleSupply: 'jackthief' },
+    // ── Watchtower: Toban's dragon bone, the city guard's death rune, the ogre potion's guam and pestle
+    'dragon bones': { obj: 'dragon_bones', mule: true, muleSupply: 'jackthief' },
+    'death rune': { ...runes('death rune', 180), muleSupply: 'jackthief' },
+    'guam leaf': { obj: 'guam_leaf', mule: true, muleSupply: 'jackthief' },
+    /** Observatory: the professor's lens (no shop sells it; sand and soda ash are a Crafting trip). */
+    'molten glass': { obj: 'molten_glass', mule: true, muleSupply: 'jackthief' },
+    'pestle and mortar': {
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 20 }],
+        get: async (q) => {
+            await q.ensure('coins', 20);
+            await buyWaitingForRestock(q, JATIX, 'pestle and mortar', 1);
+        },
+    },
     /** Nezikchened's three fights drain prayer (90%, 18, 75%): whatever doses the bank or jackthief holds. */
     'prayer potion': { obj: '4doseprayerrestore', muleSupply: 'jackthief' },
     /** Taverley's blue dragons on the way to the lava: Duke Horacio replaces one for a Dragon Slayer. */
