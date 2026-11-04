@@ -87,6 +87,7 @@ import { inObservatoryArea, leaveObservatory } from './observatory';
 import { inTouristTrapArea, leaveTouristTrap } from './tourist-trap';
 import { inDigShafts, leaveShafts as leaveDigShafts } from './dig-site';
 import { inIkovArea, leaveIkov } from './temple-of-ikov';
+import { inSeaSlugArea, leaveSeaSlug } from './sea-slug';
 import { inScorpionArea, leaveScorpionArea } from './scorpion-catcher';
 import { inWorkshopArea, leaveWorkshop } from './elemental-workshop';
 import { inNatureSpiritArea, leaveNatureSpirit } from './nature-spirit';
@@ -580,6 +581,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inWorkshopArea(pos()) && !inWorkshopArea({ ...tile, level: tile.level ?? 0 })) await leaveWorkshop(q);
                 // Temple of Ikov's dungeon: gates, the dark stairs and the cellar ladder (lib/temple-of-ikov.ts).
                 if (inIkovArea(pos()) && !inIkovArea(tile)) await leaveIkov(q);
+                // Sea Slug: the fishing platform (both decks) and Kent's island, Holgart rows back (lib/sea-slug.ts).
+                if (inSeaSlugArea(pos()) && !inSeaSlugArea(tile)) await leaveSeaSlug(q);
                 // Scorpion Catcher: the Barbarian Outpost (out by its gate), the Sorcerer's Tower, Taverley's secret room (lib/scorpion-catcher.ts).
                 if (inScorpionArea(pos()) && !inScorpionArea({ ...tile, level: tile.level ?? 0 })) await leaveScorpionArea(q);
                 // In Search of the Myreque: the hollows' landing (boat), north of the bridge, Mort'ton's dock, the tunnels and hideout (lib/myreque.ts).
@@ -893,6 +896,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inDigShafts(pos())) await leaveDigShafts(q);
         if (inWorkshopArea(pos())) await leaveWorkshop(q);
         if (inIkovArea(pos())) await leaveIkov(q);
+        // Not at a no-hub stage: mid-quest Holgart only rows on to Kent's island (lib/sea-slug.ts).
+        if (inSeaSlugArea(pos()) && !def.noHubAt?.includes(q.stage)) await leaveSeaSlug(q);
         if (inScorpionArea(pos())) await leaveScorpionArea(q);
         if (inMyrequeArea(pos())) await leaveMyreque(q);
         if (inNatureSpiritArea(pos())) await leaveNatureSpirit(q);

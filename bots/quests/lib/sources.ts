@@ -1480,6 +1480,16 @@ export const SOURCES: Record<string, Source> = {
     },
     /** Horror from the Deep's lighthouse torch: the Lumbridge swamp's ground spawns (m49_49, e.g. 3164,3169 / 3170,3167). */
     'swamp tar': { obj: 'swamp_tar', get: (q, count) => pickUpSpawn(q, { x: 3167, z: 3169 }, 'swamp tar', count) },
+    /** Sea Slug's boat repair: Port Khazard's general store (port_khazard.inv khazardshop, stock 500; shop keeper npc 555 at 2655,3152). */
+    'swamp paste': {
+        obj: 'swamppaste',
+        // Shop buys can go in batches of ten (buyWaitingForRestock): coins for a whole batch.
+        inputs: (count) => [{ item: 'coins', count: Math.max(400, 40 * count) }],
+        get: async (q, count) => {
+            await q.ensure('coins', Math.max(400, 40 * (count - q.count('swamp paste'))));
+            await buyWaitingForRestock(q, { x: 2655, z: 3152, npc: /^shop keeper$/i }, 'swamp paste', count);
+        },
+    },
     /** Horror from the Deep's strange wall eats a stab/slash weapon: the Varrock sword shop's (varrock.inv swordshop). */
     'bronze dagger': {
         obj: 'bronze_dagger',
