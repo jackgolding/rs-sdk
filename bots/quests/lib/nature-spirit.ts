@@ -330,9 +330,18 @@ const spiritNpc = (q: Quest) => (q.sdk.getNearbyNpcs() ?? []).find((n) => n.id =
 async function summonSpirit(q: Quest, once: RegExp[], end: RegExp[] = [/^ok,? thanks/i]): Promise<string> {
     await intoCamp(q);
     for (let attempt = 1; attempt <= 3; attempt++) {
+        // A modal left open (interface 8134 on jacklove16, 2026-11-04) swallows the door op: close it first.
+        const iface = q.sdk.getState()?.interface;
+        if (iface?.isOpen) {
+            q.log(`ns: closing interface ${iface.interfaceId} before the grotto door`);
+            await q.sdk.sendCloseModal().catch(() => undefined);
+            await q.sdk.waitForTicks(2);
+        }
         const door = await locById(q, LOC.door, DOOR, 2);
         if (door) await q.sdk.sendInteractLoc(door.x, door.z, door.id, 1);
         if (await untilTicks(q.sdk, (s) => !!s.dialog?.isOpen, 15)) return converse(q, once, end);
+        const after = q.sdk.getState()?.interface;
+        q.log(`ns: grotto door attempt ${attempt}: no dialog (door ${door ? `${door.id}@${door.x},${door.z}` : 'not found'}, interface ${after?.isOpen ? after.interfaceId : 'none'}, at ${where(q)}, spirit ${spiritNpc(q) ? 'here' : 'absent'})`);
     }
     throw new Error(`ns: the grotto door brought no spirit (at ${where(q)})`);
 }
