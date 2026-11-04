@@ -490,17 +490,27 @@ const inJail = (p: Tile) => (p.level ?? 0) === 3 && p.x === JAIL.x && p.z === JA
 export async function escapeJail(q: Quest): Promise<void> {
     for (let attempt = 1; attempt <= 4 && inJail(pos(q)); attempt++) {
         const charlie = q.sdk.findNearbyNpc(/^charlie$/i);
+        let opened = false;
         if (charlie) {
-            await q.sdk.sendInteractNpc(charlie.index, 1, { route: false });
-            if (!(await untilTicks(q.sdk, (s) => !!s.dialog?.isOpen, 12))) await q.sdk.sendTalkToNpc(charlie.index);
+            const r = await q.sdk.sendInteractNpc(charlie.index, 1, { route: false });
+            opened = await untilTicks(q.sdk, (s) => !!s.dialog?.isOpen, 12);
+            if (!opened) {
+                await q.sdk.sendTalkToNpc(charlie.index);
+                opened = await untilTicks(q.sdk, (s) => !!s.dialog?.isOpen, 12);
+            }
+            if (!opened) opened = (await q.talk(/^charlie$/i, []).catch(() => '')).length > 0;
+            q.log(`grandtree: jail — Charlie #${charlie.index} at (${charlie.x},${charlie.z}) d${charlie.distance}, op ${r?.success ? 'sent' : r?.message}, dialog ${opened ? 'opened' : 'never opened'}`);
+        } else {
+            q.log(`grandtree: jail — no Charlie in view (npcs: ${(q.sdk.getNearbyNpcs() ?? []).map((n) => n.name).slice(0, 8).join(', ')})`);
         }
+        const seen: string[] = [];
         // Charlie's lines, then Narnode's apology; the door opens as his dialog closes.
         for (let t = 0; t < 80 && inJail(pos(q)); t += 2) {
-            if (q.sdk.getDialog()?.isOpen) await driveDialog(q.sdk, [], { ticks: 4 });
+            if (q.sdk.getDialog()?.isOpen) seen.push(await driveDialog(q.sdk, [], { ticks: 4 }));
             else await q.sdk.sendWalk(JAIL.x + 2, JAIL.z).catch(() => undefined);
             await q.sdk.waitForTicks(2);
         }
-        q.log(`grandtree: jail attempt ${attempt} — now at ${where(q)}`);
+        q.log(`grandtree: jail attempt ${attempt} — now at ${where(q)}; dialog: ${seen.join(' ').slice(-200) || '(none)'}`);
     }
     if (inJail(pos(q))) throw new Error(`grandtree: still in Glough's cell after 4 tries (Charlie's dialog did not free it)`);
 }
