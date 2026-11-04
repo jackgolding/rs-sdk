@@ -62,6 +62,7 @@ import { inSeerHouse, leaveSeerHouse } from './fremennik';
 import { inEssenceMine, leaveEssenceMine } from './mining';
 import { inDungeon as inEntranaDungeon, teleportOut as teleportOutOfEntranaDungeon } from './lost-city';
 import { crossGnomeGate, inStronghold, leaveGrandTree } from './gnome-stronghold';
+import { spiritTreeShortcut } from './spirit-trees';
 import { inWaterfallArea, leaveWaterfall } from './waterfall';
 import { inPlagueArea, leavePlagueCity } from './plague-city';
 import { inJungleArea, leaveJungle } from './jungle-potion';
@@ -588,6 +589,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // Inside the Gnome Stronghold: walkTo has no route through Femi's gate (fatpig after a
                 // client drop at the fishing spots, 2026-10-31). Before the Karamja check: with the Grand
                 // Tree at 80 the crossing flies the glider to Karamja instead (jacklove16, 2026-11-04).
+                // A long trip out of the stronghold: its spirit tree first, the gate if that is not on (lib/spirit-trees.ts).
+                if (inStronghold(pos()) && !inStronghold(tile) && tile.z < UNDERGROUND_Z) await spiritTreeShortcut(q, tile);
                 if (inStronghold(pos()) && !inStronghold(tile) && tile.z < UNDERGROUND_Z) await crossGnomeGate(q, false);
                 // Left on Karamja by a failed Pirate's Treasure run (jacklove13, 2026-10-29).
                 if (pos().level === 0 && onKaramja(pos()) && !onKaramja(tile)) await sailFromKaramja();
@@ -613,8 +616,13 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // Family Crest's mines and the Edgeville dungeon: their ladders are out of a generic climb's sight (lib/crest.ts).
                 if (inCrestUnderground(pos()) && !inCrestUnderground(tile)) await leaveCrestUnderground(q);
                 if (pos().z >= UNDERGROUND_Z && tile.z < UNDERGROUND_Z) await climbOutOfUnderground(tile);
-                // Buildings whose doorway the client map gets wrong (lib/doors.ts).
-                if (away(tile) > tolerance) (await leaveStuckArea(sdk, bot, tile, log)) || (await enterStuckArea(sdk, bot, tile, log));
+                // Buildings whose doorway the client map gets wrong (lib/doors.ts). Out of ours, then a long
+                // trip takes the spirit trees once Tree Gnome Village is done (lib/spirit-trees.ts), then into theirs.
+                if (away(tile) > tolerance) {
+                    const left = await leaveStuckArea(sdk, bot, tile, log);
+                    const hopped = await spiritTreeShortcut(q, tile);
+                    if (!left || hopped) await enterStuckArea(sdk, bot, tile, log);
+                }
                 // Lumbridge side <-> Al Kharid: pay the border guard first. walkTo at the toll
                 // gate blacklists it and detours around the fence (alkharid-toll.ts).
                 const here = pos();
