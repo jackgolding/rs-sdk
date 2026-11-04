@@ -390,6 +390,15 @@ export async function winelda(q: Quest): Promise<void> {
 }
 
 export async function guardian(q: Quest): Promise<void> {
+    // A resumed run at "paid" starts at the hub (ABGARMY17 walked for the secret door from Ardougne,
+    // 2026-11-04): back down the cellar, through the Fire Warrior's door and across the lava with Winelda.
+    if (!inIkovDungeon(pos(q)) && !inExitRoom(pos(q))) {
+        await wear(q, OBJ.boots);
+        await wear(q, OBJ.pendantL);
+        await intoDungeon(q);
+    }
+    if (inIkovDungeon(pos(q)) && pos(q).z < 9858) await trapLever(q);
+    if (inIkovDungeon(pos(q)) && pos(q).z < 9871) await winelda(q);
     await unwear(q, OBJ.pendantL);
     if (pos(q).z < 9893) {
         await walk(q, SECRET_DOOR, 1);
