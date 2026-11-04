@@ -943,6 +943,11 @@ export async function runQuest(def: QuestDef): Promise<void> {
 
         // ── prepare: every sourced item the rest of the quest needs, before any quest step
         const remaining = def.transitions.slice(def.transitions.findIndex((t) => t.from === start));
+        // QuestDef.noHubAt: no bank and no mule can reach us here (jacklove16 in the Grand Tree's
+        // Karamja pocket timed out asking jackthief for sharks, 2026-11-04). Go with what we carry; a
+        // later step that runs short fails and its restart, past this stage, banks as usual.
+        if (def.noHubAt?.includes(q.stage)) log(`prepare: skipped at stage ${q.stage} (no hub) — carrying ${describeInventory(sdk)}`);
+        else {
         // Mule-supplied stock first: the prologue has withdrawn what the bank holds, so a
         // shortfall now means the account was never stocked — stop before walking anywhere.
         const mule = mergeNeeds(remaining.flatMap((t) => needsOf(t, q))).filter((n) => SOURCES[n.item]?.mule);
@@ -961,6 +966,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
             await askMules(prep);
             for (const need of prep) if (!needMet(q, need)) await q.ensure(need.item, need.count);
             log(`prepared; carrying ${describeInventory(sdk)}`);
+        }
         }
 
         if (def.task && !prepareOnly) {
