@@ -88,6 +88,7 @@ import { inDigShafts, leaveShafts as leaveDigShafts } from './dig-site';
 import { inIkovArea, leaveIkov } from './temple-of-ikov';
 import { inScorpionArea, leaveScorpionArea } from './scorpion-catcher';
 import { inWorkshopArea, leaveWorkshop } from './elemental-workshop';
+import { inNatureSpiritArea, leaveNatureSpirit } from './nature-spirit';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, awaitQuestStartTurn, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -545,6 +546,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inIkovArea(pos()) && !inIkovArea(tile)) await leaveIkov(q);
                 // Scorpion Catcher: the Barbarian Outpost (out by its gate), the Sorcerer's Tower, Taverley's secret room (lib/scorpion-catcher.ts).
                 if (inScorpionArea(pos()) && !inScorpionArea({ ...tile, level: tile.level ?? 0 })) await leaveScorpionArea(q);
+                // Nature Spirit: Mort Myre, Filliman's camp and grotto, Morytania's bank and the mausoleum — back under the Salve (lib/nature-spirit.ts).
+                if (inNatureSpiritArea(pos()) && !inNatureSpiritArea({ ...tile, level: tile.level ?? 0 })) await leaveNatureSpirit(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0, tile);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in
@@ -825,6 +828,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inWorkshopArea(pos())) await leaveWorkshop(q);
         if (inIkovArea(pos())) await leaveIkov(q);
         if (inScorpionArea(pos())) await leaveScorpionArea(q);
+        if (inNatureSpiritArea(pos())) await leaveNatureSpirit(q);
         if (pos().level !== 0) await q.climbTo(0);
         if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.

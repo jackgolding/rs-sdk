@@ -106,6 +106,8 @@ export const GROUPS: Record<string, Array<{ item: string; skill: string; level: 
         { item: 'iron pickaxe', skill: 'mining', level: 1 },
         { item: 'bronze pickaxe', skill: 'mining', level: 1 },
     ],
+    /** Nature Spirit: worn for Filliman, so a worn one counts. */
+    'ghostspeak amulet': [{ item: 'ghostspeak amulet', skill: 'defence', level: 1 }],
     /** Witch's House: worn for the cellar's shock gate, so worn ones count. */
     'leather gloves': [{ item: 'leather gloves', skill: 'defence', level: 1 }],
     /** Lost City: wielded for the shed door, so a worn staff counts. */
@@ -1281,6 +1283,10 @@ export const SOURCES: Record<string, Source> = {
             await fetchDukeShield(q.bot, q.sdk, q.log);
         },
     },
+    /** Nature Spirit: The Restless Ghost's amulet (Father Urhney replaces a lost one) — bank stock, not sourced here. */
+    'ghostspeak amulet': { obj: 'amulet_of_ghostspeak', mule: true, tool: true },
+    /** Nature Spirit: silver bar + sickle mould (Crafting 18) — bank/mule stock, not sourced here. */
+    'silver sickle': { obj: 'silver_sickle', mule: true, tool: true },
     /** Elemental Workshop's 4 coal: mined at the Coal Trucks west of Seers (lib/elemental-workshop.ts). */
     coal: {
         levels: { mining: 30 },
