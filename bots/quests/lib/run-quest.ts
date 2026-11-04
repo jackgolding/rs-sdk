@@ -79,6 +79,7 @@ import { inContest, leaveContest } from './fishing-contest';
 import { inCultCave, leaveCave as leaveCultCave } from './hazeel-cult';
 import { inGnomeVillage, inKhazardStronghold, leaveGnomeVillage, leaveKhazardStronghold } from './tree-gnome-village';
 import { inGrandTreeArea, leaveGrandTreeArea } from './grand-tree';
+import { inMillYard, leaveMill } from './gertrudes-cat';
 import { inCannonArea, leaveCannonArea } from './dwarf-cannon';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
@@ -518,6 +519,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inKhazardStronghold(pos()) && !inKhazardStronghold(tile)) await leaveKhazardStronghold(q);
                 // The Grand Tree quest: its roots, Glough's upstairs, the tree's top floors and the Karamja shipyard (lib/grand-tree.ts).
                 if (inGrandTreeArea(pos()) && !inGrandTreeArea({ ...tile, level: tile.level ?? 0 })) await leaveGrandTreeArea(q);
+                // Gertrude's Cat: the lumber mill's fence is climbed, walkTo has no way out (lib/gertrudes-cat.ts).
+                if (inMillYard(pos()) && !inMillYard(tile)) await leaveMill(q);
                 // Dwarf Cannon: the goblin cave (out by its mud pile) and the watchtower (lib/dwarf-cannon.ts).
                 if (inCannonArea(pos()) && !inCannonArea({ ...tile, level: tile.level ?? 0 })) await leaveCannonArea(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0, tile);
