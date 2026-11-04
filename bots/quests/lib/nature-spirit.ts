@@ -442,12 +442,17 @@ export async function ritual(q: Quest, done: () => Promise<boolean>): Promise<vo
     await summonSpirit(q, []);
     for (let attempt = 1; attempt <= 4 && !(await done()); attempt++) {
         for (let i = 0; i < 3 && (pos(q).x !== FAITH_STONE.x || pos(q).z !== FAITH_STONE.z); i++) await q.bot.walkTo(FAITH_STONE.x, FAITH_STONE.z, 0).catch(() => undefined);
+        // jacklove16 sat silent at (3440,3337) through three ritual attempts (2026-11-04): say where and why.
+        q.log(`ns: ritual attempt ${attempt} at ${where(q)} (faith stone ${FAITH_STONE.x},${FAITH_STONE.z}); spirit ${spiritNpc(q) ? 'here' : 'absent'}; fungus ${holds(q, OBJ.fungus)}, spell ${holds(q, OBJ.spell) || holds(q, OBJ.usedSpell)}`);
         if (!spiritNpc(q)) {
             await summonSpirit(q, []);
             continue;
         }
         await q.sdk.sendInteractNpc(spiritNpc(q)!.index, 1, { route: false });
-        if (!(await untilTicks(q.sdk, (s) => !!s.dialog?.isOpen, 8))) continue;
+        if (!(await untilTicks(q.sdk, (s) => !!s.dialog?.isOpen, 8))) {
+            q.log(`ns: ritual attempt ${attempt}: the spirit's dialog did not open`);
+            continue;
+        }
         const seen = await converse(q, [/i think i've solved the puzzle/i], [/^ok,? thanks/i]);
         q.log(`ns: puzzle from ${where(q)}: ${seen.slice(-160)}`);
     }
