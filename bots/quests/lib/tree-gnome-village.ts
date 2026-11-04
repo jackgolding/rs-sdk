@@ -197,7 +197,7 @@ export async function takeOrb(q: Quest): Promise<void> {
     if (!inKhazardStronghold(pos(q))) {
         await q.goTo({ x: WALL.x, z: WALL.z - 1 }, 0);
         await op(q, WALL, /^crumbled wall$/i, /climb-over/i, () => inKhazardStronghold(pos(q)), 'climb the crumbled wall', 12);
-        await untilTicks(q.sdk, () => q.sdk.getState()?.player?.animation === -1, 4);
+        await untilTicks(q.sdk, () => q.sdk.getState()?.player?.animId === -1, 4);
         q.log(`tree: over the crumbled wall at ${where(q)}`);
     }
     await fightOff(q, /^khazard commander$/i);
