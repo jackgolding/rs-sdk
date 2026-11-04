@@ -22,6 +22,9 @@ import { advance, toPlatform } from './underground-pass';
 import { closeUi } from '../movement';
 import { survive } from './troll-stronghold';
 import { wieldWeapon } from './myreque';
+import { GROUPS, itemPattern, needMet, SOURCES, type Need } from './sources';
+import { SAFE_BANKS } from '../safe-stops';
+import { depositAllInventory } from '../quest-supplies';
 
 interface Tile {
     x: number;
@@ -220,9 +223,6 @@ export async function toTirannwn(q: Quest): Promise<void> {
         await toPlatform(q, 'TEMPLE');
         await walk(q, TEMPLE_DOOR_STAND, 1);
         await opLoc(q, LOC.templeDoorL, TEMPLE_DOOR, 1, () => inTempleCopy(pos(q)), "Iban's temple doors", { ticks: 15 });
-        // Koftik's food, once (koftik.rs2: 2 bread and a stew).
-        await talkThrough(q.sdk, q.bot, /^koftik$/i, [], q.log).catch(() => '');
-        await closeDialogs(q);
     }
     if (inTempleCopy(pos(q))) {
         await walk(q, { x: WELL1.x + 2, z: WELL1.z }, 1);
@@ -313,7 +313,7 @@ async function passWoodspring(q: Quest, trap: Tile, stand: Tile, passed: () => b
  *   APPROACH   north of the three cross-overs at x 2216 (z 3161-3169): Tyras's camp's approach and the catapult
  *   TYRAS      south of the three cross-overs at x 2187 (z 3163-3169): Tyras's camp
  */
-type Pocket = 'WELL' | 'SOUTH' | 'TRACKER' | 'RIVER' | 'CAMP' | 'WOODS' | 'NORTHWOODS' | 'APPROACH' | 'TYRAS';
+type Pocket = 'WELL' | 'SOUTH' | 'TRACKER' | 'RIVER' | 'CAMP' | 'WOODS' | 'NORTHWOODS' | 'APPROACH' | 'TYRAS' | 'LIME';
 const POCKETS: Array<{ name: Pocket; at: Tile }> = [
     { name: 'WELL', at: { x: 2269, z: 3205 } },
     { name: 'SOUTH', at: { x: 2266, z: 3199 } },
@@ -324,6 +324,8 @@ const POCKETS: Array<{ name: Pocket; at: Tile }> = [
     { name: 'NORTHWOODS', at: { x: 2215, z: 3155 } },
     { name: 'APPROACH', at: { x: 2217, z: 3169 } },
     { name: 'TYRAS', at: { x: 2188, z: 3162 } },
+    /** The limestone rocks (2317-2325,3265-3272), east over the pitfall at 2276-2278,3261-3263 from SOUTH's north end. */
+    { name: 'LIME', at: { x: 2279, z: 3262 } },
 ];
 const pocketAt = (name: Pocket) => POCKETS.find((p) => p.name === name)!.at;
 
@@ -394,6 +396,8 @@ async function oldCampWest(q: Quest): Promise<void> {
 
 /** The joins: each is a function crossing from `a` to `b` (the reverse is listed separately). */
 const EDGES: Array<{ a: Pocket; b: Pocket; go: (q: Quest, there: () => boolean) => Promise<void> }> = [
+    { a: 'SOUTH', b: 'LIME', go: (q, t) => jumpPitfall(q, { x: 2276, z: 3262 }, { x: 2275, z: 3262 }, t, 'the pitfall east to the limestone') },
+    { a: 'LIME', b: 'SOUTH', go: (q, t) => jumpPitfall(q, { x: 2278, z: 3262 }, { x: 2279, z: 3262 }, t, 'the pitfall west from the limestone') },
     { a: 'WELL', b: 'SOUTH', go: (q, t) => jumpPitfall(q, { x: 2267, z: 3204 }, { x: 2267, z: 3205 }, t, 'the pitfall south of the well') },
     { a: 'SOUTH', b: 'WELL', go: (q, t) => jumpPitfall(q, { x: 2267, z: 3202 }, { x: 2267, z: 3201 }, t, 'the pitfall north to the well') },
     { a: 'SOUTH', b: 'TRACKER', go: (q, t) => passWoodspring(q, { x: 2235, z: 3181 }, { x: 2238, z: 3181 }, t, 'the woodspring west') },
@@ -612,4 +616,448 @@ export async function intoCamp(q: Quest, entered: () => Promise<boolean>): Promi
 /** Iorwerth again: the Big Book o' Bangs (11). */
 export async function book(q: Quest, given: () => Promise<boolean>): Promise<void> {
     for (let attempt = 1; attempt <= 3 && !(await given()); attempt++) await talkIorwerth(q);
+}
+
+// ── the bomb (stage 11 -> 12)
+
+/** Bomb-chain items by obj id (names repeat: two "Barrel bomb", two "Naphtha mix"). */
+export const BOMB = {
+    sulphur: 3209,
+    limestone: 3211,
+    quicklime: 3213,
+    quicklimeDust: 3214,
+    sulphurDust: 3215,
+    barrel: 3216,
+    lid: 3218,
+    fused: 3219,
+    tar: 3220,
+    naphtha: 3221,
+    naphthaSulphur: 3222,
+    naphthaQuicklime: 3223,
+    cloth: 3224,
+    rawRabbit: 3226,
+    cookedRabbit: 3228,
+    message: 3207,
+} as const;
+const ids = (q: Quest, ...want: number[]) => q.sdk.getInventory().filter((i) => want.includes(i.id)).reduce((n, i) => n + (i.count ?? 1), 0);
+const bankIds = (q: Quest, ...want: number[]) => (q.sdk.isBankOpen() ? q.sdk.getBankItems().filter((b) => want.includes(b.id)).reduce((n, b) => n + b.count, 0) : 0);
+/** Held, or banked while the bank is open (the kit is evaluated at the hub). */
+const own = (q: Quest, ...want: number[]) => ids(q, ...want) + bankIds(q, ...want);
+const slotOf = (q: Quest, id: number) => q.sdk.getInventory().find((i) => i.id === id);
+
+/** What the bomb still lacks, by line. Each line is done once any later form of it exists. */
+export function bombState(q: Quest) {
+    const B = BOMB;
+    const fused = own(q, B.fused) > 0;
+    const lid = fused || own(q, B.lid) > 0;
+    return {
+        fused,
+        /** A barrel of naphtha (or anything made from one). */
+        naphtha: lid || own(q, B.naphtha, B.naphthaSulphur, B.naphthaQuicklime) > 0,
+        /** Coal tar for the still: two barrels, so a failed still run has a second go. */
+        tar: own(q, B.tar),
+        sulphur: lid || own(q, B.naphthaSulphur) > 0 || own(q, B.sulphurDust, B.sulphur) > 0,
+        quicklime: lid || own(q, B.naphthaQuicklime) > 0 || own(q, B.quicklimeDust, B.quicklime, B.limestone) > 0,
+        cloth: fused || own(q, B.cloth) > 0,
+        rabbit: own(q, B.cookedRabbit, B.rawRabbit) > 0,
+        cooked: own(q, B.cookedRabbit) > 0,
+    };
+}
+/** True when Tirannwn still holds something the bomb needs (barrels and tar, sulphur, limestone, the cloth, a rabbit). */
+export function needsTirannwn(q: Quest): boolean {
+    const s = bombState(q);
+    return (!s.naphtha && s.tar === 0) || !s.sulphur || !s.quicklime || !s.cloth || !s.rabbit;
+}
+/** True when the outside work is left: the still, the furnace, the mix, the fuse or the rabbit's cooking. */
+export function needsOutside(q: Quest): boolean {
+    const s = bombState(q);
+    return !s.fused || !s.cooked;
+}
+
+const CAMP_BARRELS = [
+    { x: 2205, z: 3257 },
+    { x: 2208, z: 3259 },
+];
+const LOOM = { x: 2198, z: 3249 };
+const TAR_PIT = { x: 2263, z: 3127 };
+const SULPHUR_ROCKS = { x: 2258, z: 3128 };
+const RABBITS = { x: 2241, z: 3163 };
+const LIMESTONE = { x: 2322, z: 3267 };
+
+async function pickUp(q: Quest, id: number, near: Tile, want: number, label: string, waitTicks = 200): Promise<void> {
+    const t0 = tickNow(q.sdk);
+    while (ids(q, id) < want && tickNow(q.sdk) - t0 < waitTicks) {
+        await q.sdk.scanGroundItems(12).catch(() => undefined);
+        const g = (q.sdk.getState()?.groundItems ?? []).filter((i) => i.id === id).sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+        if (!g) {
+            await walk(q, near, 2);
+            await q.sdk.waitForTicks(5);
+            continue;
+        }
+        const before = ids(q, id);
+        await q.bot.pickupItem(g).catch(() => undefined);
+        await untilTicks(q.sdk, () => ids(q, id) > before, 10);
+    }
+    if (ids(q, id) < want) throw new Error(`regicide: ${label}: ${ids(q, id)}/${want} after ${tickNow(q.sdk) - t0}t`);
+}
+
+/** Use inventory item `id` on loc `locId` near `at` until `done`. */
+async function useOnLoc(q: Quest, id: number, locId: number, at: Tile, done: () => boolean, label: string, ticks = 12): Promise<void> {
+    for (let attempt = 1; attempt <= 4 && !done(); attempt++) {
+        await closeDialogs(q);
+        const item = slotOf(q, id);
+        if (!item) throw new Error(`regicide: ${label}: item ${id} not held`);
+        const loc = await locById(q, locId, at, 4);
+        await q.sdk.sendUseItemOnLoc(item.slot, loc?.x ?? at.x, loc?.z ?? at.z, locId);
+        await untilTicks(q.sdk, (s) => done() || !!s.dialog?.isOpen, ticks);
+        if (q.sdk.getDialog()?.isOpen) await driveDialog(q.sdk, [], { done, ticks: 15 });
+        await untilTicks(q.sdk, done, 4);
+    }
+    if (!done()) throw new Error(`regicide: ${label} failed at ${where(q)}`);
+}
+
+/** Use item `a` on item `b` (by id) until `done`. */
+async function useOnItem(q: Quest, a: number, b: number, done: () => boolean, label: string): Promise<void> {
+    for (let attempt = 1; attempt <= 3 && !done(); attempt++) {
+        await closeDialogs(q);
+        const x = slotOf(q, a);
+        const y = slotOf(q, b);
+        if (!x || !y) throw new Error(`regicide: ${label}: ${!x ? a : b} not held`);
+        await q.sdk.sendUseItemOnItem(x.slot, y.slot);
+        await untilTicks(q.sdk, done, 6);
+    }
+    if (!done()) throw new Error(`regicide: ${label} failed`);
+}
+
+/** Tirannwn's part: barrels (Iorwerth's camp) and the cloth (his loom), coal tar and sulphur by the old camp, rabbits, limestone. */
+export async function gatherTirannwn(q: Quest): Promise<void> {
+    const B = BOMB;
+    let s = bombState(q);
+    // Two barrels of tar unless the naphtha is made; a barrel already held counts.
+    const barrelsWanted = s.naphtha ? 0 : Math.max(0, 2 - s.tar);
+    if (barrelsWanted > ids(q, B.barrel) || !s.cloth) {
+        await toPocket(q, 'CAMP');
+        if (barrelsWanted > ids(q, B.barrel)) await pickUp(q, B.barrel, CAMP_BARRELS[0]!, barrelsWanted, 'barrels in Iorwerth\'s camp', 300);
+        if (!s.cloth) {
+            if (q.count(/^ball of wool$/i) < 4) throw new Error(`regicide: the loom wants 4 balls of wool (held ${q.count(/^ball of wool$/i)})`);
+            await walk(q, { x: LOOM.x - 1, z: LOOM.z + 1 }, 1);
+            const wool = q.sdk.getInventory().find((i) => /^ball of wool$/i.test(i.name))!;
+            await useOnLoc(q, wool.id, 787, LOOM, () => ids(q, B.cloth) > 0, 'weave the cloth on the loom');
+        }
+    }
+    s = bombState(q);
+    if (ids(q, B.barrel) > 0 || !s.sulphur || !s.rabbit) {
+        await toPocket(q, 'TRACKER');
+        while (ids(q, B.barrel) > 0) {
+            const before = ids(q, B.tar);
+            await walk(q, { x: TAR_PIT.x, z: TAR_PIT.z + 2 }, 1);
+            await useOnLoc(q, B.barrel, 3975, TAR_PIT, () => ids(q, B.tar) > before, 'fill a barrel with coal tar');
+        }
+        if (!bombState(q).sulphur) {
+            await walk(q, { x: SULPHUR_ROCKS.x, z: SULPHUR_ROCKS.z + 1 }, 1);
+            await q.sdk.scanNearbyLocs(8).catch(() => undefined);
+            const rock = (q.sdk.getNearbyLocs() ?? []).filter((l) => [3962, 3963, 3964].includes(l.id)).sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+            if (!rock) throw new Error(`regicide: no sulphur formation near ${where(q)}`);
+            await opLoc(q, rock.id, rock, 1, () => ids(q, B.sulphur) > 0, 'break off sulphur');
+        }
+        if (ids(q, B.sulphur) > 0 && q.count(/^pestle and mortar$/i) > 0) {
+            const pestle = q.sdk.getInventory().find((i) => /^pestle and mortar$/i.test(i.name))!;
+            await useOnItem(q, pestle.id, B.sulphur, () => ids(q, B.sulphurDust) > 0, 'grind the sulphur');
+        }
+        if (!bombState(q).rabbit) await huntRabbit(q);
+    }
+    if (!bombState(q).quicklime) {
+        await toPocket(q, 'LIME');
+        const t0 = tickNow(q.sdk);
+        while (ids(q, B.limestone) < 1 && tickNow(q.sdk) - t0 < 300) {
+            await walk(q, { x: LIMESTONE.x - 1, z: LIMESTONE.z }, 3);
+            await q.sdk.scanNearbyLocs(8).catch(() => undefined);
+            const rock = (q.sdk.getNearbyLocs() ?? [])
+                .filter((l) => [4027, 4028, 4029].includes(l.id) && l.options?.some((o) => /^mine$/i.test(o)))
+                .sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+            if (!rock) {
+                await q.sdk.waitForTicks(5);
+                continue;
+            }
+            await q.bot.interactLoc(rock, /^mine$/i).catch(() => undefined);
+            await untilTicks(q.sdk, () => ids(q, B.limestone) > 0, 25);
+        }
+        if (ids(q, B.limestone) < 1) throw new Error('regicide: no limestone mined');
+    }
+    q.log(`regicide: Tirannwn's bomb parts in hand: ${JSON.stringify(bombState(q))}`);
+}
+
+/** Two rabbits by the old camp (a raw rabbit each), cooked outside. */
+async function huntRabbit(q: Quest): Promise<void> {
+    const B = BOMB;
+    const t0 = tickNow(q.sdk);
+    await wieldWeapon(q);
+    while (ids(q, B.rawRabbit) < 2 && tickNow(q.sdk) - t0 < 400) {
+        const raw = (q.sdk.getState()?.groundItems ?? []).find((g) => g.id === B.rawRabbit && (g.distance ?? 99) <= 10);
+        if (raw) {
+            await q.bot.pickupItem(raw).catch(() => undefined);
+            await q.sdk.waitForTicks(2);
+            continue;
+        }
+        const rabbit = q.sdk.findNearbyNpc(/^rabbit$/i);
+        if (!rabbit) {
+            await walk(q, RABBITS, 3);
+            await q.sdk.waitForTicks(5);
+            continue;
+        }
+        await q.bot.attack(rabbit).catch(() => undefined);
+        await untilTicks(q.sdk, () => !(q.sdk.getNearbyNpcs() ?? []).some((n) => n.index === rabbit.index) || (q.sdk.getState()?.groundItems ?? []).some((g) => g.id === B.rawRabbit), 20);
+        await q.sdk.waitForTicks(2);
+    }
+    if (ids(q, B.rawRabbit) < 1) throw new Error('regicide: no raw rabbit');
+}
+
+// ── the outside part: the still, the furnace, the mixing, the fuse, the rabbit
+
+const STILL = { x: 2927, z: 3212 };
+const RIMMINGTON_RANGE = { x: 2970, z: 3209 };
+const FALADOR_FURNACE = { x: 2975, z: 3368 };
+const STILL_IF = { coal: 5061, valveUp: 6174, tarUp: 6176, close: 5030 };
+
+/**
+ * The fractionalizing still (regicide_fractionalizing_still.rs2): its softtimer runs every 2 ticks from the moment the
+ * interface opens; with the tar regulator full (+2 pressure) and the pressure valve one notch open (-2) the pressure
+ * stays put, and every cycle the heat needle is in the green (6..11) adds 2 to the total; 26 makes the naphtha on close.
+ * The needles are not sent to the client, so this keeps a model in lockstep and feeds coal by it (.ql/still.ts: add
+ * coal when the modelled temperature is <= 30 and the heat <= 6; 6-8 coal, robust to a one-cycle lag).
+ */
+async function runStill(q: Quest): Promise<boolean> {
+    const B = BOMB;
+    if (q.count(/^coal$/i) < 8) throw new Error(`regicide: the still wants coal (held ${q.count(/^coal$/i)})`);
+    const before = ids(q, B.naphtha);
+    await walk(q, { x: STILL.x + 1, z: STILL.z }, 1);
+    const tar = slotOf(q, B.tar);
+    if (!tar) throw new Error('regicide: no barrel of coal-tar for the still');
+    const loc = await locById(q, 4026, STILL, 4);
+    await q.sdk.sendUseItemOnLoc(tar.slot, loc?.x ?? STILL.x, loc?.z ?? STILL.z, 4026);
+    if (!(await untilTicks(q.sdk, (s) => !!s.interface?.isOpen, 15))) {
+        q.log(`regicide: the still did not open (at ${where(q)})`);
+        return false;
+    }
+    const t0 = tickNow(q.sdk);
+    // Tar regulator to full (29 -> 31), the pressure valve one notch (26 -> 27).
+    await q.sdk.sendClickComponent(STILL_IF.tarUp);
+    await q.sdk.sendClickComponent(STILL_IF.tarUp);
+    await q.sdk.sendClickComponent(STILL_IF.valveUp);
+    const m = { temp: 0, heat: 0, total: 0 };
+    const cycle = () => {
+        const bump = (v: number) => (m.heat = Math.max(0, Math.min(12, m.heat + v)));
+        if (m.temp === 0) bump(-1);
+        if (m.temp > 80) bump(2);
+        if (m.temp === 80) bump(-1);
+        else if (m.temp > 50) bump(1);
+        if (m.temp > 0) m.temp = Math.max(0, m.temp - (5 + 6 * m.heat));
+        if (m.heat >= 6 && m.heat <= 11) m.total += 2;
+    };
+    let coal = 0;
+    let cycles = 0;
+    while (m.total < 30 && tickNow(q.sdk) - t0 < 160 && q.sdk.getState()?.interface?.isOpen) {
+        if (m.temp <= 30 && m.heat <= 6 && q.count(/^coal$/i) > 0) {
+            await q.sdk.sendClickComponent(STILL_IF.coal);
+            m.temp += 60;
+            coal++;
+        }
+        // One modelled cycle per 2 server ticks since the interface opened.
+        const target = t0 + 2 * (cycles + 1);
+        await untilTicks(q.sdk, () => tickNow(q.sdk) >= target, 4);
+        cycle();
+        cycles++;
+    }
+    await q.sdk.waitForTicks(2);
+    await q.sdk.sendClickComponent(STILL_IF.close).catch(() => undefined);
+    await q.sdk.sendCloseModal().catch(() => undefined);
+    await untilTicks(q.sdk, () => ids(q, B.naphtha) > before, 6);
+    q.log(`regicide: still: ${cycles} cycles, ${coal} coal, model total ${m.total} -> naphtha ${ids(q, B.naphtha) > before ? 'yes' : 'no'}`);
+    return ids(q, B.naphtha) > before;
+}
+
+/** Outside Tirannwn: naphtha at the still, quicklime at the Falador furnace, both dusts, the mix, the fuse, the cooked rabbit. */
+export async function makeBomb(q: Quest): Promise<void> {
+    const B = BOMB;
+    const pestle = () => q.sdk.getInventory().find((i) => /^pestle and mortar$/i.test(i.name));
+    if (!bombState(q).naphtha) {
+        await q.goTo(STILL, 4);
+        for (let attempt = 1; attempt <= 2 && !bombState(q).naphtha && ids(q, B.tar) > 0; attempt++) await runStill(q);
+        if (!bombState(q).naphtha) throw new Error('regicide: the still made no naphtha');
+    }
+    if (!bombState(q).cooked && ids(q, B.rawRabbit) > 0) {
+        await q.goTo(RIMMINGTON_RANGE, 2);
+        for (let i = 0; i < 3 && ids(q, B.cookedRabbit) < 1 && ids(q, B.rawRabbit) > 0; i++) {
+            const before = ids(q, B.rawRabbit);
+            await useOnLoc(q, B.rawRabbit, 2728, RIMMINGTON_RANGE, () => ids(q, B.rawRabbit) < before, 'cook a rabbit on the range', 15).catch((e: Error) => q.log(e.message));
+            await closeDialogs(q);
+        }
+        if (ids(q, B.cookedRabbit) < 1) throw new Error('regicide: no cooked rabbit (both burnt?)');
+    }
+    if (!bombState(q).fused && ids(q, B.limestone) > 0 && !ids(q, B.quicklime)) {
+        await q.goTo(FALADOR_FURNACE, 3);
+        await useOnLoc(q, B.limestone, 2781, FALADOR_FURNACE, () => ids(q, B.quicklime) > 0, 'burn the limestone', 15);
+    }
+    await eatIfLow(q);
+    if (ids(q, B.quicklime) > 0 && pestle()) await useOnItem(q, pestle()!.id, B.quicklime, () => ids(q, B.quicklimeDust) > 0, 'grind the quicklime into a pot');
+    if (ids(q, B.sulphur) > 0 && pestle()) await useOnItem(q, pestle()!.id, B.sulphur, () => ids(q, B.sulphurDust) > 0, 'grind the sulphur');
+    // Into the naphtha, either order: the second makes the barrel bomb.
+    const barrel = () => slotOf(q, B.naphtha) ?? slotOf(q, B.naphthaSulphur) ?? slotOf(q, B.naphthaQuicklime);
+    if (ids(q, B.quicklimeDust) > 0 && (ids(q, B.naphtha) > 0 || ids(q, B.naphthaSulphur) > 0)) await useOnItem(q, B.quicklimeDust, barrel()!.id, () => ids(q, B.quicklimeDust) === 0, 'quicklime into the naphtha');
+    if (ids(q, B.sulphurDust) > 0 && (ids(q, B.naphtha) > 0 || ids(q, B.naphthaQuicklime) > 0)) await useOnItem(q, B.sulphurDust, barrel()!.id, () => ids(q, B.sulphurDust) === 0, 'sulphur into the naphtha');
+    if (ids(q, B.lid) > 0 && ids(q, B.cloth) > 0) await useOnItem(q, B.cloth, B.lid, () => ids(q, B.fused) > 0, 'the cloth fuse');
+    if (!bombState(q).fused) throw new Error(`regicide: no fused barrel bomb yet: ${JSON.stringify(bombState(q))}`);
+    q.log('regicide: the barrel bomb is fused');
+}
+
+const CATAPULT = { x: 2185, z: 3183 };
+
+/** Back in Tirannwn: a cooked rabbit for the catapult's guard, then the bomb on the catapult (12). */
+export async function catapult(q: Quest, killed: () => Promise<boolean>): Promise<void> {
+    const B = BOMB;
+    await toPocket(q, 'APPROACH');
+    for (let attempt = 1; attempt <= 3 && !(await killed()); attempt++) {
+        await walk(q, { x: CATAPULT.x + 2, z: CATAPULT.z - 2 }, 2);
+        // The catapult's guard (regicide_tyras_lazy_guard, spawn 2181,3184) is named Tyras guard too: the nearest to the catapult.
+        const guard = (q.sdk.getNearbyNpcs() ?? []).filter((n) => /^tyras guard$/i.test(n.name)).sort((a, b) => Math.hypot(a.x - 2181, a.z - 3184) - Math.hypot(b.x - 2181, b.z - 3184))[0];
+        const rabbit = slotOf(q, B.cookedRabbit);
+        if (rabbit && guard) {
+            await q.sdk.sendUseItemOnNpc(rabbit.slot, guard.index);
+            await untilTicks(q.sdk, (s) => !!s.dialog?.isOpen, 12);
+            await driveDialog(q.sdk, [], { ticks: 30, log: q.log });
+        } else q.log(`regicide: catapult: rabbit ${!!rabbit}, guard ${guard?.name ?? 'none'} (npcs ${(q.sdk.getNearbyNpcs() ?? []).slice(0, 6).map((n) => n.name).join(', ')})`);
+        const bomb = slotOf(q, B.fused);
+        if (!bomb) throw new Error('regicide: no fused barrel bomb for the catapult');
+        await q.sdk.sendUseItemOnLoc(bomb.slot, CATAPULT.x, CATAPULT.z, 3976);
+        // The launch: forcewalks, the flight, the tent fire, back by the catapult (~20 ticks).
+        await untilTicks(q.sdk, () => ids(q, B.fused) === 0, 20);
+        await untilTicks(q.sdk, () => inTirannwn(pos(q)) && !q.sdk.getDialog()?.isOpen, 30);
+        await closeDialogs(q);
+    }
+}
+
+/** Lord Iorwerth: the deed is done, his letter for Lathas (13). */
+export async function letter(q: Quest, given: () => Promise<boolean>): Promise<void> {
+    for (let attempt = 1; attempt <= 3 && !(await given()); attempt++) await talkIorwerth(q);
+}
+
+/** Ardougne's market zone east of the castle (quest_regicide.rs2 [zone,0_40_51_24_32]): Arianwyn reads the letter (14). */
+const ARIANWYN_ZONE = { x: 2591, z: 3298 };
+const ARIANWYN_OUTSIDE = { x: 2592, z: 3290 };
+export async function arianwyn(q: Quest, met: () => Promise<boolean>): Promise<void> {
+    let reads = 0;
+    const quickMet = async () => ++reads % 10 === 0 && (await met());
+    for (let attempt = 1; attempt <= 3 && !(await met()); attempt++) {
+        if (ids(q, BOMB.message) < 1) throw new Error("regicide: Iorwerth's message is not held");
+        // Out of the zone and back in: the zone trigger runs on entry.
+        await q.goTo(ARIANWYN_OUTSIDE, 2);
+        await q.goTo(ARIANWYN_ZONE, 1);
+        const t0 = tickNow(q.sdk);
+        while (tickNow(q.sdk) - t0 < 120 && !(await quickMet())) {
+            if (q.sdk.getDialog()?.isOpen) await driveDialog(q.sdk, [], { ticks: 20, log: q.log });
+            else if (q.sdk.getState()?.interface?.isOpen) await q.sdk.sendCloseModal().catch(() => undefined);
+            else await q.sdk.waitForTicks(2);
+        }
+        await closeDialogs(q);
+    }
+}
+
+/** King Lathas with the letter: complete. */
+export async function reportLathas(q: Quest, done: () => Promise<boolean>): Promise<void> {
+    await lathas(q, done);
+}
+
+// ── kits and the in-run restock between the bomb's phases
+
+/** Through the pass and out again: bow and arrows for the chasm, rope for the swing, spade for the mud, teleport runes out. */
+export const passKitNeeds = (): Need[] => [
+    { item: 'bow', count: 1 },
+    { item: 'bronze arrow', count: 5 },
+    { item: 'tinderbox', count: 1 },
+    { item: 'rope', count: 2 },
+    { item: 'spade', count: 1 },
+    { item: 'melee weapon', count: 1 },
+    { item: 'law rune', count: 2 },
+    { item: 'air rune', count: 6 },
+    { item: 'water rune', count: 2 },
+];
+/** Tirannwn's gathering trip (28: kit 10, pestle, 4 wool, pickaxe, 4 sharks, then 2 barrels, sulphur, limestone, 2 rabbits). */
+export function gatherNeeds(q: Quest): Need[] {
+    const s = bombState(q);
+    return [
+        ...passKitNeeds(),
+        { item: 'pestle and mortar', count: 1 },
+        ...(s.cloth ? [] : [{ item: 'ball of wool', count: 4 }]),
+        ...(s.quicklime ? [] : [{ item: 'pickaxe', count: 1 }]),
+        // Traps only (8-15 a hit) and rabbits: 4 sharks, room for the parts.
+        { item: 'shark', count: 4 },
+    ];
+}
+/** The still (coal), the furnace and grinding (pestle, a pot for the quicklime). */
+export function outsideNeeds(q: Quest): Need[] {
+    const s = bombState(q);
+    return [
+        ...(s.naphtha ? [] : [{ item: 'coal', count: 16 }]),
+        { item: 'pestle and mortar', count: 1 },
+        ...(s.fused || own(q, BOMB.naphthaQuicklime, BOMB.quicklimeDust) > 0 ? [] : [{ item: 'pot', count: 1 }]),
+    ];
+}
+/** Back to the catapult (and on to Iorwerth). */
+export const finalNeeds = (): Need[] => [...passKitNeeds(), { item: 'shark', count: 4 }];
+
+/** The bomb's next phase, as the account stands (bank included while it is open). */
+export function bombPhase(q: Quest): 'gather' | 'outside' | 'final' {
+    if (needsTirannwn(q)) return 'gather';
+    if (needsOutside(q)) return 'outside';
+    return 'final';
+}
+
+const BOMB_IDS = Object.values(BOMB) as number[];
+
+/**
+ * Between phases in one run: out of Tirannwn, to the Ardougne hub, everything banked, then the bomb's items (all of
+ * them, by id) and `needs` withdrawn; whatever the bank lacks is sourced (q.ensure).
+ */
+export async function restock(q: Quest, needs: Need[]): Promise<void> {
+    if (inRegicideArea(pos(q))) await leaveRegicide(q);
+    await q.goTo(SAFE_BANKS.ardougne, 4);
+    await depositAllInventory(q.supply);
+    if (!q.sdk.isBankOpen()) await q.bot.openBank().catch(() => undefined);
+    // Once the bomb is fused, its spares (a second tar barrel, a raw rabbit) stay banked: the pack is the pass kit.
+    const spare: number[] = q.sdk.getBankItems().some((b) => b.id === BOMB.fused) ? [BOMB.tar, BOMB.barrel, BOMB.rawRabbit, BOMB.naphtha] : [];
+    for (const b of q.sdk.getBankItems().filter((x) => BOMB_IDS.includes(x.id) && !spare.includes(x.id))) {
+        if (q.sdk.getInventory().length >= 27) break;
+        await q.bot.withdrawItem(b, b.count).catch(() => undefined);
+        await q.sdk.waitForTicks(1);
+    }
+    for (const n of needs) {
+        const have = q.count(n.item);
+        if (have >= n.count) continue;
+        const names = GROUPS[n.item]?.filter((m) => q.level(m.skill) >= m.level).map((m) => m.item) ?? [n.item];
+        const banked = names.map((x) => q.sdk.findBankItem(itemPattern(x))).find(Boolean);
+        if (banked) {
+            await q.bot.withdrawItem(banked, Math.min(banked.count, n.count - have)).catch(() => undefined);
+            await q.sdk.waitForTicks(1);
+        }
+    }
+    await q.bot.closeBank().catch(() => undefined);
+    // Mule stock (sharks) is best effort here: what the bank holds goes, a shortfall is not a stop mid-quest.
+    for (const n of needs) if (!needMet(q, n) && !SOURCES[n.item]?.mule) await q.ensure(n.item, n.count);
+    q.log(`regicide: restocked for the next phase: ${q.sdk.getInventory().map((i) => `${i.name}${(i.count ?? 1) > 1 ? ` x${i.count}` : ''}`).join(', ')}`);
+}
+
+/** Stage 11 -> 12 in phases: Tirannwn's parts, the bomb outside, then the catapult; a restock at the hub between them. */
+export async function bombAndCatapult(q: Quest, killed: () => Promise<boolean>): Promise<void> {
+    if (await killed()) return;
+    if (bombPhase(q) === 'gather') {
+        await gatherTirannwn(q);
+        await restock(q, outsideNeeds(q));
+    }
+    if (bombPhase(q) === 'outside') {
+        if (inRegicideArea(pos(q))) await restock(q, outsideNeeds(q));
+        await makeBomb(q);
+        await restock(q, finalNeeds());
+    }
+    if (bombPhase(q) !== 'final') throw new Error(`regicide: the bomb is not ready: ${JSON.stringify(bombState(q))}`);
+    await catapult(q, killed);
 }

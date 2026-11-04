@@ -9,15 +9,18 @@
  * weapon, sharks, and Falador Teleport runes (Magic 37) out of Tirannwn: its only walk out (the Arandar gate) is past
  * the dense wood, which needs stage 8.
  *
- * WORK IN PROGRESS. Staging (2026-11-04, qlqhrg1): unstarted -> received -> lathas -> scouts -> iorwerth -> pendant ->
- * footprints -> tracker2 -> guard -> camp -> book, every stage journal-verified; four restarts in Tirannwn (out by
- * Falador Teleport, back through the pass). Not written: the bomb and the catapult (12), Iorwerth's letter (13),
- * Arianwyn (14), Lathas (complete); a run stops with "no transition from stage book". The bomb's facts, from the
- * content: a barrel (ground spawns in Iorwerth's and Tyras's camps), coal tar (the tar pits by the old camp), the
- * Rimmington chemist's still (2927,3212; a blind valve/coal minigame, .ql/still.ts simulates a coal policy that
- * works), limestone (rocks at 2317-2325,3265-3272, a pocket past the pitfall at 2276-2278,3261-3263) burnt to
- * quicklime at Tyras's furnace (gloves), sulphur from the formations, both ground with a pestle into pots, 4 balls
- * of wool on Iorwerth's loom for the fuse, a cooked rabbit for the catapult's guard, then the catapult (2185,3183).
+ * The bomb (stage 11 -> 12) runs in three phases with a hub restock between them (lib/regicide.ts bombAndCatapult):
+ *   gather   through the pass: two barrels and the loom's cloth (4 balls of wool) in Iorwerth's camp, coal tar and
+ *            ground sulphur (pestle) by the old camp, two raw rabbits, limestone (a pickaxe) past the north-east pitfall
+ *   outside  Falador Teleport out; 16 coal (mined at the Coal Trucks if not banked), the Rimmington chemist's still
+ *            (a blind valve/coal minigame driven by a lockstep model, .ql/still.ts), a rabbit cooked on Rimmington's
+ *            range, quicklime at the Falador furnace ground into a pot, both dusts into the naphtha, the cloth fuse
+ *   final    back through the pass: the cooked rabbit to the catapult's guard, the bomb on the catapult (12)
+ * Every phase re-derives what is left from the items held and banked (`carry` keeps them across restarts).
+ * Then Iorwerth's letter (13), Arianwyn in Ardougne's market zone east of the castle (14), Lathas (complete).
+ *
+ * Staging (2026-11-04, qlqhrg1): QUEST COMPLETE (journal-verified), every stage journal-verified across several
+ * resumed runs (restarts in Tirannwn and in the pass: out by Falador Teleport or the pass's own exits, back in).
  */
 import { runQuest, type Quest, type Need } from './lib/run-quest';
 import * as reg from './lib/regicide';
@@ -46,6 +49,7 @@ const stages = [
     stage('book', 'active', ['has given me a', 'talks of things that go bang']),
     stage('killed', 'active', ['The catapult provided a great way']),
     stage('reported', 'active', ['has given me a', 'message', 'to carry to']),
+    stage('arianwyn', 'active', ['I met an elf who showed me the truth']),
     stage('complete', 'complete', ['QUEST COMPLETE']),
 ];
 type Sdk = Parameters<typeof readJournalCheckpoint>[0];
@@ -59,34 +63,36 @@ const passesAny = async (sdk: Sdk, from: string) => {
 /**
  * The pass kit until a step has begun (as underground-pass.ts): a spent rope or an eaten shark never sends a run from
  * Tirannwn back to a shop. Every restart walks in from the pass entrance, so a new process needs it all again.
- * Pack: bow, arrows, tinderbox, 2 ropes, spade, weapon, 3 rune stacks = 10, 14 sharks, Koftik's 3 foods, the cloth arrow.
  */
 let underway = false;
-const passKit = (q: Quest): Need[] =>
-    underway
-        ? []
-        : [
-              { item: 'bow', count: 1 },
-              { item: 'bronze arrow', count: 5 },
-              { item: 'tinderbox', count: 1 },
-              { item: 'rope', count: 2 },
-              { item: 'spade', count: 1 },
-              { item: 'melee weapon', count: 1 },
-              ...(q.sdk.isBankOpen() ? [{ item: 'shark', count: 14 }] : []),
-              { item: 'law rune', count: 2 },
-              { item: 'air rune', count: 6 },
-              { item: 'water rune', count: 2 },
-          ];
+const passKit = (q: Quest): Need[] => (underway ? [] : [...reg.passKitNeeds(), ...(q.sdk.isBankOpen() ? [{ item: 'shark', count: 14 }] : [])]);
 const step = (fn: (q: Quest) => Promise<void>) => async (q: Quest) => {
     underway = true;
     await fn(q);
 };
+/**
+ * Stage 11: the kit for the bomb's next phase. The phase is decided at the hub with the bank open (the prologue's
+ * withdrawal) and remembered for the prepare phase, which reads needs with the bank closed; reg.restock covers the
+ * later phases in-run. Sharks only while the bank is open (mule stock, never sourced mid-run).
+ */
+let kitPhase: ReturnType<typeof reg.bombPhase> | null = null;
+const phaseNeeds = (q: Quest, phase: ReturnType<typeof reg.bombPhase>) =>
+    (phase === 'gather' ? reg.gatherNeeds(q) : phase === 'outside' ? reg.outsideNeeds(q) : reg.finalNeeds()).filter((n) => q.sdk.isBankOpen() || n.item !== 'shark');
+const bombKit = (q: Quest): Need[] => {
+    if (underway) return [];
+    if (q.sdk.isBankOpen()) kitPhase = reg.bombPhase(q);
+    return kitPhase ? phaseNeeds(q, kitPhase) : [];
+};
+/** Stage 12: back to Iorwerth through the pass when the run starts outside Tirannwn. */
+const letterKit = (q: Quest): Need[] => (underway ? [] : reg.finalNeeds().filter((n) => q.sdk.isBankOpen() || n.item !== 'shark'));
 
 await runQuest({
     id: 'regicide',
     hub: 'ardougne',
     journal,
     skills: { agility: 56, crafting: 10, magic: 37 },
+    // The bomb's parts and Iorwerth's letter: the naked prologue banks them (reg.restock withdraws every one by id).
+    carry: Object.values(reg.BOMB),
     // Isafdar, the scouts and Iorwerth are shared; the pass's traps too.
     maxConcurrent: 2,
     stages,
@@ -102,5 +108,9 @@ await runQuest({
         { from: 'tracker2', to: 'guard', needs: passKit, run: step((q) => reg.guard(q, () => passesAny(q.sdk, 'guard'))) },
         { from: 'guard', to: 'camp', needs: passKit, run: step((q) => reg.intoCamp(q, () => passesAny(q.sdk, 'camp'))) },
         { from: 'camp', to: 'book', needs: passKit, run: step((q) => reg.book(q, () => passesAny(q.sdk, 'book'))) },
+        { from: 'book', to: 'killed', needs: bombKit, run: step((q) => reg.bombAndCatapult(q, () => passesAny(q.sdk, 'killed'))) },
+        { from: 'killed', to: 'reported', needs: letterKit, run: step((q) => reg.letter(q, () => passesAny(q.sdk, 'reported'))) },
+        { from: 'reported', to: 'arianwyn', run: (q) => reg.arianwyn(q, () => passesAny(q.sdk, 'arianwyn')) },
+        { from: 'arianwyn', to: 'complete', run: (q) => reg.reportLathas(q, () => passes(q.sdk, 'complete')) },
     ],
 });
