@@ -456,7 +456,11 @@ export async function ritual(q: Quest, done: () => Promise<boolean>): Promise<vo
         // jacklove16 sat silent at (3440,3337) through three ritual attempts (2026-11-04): say where and why.
         q.log(`ns: ritual attempt ${attempt} at ${where(q)} (faith stone ${FAITH_STONE.x},${FAITH_STONE.z}); spirit ${spiritNpc(q) ? 'here' : 'absent'}; fungus ${holds(q, OBJ.fungus)}, spell ${holds(q, OBJ.spell) || holds(q, OBJ.usedSpell)}`);
         if (!spiritNpc(q)) {
-            await summonSpirit(q, []);
+            // The door-summoned spirit offers the same menu (filliman.rs2 multi5): answer the puzzle from
+            // the faith stone right there. Summoning with no answer looped 4×4 attempts with the spirit
+            // never in the npc list between dialogs (ABGARMY08/jacklove16, 2026-11-04).
+            const seen = await summonSpirit(q, [/i think i've solved the puzzle/i]);
+            q.log(`ns: puzzle via the grotto door from ${where(q)}: ${seen.slice(-160)}`);
             continue;
         }
         await q.sdk.sendInteractNpc(spiritNpc(q)!.index, 1, { route: false });
