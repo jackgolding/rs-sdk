@@ -304,15 +304,18 @@ export async function searchCupboard(q: Quest): Promise<void> {
 
 // ── 80 -> 90: the glider, the shipyard, the foreman
 
+/** The glider pilot on the Grand Tree's L3 to Karamja (2917,3058): the only way out of the stronghold at 80. */
+export async function flyToKaramja(q: Quest): Promise<void> {
+    await upTree(q, 3);
+    await q.talk(/^gnome pilot$/i, [/take me to karamja/i], PILOT);
+    await driveDialog(q.sdk, [], { ticks: 30, log: q.log });
+    if (!(await untilTicks(q.sdk, () => pos(q).x > 2880, 10))) throw new Error(`grandtree: the glider did not leave (at ${where(q)})`);
+    q.log(`grandtree: glider crash-landed at ${where(q)}`);
+}
+
 export async function toShipyardForeman(q: Quest): Promise<void> {
     if (held(q, OBJ.order)) return;
-    if (!inShipyard(pos(q)) && !(pos(q).x > 2880 && pos(q).z < 3080)) {
-        await upTree(q, 3);
-        await q.talk(/^gnome pilot$/i, [/take me to karamja/i], PILOT);
-        await driveDialog(q.sdk, [], { ticks: 30, log: q.log });
-        if (!(await untilTicks(q.sdk, () => pos(q).x > 2880, 10))) throw new Error(`grandtree: the glider did not leave (at ${where(q)})`);
-        q.log(`grandtree: glider crash-landed at ${where(q)}`);
-    }
+    if (!inShipyard(pos(q)) && !(pos(q).x > 2880 && pos(q).z < 3080)) await flyToKaramja(q);
     if (!inShipyard(pos(q))) {
         await q.goTo({ x: SHIPYARD_GATE.x - 2, z: SHIPYARD_GATE.z }, 2);
         await op(q, SHIPYARD_GATE, /^gate$/i, /^open$/i, () => inShipyard(pos(q)), 'the shipyard gate', [/glough sent me/i, /^ka\.$/i, /^lu\.$/i, /^min\.$/i], 30);

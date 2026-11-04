@@ -103,6 +103,14 @@ export async function crossGnomeGate(q: Quest, inward: boolean): Promise<void> {
         }
         if (refused && !crossed()) break;
     }
+    if (!crossed() && !inward && refused && /can not leave/i.test(refused)) {
+        // The Grand Tree at 80 ("released"): the guards hold the gate, the quest's way out is the
+        // glider to Karamja (gnome_glider.rs2). A restart there bounced off the gate (jacklove16, 2026-11-04).
+        q.log('gnome gate: the guards hold the gate (Grand Tree) — taking the glider to Karamja instead');
+        const { flyToKaramja } = await import('./grand-tree');
+        await flyToKaramja(q);
+        if (!inStronghold(here(q))) return;
+    }
     if (!crossed()) {
         throw new Error(`could not pass the Gnome Stronghold gate ${inward ? 'inward' : 'outward'} (at ${here(q).x},${here(q).z})${refused ? `: the guard says "${refused.slice(0, 160)}" — the Grand Tree quest state blocks it` : ''}`);
     }
