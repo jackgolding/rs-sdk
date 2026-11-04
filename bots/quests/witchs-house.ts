@@ -335,8 +335,20 @@ async function magnetTheMouse(q: Quest): Promise<void> {
     q.log(`magnet on the mouse: ${tickNow(q.sdk) - t0}t`);
 }
 
-/** The shed key from the fountain, and in at the shed door with it. */
+/** The shed key from the fountain, and in at the shed door with it. Thrown out by the witch: in again (jacklove7, jackquests, 2026-11-04). */
 async function intoShed(q: Quest): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            return await intoShedOnce(q);
+        } catch (e) {
+            if (attempt >= 3 || !/thrown out of the garden/i.test((e as Error).message)) throw e;
+            q.log(`${(e as Error).message} — into the garden again (attempt ${attempt + 1})`);
+            await q.sdk.waitForTicks(5);
+        }
+    }
+}
+
+async function intoShedOnce(q: Quest): Promise<void> {
     if (inShed(me(q))) return;
     if (!onGardenPath(me(q))) await intoGarden(q);
     const start = me(q);
@@ -426,9 +438,15 @@ async function takeBallOut(q: Quest): Promise<void> {
     if (onGardenPath(me(q))) {
         const at = me(q);
         const back = reverse(PORCH_TO_SHED);
-        if (!back.some((t) => cheb(t, at) === 0)) await sneak(q, reverse(SHED_TO_FOUNTAIN), 'fountain → shed');
-        await sneak(q, back, 'shed → porch');
-        await passLoc(q, BACK_DOOR, /^open$/i, () => inHouse(me(q)), 'back door in');
+        try {
+            if (!back.some((t) => cheb(t, at) === 0)) await sneak(q, reverse(SHED_TO_FOUNTAIN), 'fountain → shed');
+            await sneak(q, back, 'shed → porch');
+            await passLoc(q, BACK_DOOR, /^open$/i, () => inHouse(me(q)), 'back door in');
+        } catch (e) {
+            // Thrown out with the ball: that is outside already, where the boy is.
+            if (!/thrown out of the garden/i.test((e as Error).message)) throw e;
+            q.log(`${(e as Error).message} — out with the ball anyway`);
+        }
     }
     await leaveHouse(q);
 }
