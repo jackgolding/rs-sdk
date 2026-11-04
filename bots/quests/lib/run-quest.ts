@@ -184,6 +184,8 @@ export interface QuestDef {
     carry?: Array<string | number>;
     /** Attempts per transition before giving up (default 3). */
     retries?: number;
+    /** Stages at which the prologue skips the walk to the hub and its banking (the run carries on from where it stands). */
+    noHubAt?: string[];
     /**
      * Fleet accounts allowed in this quest at once (default QUEST_SLOTS). Shared NPCs,
      * doors and drops (Keli, the maze, imps) break when a rollout puts many in together.
@@ -858,6 +860,12 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.
         if (pos().z >= UNDERGROUND_Z) await climbOutOfUnderground(hub);
+        if (def.noHubAt?.includes(q.stage)) {
+            // QuestDef.noHubAt: the quest leaves from where it stands at this stage (the Grand Tree at
+            // 'released': the stronghold gate is held and the glider lands in a pocket of Karamja with
+            // no walk to the customs boat — jacklove16 failed every restart on the hub walk, 2026-11-04).
+            log(`prologue: no hub walk at stage ${q.stage}; carrying ${describeInventory(sdk)} at ${whereAt()}`);
+        } else {
         // Naked before the walk, not only at the hub: a run that starts with a pack from the last
         // job banks it at the nearest bank first. jacklove10 set off from Al Kharid to Falador with
         // a pack of herbs, reached the toll with no coins and could not pickpocket the fee with a
@@ -908,6 +916,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         }
         await bot.closeBank().catch(() => undefined);
         log(`prologue: naked at ${def.hub} (${startAt.x},${startAt.z}); carrying ${describeInventory(sdk)}`);
+        }
 
         /**
          * Source.muleSupply, one round per position in its list: every line still short goes to

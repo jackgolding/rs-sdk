@@ -315,7 +315,8 @@ export async function flyToKaramja(q: Quest): Promise<void> {
 
 export async function toShipyardForeman(q: Quest): Promise<void> {
     if (held(q, OBJ.order)) return;
-    if (!inShipyard(pos(q)) && !(pos(q).x > 2880 && pos(q).z < 3080)) await flyToKaramja(q);
+    // Already in the glider's landing pocket (2880+, up to z 3130 — jacklove16 at 2932,3111 after a restart): walk on.
+    if (!inShipyard(pos(q)) && !(pos(q).x > 2880 && pos(q).z < 3130)) await flyToKaramja(q);
     if (!inShipyard(pos(q))) {
         await q.goTo({ x: SHIPYARD_GATE.x - 2, z: SHIPYARD_GATE.z }, 2);
         await op(q, SHIPYARD_GATE, /^gate$/i, /^open$/i, () => inShipyard(pos(q)), 'the shipyard gate', [/glough sent me/i, /^ka\.$/i, /^lu\.$/i, /^min\.$/i], 30);

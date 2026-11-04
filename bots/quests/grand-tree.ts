@@ -39,6 +39,8 @@ const fight = [{ item: 'melee weapon', count: 1 }, { item: 'shark', count: 18 }]
 await runQuest({
     id: 'grandtree',
     hub: 'ardougne',
+    // At 'released' the gate is held and the glider's Karamja pocket has no walk to the customs boat: carry on from where we stand.
+    noHubAt: ['released'],
     carry: Object.values(OBJ),
     skills: { agility: 25 },
     journal: { label: 'The Grand Tree', title: 'The Grand Tree' },
