@@ -962,7 +962,9 @@ export class LiteClient {
                 debugInfo: this.isViewportInterfaceOpen() ? this.getInterfaceDebugInfo(this.getViewportInterface()) : [],
                 // Raw text (formatting tags intact) — quest journals encode
                 // state in emphasis, which debugInfo's normalisation drops.
-                textComponents: this.isViewportInterfaceOpen() ? this.getInterfaceTextComponents(this.getViewportInterface()) : []
+                textComponents: this.isViewportInterfaceOpen() ? this.getInterfaceTextComponents(this.getViewportInterface()) : [],
+                // Inventory components inside the modal (e.g. the Monkey Madness hangar puzzle board).
+                inventories: this.isViewportInterfaceOpen() ? A.getInterfaceInventories(this, this.getViewportInterface()) : []
             },
             // Side-tab interfaces the server has sent (quest list, combat tab,
             // bank side inventory...). They are not main modals and were

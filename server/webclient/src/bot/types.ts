@@ -374,6 +374,9 @@ export interface InterfaceState {
     isOpen: boolean;
     interfaceId: number;
     options: Array<{ index: number; text: string }>;
+    /** Lite client extras (LiteClient.collectBotState): the modal's text and inventory components. */
+    textComponents?: Array<{ componentId: number; type: number; rawText: string; text: string }>;
+    inventories?: Array<{ componentId: number; size: number; width: number; items: Array<{ slot: number; id: number; name: string; count: number }> }>;
 }
 
 export interface PrayerState {

@@ -1494,11 +1494,12 @@ export class Client extends GameShell {
             return false;
         }
 
-        // The engine only wires OPHELD1-5 to the main inventory (3214); every
-        // other component's item options are inv_button triggers. OPHELD with
-        // a foreign com id passes the wire and is silently dropped by the
-        // handler, so route those to INV_BUTTON instead.
-        if (interfaceId !== 3214) {
+        // A component's own iop entries are INV_BUTTON1-5; the obj's held ops
+        // are OPHELD1-5, offered only on a component with objOps (the menu code
+        // below in this file): the main inventory and boards such as Monkey
+        // Madness's hangar puzzle ([opheld5,_mm_reinit] on com 11130).
+        const target = IfType.list[interfaceId];
+        if (interfaceId !== 3214 && !(target?.objOps && !target.iop?.[optionIndex - 1])) {
             return this.clickInterfaceIop(interfaceId, optionIndex, slot);
         }
 

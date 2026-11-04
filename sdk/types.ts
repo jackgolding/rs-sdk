@@ -273,6 +273,22 @@ export interface InterfaceState {
     options: InterfaceOption[];
     /** Non-empty text components, raw + normalised. Absent on older clients. */
     textComponents?: InterfaceTextComponent[];
+    /**
+     * Inventory components inside the modal with what the server transmitted into
+     * them (Monkey Madness's hangar puzzle board). Lite client only; absent on older
+     * clients and the browser client.
+     */
+    inventories?: InterfaceInventory[];
+}
+
+/** An inventory component (type 2) under an open interface. */
+export interface InterfaceInventory {
+    componentId: number;
+    /** Slot count; empty slots are the ones missing from `items`. */
+    size: number;
+    /** Columns per row of the grid. */
+    width: number;
+    items: Array<{ slot: number; id: number; name: string; count: number }>;
 }
 
 /** A clickable viewport-interface option as published in world state. */

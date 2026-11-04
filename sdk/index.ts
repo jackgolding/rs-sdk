@@ -1202,10 +1202,12 @@ export class BotSDK {
      * Use an inventory item (eat, equip, etc).
      *
      * `interfaceId` selects which inventory component holds the item. The main
-     * inventory (3214, the default) dispatches OPHELD1-5; any other component
-     * (trade offer, bank side inventory, ...) dispatches INV_BUTTON1-5, which
-     * is the packet family the engine actually handles for interface-defined
-     * item options - OPHELD with a foreign component id is silently dropped.
+     * inventory (3214, the default) dispatches OPHELD1-5. Another component
+     * dispatches what the browser's menu would: INV_BUTTON1-5 for the
+     * component's own options (trade offer, bank side inventory, ...), OPHELD1-5
+     * for the item's own options on a component that shows them (objOps: Monkey
+     * Madness's hangar puzzle board, 11130). Read such a board from
+     * `state.interface.inventories`.
      */
     async sendUseItem(slot: number, option: number = 1, interfaceId?: number): Promise<ActionResult> {
         return this.sendAction({ type: 'useInventoryItem', slot, optionIndex: option, interfaceId, reason: 'SDK' });

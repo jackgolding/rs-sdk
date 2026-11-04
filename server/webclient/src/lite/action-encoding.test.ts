@@ -27,6 +27,7 @@ import { ServerProt } from '#/io/ServerProt.js';
 import WordPack from '#/wordfilter/WordPack.js';
 
 import { loadCache } from './cache.js';
+import { getInterfaceInventories } from './actions.js';
 import { LiteClient } from './LiteClient.js';
 import { tryMoveTo } from './movement.js';
 import { dispatch } from './protocol/incoming.js';
@@ -36,6 +37,8 @@ const CACHE_DIR = process.env.LITE_TEST_CACHE ?? '/tmp/rs-sdk-lite-test-cache';
 
 const INV_COMPONENT = 3214; // inventory:inv
 const BANK_SIDE_INV = 2006; // bank_side:inv on this 289 build (5064 is the 317-era id)
+const MM_PUZZLE_ROOT = 11126; // reinitialisation_puzzle
+const MM_PUZZLE_BOARD = 11130; // reinitialisation_puzzle:com_3
 
 let available = false;
 
@@ -333,6 +336,31 @@ describe('outgoing action encoding', () => {
         expect(r.g2()).toBe(1);
         expect(r.g2()).toBe(BANK_SIDE_INV);
         expect(r.at).toBe(c.out.pos);
+    });
+
+    test('useInventoryItem sends OPHELD on an objOps board (Monkey Madness hangar puzzle) and the board is readable', () => {
+        if (!available) {
+            return;
+        }
+
+        const c = makeClient('bota');
+        // reinitialisation_puzzle:com_3: objOps, no iop of its own; [opheld5,_mm_reinit] moves a tile.
+        giveItems(c, MM_PUZZLE_BOARD, { 0: 4000, 7: 4001 });
+
+        const start = c.out.pos;
+        expect(c.useInventoryItem(7, 5, MM_PUZZLE_BOARD)).toBe(true);
+
+        const r = new Capture(c.out, start);
+        expect(r.g1()).toBe(ClientProt.OPHELD5);
+        expect(r.g2()).toBe(4001);
+        expect(r.g2()).toBe(7);
+        expect(r.g2()).toBe(MM_PUZZLE_BOARD);
+        expect(r.at).toBe(c.out.pos);
+
+        const board = getInterfaceInventories(c, MM_PUZZLE_ROOT).find(i => i.componentId === MM_PUZZLE_BOARD);
+        expect(board?.size).toBe(25);
+        expect(board?.width).toBe(5);
+        expect(board?.items.map(i => [i.slot, i.id])).toEqual([[0, 4000], [7, 4001]]);
     });
 
     test('long walks clamp to the current scene edge like the browser client', () => {

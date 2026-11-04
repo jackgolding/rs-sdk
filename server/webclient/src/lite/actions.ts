@@ -206,16 +206,24 @@ function slotItemId(interfaceId: number, slot: number): number {
     return ObjType.list(raw - 1).id;
 }
 
+/** True when option `optionIndex` on this inventory component is an OPHELD (objOps, no own iop there). */
+export function heldOpsOn(interfaceId: number, optionIndex: number): boolean {
+    const com = IfType.list[interfaceId];
+    return !!com?.objOps && !com.iop?.[optionIndex - 1];
+}
+
 export function useInventoryItem(c: LiteClient, slot: number, optionIndex: number, interfaceId: number = INVENTORY_INTERFACE_ID): boolean {
     if (!c.isInGame() || optionIndex < 1 || optionIndex > 5) {
         return false;
     }
 
-    // The engine only wires OPHELD1-5 to the main inventory; every other
-    // component's item options are inv_button triggers (e.g. [inv_button4,
-    // tradeside:inv]). OPHELD with a foreign com id passes the wire and is
-    // silently dropped by the handler, so route those to INV_BUTTON instead.
-    if (interfaceId !== INVENTORY_INTERFACE_ID) {
+    // A component's own iop entries are INV_BUTTON1-5 ([inv_button4,
+    // tradeside:inv]); the obj's held ops are OPHELD1-5, and the browser offers
+    // those only on a component with objOps (Client.ts menu building). That is
+    // the main inventory and a few modal boards such as Monkey Madness's hangar
+    // puzzle (reinitialisation_puzzle:com_3, [opheld5,_mm_reinit]); the engine
+    // accepts OPHELD on any operable, visible component with an inv listener.
+    if (interfaceId !== INVENTORY_INTERFACE_ID && !heldOpsOn(interfaceId, optionIndex)) {
         return clickInterfaceIop(c, interfaceId, optionIndex, slot);
     }
 
@@ -725,6 +733,56 @@ export function getInterfaceTextComponents(c: LiteClient, rootId: number): Inter
         }
     };
 
+    scan(rootId);
+    return out;
+}
+
+/** An inventory component (type 2) under an open interface, by slot. */
+export interface InterfaceInventory {
+    componentId: number;
+    /** Slot count (width x height): empty slots are the ones missing from `items`. */
+    size: number;
+    /** Columns per row, for boards laid out as a grid (Monkey Madness's 5x5 puzzle). */
+    width: number;
+    items: Array<{ slot: number; id: number; name: string; count: number }>;
+}
+
+/**
+ * Every inventory component under `rootId` with what the server transmitted into it
+ * (INV_* packets fill linkObjType/linkObjNumber). Modal boards such as Monkey Madness's
+ * hangar puzzle (reinitialisation_puzzle:com_3) are otherwise unobservable.
+ */
+export function getInterfaceInventories(c: LiteClient, rootId: number): InterfaceInventory[] {
+    void c;
+    const out: InterfaceInventory[] = [];
+    if (rootId === -1) {
+        return out;
+    }
+    const scan = (comId: number, depth = 0): void => {
+        if (depth > 10) return;
+        const com = IfType.list[comId];
+        if (!com) return;
+        if (com.type === 2 && com.linkObjType) {
+            const items: InterfaceInventory['items'] = [];
+            for (let slot = 0; slot < com.linkObjType.length; slot++) {
+                const raw = com.linkObjType[slot];
+                if (!raw || raw <= 0) continue;
+                let name = 'Unknown';
+                try {
+                    name = ObjType.list(raw - 1).name ?? 'Unknown';
+                } catch {
+                    /* unknown obj */
+                }
+                items.push({ slot, id: raw - 1, name, count: com.linkObjNumber?.[slot] ?? 1 });
+            }
+            out.push({ componentId: comId, size: com.linkObjType.length, width: com.width, items });
+        }
+        if (com.children) {
+            for (const childId of com.children) {
+                scan(childId, depth + 1);
+            }
+        }
+    };
     scan(rootId);
     return out;
 }

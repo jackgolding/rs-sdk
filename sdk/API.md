@@ -260,7 +260,7 @@
 | `async sendInteractPlayer(playerIndex: number, option: number = 2): Promise<ActionResult>` | Interact with a player by index and option (1-5). Option 2 = Attack (wilderness), 3 = Follow, 4 = Trade. |
 | `async sendTalkToNpc(npcIndex: number): Promise<ActionResult>` | Talk to an NPC by index. |
 | `async sendPickup(x: number, z: number, itemId: number): Promise<ActionResult>` | Pick up a ground item. |
-| `async sendUseItem(slot: number, option: number = 1, interfaceId?: number): Promise<ActionResult>` | Use an inventory item (eat, equip, etc). `interfaceId` selects which inventory component holds the item. The main inventory (3214, the default) dispatches OPHELD1-5; any other component (trade offer, bank side inventory, ...) dispatches INV_BUTTON1-5, which is the packet family the engine actually handles for interface-defined item options - OPHELD with a foreign component id is silently dropped. |
+| `async sendUseItem(slot: number, option: number = 1, interfaceId?: number): Promise<ActionResult>` | Use an inventory item (eat, equip, etc). `interfaceId` selects which inventory component holds the item. The main inventory (3214, the default) dispatches OPHELD1-5. Another component dispatches what the browser's menu would: INV_BUTTON1-5 for the component's own options (trade offer, bank side inventory, ...), OPHELD1-5 for the item's own options on a component that shows them (objOps: Monkey Madness's hangar puzzle board, 11130). Read such a board from `state.interface.inventories`. |
 | `async sendUseEquipmentItem(slot: number, option: number = 1): Promise<ActionResult>` | Use an equipped item (remove, operate, etc). |
 | `async sendDropItem(slot: number): Promise<ActionResult>` | Drop an inventory item. |
 | `async sendUseItemOnItem(sourceSlot: number, targetSlot: number): Promise<ActionResult>` | Use one inventory item on another. Rejected up front while a shop or bank modal is open: those replace the inventory tab, so the server drops the packet as "component not visible" and sends no message at all. Close the modal first — `bot.closeShop()`, `bot.closeInterface()`, or `sendCloseModal()`. |
@@ -290,6 +290,7 @@
 | `async sendSpellOnTarget(target: NearbyNpc \| NearbyPlayer, spellComponent: number): Promise<ActionResult>` | Cast a spell on whatever the target is - npc or player - picking the right packet from `target.kind`. This is the one to reach for in code that fights both, e.g. `sdk.sendSpellOnTarget(sdk.findNearbyPlayer('Zezima'), Spells.WIND_STRIKE)`. |
 | `async sendSpellOnItem(slot: number, spellComponent: number): Promise<ActionResult>` | Cast spell on inventory item. |
 | `async sendSpellOnGroundItem(x: number, z: number, itemId: number, spellComponent: number): Promise<ActionResult>` | Cast spell on ground item (e.g., Telekinetic Grab). |
+| `async sendSpellOnLoc(x: number, z: number, locId: number, spellComponent: number): Promise<ActionResult>` | Cast spell on a location (OPLOCT), e.g. a charge-orb spell on an obelisk or Legends' Quest's magic gate. The spellbook must be the visible side tab: the server drops the packet when the spell component is not visible. |
 | `async sendSetTab(tabIndex: number): Promise<ActionResult>` | Switch to a UI tab by index. |
 | `async sendSay(message: string): Promise<ActionResult>` | Send a single chat message. The server caps public chat at {@link maxMessageLength} chars (400 on rs-sdk servers) and runs a word filter; `result.data` reports `{ sent, truncated, filtered, finalText }` so you know if your message was clipped or censored. For longer text that shouldn't be silently truncated, use {@link say}. |
 | `async say(text: string, opts: { maxLen?: number; delayTicks?: number } = {}): Promise<ActionResult[]>` | Send a message of any length, auto-split into chunks on word boundaries and sent in order (so a multi-sentence plan isn't lost to the chat-length cap). Waits a tick between chunks so they don't collide. Returns one ActionResult per chunk. |
@@ -317,8 +318,8 @@ Long-running grind supervisor: stall clock, bounded recovery, sampled grind-log 
 | Signature | Description |
 |---|---|
 | `requestStopAll(reason: string): void` | Ask every live session to finish its stage and bank. Never throws. |
-| `registerRecovery(tactics: RecoveryTactic[]): void` | Extra tactics run after the defaults (close UI, step off, re-walk, climb floor). |
-| `setAnchor(x: number, z: number, level?: number): void` | Phase re-walk target used by the default `rewalk` tactic. Pass the floor and the `climb_floor` tactic climbs toward it whenever recovery runs off-level. |
+| `registerRecovery(tactics: RecoveryTactic[]): void` | Extra tactics run after the defaults (close UI, step off, re-walk). |
+| `setAnchor(x: number, z: number, level?: number): void` | Phase re-walk target used by the default `rewalk` tactic. Pass the floor the phase works on and the `climb_floor` tactic climbs toward it whenever recovery runs off-level. |
 | `async setPhase(phase: string): Promise<void>` | Sets the current step. A phase change refreshes the in-script stall timer so a long walk is not interrupted. Repeating the same phase does not: that is how a stuck loop used to look busy. Does not clear failure counters, end a recovery, or count as an effect. |
 | `event(type: string, fields: Record<string, unknown> = {}, summary?: string): void` | Emit one structured event of an arbitrary type. The FSM layer calls this once per transition (`event('transition', ...)`), which is what makes "the shield loop" visible as a repeating edge in `events.log` rather than a phase string that quietly repeats. `summary`, when given, also lands in grind.log so a human reading the session log sees the route without parsing JSON. |
 | `noteProgress(kind: ProgressKind, detail?: string): void` | _No description provided._ |
@@ -434,6 +435,10 @@ interface InterfaceState {
   isOpen: boolean;
   interfaceId: number;
   options: InterfaceOption[];
+  /** Non-empty text components, raw + normalised. Absent on older clients. */
+  textComponents?: InterfaceTextComponent[];
+  /** Inventory components inside the modal with what the server transmitted into them (Monkey Madness's hangar puzzle board). Lite client only; absent on older clients and the browser client. */
+  inventories?: InterfaceInventory[];
 }
 ```
 
@@ -592,6 +597,8 @@ interface BotWorldState {
   recentDialogs: DialogEntry[];
   dialog: DialogState;
   interface: InterfaceState;
+  /** Side-tab interface the server has sent for the currently selected tab. These are not main modals, so `interface` never covers them — the quest list and combat tab live here. Absent on older clients. */
+  sideInterface?: { tabIndex: number; interfaceId: number; options: InterfaceOption[]; debugInfo: string[]; textComponents: InterfaceTextComponent[]; };
   shop: ShopState;
   bank: BankState;
   /** Absent when the connected client predates trade support. */
