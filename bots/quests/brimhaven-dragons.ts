@@ -431,8 +431,14 @@ async function bankTrip(): Promise<boolean> {
     const gearMissing = [!has(SHIELD), !WEAPONS.some(has), !has(/^(rune|dragon) (platelegs|plateskirt)$/i), !has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i), !has(/^amulet of (glory|power|strength)/i)].filter(Boolean).length;
     // The trade lands in the pack: ask only for what fits (Jackpoo4's trade failed "no_space").
     const potRoom = Math.max(0, 28 - occupied() - gearMissing);
+    const potAsk = !potted && potRoom > 0 ? Math.min(9, potRoom) : 0;
+    // Bank out of food: sharks from jackthief too, keeping 3 slots for loot (Jackpoo1/pigfat sat
+    // at food=1-2 for 10h asking only for pots, 2026-11-04).
+    const foodRoom = Math.max(0, potRoom - potAsk - 3);
+    const foodAsk = foodCount() <= LEAVE_FOOD ? Math.min(FOOD_WANT, foodRoom) : 0;
     const kitAsk = [
-        ...(!potted && potRoom > 0 ? [{ label: 'prayer potion(3)', pattern: /^prayer potion\(3\)$/i, count: Math.min(9, potRoom) }] : []),
+        ...(potAsk > 0 ? [{ label: 'prayer potion(3)', pattern: /^prayer potion\(3\)$/i, count: potAsk }] : []),
+        ...(foodAsk >= 5 ? [{ label: 'shark', pattern: /^shark$/i, count: foodAsk }] : []),
         ...(!has(SHIELD) ? [{ label: 'dragonfire shield', pattern: SHIELD, count: 1 }] : []),
         // No emergency exit: Camelot Teleport runes and a ring (ABGARMY10/Jackpoo1 had no air runes, 2026-11-02).
         ...(!canTeleport && count(AIR) < 10 ? [{ label: 'air rune', pattern: AIR, count: 200 }] : []),
