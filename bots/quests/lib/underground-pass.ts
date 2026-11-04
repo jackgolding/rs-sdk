@@ -514,7 +514,9 @@ async function rockslides(q: Quest, rocks: Tile[], goal: Tile): Promise<void> {
         for (const r of rocks) {
             if (reachable(q, goal)) return;
             const loc = await scanLoc(q, r.x, r.z, 15);
-            if (!loc || loc.reachable === false) continue;
+            // From the west side the client can mark the rockslide unreachable (jacklove4 at 2460,9719 skipped it
+            // on every pass, 2026-11-04): the second pass tries it anyway; the server owns reach.
+            if (!loc || (loc.reachable === false && pass === 0)) continue;
             for (let attempt = 1; attempt <= 4; attempt++) {
                 const before = pos(q);
                 await opAt(q, r.x, r.z, LOC.rockslide, 1, () => Math.hypot(pos(q).x - before.x, pos(q).z - before.z) >= 2, `rockslide (${r.x},${r.z})`, 25);
@@ -1269,7 +1271,12 @@ export async function leaveUpass(q: Quest): Promise<void> {
                 await opAt(q, PASS_EXIT.x, PASS_EXIT.z, PASS_EXIT.id, 1, () => !inUpassArea(pos(q)), 'leave by the pass exit', 15);
                 break;
             case 'KOFTIK':
-                await rockslides(q, [...ENTRANCE_ROCKS].reverse(), REGIONS[0]!.at);
+                try {
+                    await rockslides(q, [...ENTRANCE_ROCKS].reverse(), REGIONS[0]!.at);
+                } catch (e) {
+                    q.log(`${(e as Error).message} — teleporting out instead`);
+                    if (!(await teleportOut(q))) throw e;
+                }
                 break;
             case 'WEST':
                 await walk(q, { x: 2437, z: 9717 }, 2);
