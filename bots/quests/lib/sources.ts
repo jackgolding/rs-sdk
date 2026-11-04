@@ -1281,6 +1281,16 @@ export const SOURCES: Record<string, Source> = {
             await fetchDukeShield(q.bot, q.sdk, q.log);
         },
     },
+    /** Elemental Workshop's 4 coal: mined at the Coal Trucks west of Seers (lib/elemental-workshop.ts). */
+    coal: {
+        levels: { mining: 30 },
+        inputs: () => [{ item: 'pickaxe', count: 1 }],
+        get: async (q, count) => {
+            await q.ensure('pickaxe', 1);
+            const { mineCoal } = await import('./elemental-workshop');
+            await mineCoal(q, count);
+        },
+    },
 };
 
 /** Horvik's armour shop, Varrock (varrock.inv armourshop): black platebody, stock 1. */

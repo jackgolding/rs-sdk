@@ -87,6 +87,7 @@ import { inTouristTrapArea, leaveTouristTrap } from './tourist-trap';
 import { inDigShafts, leaveShafts as leaveDigShafts } from './dig-site';
 import { inIkovArea, leaveIkov } from './temple-of-ikov';
 import { inScorpionArea, leaveScorpionArea } from './scorpion-catcher';
+import { inWorkshopArea, leaveWorkshop } from './elemental-workshop';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, awaitQuestStartTurn, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -537,6 +538,9 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inTouristTrapArea(pos()) && !inTouristTrapArea({ ...tile, level: tile.level ?? 0 })) await leaveTouristTrap(q);
                 // The Dig Site's two shafts: up their ropes (lib/dig-site.ts).
                 if (inDigShafts(pos()) && !inDigShafts(tile)) await leaveDigShafts(q);
+                // Elemental Workshop: under the Seers smithy, up its stairs and out through the odd wall (lib/elemental-workshop.ts).
+                // Before Ikov's: its dungeon box (2620-2760,9730-9920) also covers the workshop.
+                if (inWorkshopArea(pos()) && !inWorkshopArea({ ...tile, level: tile.level ?? 0 })) await leaveWorkshop(q);
                 // Temple of Ikov's dungeon: gates, the dark stairs and the cellar ladder (lib/temple-of-ikov.ts).
                 if (inIkovArea(pos()) && !inIkovArea(tile)) await leaveIkov(q);
                 // Scorpion Catcher: the Barbarian Outpost (out by its gate), the Sorcerer's Tower, Taverley's secret room (lib/scorpion-catcher.ts).
@@ -818,6 +822,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inObservatoryArea(pos())) await leaveObservatory(q);
         if (inTouristTrapArea(pos())) await leaveTouristTrap(q);
         if (inDigShafts(pos())) await leaveDigShafts(q);
+        if (inWorkshopArea(pos())) await leaveWorkshop(q);
         if (inIkovArea(pos())) await leaveIkov(q);
         if (inScorpionArea(pos())) await leaveScorpionArea(q);
         if (pos().level !== 0) await q.climbTo(0);
