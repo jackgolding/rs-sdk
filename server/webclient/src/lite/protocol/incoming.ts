@@ -460,6 +460,23 @@ export function dispatch(c: LiteClient, opcode: number, buf: Packet, psize: numb
             c.mapFlagUnsetCount++;
             return;
         }
+        case ServerProt.HINT_ARROW: {
+            // Port of Client.ts: types 3-6 are tile arrows with a different
+            // in-tile offset and collapse to 2.
+            let type = buf.g1();
+            if (type === 1) {
+                c.hintNpc = buf.g2();
+            } else if (type >= 2 && type <= 6) {
+                type = 2;
+                c.hintTileX = buf.g2();
+                c.hintTileZ = buf.g2();
+                c.hintHeight = buf.g1();
+            } else if (type === 10) {
+                c.hintPlayer = buf.g2();
+            }
+            c.hintType = type;
+            return;
+        }
         case ServerProt.RESET_ANIMS: {
             for (const p of c.players) {
                 if (p) {

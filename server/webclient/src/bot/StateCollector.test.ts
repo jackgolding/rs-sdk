@@ -250,6 +250,27 @@ describe('BotStateCollector op feedback', () => {
     });
 });
 
+describe('BotStateCollector hint arrow', () => {
+    test('publishes the tile, npc and player arrows and null when cleared', () => {
+        const client = createClient();
+        const collector = new BotStateCollector(client);
+        expect(collector.collectState(1).hintArrow).toBeNull();
+
+        Object.assign(client, { hintType: 2, hintTileX: 2761, hintTileZ: 9546, hintHeight: 60 });
+        expect(collector.collectState(2).hintArrow).toEqual({ kind: 'tile', x: 2761, z: 9546, height: 60 });
+
+        Object.assign(client, { hintType: 1, hintNpc: 42 });
+        expect(collector.collectState(3).hintArrow).toEqual({ kind: 'npc', index: 42 });
+
+        Object.assign(client, { hintType: 10, hintPlayer: 7 });
+        expect(collector.collectState(4).hintArrow).toEqual({ kind: 'player', index: 7 });
+
+        // hint_stop sends type -1, which g1 reads as 255.
+        client.hintType = 255;
+        expect(collector.collectState(5).hintArrow).toBeNull();
+    });
+});
+
 describe('BotStateCollector combat styles', () => {
     const SELECT_BUTTON = 5;
 

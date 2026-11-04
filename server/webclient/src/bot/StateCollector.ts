@@ -57,7 +57,8 @@ import {
     type DialogState,
     type InterfaceState,
     type PrayerState,
-    type OpFeedbackState
+    type OpFeedbackState,
+    type HintArrowState
 } from './types.js';
 import type { ScanProvider } from './ActionExecutor.js';
 
@@ -192,8 +193,19 @@ export class BotStateCollector implements ScanProvider {
             // head icon or blindly click a control that might already be set.
             isSkulled: (c.var?.[78] ?? 0) > 0,
             autoRetaliateEnabled: (c.var?.[172] ?? 1) === 0,
-            opFeedback: this.collectOpFeedback(currentTick)
+            opFeedback: this.collectOpFeedback(currentTick),
+            hintArrow: this.collectHintArrow()
         };
+    }
+
+    /** HINT_ARROW as both clients keep it (hintType 0/255 = none). */
+    private collectHintArrow(): HintArrowState | null {
+        const c = this.client as any;
+        const type: number = c.hintType ?? 0;
+        if (type === 2) return { kind: 'tile', x: c.hintTileX ?? 0, z: c.hintTileZ ?? 0, height: c.hintHeight ?? 0 };
+        if (type === 1) return { kind: 'npc', index: c.hintNpc ?? 0 };
+        if (type === 10) return { kind: 'player', index: c.hintPlayer ?? 0 };
+        return null;
     }
 
     /**

@@ -593,6 +593,17 @@ export interface OpFeedbackState {
     lastOpRejectedTick: number;
 }
 
+/**
+ * The server's hint arrow (HINT_ARROW), e.g. the Agility Arena's flashing
+ * pillar. Tile coords are absolute world coords (no level is sent: it is the
+ * player's own). npc/player carry the world slot (`NearbyNpc.index` /
+ * `NearbyPlayer.index`).
+ */
+export type HintArrowState =
+    | { kind: 'tile'; x: number; z: number; height: number }
+    | { kind: 'npc'; index: number }
+    | { kind: 'player'; index: number };
+
 export interface BotWorldState {
     tick: number;
     /** Tick on which an updated Lite runner already emitted policy-gated KBD op2. */
@@ -645,6 +656,8 @@ export interface BotWorldState {
     autoRetaliateEnabled?: boolean;
     /** Absent when the connected client predates the signal. */
     opFeedback?: OpFeedbackState;
+    /** Current hint arrow, null when none. Absent when the connected client predates it. */
+    hintArrow?: HintArrowState | null;
 }
 
 // ============ Action Types ============

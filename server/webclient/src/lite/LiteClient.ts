@@ -136,7 +136,16 @@ export class LiteClient {
     playerOp: (string | null)[] = [null, null, null, null, null];
     playerOpPriority: boolean[] = [false, false, false, false, false];
     tutComId = -1;
+    /**
+     * HINT_ARROW, as the browser Client keeps it: 0/255 none, 1 npc (hintNpc =
+     * npc index), 2 tile (hintTileX/Z absolute world coords), 10 player.
+     */
     hintType = 0;
+    hintNpc = 0;
+    hintPlayer = 0;
+    hintTileX = 0;
+    hintTileZ = 0;
+    hintHeight = 0;
     dialogHistory: Array<{ text: string[]; tick: number; interfaceId: number }> = [];
     lastCapturedDialogId = -1;
     designGender = true;

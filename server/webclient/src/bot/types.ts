@@ -408,6 +408,17 @@ export interface OpFeedbackState {
     lastOpRejectedTick: number;
 }
 
+/**
+ * The server's hint arrow (HINT_ARROW), e.g. the Agility Arena's flashing
+ * pillar. Tile coords are absolute world coords (no level is sent: it is the
+ * player's own). npc/player carry the world slot (`NearbyNpc.index` /
+ * `NearbyPlayer.index`).
+ */
+export type HintArrowState =
+    | { kind: 'tile'; x: number; z: number; height: number }
+    | { kind: 'npc'; index: number }
+    | { kind: 'player'; index: number };
+
 export interface BotState {
     tick: number;
     /** Monotonic publication cursor; advances for each state sent to agents. */
@@ -448,6 +459,8 @@ export interface BotState {
     autoRetaliateEnabled: boolean;
     /** Whether the server accepted or silently discarded recent ops */
     opFeedback: OpFeedbackState;
+    /** Current hint arrow (HINT_ARROW), null when none. */
+    hintArrow: HintArrowState | null;
 }
 
 // Extended world state interface for agent (includes extra debug info)
