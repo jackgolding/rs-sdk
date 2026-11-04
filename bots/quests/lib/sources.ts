@@ -1481,10 +1481,33 @@ export const SOURCES: Record<string, Source> = {
     /** Horror from the Deep's lighthouse torch: the Lumbridge swamp's ground spawns (m49_49, e.g. 3164,3169 / 3170,3167). */
     'swamp tar': { obj: 'swamp_tar', get: (q, count) => pickUpSpawn(q, { x: 3167, z: 3169 }, 'swamp tar', count) },
     /** Sea Slug's boat repair: Port Khazard's general store (port_khazard.inv khazardshop, stock 500; shop keeper npc 555 at 2655,3152). */
-    /** Monkey Madness's monkey child wants 5+ (Karamja's banana trees; stocked from the bank or the mule). */
-    banana: { obj: 'banana', mule: true, muleSupply: 'jackthief' },
-    /** Monkey Madness's Karamja greegree: a Karamja monkey's bones (tbwt monkey.rs2 drop, tradeable). */
-    'monkey bones': { obj: 'mm_normal_monkey_bones', mule: true, muleSupply: 'jackthief' },
+    /**
+     * Monkey Madness's monkey child wants 5+. jackthief first, else the Musa Point plantation's banana trees
+     * (banana_tree.rs2: 33 trees x 5, free) by Barnaby's boat, home the same way (lib/karamja-errands.ts, 60gp).
+     */
+    banana: {
+        obj: 'banana',
+        muleSupply: 'jackthief',
+        inputs: () => [{ item: 'coins', count: 60 }],
+        get: async (q, count) => {
+            const { karamjaBananas } = await import('./karamja-errands');
+            await karamjaBananas(q, count);
+        },
+    },
+    /**
+     * Monkey Madness's Karamja greegree: a Karamja monkey's bones (tbwt monkey.rs2 drop, tradeable). jackthief first,
+     * else the three monkeys beside the Musa Point plantation (lib/karamja-errands.ts, 60gp). Not while Tai Bwo
+     * Wannai Trio is in progress: its monkeys drop corpses instead and dodge melee.
+     */
+    'monkey bones': {
+        obj: 'mm_normal_monkey_bones',
+        muleSupply: 'jackthief',
+        inputs: () => [{ item: 'coins', count: 60 }],
+        get: async (q, count) => {
+            const { karamjaMonkeyBones } = await import('./karamja-errands');
+            await karamjaMonkeyBones(q, count);
+        },
+    },
     'swamp paste': {
         obj: 'swamppaste',
         // Shop buys can go in batches of ten (buyWaitingForRestock): coins for a whole batch.
