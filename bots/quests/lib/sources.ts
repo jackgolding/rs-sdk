@@ -836,7 +836,12 @@ export const SOURCES: Record<string, Source> = {
             }
         },
     },
-    /** Agility potion herb (clean). No shop, no spawn (random herb drops only): the mule's herb stock. */
+    /**
+     * Agility potion herb (clean). In no herb drop table (shared_droptables randomherb), no shop, no spawn:
+     * the one source is the Brimhaven Agility Arena's Jack o' Tickets, 3 tickets each
+     * (agilityarena_tickettrader.rs2), a ticket per pillar tagged under the moving arrow. Not scripted:
+     * the mule's herb stock.
+     */
     toadflax: { mule: true, muleSupply: 'jackthief' },
     /** Swamp toads south of Taverley (m45_53 obj 2150 x3, ~100t respawn), legs pulled off (gnome_cooking swamp_toad.rs2). */
     "toad's legs": {
@@ -1302,8 +1307,8 @@ export const SOURCES: Record<string, Source> = {
     },
     // ── Legends' Quest (lib/legends-quest.ts). Bought in East Ardougne where Aemad stocks it; the
     // rest is mule stock (jackthief at the Ardougne bank, the quest's hub) — the Magic Guild store's
-    // soul rune needs Magic 66 to walk in, cosmic runes are Mage Arena-only, and the gems, orb and
-    // lockpick are nobody's shop stock.
+    // soul rune needs Magic 66 to walk in, cosmic runes are Mage Arena-only. The gems, orb and
+    // lockpick are nobody's shop stock: still jackthief first, else made (lib/legends-supplies.ts).
     /** Radimus' map: one papyrus a section (three), a botched attempt can ruin one. Aemad: 13gp, stock 50. */
     papyrus: {
         inputs: (count) => [{ item: 'coins', count: 15 * count }],
@@ -1339,18 +1344,60 @@ export const SOURCES: Record<string, Source> = {
     },
     /** The Yommi tree takes nothing but a rune axe (quest_legends.rs2 yommitree_*): the Woodcutting group's best is not enough. */
     'rune axe': { tool: true, mule: true, muleSupply: 'jackthief' },
-    /** The shaman caves' ancient gate (Thieving 50). A Brimhaven-dungeon ground spawn; no shop. */
-    lockpick: { tool: true, mule: true, muleSupply: 'jackthief' },
+    /**
+     * The shaman caves' ancient gate (Thieving 50). No shop; rogues (pickpocket 5/128) spawn only in
+     * deep wilderness. A ground spawn in the Yanille dungeon's spider room (2615,9571), reached by the
+     * ledge and the monkey bars (Agility 57) without the town door's Thieving 82 and lockpick.
+     */
+    lockpick: {
+        tool: true,
+        muleSupply: 'jackthief',
+        levels: { agility: 57 },
+        inputs: () => [{ item: 'knife', count: 1 }],
+        get: async (q, count) => {
+            const { yanilleLockpicks } = await import('./legends-supplies');
+            await yanilleLockpicks(q, count);
+        },
+    },
     /** The marked wall's S-M-E-L-L. */
     'soul rune': { obj: 'soulrune', mule: true, muleSupply: 'jackthief' },
     'mind rune': { obj: 'mindrune', mule: true, muleSupply: 'jackthief' },
     /** Charge Water Orb (Magic 56: 30 water, 3 cosmic, an unpowered orb) on the magic trial gate. */
     'cosmic rune': { obj: 'cosmicrune', mule: true, muleSupply: 'jackthief' },
-    'unpowered orb': { obj: 'stafforb', mule: true, muleSupply: 'jackthief' },
-    /** The gem room's seven carved rocks (cut gems). */
-    opal: { mule: true, muleSupply: 'jackthief' },
-    jade: { mule: true, muleSupply: 'jackthief' },
-    'red topaz': { obj: 'red_topaz', mule: true, muleSupply: 'jackthief' },
+    /** Blown on Entrana from molten glass (Crafting 46): every input is on the island but the buckets. */
+    'unpowered orb': {
+        obj: 'stafforb',
+        muleSupply: 'jackthief',
+        levels: { crafting: 46 },
+        inputs: (count) => [{ item: 'bucket', count }],
+        get: async (q, count) => {
+            const { entranaGlass } = await import('./legends-supplies');
+            await entranaGlass(q, { orbs: count });
+        },
+    },
+    /**
+     * The gem room's seven carved rocks (cut gems). Opal, jade and red topaz come only from Shilo
+     * Village's gem rocks (Shilo Village done for Hajedy's cart, Mining 40), cut with a chisel.
+     */
+    opal: {
+        muleSupply: 'jackthief',
+        levels: { mining: 40 },
+        inputs: () => [{ item: 'coins', count: 60 }],
+        get: (q, count) => shiloGems(q, 'opal', count),
+    },
+    jade: {
+        muleSupply: 'jackthief',
+        levels: { mining: 40, crafting: 13 },
+        inputs: () => [{ item: 'coins', count: 60 }],
+        get: (q, count) => shiloGems(q, 'jade', count),
+    },
+    'red topaz': {
+        obj: 'red_topaz',
+        muleSupply: 'jackthief',
+        levels: { mining: 40, crafting: 16 },
+        inputs: () => [{ item: 'coins', count: 60 }],
+        get: (q, count) => shiloGems(q, 'red topaz', count),
+    },
     sapphire: { mule: true, muleSupply: 'jackthief' },
     emerald: { mule: true, muleSupply: 'jackthief' },
     ruby: { mule: true, muleSupply: 'jackthief' },
@@ -1380,7 +1427,15 @@ export const SOURCES: Record<string, Source> = {
         },
     },
     /** Observatory: the professor's lens (no shop sells it; sand and soda ash are a Crafting trip). */
-    'molten glass': { obj: 'molten_glass', mule: true, muleSupply: 'jackthief' },
+    'molten glass': {
+        obj: 'molten_glass',
+        muleSupply: 'jackthief',
+        inputs: (count) => [{ item: 'bucket', count }],
+        get: async (q, count) => {
+            const { entranaGlass } = await import('./legends-supplies');
+            await entranaGlass(q, { glass: count });
+        },
+    },
     'pestle and mortar': {
         tool: true,
         inputs: () => [{ item: 'coins', count: 20 }],
@@ -1863,6 +1918,12 @@ function aggieDye(colour: string, ingredient: string, per: number): Source {
 }
 
 /** Pick `item` from its static ground spawns until holding `count`, waiting out respawns (bounded). */
+/** Cut legends gems from Shilo Village's gem rocks (lib/legends-supplies.ts). */
+async function shiloGems(q: Quest, gem: 'opal' | 'jade' | 'red topaz', count: number): Promise<void> {
+    const { mineShiloGems } = await import('./legends-supplies');
+    await mineShiloGems(q, gem, count);
+}
+
 async function pickSpawns(q: Quest, item: string, count: number, spawns: Array<{ x: number; z: number }>): Promise<void> {
     const pattern = itemPattern(item);
     const t0 = tickNow(q.sdk);

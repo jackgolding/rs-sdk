@@ -119,8 +119,14 @@ export const onCairn = (p: Tile) => inBox(p, 2755, 2775, 2970, 2995) || inBox(p,
 /** The river valley with the mound and Rashiliyia's doors (walkTo cannot get in or out). */
 // x 2909: the log's fall from the west washes you up at (2909,3059), on the valley side.
 export const inValley = (p: Tile) => inBox(p, 2909, 2965, 2951, 3100);
+/**
+ * Shilo Village inside its walls (probed offline: x 2818-2878, z 2945-3005, wider in the north). The
+ * east gates (quest_zombiequeen.rs2) are fenced off from the jungle path: in and out by the carts.
+ * The gem mine (gemrock, 2824-2829,2998-3003) is inside.
+ */
+export const inShiloVillage = (p: Tile) => inBox(p, 2817, 2874, 2944, 2975) || inBox(p, 2817, 2879, 2976, 3007);
 /** Anywhere goTo cannot walk out of: run-quest's goTo calls leaveShilo from these. */
-export const inShiloArea = (p: Tile) => inAhZaRhoon(p) || inRashTomb(p) || inBervTomb(p) || onCairn(p) || inValley(p);
+export const inShiloArea = (p: Tile) => inAhZaRhoon(p) || inRashTomb(p) || inBervTomb(p) || onCairn(p) || inValley(p) || inShiloVillage(p);
 
 // ── small helpers
 
@@ -464,8 +470,50 @@ async function surface(q: Quest): Promise<void> {
     if (!inAhZaRhoon(pos(q)) && !inRashTomb(pos(q)) && !inBervTomb(pos(q))) await restoreRetaliate(q);
 }
 
-/** Out of the dungeons, Cairn Isle and the valley onto the main jungle (or, given a tile off Karamja, home). */
+/** Hajedy's cart (brimhavencartdriver, 2779,3211) to Shilo; Vigroy's (shilocartdriver, 2834,2954) back to (2776,3214). */
+const HAJEDY = { x: 2779, z: 3211 };
+const VIGROY = { x: 2834, z: 2954 };
+/** The fare is 5% of the coins carried, 10 to 200 (hajedy.rs2 calc_shilocart_cost). */
+const CART_MIN_COINS = 10;
+
+/**
+ * Into Shilo Village by Hajedy's cart from Brimhaven (from anywhere: Brimhaven's boat first). The
+ * metal gate is no way in: barricades fence its outer side off from the jungle path ("I can't reach
+ * that!" from Mosol's side, probed 2026-11-04). Throws when Hajedy will not take us: Shilo Village
+ * not complete ("Since the troubles … we've had to stop them").
+ */
+export async function enterShiloVillage(q: Quest): Promise<void> {
+    if (inShiloVillage(pos(q))) return;
+    if (inShiloArea(pos(q))) await leaveShilo(q);
+    if (q.count('coins') < CART_MIN_COINS) await q.ensure('coins', CART_MIN_COINS + 30);
+    await toJungle(q, HAJEDY, 3);
+    for (let attempt = 1; attempt <= 3 && !inShiloVillage(pos(q)); attempt++) {
+        const seen = await q.talk(/^hajedy$/i, [/yes please, i'd like to go to shilo/i]);
+        if (/had to stop them/i.test(seen)) throw new Error('shilo: Hajedy runs no carts — Shilo Village is not complete on this account');
+        await untilTicks(q.sdk, () => inShiloVillage(pos(q)), 10);
+        await driveDialog(q.sdk, [], { ticks: 10 });
+    }
+    if (!inShiloVillage(pos(q))) throw new Error(`shilo: Hajedy's cart did not take us to Shilo (at ${where(q)})`);
+    q.log(`shilo: into Shilo Village by cart at ${where(q)}`);
+}
+
+/** Out of Shilo Village by Vigroy's cart to Brimhaven (the gates' outer side is fenced off). */
+export async function leaveShiloVillage(q: Quest): Promise<void> {
+    if (!inShiloVillage(pos(q))) return;
+    if (q.count('coins') < CART_MIN_COINS) throw new Error(`shilo: ${q.count('coins')} coins — Vigroy's cart out costs ${CART_MIN_COINS}`);
+    for (let attempt = 1; attempt <= 3 && inShiloVillage(pos(q)); attempt++) {
+        await walk(q, VIGROY, 3);
+        await q.talk(/^vigroy$/i, [/yes please, i'd like to go to brimhaven/i]);
+        await untilTicks(q.sdk, () => !inShiloVillage(pos(q)), 10);
+        await driveDialog(q.sdk, [], { ticks: 10 });
+    }
+    if (inShiloVillage(pos(q))) throw new Error(`shilo: Vigroy's cart did not take us out (at ${where(q)})`);
+    q.log(`shilo: out of Shilo Village by cart at ${where(q)}`);
+}
+
+/** Out of the dungeons, Cairn Isle, the valley and the village onto the main jungle (or, given a tile off Karamja, home). */
 export async function leaveShilo(q: Quest, tile?: Tile): Promise<void> {
+    if (inShiloVillage(pos(q))) await leaveShiloVillage(q);
     await surface(q);
     if (inValley(pos(q))) {
         if (pos(q).z >= 3000) await crossLog(q, false);
