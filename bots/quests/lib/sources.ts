@@ -552,6 +552,8 @@ export const SOURCES: Record<string, Source> = {
     'air rune': { ...runes('air rune', 4, AUBURY), muleSupply: 'jackthief' },
     // Shops are emptied by other players' bots (jackquests waited hours on Aubury's chaos, 2026-11-01): the mule first.
     'chaos rune': { ...runes('chaos rune', 15, AUBURY), muleSupply: 'jackthief' },
+    /** Family Crest's Chronozon (32). No shop near a hub sells them; jackthief banks ~3000. */
+    'death rune': { mule: true, muleSupply: 'jackthief' },
     // ── Tools for the skill trainers (lib/training.ts) and Lost City
     axe: {
         obj: 'bronze_axe',
@@ -583,6 +585,16 @@ export const SOURCES: Record<string, Source> = {
         },
     },
     /** process-bank.ts: emerald rings. Dommik stocks four (alkharid.inv craftingshop2). */
+    /** Family Crest's perfect necklace. Dommik stocks two (alkharid.inv craftingshop2); Jackpoo5 stopped on
+     * "need 1 necklace mould … no source procedure" (2026-11-04). */
+    'necklace mould': {
+        tool: true,
+        inputs: () => [{ item: 'coins', count: 5 }],
+        get: async (q) => {
+            await q.ensure('coins', 1);
+            await buyWaitingForRestock(q, DOMMIK, 'necklace mould', 1);
+        },
+    },
     'ring mould': {
         tool: true,
         inputs: () => [{ item: 'coins', count: 5 }],
