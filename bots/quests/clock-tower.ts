@@ -41,7 +41,9 @@ await runQuest({
         {
             from: 'white',
             to: 'black',
-            needs: fight,
+            // No Ice gloves yet: the Ice Queen is past the Burthorpe rockslide, which needs a pickaxe
+            // (Jackpoo5, ABGARMY05 stopped there, 2026-11-04).
+            needs: (q) => (held(q, OBJ.iceGloves) || q.sdk.getEquipment().some((i) => i.id === OBJ.iceGloves) ? fight : [...fight, { item: 'pickaxe', count: 1 }]),
             run: async (q) => {
                 if (!held(q, OBJ.iceGloves) && !q.sdk.getEquipment().some((i) => i.id === OBJ.iceGloves)) await iceGloves(q);
                 await blackCog(q);

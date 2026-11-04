@@ -515,6 +515,9 @@ export async function escapeJail(q: Quest): Promise<void> {
             else await q.sdk.sendWalk(JAIL.x + 2, JAIL.z).catch(() => undefined);
             await q.sdk.waitForTicks(2);
         }
+        // Out of the cell mid-apology: Narnode's release (the stage) lands only when his dialog ends
+        // (jacklove2 left it at "I just th…" three times and stayed at 'journal', 2026-11-04).
+        for (let t = 0; t < 30 && q.sdk.getDialog()?.isOpen; t++) seen.push(await driveDialog(q.sdk, [], { ticks: 6 }));
         q.log(`grandtree: jail attempt ${attempt} — now at ${where(q)}; dialog: ${seen.join(' ').slice(-200) || '(none)'}`);
     }
     if (inJail(pos(q))) {
