@@ -225,7 +225,7 @@ async function leaveCamp(q: Quest): Promise<void> {
 }
 
 /** Out of the swamp by its gate, onto the east bank. */
-async function leaveSwamp(q: Quest): Promise<void> {
+export async function leaveSwamp(q: Quest): Promise<void> {
     await leaveCamp(q);
     if (!inSwamp(pos(q))) return;
     await q.bot.walkTo(MYRE_GATE.x, MYRE_GATE.z - 1, 1).catch(() => undefined);
@@ -271,7 +271,7 @@ async function toDrezel(q: Quest): Promise<void> {
 }
 
 /** Through the holy barrier onto Morytania's bank. */
-async function toEastBank(q: Quest): Promise<void> {
+export async function toEastBank(q: Quest): Promise<void> {
     if (onEastBank(pos(q)) || inSwamp(pos(q)) || inCamp(pos(q)) || inGrotto(pos(q))) return;
     await toDrezel(q);
     await opLoc(q, LOC.barrier, BARRIER, 1, () => onEastBank(pos(q)), 'through the holy barrier');

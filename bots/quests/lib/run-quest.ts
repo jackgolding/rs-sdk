@@ -90,6 +90,7 @@ import { inIkovArea, leaveIkov } from './temple-of-ikov';
 import { inScorpionArea, leaveScorpionArea } from './scorpion-catcher';
 import { inWorkshopArea, leaveWorkshop } from './elemental-workshop';
 import { inNatureSpiritArea, leaveNatureSpirit } from './nature-spirit';
+import { inMyrequeArea, leaveMyreque } from './myreque';
 import { inHorrorArea, leaveHorror } from './horror';
 import { inChompyArea, leaveChompyCave } from './chompybird';
 import { inTrollArea, leaveTrollArea } from './troll-stronghold';
@@ -555,6 +556,9 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inIkovArea(pos()) && !inIkovArea(tile)) await leaveIkov(q);
                 // Scorpion Catcher: the Barbarian Outpost (out by its gate), the Sorcerer's Tower, Taverley's secret room (lib/scorpion-catcher.ts).
                 if (inScorpionArea(pos()) && !inScorpionArea({ ...tile, level: tile.level ?? 0 })) await leaveScorpionArea(q);
+                // In Search of the Myreque: the hollows' landing (boat), north of the bridge, Mort'ton's dock, the tunnels and hideout (lib/myreque.ts).
+                // Before Nature Spirit's: its swamp box covers the hollows, and its gate walk has no way out of the landing.
+                if (inMyrequeArea(pos()) && !inMyrequeArea({ ...tile, level: tile.level ?? 0 })) await leaveMyreque(q);
                 // Nature Spirit: Mort Myre, Filliman's camp and grotto, Morytania's bank and the mausoleum — back under the Salve (lib/nature-spirit.ts).
                 if (inNatureSpiritArea(pos()) && !inNatureSpiritArea({ ...tile, level: tile.level ?? 0 })) await leaveNatureSpirit(q);
                 // Horror from the Deep: the lighthouse, its caves, the causeway past the basalt rocks, the agility course's start (lib/horror.ts).
@@ -857,6 +861,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inWorkshopArea(pos())) await leaveWorkshop(q);
         if (inIkovArea(pos())) await leaveIkov(q);
         if (inScorpionArea(pos())) await leaveScorpionArea(q);
+        if (inMyrequeArea(pos())) await leaveMyreque(q);
         if (inNatureSpiritArea(pos())) await leaveNatureSpirit(q);
         if (inHorrorArea(pos())) await leaveHorror(q);
         if (inChompyArea(pos())) await leaveChompyCave(q);

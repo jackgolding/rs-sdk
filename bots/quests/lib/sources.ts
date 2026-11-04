@@ -198,6 +198,19 @@ const ARHEIN = { x: 2803, z: 3430, npc: /^arhein$/i };
 const JIMINUA = { x: 2767, z: 3122, npc: /^jiminua$/i };
 /** The Catherby candle maker (catherby.inv candleshop): candles 3gp. */
 const CANDLE_MAKER = { x: 2800, z: 3439, npc: /^candle maker$/i };
+/** Varrock Swords (varrock.inv swordshop), by the Varrock west bank. */
+const VARROCK_SWORDS = { x: 3204, z: 3399, npc: /^shop (keeper|assistant)$/i };
+/** A steel weapon bought for In Search of the Myreque, `price` coins a piece (a margin over the shop's price). */
+function steelFromShop(item: string, price: number, shop: { x: number; z: number; npc: RegExp }): Source {
+    return {
+        obj: item.replace(/ /g, '_'),
+        inputs: (count) => [{ item: 'coins', count: price * count }],
+        get: async (q, count) => {
+            await q.ensure('coins', price * (count - q.count(item)));
+            await buyWaitingForRestock(q, shop, item, count);
+        },
+    };
+}
 /** Harry's Fishing Shop, Catherby: harpoon 5gp (fishing-route.ts HARRY). */
 const HARRY = { x: 2834, z: 3445, npc: /^harry$/i };
 /** Catherby pier, where the Net/Harpoon (shark) spots move between (fishing-route.ts PIER). */
@@ -1309,6 +1322,39 @@ export const SOURCES: Record<string, Source> = {
         get: async (q, count) => {
             await q.ensure('coins', 10 * count);
             await buyWaitingForRestock(q, { x: 3204, z: 3399, npc: /^shop (keeper|assistant)$/i }, 'bronze dagger', count);
+        },
+    },
+    // ── In Search of the Myreque: six steel weapons for the Myreque, counted in the pack (quest_routequest.rs2)
+    /** Varrock Swords (varrock.inv swordshop): longsword 500gp, stock 3. */
+    'steel longsword': steelFromShop('steel longsword', 650, VARROCK_SWORDS),
+    /** Varrock Swords: 325gp, stock 4. */
+    'steel sword': steelFromShop('steel sword', 420, VARROCK_SWORDS),
+    /** Varrock Swords: 125gp, stock 5. */
+    'steel dagger': steelFromShop('steel dagger', 160, VARROCK_SWORDS),
+    /** Flynn's Mace Market, Falador (falador.inv maceshop): 225gp, stock 4. */
+    'steel mace': steelFromShop('steel mace', 290, { x: 2950, z: 3386, npc: /^flynn$/i }),
+    /** Smithed from the mule's steel bars (jackthief smiths nails from them); Smithing 34+, one bar each. */
+    'steel bar': { obj: 'steel_bar', mule: true, muleSupply: 'jackthief' },
+    /**
+     * No shop sells one but Skulgrimen in Rellekka (Fremennik Trials only): smithed from 3 steel bars (Smithing 39)
+     * at the Varrock west anvils (3188,3424), 15 tiles from the Varrock west bank.
+     */
+    'steel warhammer': {
+        obj: 'steel_warhammer',
+        levels: { smithing: 39 },
+        inputs: (count) => [
+            { item: 'steel bar', count: 3 * count },
+            { item: 'hammer', count: 1 },
+        ],
+        get: async (q, count) => {
+            await q.ensure('steel bar', 3 * count);
+            await q.ensure('hammer', 1);
+            await q.goTo({ x: 3190, z: 3424 }, 2);
+            for (let i = 0; i < count * 2 && q.count('steel warhammer') < count; i++) {
+                const r = await q.bot.smithAtAnvil('warhammer', { barPattern: /^steel bar$/i, timeout: ticksToMs(40) });
+                if (!r.success) q.log(`steel warhammer: ${r.message}`);
+                await q.sdk.waitForTicks(2);
+            }
         },
     },
     /** Nature Spirit: The Restless Ghost's amulet (Father Urhney replaces a lost one) — bank stock, not sourced here. */
