@@ -88,6 +88,7 @@ import { inTouristTrapArea, leaveTouristTrap } from './tourist-trap';
 import { inDigShafts, leaveShafts as leaveDigShafts } from './dig-site';
 import { inIkovArea, leaveIkov } from './temple-of-ikov';
 import { inSeaSlugArea, leaveSeaSlug } from './sea-slug';
+import { inMonkeyMadnessArea, leaveMonkeyMadness } from './monkey-madness';
 import { inScorpionArea, leaveScorpionArea } from './scorpion-catcher';
 import { inWorkshopArea, leaveWorkshop } from './elemental-workshop';
 import { inNatureSpiritArea, leaveNatureSpirit } from './nature-spirit';
@@ -198,6 +199,12 @@ export interface QuestDef {
     retries?: number;
     /** Stages at which the prologue skips the walk to the hub and its banking (the run carries on from where it stands). */
     noHubAt?: string[];
+    /**
+     * Like noHubAt, by where the run starts: Monkey Madness resumed on Ape Atoll carries on from there
+     * (the way home is a jail escape, Lumdo and Waydar, and back again), but resumed on the mainland
+     * banks at the hub as usual.
+     */
+    noHubWhere?: (p: { x: number; z: number; level: number }, stage: string) => boolean;
     /**
      * Fleet accounts allowed in this quest at once (default QUEST_SLOTS). Shared NPCs,
      * doors and drops (Keli, the maze, imps) break when a rollout puts many in together.
@@ -481,8 +488,11 @@ export async function runQuest(def: QuestDef): Promise<void> {
         }
         if (run && def.requires?.length && start === def.stages[0]!.id) {
             for (const title of def.requires) {
-                // UNKNOWN is an unread journal (it did not open in time), not "not done": retry, and only a
-                // FAIL blocks (jacklove4's Holy Grail was refused right after Merlin's Crystal, 2026-11-04).
+                // The quest's own journal is still open from the checkpoint: the reader waits for a journal to
+                // open, and an open one read as UNKNOWN (Monkey Madness staging, 2026-11-05). Close it first; then
+                // retry an unread journal and only block on FAIL (jacklove4's Holy Grail, 2026-11-04).
+                await sdk.sendCloseModal().catch(() => undefined);
+                await untilTicks(sdk, (s) => !s.interface?.isOpen, 3);
                 let verdict: string | undefined;
                 for (let attempt = 1; attempt <= 3 && verdict !== 'PASS' && verdict !== 'FAIL'; attempt++) {
                     const read = await readJournalCheckpoint(sdk, { label: title, title }, { id: `requires:${title}`, kind: 'complete', all: ['QUEST COMPLETE'] });
@@ -583,6 +593,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inIkovArea(pos()) && !inIkovArea(tile)) await leaveIkov(q);
                 // Sea Slug: the fishing platform (both decks) and Kent's island, Holgart rows back (lib/sea-slug.ts).
                 if (inSeaSlugArea(pos()) && !inSeaSlugArea(tile)) await leaveSeaSlug(q);
+                // Monkey Madness: the glider hangars, Crash Island, Ape Atoll (lib/monkey-madness.ts).
+                if (inMonkeyMadnessArea(pos()) && !inMonkeyMadnessArea({ ...tile, level: tile.level ?? 0 })) await leaveMonkeyMadness(q);
                 // Scorpion Catcher: the Barbarian Outpost (out by its gate), the Sorcerer's Tower, Taverley's secret room (lib/scorpion-catcher.ts).
                 if (inScorpionArea(pos()) && !inScorpionArea({ ...tile, level: tile.level ?? 0 })) await leaveScorpionArea(q);
                 // In Search of the Myreque: the hollows' landing (boat), north of the bridge, Mort'ton's dock, the tunnels and hideout (lib/myreque.ts).
@@ -870,6 +882,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
 
         // ── prologue: naked at the hub, bank stock withdrawn toward the quest's needs
         const hub = SAFE_BANKS[def.hub];
+        const noHub = !!def.noHubAt?.includes(q.stage) || !!def.noHubWhere?.(pos(), q.stage);
         // Up in the Grand Tree: climbTo finds no way down from its L1 (jacklove4 after a restart
         // mid-stock-run, 2026-10-31).
         if (inGrandTreeArea(pos())) await leaveGrandTreeArea(q);
@@ -897,7 +910,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inWorkshopArea(pos())) await leaveWorkshop(q);
         if (inIkovArea(pos())) await leaveIkov(q);
         // Not at a no-hub stage: mid-quest Holgart only rows on to Kent's island (lib/sea-slug.ts).
-        if (inSeaSlugArea(pos()) && !def.noHubAt?.includes(q.stage)) await leaveSeaSlug(q);
+        if (inSeaSlugArea(pos()) && !noHub) await leaveSeaSlug(q);
+        if (inMonkeyMadnessArea(pos()) && !noHub) await leaveMonkeyMadness(q);
         if (inScorpionArea(pos())) await leaveScorpionArea(q);
         if (inMyrequeArea(pos())) await leaveMyreque(q);
         if (inNatureSpiritArea(pos())) await leaveNatureSpirit(q);
@@ -912,11 +926,11 @@ export async function runQuest(def: QuestDef): Promise<void> {
         // Anywhere on Karamja with the Ardougne hub: the Brimhaven boat, not Musa Point and a walk across Asgarnia
         // (qltb1's Musa Point walk stalled in a Brimhaven house, 2026-11-04).
         if (inTbwtIsland(pos()) || (def.hub === 'ardougne' && pos().level === 0 && onJungleIsland(pos()))) await leaveTbwt(q, hub);
-        if (pos().level !== 0) await q.climbTo(0);
+        if (pos().level !== 0 && !noHub) await q.climbTo(0);
         if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.
-        if (pos().z >= UNDERGROUND_Z) await climbOutOfUnderground(hub);
-        if (def.noHubAt?.includes(q.stage)) {
+        if (pos().z >= UNDERGROUND_Z && !noHub) await climbOutOfUnderground(hub);
+        if (noHub) {
             // QuestDef.noHubAt: the quest leaves from where it stands at this stage (the Grand Tree at
             // 'released': the stronghold gate is held and the glider lands in a pocket of Karamja with
             // no walk to the customs boat — jacklove16 failed every restart on the hub walk, 2026-11-04).
@@ -1002,7 +1016,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         // QuestDef.noHubAt: no bank and no mule can reach us here (jacklove16 in the Grand Tree's
         // Karamja pocket timed out asking jackthief for sharks, 2026-11-04). Go with what we carry; a
         // later step that runs short fails and its restart, past this stage, banks as usual.
-        if (def.noHubAt?.includes(q.stage)) log(`prepare: skipped at stage ${q.stage} (no hub) — carrying ${describeInventory(sdk)}`);
+        if (noHub) log(`prepare: skipped at stage ${q.stage} (no hub) — carrying ${describeInventory(sdk)}`);
         else {
         // Mule-supplied stock first: the prologue has withdrawn what the bank holds, so a
         // shortfall now means the account was never stocked — stop before walking anywhere.

@@ -1481,6 +1481,10 @@ export const SOURCES: Record<string, Source> = {
     /** Horror from the Deep's lighthouse torch: the Lumbridge swamp's ground spawns (m49_49, e.g. 3164,3169 / 3170,3167). */
     'swamp tar': { obj: 'swamp_tar', get: (q, count) => pickUpSpawn(q, { x: 3167, z: 3169 }, 'swamp tar', count) },
     /** Sea Slug's boat repair: Port Khazard's general store (port_khazard.inv khazardshop, stock 500; shop keeper npc 555 at 2655,3152). */
+    /** Monkey Madness's monkey child wants 5+ (Karamja's banana trees; stocked from the bank or the mule). */
+    banana: { obj: 'banana', mule: true, muleSupply: 'jackthief' },
+    /** Monkey Madness's Karamja greegree: a Karamja monkey's bones (tbwt monkey.rs2 drop, tradeable). */
+    'monkey bones': { obj: 'mm_normal_monkey_bones', mule: true, muleSupply: 'jackthief' },
     'swamp paste': {
         obj: 'swamppaste',
         // Shop buys can go in batches of ten (buyWaitingForRestock): coins for a whole batch.

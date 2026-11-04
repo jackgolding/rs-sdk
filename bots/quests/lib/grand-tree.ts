@@ -172,7 +172,7 @@ async function useOn(q: Quest, id: number, at: Tile, name: RegExp, done: () => b
 }
 
 /** Drive dialogs that reopen after cutscene delays (walks, telejumps) until none opens for `gap` ticks. */
-async function settle(q: Quest, choices: RegExp[], ticks: number, gap = 25): Promise<string> {
+export async function settle(q: Quest, choices: RegExp[], ticks: number, gap = 25): Promise<string> {
     const t0 = tickNow(q.sdk);
     let seen = '';
     while (tickNow(q.sdk) - t0 < ticks) {
@@ -202,7 +202,7 @@ async function treeLevel(q: Quest, level: number): Promise<void> {
 const inTrunk = (p: Tile) => (p.level ?? 0) === 0 && inBox(p, 2462, 2469, 3493, 3500);
 
 /** Into the stronghold and the Grand Tree's trunk. */
-async function toTrunk(q: Quest): Promise<void> {
+export async function toTrunk(q: Quest): Promise<void> {
     if (inTrunk(pos(q))) return;
     if (inGrandTreeArea(pos(q))) await leaveGrandTreeArea(q);
     if (inStronghold(pos(q)) && pos(q).level > 0 && inBox(pos(q), 2440, 2490, 3480, 3515)) await treeLevel(q, 0);
@@ -214,7 +214,7 @@ async function toTrunk(q: Quest): Promise<void> {
 }
 
 /** Up the Grand Tree to L`level` (the prison and the glider are on L3). */
-async function upTree(q: Quest, level: number): Promise<void> {
+export async function upTree(q: Quest, level: number): Promise<void> {
     if (pos(q).level === level && inBox(pos(q), 2440, 2490, 3480, 3515)) return;
     await toTrunk(q);
     await treeLevel(q, level);
