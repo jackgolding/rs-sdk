@@ -33,7 +33,8 @@ const stage = (id: string, kind: 'unstarted' | 'active' | 'complete', all: strin
 });
 
 const coins = [{ item: 'coins', count: 1100 }];
-const fight = [{ item: 'melee weapon', count: 1 }, { item: 'shark', count: 10 }];
+// 18: ten ran out at hp 7 on jacklove4 even with Prayer 78 (2026-11-04); the demon hits through when prayer drains.
+const fight = [{ item: 'melee weapon', count: 1 }, { item: 'shark', count: 18 }];
 
 await runQuest({
     id: 'grandtree',
