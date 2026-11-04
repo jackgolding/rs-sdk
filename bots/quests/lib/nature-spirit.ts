@@ -454,7 +454,7 @@ export async function ritual(q: Quest, done: () => Promise<boolean>): Promise<vo
     for (let attempt = 1; attempt <= 4 && !(await done()); attempt++) {
         for (let i = 0; i < 3 && (pos(q).x !== FAITH_STONE.x || pos(q).z !== FAITH_STONE.z); i++) await q.bot.walkTo(FAITH_STONE.x, FAITH_STONE.z, 0).catch(() => undefined);
         // jacklove16 sat silent at (3440,3337) through three ritual attempts (2026-11-04): say where and why.
-        q.log(`ns: ritual attempt ${attempt} at ${where(q)} (faith stone ${FAITH_STONE.x},${FAITH_STONE.z}); spirit ${spiritNpc(q) ? 'here' : 'absent'}; fungus ${holds(q, OBJ.fungus)}, spell ${holds(q, OBJ.spell) || holds(q, OBJ.usedSpell)}`);
+        q.log(`ns: ritual attempt ${attempt} at ${where(q)} (faith stone ${FAITH_STONE.x},${FAITH_STONE.z}); spirit ${spiritNpc(q) ? 'here' : 'absent'}; fungus ${holds(q, OBJ.fungus)}, spell ${holds(q, OBJ.spell) || holds(q, OBJ.usedSpell)}; npcs ${(q.sdk.getNearbyNpcs() ?? []).filter((n) => (n.distance ?? 99) <= 6).map((n) => `${n.name}#${n.id}@${n.x},${n.z}`).join(' ') || 'none'}`);
         if (!spiritNpc(q)) {
             // The door-summoned spirit offers the same menu (filliman.rs2 multi5): answer the puzzle from
             // the faith stone right there. Summoning with no answer looped 4×4 attempts with the spirit
