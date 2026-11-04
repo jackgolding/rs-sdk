@@ -21,6 +21,7 @@ import {
     seeHazelmere,
     talkCharlie,
     talkGlough,
+    escapeJail,
     talkNarnode,
     toShipyardForeman,
     TRANSLATION,
@@ -68,7 +69,15 @@ await runQuest({
         { from: 'prisoner', to: 'charlie', run: (q) => talkCharlie(q) },
         { from: 'charlie', to: 'journal', run: (q) => searchCupboard(q) },
         // Glough cages us; Charlie talks, then Narnode lets us out (one dialog).
-        { from: 'journal', to: 'released', run: (q) => talkGlough(q).then(() => undefined) },
+        {
+            from: 'journal',
+            to: 'released',
+            run: async (q) => {
+                await talkGlough(q);
+                // If the cage dialogs did not run to Narnode's release, talk to Charlie from the cell.
+                await escapeJail(q);
+            },
+        },
         { from: 'released', to: 'order', needs: coins, run: (q) => toShipyardForeman(q) },
         {
             from: 'order',

@@ -478,7 +478,35 @@ export async function findDaconia(q: Quest): Promise<void> {
 // ── getting out
 
 /** Out of the roots (ladder up into the trunk), Glough's upstairs, the shipyard, the tree's top floors. */
+/** Glough's cell: ^grandtree_jail_coord 3_38_54_32_40 = (2464,3496,L3); its door is one tile east (charlie.rs2). */
+const JAIL = { x: 2464, z: 3496, level: 3 };
+const inJail = (p: Tile) => (p.level ?? 0) === 3 && p.x === JAIL.x && p.z === JAIL.z;
+
+/**
+ * Out of Glough's cell. charlie.rs2 at found_journal: talking to Charlie from the cell brings Narnode,
+ * who opens the door for ~7 ticks (loc_add prisondoor dur 7) — walk east through it at once. A run
+ * restarted in the cell had every goTo fail with "could not reach L1" (jacklove16, 2026-11-04).
+ */
+export async function escapeJail(q: Quest): Promise<void> {
+    for (let attempt = 1; attempt <= 4 && inJail(pos(q)); attempt++) {
+        const charlie = q.sdk.findNearbyNpc(/^charlie$/i);
+        if (charlie) {
+            await q.sdk.sendInteractNpc(charlie.index, 1, { route: false });
+            if (!(await untilTicks(q.sdk, (s) => !!s.dialog?.isOpen, 12))) await q.sdk.sendTalkToNpc(charlie.index);
+        }
+        // Charlie's lines, then Narnode's apology; the door opens as his dialog closes.
+        for (let t = 0; t < 80 && inJail(pos(q)); t += 2) {
+            if (q.sdk.getDialog()?.isOpen) await driveDialog(q.sdk, [], { ticks: 4 });
+            else await q.sdk.sendWalk(JAIL.x + 2, JAIL.z).catch(() => undefined);
+            await q.sdk.waitForTicks(2);
+        }
+        q.log(`grandtree: jail attempt ${attempt} — now at ${where(q)}`);
+    }
+    if (inJail(pos(q))) throw new Error(`grandtree: still in Glough's cell after 4 tries (Charlie's dialog did not free it)`);
+}
+
 export async function leaveGrandTreeArea(q: Quest): Promise<void> {
+    if (inJail(pos(q))) await escapeJail(q);
     if (inShipyard(pos(q))) await leaveShipyard(q);
     if (inTreeRoots(pos(q))) {
         await q.bot.walkTo(LADDER_FROM_CELLAR.x + 1, LADDER_FROM_CELLAR.z, 2).catch(() => undefined);
