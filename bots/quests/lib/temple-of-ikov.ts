@@ -204,7 +204,8 @@ async function boots(q: Quest): Promise<void> {
         if (food) await q.bot.eatFood(food).catch(() => undefined);
         await q.sdk.waitForTicks(2);
     }
-    await pickUp(q, OBJ.boots, BOOTS, 'Boots of lightness', 60);
+    // One shared ground spawn: another account (Jackpoo5 alongside jacklove20, 2026-11-04) can take it; wait out a respawn.
+    await pickUp(q, OBJ.boots, BOOTS, 'Boots of lightness', 300);
     await rawOp(q, STAIRS_UP.x, STAIRS_UP.z, 96, 1, () => pos(q).z > 9790, 'the dark stairs up');
     // The candle is done too (and weighs on the bridge).
     const candle = inv(q, OBJ.litCandle);

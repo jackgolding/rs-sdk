@@ -389,6 +389,14 @@ export async function seeBravek(q: Quest): Promise<void> {
     // within 7 tiles of the player. At 25 the clerk only says Bravek will see you.
     // Bravek wanders his room; out of range, the clerk's call goes unanswered: ask again.
     for (let attempt = 1; attempt <= 6; attempt++) {
+        // Wait (bounded) for Bravek to wander within 6 tiles of the clerk's spot before asking: every
+        // call made from the clerk with him at the far wall went unanswered (ABGARMY06/14, 2026-11-04).
+        await q.goTo(CLERK, 2);
+        for (let w = 0; w < 40; w++) {
+            const b = q.sdk.findNearbyNpc(/^bravek$/i);
+            if (b && Math.max(Math.abs(b.x - pos(q).x), Math.abs(b.z - pos(q).z)) <= 6) break;
+            await q.sdk.waitForTicks(3);
+        }
         const clerk = await q.talk(/^clerk$/i, [/i need permission to enter a plague house/i, /this is urgent though/i], CLERK);
         if (/they can come in|will see you now/i.test(clerk)) break;
         q.log(`plague: clerk (attempt ${attempt}): Bravek did not answer — ${clerk.slice(-100)}`);
