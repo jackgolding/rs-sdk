@@ -61,6 +61,6 @@ await runQuest({
         { from: 'warrior', to: 'paid', needs: dungeon, run: (q) => ikov.winelda(q) },
         { from: 'winelda', to: 'paid', needs: dungeon, run: (q) => ikov.winelda(q) },
         { from: 'paid', to: 'helping', needs: [{ item: 'law rune', count: 1 }, { item: 'air rune', count: 5 }], run: (q) => ikov.guardian(q) },
-        { from: 'helping', to: 'complete', needs: [{ item: 'shark', count: 3 }], run: (q) => ikov.killLucien(q, () => passes(q.sdk, 'complete')) },
+        { from: 'helping', to: 'complete', needs: [{ item: 'shark', count: 1 }] /* merged needs take the max: 3 here filled the pack before the candle (jacklove4) */, run: (q) => ikov.killLucien(q, () => passes(q.sdk, 'complete')) },
     ],
 });
