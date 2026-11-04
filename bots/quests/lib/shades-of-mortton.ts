@@ -441,7 +441,11 @@ export async function buyFromRazmire(q: Quest, store: 'general' | 'building', it
             if (!open()) break;
             const short = n - q.count(re);
             const r = await q.bot.buyFromShop(re, Math.min(short, 20)).catch((e) => ({ success: false, message: String(e) }));
-            if (!r.success && open()) q.log(`mortton: buy ${re}: ${r.message}`);
+            if (!r.success && open()) {
+                // What the store actually lists (jacklove16 could not buy olive oil it stocks 150 of, 2026-11-04).
+                const shop = q.sdk.getState()?.shop;
+                q.log(`mortton: buy ${re}: ${r.message}; shop "${shop?.title ?? '?'}" lists ${(shop?.shopItems ?? []).map((i) => `${i.name}×${i.count}`).join(', ').slice(0, 300) || 'nothing'}; coins ${q.count(/^coins$/i)}, free ${28 - q.sdk.getInventory().length}`);
+            }
         }
     }
     if (open()) await q.bot.closeShop().catch(() => undefined);

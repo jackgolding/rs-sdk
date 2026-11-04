@@ -63,7 +63,8 @@ const GRAIL = { x: 2649, z: 4684, level: 2 };
 const RESTORED_STAIRS_FOOT = { x: 2647, z: 4683 };
 const SACKS = { x: 2960, z: 3507 };
 const LADY = { x: 2924, z: 3405 };
-const TITAN_FOOD = 15;
+// 20, not 15: jacklove2 and ABGARMY07 ran out against the Titan (hp 27, 19), 2026-11-04.
+const TITAN_FOOD = 20;
 
 const pos = (q: Quest) => {
     const p = q.sdk.getState()?.player;
