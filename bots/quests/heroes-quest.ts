@@ -21,6 +21,7 @@
  * account's own gang's lines; the item sections are keyed on what is held, worn or banked.
  */
 import { runQuest, type Need, type Quest, type StageDef, type Transition } from './lib/run-quest';
+import { arravGang } from './lib/quest-tags';
 import {
     askAlfonse,
     askCharlie,
@@ -51,10 +52,21 @@ import {
 
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const account = process.argv.slice(2).find((a) => !a.startsWith('-')) ?? process.env.BOT_USERNAME ?? '';
-const gang = arg('gang') as Gang | undefined;
+// --gang may be left out: the Shield of Arrav tag says which side (lib/quest-tags.ts). A --gang that
+// disagrees with the tag, or a partner tagged the same gang, is refused before any walking.
+const onRecord = arravGang(account);
+const gang = (arg('gang') as Gang | undefined) ?? onRecord;
 const partner = arg('partner') ?? '';
 if ((gang !== 'phoenix' && gang !== 'blackarm') || !partner || !account || partner.toLowerCase() === account.toLowerCase()) {
-    console.error('usage: bun bots/quests/heroes-quest.ts {account} --gang=phoenix|blackarm --partner={other account}');
+    console.error('usage: bun bots/quests/heroes-quest.ts {account} [--gang=phoenix|blackarm] --partner={other account} (gang defaults to the account\'s Shield of Arrav tag)');
+    process.exit(2);
+}
+if (onRecord && onRecord !== gang) {
+    console.error(`heroes-quest: ${account} did Shield of Arrav as ${onRecord} (quest-tags.json), not ${gang} — refusing`);
+    process.exit(2);
+}
+if (arravGang(partner) === gang) {
+    console.error(`heroes-quest: partner ${partner} is also tagged ${gang}; a pair needs one Phoenix and one Black Arm`);
     process.exit(2);
 }
 const pair: Pair = { account, gang: gang as Gang, partner };

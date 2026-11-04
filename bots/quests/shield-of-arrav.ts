@@ -24,6 +24,7 @@
  * here and the run stops at "could not read the quest stage".
  */
 import { runQuest, type Need, type Quest, type StageDef, type Transition } from './lib/run-quest';
+import { arravGang, writeTags } from './lib/quest-tags';
 import {
     askReldoAgain,
     askTramp,
@@ -56,6 +57,15 @@ const partner = arg('partner') ?? '';
 if ((gang !== 'phoenix' && gang !== 'blackarm') || !partner || !account || partner.toLowerCase() === account.toLowerCase()) {
     console.error('usage: bun bots/quests/shield-of-arrav.ts {account} --gang=phoenix|blackarm --partner={other account}');
     process.exit(2);
+}
+// The gang is permanent once joined: refuse the other side, and record this one for Heroes' Quest (lib/quest-tags.ts).
+{
+    const onRecord = arravGang(account);
+    if (onRecord && onRecord !== gang) {
+        console.error(`shield-of-arrav: ${account} is tagged ${onRecord} (bots/${account}/quest-tags.json), not ${gang} — refusing`);
+        process.exit(2);
+    }
+    if (!onRecord) writeTags(account, { arravGang: gang, arravGangAt: new Date().toISOString() });
 }
 const pair: Pair = { account, gang, partner };
 
