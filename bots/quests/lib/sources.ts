@@ -1179,6 +1179,20 @@ export const SOURCES: Record<string, Source> = {
             await buyWaitingForRestock(q, JIMINUA, 'charcoal', count);
         },
     },
+    /**
+     * Family Crest's cure for Johnathon. jackthief first; it ran out (2026-11-03), so else Jiminua's
+     * Jungle Store (karamja.inv junglestore: 3doseantipoison, stock 10).
+     */
+    'antipoison(3)': {
+        muleSupply: 'jackthief',
+        inputs: (count) => [{ item: 'coins', count: 300 * count + 60 }],
+        get: async (q, count) => {
+            const { toJungle } = await import('./jungle-potion');
+            await q.ensure('coins', 300 * count + 30);
+            await toJungle(q, JIMINUA, 4);
+            await buyWaitingForRestock(q, JIMINUA, 'antipoison(3)', count);
+        },
+    },
     /** The Yommi tree takes nothing but a rune axe (quest_legends.rs2 yommitree_*): the Woodcutting group's best is not enough. */
     'rune axe': { tool: true, mule: true, muleSupply: 'jackthief' },
     /** The shaman caves' ancient gate (Thieving 50). A Brimhaven-dungeon ground spawn; no shop. */

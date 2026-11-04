@@ -135,7 +135,7 @@ await runQuest({
             from: 'avan_piece',
             to: 'spoken_johnathon',
             needs: (q) => {
-                antipoisonStock(q, 1);
+                // Sourced if short (lib/sources.ts: jackthief, else Jiminua's store) — no NEEDS STOCK stop.
                 return [{ ...ANTIPOISON, count: 1 }, ...coins(q)];
             },
             run: async (q) => {
