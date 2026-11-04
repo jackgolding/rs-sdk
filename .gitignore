@@ -53,3 +53,5 @@ server/engine/data/market.sqlite*
 **/terraform.tfstate
 **/terraform.tfstate.backup
 **/.terraform/
+
+sdk/collision-data.bin

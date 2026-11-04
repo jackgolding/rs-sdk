@@ -1,7 +1,8 @@
 // Local pathfinding using bundled collision data
 import * as rsmod from '../server/vendor/rsmod-pathfinder';
 import { CollisionType, CollisionFlag } from '../server/vendor/rsmod-pathfinder';
-import collisionData from './collision-data.json';
+import { existsSync, readFileSync, statSync } from 'fs';
+import { COLLISION_BIN, COLLISION_JSON, COLLISION_MAGIC } from './collision-pack';
 
 let initialized = false;
 
@@ -66,7 +67,9 @@ const doorIndex = new Map<string, DoorInfo>();
 
 // Zones that have at least one collision tile — zones with zero collision data
 // are likely open ocean/void and should not be treated as walkable land.
-const populatedZones = new Set<string>();
+const populatedZones = new Set<number>();
+/** Numeric zone key (no per-tile string allocations at init). */
+const zoneKey = (level: number, x: number, z: number) => level * 0x4000000 + (x >> 3) * 0x2000 + (z >> 3);
 
 // One-way doors that should NOT be unmasked in the door index.
 // These doors can only be opened from one side; routing through them traps the bot.
@@ -83,15 +86,50 @@ function doorKey(level: number, x: number, z: number): string {
     return `${level},${x},${z}`;
 }
 
+interface Rows { offset: number; count: number; width: number }
+interface PackedCollision { a: Int32Array; zones: Rows; tiles: Rows; doors: Rows; source: 'bin' | 'json' }
+
+/**
+ * Collision rows as one flat Int32Array. Prefers collision-data.bin (sdk/collision-pack.ts; the fleet
+ * image builds it) when it is at least as new as the JSON; otherwise parses the JSON once into the same
+ * flat layout so no per-tile JS arrays stay alive after init.
+ */
+function loadCollision(): PackedCollision {
+    const fresh = existsSync(COLLISION_BIN) && (!existsSync(COLLISION_JSON) || statSync(COLLISION_BIN).mtimeMs >= statSync(COLLISION_JSON).mtimeMs);
+    if (fresh) {
+        const buf = readFileSync(COLLISION_BIN);
+        const a = new Int32Array(buf.buffer, buf.byteOffset, buf.byteLength >> 2);
+        if (a[0] === COLLISION_MAGIC) {
+            const [nz, nt, nd, zw, tw, dw] = [a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!];
+            const zones = { offset: 7, count: nz, width: zw };
+            const tiles = { offset: zones.offset + nz * zw, count: nt, width: tw };
+            const doors = { offset: tiles.offset + nt * tw, count: nd, width: dw };
+            return { a, zones, tiles, doors, source: 'bin' };
+        }
+    }
+    const d = JSON.parse(readFileSync(COLLISION_JSON, 'utf8')) as CollisionData;
+    const doorsIn = d.doors ?? [];
+    const a = new Int32Array(d.zones.length * 3 + d.tiles.length * 4 + doorsIn.length * 6);
+    let o = 0;
+    for (const r of d.zones) { a.set(r, o); o += 3; }
+    for (const r of d.tiles) { a.set(r, o); o += 4; }
+    for (const r of doorsIn) { a.set(r, o); o += 6; }
+    const zones = { offset: 0, count: d.zones.length, width: 3 };
+    const tiles = { offset: zones.count * 3, count: d.tiles.length, width: 4 };
+    const doors = { offset: tiles.offset + tiles.count * 4, count: doorsIn.length, width: 6 };
+    return { a, zones, tiles, doors, source: 'json' };
+}
+
 export function initPathfinding(): void {
     if (initialized) return;
 
-    const data = collisionData as CollisionData;
     const start = Date.now();
+    const data = loadCollision();
 
     // Allocate all zones first (includes walkable areas with no collision tiles)
-    for (const [level, zoneX, zoneZ] of data.zones) {
-        rsmod.allocateIfAbsent(zoneX, zoneZ, level);
+    for (let i = 0; i < data.zones.count; i++) {
+        const o = data.zones.offset + i * data.zones.width;
+        rsmod.allocateIfAbsent(data.a[o + 1]!, data.a[o + 2]!, data.a[o]!);
     }
 
     // Allocate mainland zones so the 2048x2048 BFS grid can traverse
@@ -110,10 +148,12 @@ export function initPathfinding(): void {
     }
 
     // Set collision flags for tiles that have them (includes wall flags)
-    for (const [level, x, z, flags] of data.tiles) {
+    for (let i = 0; i < data.tiles.count; i++) {
+        const o = data.tiles.offset + i * data.tiles.width;
+        const level = data.a[o]!, x = data.a[o + 1]!, z = data.a[o + 2]!, flags = data.a[o + 3]!;
         rsmod.__set(x, z, level, flags);
         // Track which zones have at least one collision tile (likely land, not ocean)
-        populatedZones.add(`${level},${x & ~7},${z & ~7}`);
+        populatedZones.add(zoneKey(level, x, z));
     }
 
     // Remove wall collision at door/gate positions so the pathfinder
@@ -122,8 +162,10 @@ export function initPathfinding(): void {
     // when doors are opened at runtime.
     let doorCount = 0;
     let skippedOneWay = 0;
-    if (data.doors) {
-        for (const [level, x, z, shape, angle, blockrange] of data.doors) {
+    {
+        for (let i = 0; i < data.doors.count; i++) {
+            const o = data.doors.offset + i * data.doors.width;
+            const level = data.a[o]!, x = data.a[o + 1]!, z = data.a[o + 2]!, shape = data.a[o + 3]!, angle = data.a[o + 4]!, blockrange = data.a[o + 5]!;
             const key = doorKey(level, x, z);
 
             // Skip one-way doors — keep their wall collision so the pathfinder
@@ -142,7 +184,7 @@ export function initPathfinding(): void {
     }
 
     initialized = true;
-    console.log(`Pathfinding initialized in ${Date.now() - start}ms (${data.zones.length} zones + ${mainlandZones} mainland fill, ${data.tiles.length} tiles, ${doorCount} doors masked, ${skippedOneWay} one-way doors blocked)`);
+    console.log(`Pathfinding initialized from ${data.source} in ${Date.now() - start}ms (${data.zones.count} zones + ${mainlandZones} mainland fill, ${data.tiles.count} tiles, ${doorCount} doors masked, ${skippedOneWay} one-way doors blocked)`);
 }
 
 // Check if a zone has collision data
@@ -274,7 +316,7 @@ void hasLineOfSight;
  * land always has some collision data (objects, walls, floor flags nearby).
  */
 export function isZoneLikelyLand(level: number, x: number, z: number): boolean {
-    return populatedZones.has(`${level},${x & ~7},${z & ~7}`);
+    return populatedZones.has(zoneKey(level, x, z));
 }
 
 

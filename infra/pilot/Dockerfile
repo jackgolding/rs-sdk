@@ -23,6 +23,9 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 # .dockerignore keeps node_modules, out/, logs, and .git out of the context.
 WORKDIR /opt/fleet
 COPY sdk /opt/fleet/sdk
+# Packed collision rows (sdk/collision-pack.ts): pathfinding reads typed arrays instead of
+# parsing the 26MB JSON into per-tile arrays every bun process kept (~230MB RSS each).
+RUN bun sdk/collision-pack.ts
 COPY server/webclient /opt/fleet/server/webclient
 COPY server/vendor /opt/fleet/server/vendor
 COPY bots/quests /opt/fleet/bots/quests

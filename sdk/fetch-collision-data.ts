@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Refreshes sdk/collision-data.json, which sdk/pathfinding.ts imports directly.
+// Refreshes sdk/collision-data.json (and its packed copy, collision-data.bin) for sdk/pathfinding.ts.
 // The file IS tracked in git, so a clone already has a working copy — this script
 // is for regenerating it after map changes, or pulling from a non-default server.
 // Commit the result: a stale tracked copy is how 442-vs-483 mapsquare drift crept
@@ -36,6 +36,9 @@ async function fetchCollisionData(server: string, force: boolean) {
     await writeFile(OUTPUT_PATH, new Uint8Array(body));
     const mb = (body.byteLength / 1_000_000).toFixed(1);
     console.log(`Wrote ${OUTPUT_PATH} (${mb}MB)`);
+    // Keep the packed copy pathfinding prefers in step (sdk/collision-pack.ts).
+    const { packCollision } = await import('./collision-pack');
+    packCollision();
 }
 
 const args = process.argv.slice(2);
