@@ -110,7 +110,7 @@ export async function crossGnomeGate(q: Quest, inward: boolean): Promise<void> {
 }
 
 /** Open the Tree Door if it is shut and walk to `to` (plane 0) through it. */
-async function throughTreeDoor(q: Quest, to: Tile): Promise<void> {
+export async function throughTreeDoor(q: Quest, to: Tile): Promise<void> {
     for (let attempt = 0; attempt < 3; attempt++) {
         const res = await q.bot.walkTo(to.x, to.z, 1);
         if (res.success && Math.hypot(here(q).x - to.x, here(q).z - to.z) <= 2) return;

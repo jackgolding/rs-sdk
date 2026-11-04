@@ -78,6 +78,7 @@ import { inGrailArea, leaveGrail } from './holy-grail';
 import { inContest, leaveContest } from './fishing-contest';
 import { inCultCave, leaveCave as leaveCultCave } from './hazeel-cult';
 import { inGnomeVillage, inKhazardStronghold, leaveGnomeVillage, leaveKhazardStronghold } from './tree-gnome-village';
+import { inGrandTreeArea, leaveGrandTreeArea } from './grand-tree';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, awaitQuestStartTurn, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -514,6 +515,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // Tree Gnome Village: the village's loose railing and the Khazard stronghold's one-way door (lib/tree-gnome-village.ts).
                 if (inGnomeVillage(pos()) && !inGnomeVillage({ ...tile, level: tile.level ?? 0 })) await leaveGnomeVillage(q);
                 if (inKhazardStronghold(pos()) && !inKhazardStronghold(tile)) await leaveKhazardStronghold(q);
+                // The Grand Tree quest: its roots, Glough's upstairs, the tree's top floors and the Karamja shipyard (lib/grand-tree.ts).
+                if (inGrandTreeArea(pos()) && !inGrandTreeArea({ ...tile, level: tile.level ?? 0 })) await leaveGrandTreeArea(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0, tile);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in
@@ -770,6 +773,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         const hub = SAFE_BANKS[def.hub];
         // Up in the Grand Tree: climbTo finds no way down from its L1 (jacklove4 after a restart
         // mid-stock-run, 2026-10-31).
+        if (inGrandTreeArea(pos())) await leaveGrandTreeArea(q);
         if (inStronghold(pos()) && pos().level !== 0) await leaveGrandTree(q);
         // Melzar's Maze, any floor or its basement: climbTo would take any of its ladders (lib/melzars-maze.ts).
         if (inMelzarsMaze(pos())) await leaveMelzarsMaze(bot, sdk, log);
