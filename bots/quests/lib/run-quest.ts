@@ -94,6 +94,7 @@ import { inChompyArea, leaveChompyCave } from './chompybird';
 import { inTrollArea, leaveTrollArea } from './troll-stronghold';
 import { inHauntedMineArea, leaveHauntedMine } from './haunted-mine';
 import { inMiscArea, leaveIsland as leaveMiscellania } from './miscellania';
+import { inRomanceArea, leaveRomanceArea } from './troll-romance';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, awaitQuestStartTurn, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -557,6 +558,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inHorrorArea(pos()) && !inHorrorArea({ ...tile, level: tile.level ?? 0 })) await leaveHorror(q);
                 // Big Chompy Bird Hunting: Rantz's cave, out by its own exit (lib/chompybird.ts).
                 if (inChompyArea(pos()) && !inChompyArea({ ...tile, level: tile.level ?? 0 })) await leaveChompyCave(q);
+                // Troll Romance: the ice cave, Trollweiss Mountain and the Rellekka cave, out by their tunnels (lib/troll-romance.ts).
+                if (inRomanceArea(pos()) && !inRomanceArea({ ...tile, level: tile.level ?? 0 })) await leaveRomanceArea(q);
                 // Troll Stronghold: past the Death Plateau rocks, the arena, the pass, Trollheim and the stronghold (lib/troll-stronghold.ts).
                 if (inTrollArea(pos()) && !inTrollArea({ ...tile, level: tile.level ?? 0 })) await leaveTrollArea(q);
                 // Haunted Mine: Mort'ton and the mine under Mort Ridge (not at z + 6400): teleport out (lib/haunted-mine.ts).
@@ -847,6 +850,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inNatureSpiritArea(pos())) await leaveNatureSpirit(q);
         if (inHorrorArea(pos())) await leaveHorror(q);
         if (inChompyArea(pos())) await leaveChompyCave(q);
+        if (inRomanceArea(pos())) await leaveRomanceArea(q);
         if (inTrollArea(pos())) await leaveTrollArea(q);
         if (inHauntedMineArea(pos())) await leaveHauntedMine(q);
         if (inMiscArea(pos())) await leaveMiscellania(q);

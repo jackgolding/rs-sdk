@@ -282,6 +282,7 @@ const LUMBRIDGE_EAST_CHICKENS: HuntSpot = { x: 3228, z: 3300, npc: /^chicken$/i 
 const VARROCK_GENERAL_STORE = { x: 3218, z: 3415, npc: /shop\s*(keeper|assistant)/i };
 /** Varrock palace kitchen sink (north wing); the sink has no ops, use the bucket on it. */
 /** Logs ground spawns, m38_49 (0 26 55 / 30 51 / 32 55), west of the Ardougne monastery. */
+const SEERS_MAPLES = { x: 2672, z: 3538 };
 /**
  * The open wheat patch north of Seers' Village (m42_55: loc 313 x13 at 2731-2733,3567-3572; respawns in 20 ticks). The big
  * field north of East Ardougne is fenced in, with only a stile (walkTo has no way in).
@@ -1369,6 +1370,37 @@ export const SOURCES: Record<string, Source> = {
     grain: { get: (q, count) => pickLocs(q, 'grain', /^wheat$/i, SEERS_WHEAT, count) },
     /** The fleet's banks hold ~1,250 (prayer brewing); jackthief brews from it too. */
     'ranarr weed': { obj: 'ranarr_weed', mule: true, muleSupply: 'jackthief' },
+    // ── Troll Romance: Dunstan's sled (maple logs) and the sled wax's cake tin
+    /** Arhein's store, Catherby (arheinstore: cake tin 2). */
+    'cake tin': {
+        inputs: () => [{ item: 'coins', count: 30 }],
+        get: async (q, count) => {
+            await q.ensure('coins', 10);
+            await buyWaitingForRestock(q, ARHEIN, 'cake tin', count);
+        },
+    },
+    /** The maples north-east of Seers (loc mapletree, m41_55: 2651-2683,3521-3559); Woodcutting 45 with an axe. */
+    'maple logs': {
+        levels: { woodcutting: 45 },
+        inputs: () => [{ item: 'axe', count: 1 }],
+        get: async (q, count) => {
+            await q.ensure('axe', 1);
+            const t0 = tickNow(q.sdk);
+            while (q.count('maple logs') < count && tickNow(q.sdk) - t0 < 1500) {
+                const p = q.sdk.getState()?.player;
+                if (Math.hypot((p?.worldX ?? 0) - SEERS_MAPLES.x, (p?.worldZ ?? 0) - SEERS_MAPLES.z) > 14) await q.goTo(SEERS_MAPLES, 4);
+                await q.sdk.scanNearbyLocs(14).catch(() => undefined);
+                const tree = (q.sdk.getNearbyLocs() ?? [])
+                    .filter((l) => /^maple tree$/i.test(l.name) && l.reachable !== false && l.options.some((o) => /chop/i.test(o)))
+                    .sort((a, b) => a.distance - b.distance)[0];
+                if (!tree) {
+                    await q.sdk.waitForTicks(5);
+                    continue;
+                }
+                await q.bot.chopTree(tree).catch(() => undefined);
+            }
+        },
+    },
     // ── Throne of Miscellania: Princess Astrid's ring (a gem ring banked is taken instead; no shop sells a gold ring)
     'gold ring': { obj: 'gold_ring', mule: true, muleSupply: 'jackthief' },
 };

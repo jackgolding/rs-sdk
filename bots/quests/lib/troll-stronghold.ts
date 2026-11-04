@@ -117,6 +117,8 @@ export function areaOf(p: Tile): Area {
         return 'other';
     }
     if (lv !== 0) return 'other';
+    // Troll Romance's landing pocket below Trollweiss (2778-2803,3714-3735): walled off from Trollheim (lib/troll-romance.ts).
+    if (inBox(p, 2778, 2803, 3714, 3735)) return 'other';
     if (inBox(p, 2897, 2924, 3598, 3628)) return 'arena';
     if (inBox(p, 2895, 2935, 3629, 3647)) return 'north';
     if (inBox(p, 2812, 2842, 3629, 3652)) return 'xpocket';
@@ -447,6 +449,7 @@ const PRISON_SIDE = new Set<Area>(['l2', 'l1w', 'l1e', 'prison', 'l0east']);
 const UP_TOP = new Set<Area>(['trollheim', 'eadgar']);
 /** Burthorpe's side of the troll country: the Death Plateau and the band of rocks to the secret door. */
 const SOUTH_SIDE = new Set<Area>(['south', 'plateau', 'band', 'xpocket']);
+const ARENA_SIDE = new Set<Area>(['mid', 'arenaWest', 'arena', 'north']);
 /** Side areas off the chain: Eadgar's cave hangs off Trollheim, the storeroom side of L0 off L1 west. */
 const SIDE: Partial<Record<Area, Area>> = { eadgar: 'trollheim', l0east: 'l1w' };
 
@@ -476,6 +479,8 @@ async function hops(q: Quest, dest: Area): Promise<void> {
         // Troll Stronghold done: up to Trollheim through the secret door, the prison and the stronghold's top exit rather
         // than the arena and the troll pass (mountain trolls all the way).
         if (trollComplete && UP_TOP.has(dest) && SOUTH_SIDE.has(a)) step = 'prison';
+        // ...and from the arena side (Troll Romance's Arrg fight ends in the arena) back west to the secret door.
+        if (trollComplete && PRISON_SIDE.has(dest) && ARENA_SIDE.has(a)) step = 'band';
         await eatIfLow(q);
         await topUpPrayer(q);
         // Prayer is the budget for the fights (Dad, the Troll Generals hit 30+ through no armour): only the stronghold's
