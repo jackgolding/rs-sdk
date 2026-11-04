@@ -1113,7 +1113,7 @@ async function intoTaverley(q: Quest): Promise<void> {
 }
 
 /** Velrak's Dusty key: the Jailer's key on his cell, then ask him. */
-async function dustyKey(q: Quest): Promise<void> {
+export async function dustyKey(q: Quest): Promise<void> {
     if (holds(q, OBJ.dustyKey)) return;
     await intoTaverley(q);
     await walkRoute(q, LADDER_TO_JAIL.slice(nearestIndex(q, LADDER_TO_JAIL)), false);
@@ -1141,7 +1141,7 @@ async function dustyKey(q: Quest): Promise<void> {
 }
 
 /** Dusty key on the gate, through the dragon pen to the lava. */
-async function toLava(q: Quest): Promise<void> {
+export async function toLava(q: Quest): Promise<void> {
     if (inLavaSide(pos(q))) return;
     await intoTaverley(q);
     if (pos(q).x < PRISON_DOOR.x) await walkRoute(q, [...GATE_TO_LADDER].reverse(), false);
