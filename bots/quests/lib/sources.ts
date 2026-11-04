@@ -16,7 +16,7 @@ import { closeUi } from '../movement';
 import { driveDialog } from './dialog';
 import { manorSpade, oilCan, pressureGauge, rubberTube } from './draynor-manor';
 import { dramenStaff } from './lost-city';
-import { buyGroceries } from './gnome-stronghold';
+import { buyGroceries, HECKEL_FUNCH } from './gnome-stronghold';
 import { beehiveWax } from './merlins-crystal';
 
 export interface Need {
@@ -282,6 +282,14 @@ const LUMBRIDGE_EAST_CHICKENS: HuntSpot = { x: 3228, z: 3300, npc: /^chicken$/i 
 const VARROCK_GENERAL_STORE = { x: 3218, z: 3415, npc: /shop\s*(keeper|assistant)/i };
 /** Varrock palace kitchen sink (north wing); the sink has no ops, use the bucket on it. */
 /** Logs ground spawns, m38_49 (0 26 55 / 30 51 / 32 55), west of the Ardougne monastery. */
+/**
+ * The open wheat patch north of Seers' Village (m42_55: loc 313 x13 at 2731-2733,3567-3572; respawns in 20 ticks). The big
+ * field north of East Ardougne is fenced in, with only a stile (walkTo has no way in).
+ */
+const SEERS_WHEAT = [
+    { x: 2732, z: 3569 },
+    { x: 2732, z: 3571 },
+];
 const LOGS_SPAWNS_SW_ARDOUGNE = [
     { x: 2458, z: 3191 },
     { x: 2462, z: 3187 },
@@ -1316,6 +1324,51 @@ export const SOURCES: Record<string, Source> = {
             await mineCoal(q, count);
         },
     },
+    // ── Eadgar's Ruse: the zoo parrot's alco-chunks, the scarecrow's grain, the troll truth potion's ranarr
+    /** Heckel Funch, Grand Tree L1 (gnomeshop_heck: vodka 5, pineapple 5, knife 5). */
+    vodka: {
+        inputs: (count) => [{ item: 'coins', count: 10 * count + 10 }],
+        get: async (q, count) => {
+            await q.ensure('coins', 10);
+            await buyGroceries(q, /^vodka$/i, 'vodka', count, HECKEL_FUNCH);
+        },
+    },
+    pineapple: {
+        inputs: (count) => [{ item: 'coins', count: 10 * count + 10 }],
+        get: async (q, count) => {
+            await q.ensure('coins', 10);
+            await buyGroceries(q, /^pineapple$/i, 'pineapple', count, HECKEL_FUNCH);
+        },
+    },
+    /** A knife on a pineapple: "Dice the pineapple" (cutting_fruit.rs2 slice_or_dice_interface). */
+    'pineapple chunks': {
+        inputs: (count) => [
+            { item: 'pineapple', count: Math.ceil(count / 4) },
+            { item: 'knife', count: 1 },
+        ],
+        get: async (q, count) => {
+            const hadKnife = q.count('knife') > 0;
+            for (let tries = 0; tries < 4 && q.count('pineapple chunks') < count; tries++) {
+                await q.ensure('pineapple', 1);
+                // Heckel sells knives beside the pineapples (the knife source's own spawn is in Lumbridge).
+                if (q.count('knife') < 1) await buyGroceries(q, /^knife$/i, 'knife', 1, HECKEL_FUNCH);
+                const before = q.count('pineapple chunks');
+                const knife = q.sdk.findInventoryItem(/^knife$/i);
+                const fruit = q.sdk.findInventoryItem(/^pineapple$/i);
+                if (!knife || !fruit) continue;
+                await q.sdk.sendUseItemOnItem(knife.slot, fruit.slot);
+                await untilTicks(q.sdk, (st) => !!st.dialog?.isOpen || q.count('pineapple chunks') > before, 8);
+                if (q.sdk.getDialog()?.isOpen) await driveDialog(q.sdk, [/dice/i, /chunk/i], { done: () => q.count('pineapple chunks') > before, ticks: 15 });
+                await untilTicks(q.sdk, () => q.count('pineapple chunks') > before, 5);
+            }
+            // A knife bought for this is dropped: Eadgar's Ruse starts with a full pack.
+            if (!hadKnife) await q.bot.dropItem(/^knife$/i, 'all').catch(() => undefined);
+        },
+    },
+    /** Wheat, Pick (pickables.rs2). */
+    grain: { get: (q, count) => pickLocs(q, 'grain', /^wheat$/i, SEERS_WHEAT, count) },
+    /** The fleet's banks hold ~1,250 (prayer brewing); jackthief brews from it too. */
+    'ranarr weed': { obj: 'ranarr_weed', mule: true, muleSupply: 'jackthief' },
 };
 
 /** Horvik's armour shop, Varrock (varrock.inv armourshop): black platebody, stock 1. */

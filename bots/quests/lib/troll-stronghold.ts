@@ -63,6 +63,10 @@ const LOC = {
     godricCell: { id: 3767, x: 2832, z: 10078 },
     eadgarCell: { id: 3765, x: 2832, z: 10082 },
     eadgarCaveExit: { id: 3760, x: 2892, z: 10072 },
+    /** Trollheim's cave mouth (quest_troll.rs2:129-134): Eadgar's home (L2) once he is freed, else an empty L0 cave. */
+    eadgarCave: { id: 3759, x: 2892, z: 3672 },
+    /** L1 west's stairs down to the storeroom side of L0 (Eadgar's Ruse), and back up. */
+    l1DownEast: { id: 3789, x: 2852, z: 10061 },
 } as const;
 
 const RE = {
@@ -129,7 +133,15 @@ export function areaOf(p: Tile): Area {
 export const inTrollArea = (p: Tile) => areaOf(p) !== 'other';
 
 const STAGE_ORDER = ['unstarted', 'started', 'defeated_dad', 'entered_prison', 'freed_godric', 'complete'];
-const stageAtLeast = (q: Quest, id: string) => STAGE_ORDER.indexOf(q.stage) >= STAGE_ORDER.indexOf(id);
+/**
+ * Set by quests that need Troll Stronghold done (Eadgar's Ruse, Troll Romance): their q.stage is their own journal
+ * stage, so every Troll Stronghold gate (Dad beaten, the prison door, the secret door) reads as passed.
+ */
+let trollComplete = false;
+export function assumeTrollStrongholdDone(): void {
+    trollComplete = true;
+}
+const stageAtLeast = (q: Quest, id: string) => trollComplete || STAGE_ORDER.indexOf(q.stage) >= STAGE_ORDER.indexOf(id);
 /** The prison door opens without the key once %troll_quest >= 30. */
 const canPassPrisonDoor = (q: Quest) => stageAtLeast(q, 'entered_prison') || q.count(RE.prisonKey) > 0;
 
@@ -251,6 +263,17 @@ async function walk(q: Quest, to: Tile, tolerance = 1): Promise<void> {
 
 const at = (q: Quest, a: Area) => () => areaOf(pos(q)) === a;
 
+/**
+ * L1 west is cut in two by an interior door (2837,10063): the stairs and prison door north, the kitchen and the storeroom
+ * stairs south (Eadgar's Ruse). The client will not plan through it from afar ("Stuck"); from its doorstep walkTo opens it.
+ */
+async function walkL1w(q: Quest, to: Tile, tolerance: number): Promise<void> {
+    const north = (t: Tile) => t.z >= 10064;
+    if (north(pos(q)) !== north(to)) await walk(q, north(pos(q)) ? { x: 2838, z: 10066 } : { x: 2837, z: 10062 }, 1);
+    await walk(q, to, tolerance);
+}
+export { walkL1w };
+
 /** One hop from `a` toward `dest`. */
 async function hop(q: Quest, a: Area, dest: Area): Promise<void> {
     const back = SOUTHWARD.has(dest) || CHAIN.indexOf(dest) < CHAIN.indexOf(a);
@@ -321,7 +344,13 @@ async function hop(q: Quest, a: Area, dest: Area): Promise<void> {
             return opLoc(q, exit, () => pos(q).z < 6400, `troll pass exit (${back ? 'south' : 'north'})`);
         }
         case 'trollheim':
-            if (back) {
+            if (dest === 'eadgar') {
+                await walk(q, { x: 2892, z: 3674 }, 1);
+                return opLoc(q, LOC.eadgarCave, () => pos(q).z > 6400, "Eadgar's cave entrance");
+            }
+            // Troll Stronghold done: back south through the stronghold and the prison's back door, not the troll pass and the
+            // arena (its mountain trolls took a staging account from 80 hp to dead on the way, qlqgea1 2026-11-04).
+            if (back && !(trollComplete && dest !== 'pass' && dest !== 'north' && dest !== 'arena')) {
                 await walk(q, { x: 2907, z: 3654 }, 1);
                 return opLoc(q, LOC.passNorth, at(q, 'pass'), 'troll pass entrance (north)');
             }
@@ -346,35 +375,41 @@ async function hop(q: Quest, a: Area, dest: Area): Promise<void> {
             }
             return;
         case 'l2':
-            if (back && !canPassPrisonDoor(q)) {
+            if (UP_TOP.has(dest) || (back && !canPassPrisonDoor(q))) {
                 await walk(q, { x: 2839, z: 10090 }, 1);
                 return opLoc(q, LOC.topExit, at(q, 'trollheim'), 'stronghold top exit');
             }
             await walk(q, { x: 2843, z: 10109 }, 1);
             return opLoc(q, LOC.l2Down, at(q, 'l1w'), 'stairs down to L1');
         case 'l1w':
-            if (back && !canPassPrisonDoor(q)) {
-                await walk(q, { x: 2841, z: 10108 }, 1);
+            if (dest === 'l0east') {
+                await walkL1w(q, { x: 2852, z: 10060 }, 1);
+                return opLoc(q, LOC.l1DownEast, at(q, 'l0east'), 'stairs down to the storeroom side');
+            }
+            if (UP_TOP.has(dest) || (back && !canPassPrisonDoor(q))) {
+                await walkL1w(q, { x: 2841, z: 10108 }, 1);
                 return opLoc(q, LOC.l1Up, at(q, 'l2'), 'stairs up to L2');
             }
-            await walk(q, { x: 2847, z: 10107 }, 0);
+            await walkL1w(q, { x: 2847, z: 10107 }, 0);
             return opLoc(q, LOC.prisonDoor, at(q, 'l1e'), 'prison door');
         case 'l1e':
-            if (dest === 'l1w' || dest === 'l2') {
+            if (dest === 'l1w' || dest === 'l2' || dest === 'l0east' || UP_TOP.has(dest)) {
                 await walk(q, { x: 2849, z: 10107 }, 0);
                 return opLoc(q, LOC.prisonDoor, at(q, 'l1w'), 'prison door (out)');
             }
             await walk(q, { x: 2852, z: 10108 }, 1);
             return opLoc(q, LOC.l1Down, at(q, 'prison'), 'stairs down to the prison');
         case 'prison':
-            if (dest === 'l1e' || dest === 'l1w' || dest === 'l2') {
+            if (dest === 'l1e' || dest === 'l1w' || dest === 'l2' || dest === 'l0east' || UP_TOP.has(dest)) {
                 await walk(q, { x: 2852, z: 10105 }, 1);
                 return opLoc(q, LOC.l0Up, at(q, 'l1e'), 'prison stairs up');
             }
             await walk(q, { x: 2823, z: 10050 }, 1);
             return opLoc(q, LOC.backExit, at(q, 'xpocket'), 'prison back exit');
         case 'l0east':
-            await walk(q, { x: 2852, z: 10060 }, 1);
+            if (inStoreroom(pos(q))) return escapeStoreroom(q);
+            // The stairs (2852,10061) are entered from the north on L0.
+            await walk(q, { x: 2852, z: 10062 }, 1);
             return opLoc(q, LOC.l0UpEast, at(q, 'l1w'), 'storeroom stairs up');
         case 'eadgar':
             await walk(q, { x: 2893, z: 10073 }, 1);
@@ -384,13 +419,36 @@ async function hop(q: Quest, a: Area, dest: Area): Promise<void> {
     }
 }
 
+/** Eadgar's Ruse's goutweed storeroom (L0 east, behind 3810 at 2869,10085, whose door tile is inside). */
+const STORE_DOOR = { id: 3810, x: 2869, z: 10085 };
+export const inStoreroom = (p: Tile) =>
+    (p.level ?? 0) === 0 && p.z > 6400 && ((p.x >= 2849 && p.x <= 2868 && p.z >= 10073 && p.z <= 10093) || (p.x === STORE_DOOR.x && p.z === STORE_DOOR.z));
+
+/** Out through the storeroom door: it opens freely from its own tile and shuts itself behind you. */
+export async function escapeStoreroom(q: Quest): Promise<void> {
+    for (let i = 0; i < 4 && inStoreroom(pos(q)); i++) {
+        await walk(q, STORE_DOOR, 0);
+        await q.sdk.sendInteractLoc(STORE_DOOR.x, STORE_DOOR.z, STORE_DOOR.id, 1);
+        await q.sdk.waitForTicks(2);
+        await q.sdk.sendWalk(STORE_DOOR.x, STORE_DOOR.z - 1);
+        await untilTicks(q.sdk, () => !inStoreroom(pos(q)), 5);
+    }
+    if (inStoreroom(pos(q))) throw new Error(`troll: stuck in the storeroom (at ${where(q)})`);
+}
+
 /** Set when the secret door says the back exit was never opened from inside. */
 let secretShut = false;
 
 /** Forward order from Burthorpe to the prison, the way the quest goes. */
 const CHAIN: Area[] = ['south', 'plateau', 'band', 'mid', 'arenaWest', 'arena', 'north', 'pass', 'trollheim', 'l2', 'l1w', 'l1e', 'prison'];
 const SOUTHWARD = new Set<Area>(['south', 'plateau']);
-const PRISON_SIDE = new Set<Area>(['l2', 'l1w', 'l1e', 'prison']);
+const PRISON_SIDE = new Set<Area>(['l2', 'l1w', 'l1e', 'prison', 'l0east']);
+/** Reached from inside the stronghold by its top exit (L2), not the prison's back door. */
+const UP_TOP = new Set<Area>(['trollheim', 'eadgar']);
+/** Burthorpe's side of the troll country: the Death Plateau and the band of rocks to the secret door. */
+const SOUTH_SIDE = new Set<Area>(['south', 'plateau', 'band', 'xpocket']);
+/** Side areas off the chain: Eadgar's cave hangs off Trollheim, the storeroom side of L0 off L1 west. */
+const SIDE: Partial<Record<Area, Area>> = { eadgar: 'trollheim', l0east: 'l1w' };
 
 /** Hop through the troll country until in `dest` (at most 16 hops). Protect from Melee on the way when it can. */
 export async function goToArea(q: Quest, dest: Area): Promise<void> {
@@ -411,14 +469,21 @@ async function hops(q: Quest, dest: Area): Promise<void> {
             if (dest === 'south') return;
             a = 'south';
         }
+        // A side area is entered from its parent; until there, route to the parent. Inside the stronghold the parent
+        // (Trollheim) is reached by the top exit (UP_TOP), so the side area itself is passed on as the destination.
+        const parent = SIDE[dest];
+        let step = parent && a !== parent && !(PRISON_SIDE.has(a) && UP_TOP.has(dest)) ? parent : dest;
+        // Troll Stronghold done: up to Trollheim through the secret door, the prison and the stronghold's top exit rather
+        // than the arena and the troll pass (mountain trolls all the way).
+        if (trollComplete && UP_TOP.has(dest) && SOUTH_SIDE.has(a)) step = 'prison';
         await eatIfLow(q);
         await topUpPrayer(q);
         // Prayer is the budget for the fights (Dad, the Troll Generals hit 30+ through no armour): only the stronghold's
         // halls, where the generals and mountain trolls roam, get it on the way. The plateau's trolls are left to the food
         // (qlqftr2/3 reached L2 with 0-41 points after praying the whole route, and died to a general).
         await prayMelee(q, a === 'l2' || a === 'l1w' || a === 'l1e');
-        q.log(`troll: ${a} -> ${dest} from ${where(q)} hp ${q.sdk.getState()?.player?.hp} melee prayer ${q.sdk.isPrayerActive('protect_from_melee')} (${q.sdk.getPrayerState()?.prayerPoints ?? '?'} pts)`);
-        await hop(q, a, dest);
+        q.log(`troll: ${a} -> ${step} from ${where(q)} hp ${q.sdk.getState()?.player?.hp} melee prayer ${q.sdk.isPrayerActive('protect_from_melee')} (${q.sdk.getPrayerState()?.prayerPoints ?? '?'} pts)`);
+        await hop(q, a, step);
     }
     if (areaOf(pos(q)) !== dest) throw new Error(`troll: could not reach ${dest} (in ${areaOf(pos(q))} at ${where(q)})`);
 }
@@ -633,6 +698,25 @@ async function unlockCell(q: Quest, cell: { id: number; x: number; z: number }, 
     for (let i = 0; i < 6 && q.sdk.getDialog()?.isOpen; i++) await driveDialog(q.sdk, [], { ticks: 10 });
 }
 
+async function unlockEadgar(q: Quest): Promise<void> {
+    await cellKey(q, NPC.berry, RE.cell2, 'berry', { x: 2834, z: 10083 });
+    await unlockCell(q, LOC.eadgarCell, RE.cell2, 'Eadgar');
+}
+
+/**
+ * Eadgar's Ruse on an account whose Troll Stronghold left Eadgar in his cell: Berry's key (pickpocketed, or killed for)
+ * opens it. Throws "has no key for us" when Eadgar is already out.
+ */
+export async function freeEadgar(q: Quest): Promise<void> {
+    await goToArea(q, 'prison');
+    await wieldWeapon(q);
+    try {
+        await unlockEadgar(q);
+    } finally {
+        await prayMelee(q, false);
+    }
+}
+
 /** In the prison: Eadgar first (Eadgar's Ruse needs him home), then Godric (40). */
 export async function freePrisoners(q: Quest, done: () => Promise<boolean>): Promise<void> {
     await goToArea(q, 'prison');
@@ -640,8 +724,7 @@ export async function freePrisoners(q: Quest, done: () => Promise<boolean>): Pro
     try {
         // Eadgar: no journal stage of its own; a failure (already out: Berry has nothing) does not stop Godric.
         try {
-            await cellKey(q, NPC.berry, RE.cell2, 'berry', { x: 2834, z: 10083 });
-            await unlockCell(q, LOC.eadgarCell, RE.cell2, 'Eadgar');
+            await unlockEadgar(q);
         } catch (e) {
             q.log(`troll: Eadgar not freed (${(e as Error).message})`);
         }

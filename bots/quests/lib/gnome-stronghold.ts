@@ -206,26 +206,35 @@ export async function leaveGrandTree(q: Quest): Promise<void> {
 /** Hudo's Grand Tree Groceries, L1 (gnome.npc gnome_hudo, spawn 2448,3509 L1; gnome.inv gnomeshop_hudo). */
 export const GRAND_TREE_GROCERIES = { x: 2448, z: 3508, level: 1 };
 const GROCERIES_RESTOCK_TICKS = 600;
+/** A grocer on the Grand Tree's L1. */
+export interface TreeShop {
+    at: { x: number; z: number; level: number };
+    npc: RegExp;
+    name: string;
+}
+const HUDO: TreeShop = { at: GRAND_TREE_GROCERIES, npc: /^hudo$/i, name: 'Hudo' };
+/** Heckel Funch's grocery store, L1 east of the Blurberry Bar (gnome.npc gnome_heckelfunch 2493,3488 L1; gnomeshop_heck): the spirits. */
+export const HECKEL_FUNCH: TreeShop = { at: { x: 2492, z: 3488, level: 1 }, npc: /^heckel funch$/i, name: 'Heckel Funch' };
 
 /**
  * Buy `item` from Hudo until holding `count` (dwellberries, chocolate dust, bucket of milk...),
  * waiting out a restock (bounded), then back down and out of the tree.
  */
-export async function buyGroceries(q: Quest, item: RegExp, label: string, count: number): Promise<void> {
+export async function buyGroceries(q: Quest, item: RegExp, label: string, count: number, shop: TreeShop = HUDO): Promise<void> {
     const held = () => q.sdk.getInventory().filter((i) => item.test(i.name)).reduce((n, i) => n + (i.count ?? 1), 0);
     if (held() >= count) return;
     await crossGnomeGate(q, true);
     await climbGrandTree(q);
-    await q.goTo(GRAND_TREE_GROCERIES, 3);
+    await q.goTo(shop.at, 3);
     const t0 = tickNow(q.sdk);
-    let opened = await q.bot.openShop(/^hudo$/i);
+    let opened = await q.bot.openShop(shop.npc);
     if (!opened.success && !q.sdk.getState()?.shop?.isOpen) {
         await q.sdk.waitForTicks(3);
-        opened = await q.bot.openShop(/^hudo$/i);
+        opened = await q.bot.openShop(shop.npc);
     }
-    if (!q.sdk.getState()?.shop?.isOpen) throw new Error(`Hudo's shop did not open: ${opened.message}`);
+    if (!q.sdk.getState()?.shop?.isOpen) throw new Error(`${shop.name}'s shop did not open: ${opened.message}`);
     const stock = () => q.sdk.getState()?.shop?.shopItems?.find((s) => item.test(s.name));
-    if (!stock()) throw new Error(`Hudo does not sell ${label}`);
+    if (!stock()) throw new Error(`${shop.name} does not sell ${label}`);
     let lastBuy = tickNow(q.sdk);
     let failed = 0;
     while (held() < count && q.sdk.getState()?.shop?.isOpen) {
@@ -247,6 +256,6 @@ export async function buyGroceries(q: Quest, item: RegExp, label: string, count:
         await untilTicks(q.sdk, () => (stock()?.count ?? 0) > 0 || !q.sdk.getState()?.shop?.isOpen, GROCERIES_RESTOCK_TICKS);
     }
     await q.bot.closeShop().catch(() => undefined);
-    q.log(`groceries: ${held()}/${count} ${label} from Hudo (${tickNow(q.sdk) - t0}t)`);
+    q.log(`groceries: ${held()}/${count} ${label} from ${shop.name} (${tickNow(q.sdk) - t0}t)`);
     await leaveGrandTree(q);
 }
