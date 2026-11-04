@@ -986,14 +986,25 @@ export async function feedWell(q: Quest): Promise<void> {
     }
     await advance(q, 'C8');
     await wieldWeapon(q);
-    for (const name of ['Sir Jerro', 'Sir Carl', 'Sir Harry']) {
-        if (count(q, ITEM.badge) >= 3) break;
-        await walk(q, { x: 2421, z: 9720 }, 3);
-        const before = count(q, ITEM.badge);
-        if (!q.sdk.findNearbyNpc(new RegExp(`^${name}$`, 'i'))) continue;
-        await kill(q, new RegExp(`^${name}$`, 'i'), name);
-        await pickUpNear(q, ITEM.badge, 6);
-        if (count(q, ITEM.badge) === before) q.log(`upass: ${name} dropped no badge we could take`);
+    // Up to three passes: a badge the pickup missed (jacklove2: "Sir Jerro dropped no badge we could
+    // take", then FATAL on 2 badges, 2026-11-04) is picked up late or re-dropped after a respawn.
+    for (let pass = 1; pass <= 3 && count(q, ITEM.badge) < 3; pass++) {
+        if (pass > 1) {
+            await pickUpNear(q, ITEM.badge, 10);
+            if (count(q, ITEM.badge) >= 3) break;
+            q.log(`upass: ${count(q, ITEM.badge)} badges — waiting for the paladins to respawn (pass ${pass})`);
+            await q.sdk.waitForTicks(60);
+        }
+        for (const name of ['Sir Jerro', 'Sir Carl', 'Sir Harry']) {
+            if (count(q, ITEM.badge) >= 3) break;
+            await walk(q, { x: 2421, z: 9720 }, 3);
+            const before = count(q, ITEM.badge);
+            if (!q.sdk.findNearbyNpc(new RegExp(`^${name}$`, 'i'))) continue;
+            await kill(q, new RegExp(`^${name}$`, 'i'), name);
+            await q.sdk.waitForTicks(3);
+            for (let t = 0; t < 2 && count(q, ITEM.badge) === before; t++) await pickUpNear(q, ITEM.badge, 8);
+            if (count(q, ITEM.badge) === before) q.log(`upass: ${name} dropped no badge we could take`);
+        }
     }
     if (count(q, ITEM.badge) < 3) throw new Error(`upass: only ${count(q, ITEM.badge)} paladin badges`);
     await walk(q, { x: 2375, z: 9719 }, 2);

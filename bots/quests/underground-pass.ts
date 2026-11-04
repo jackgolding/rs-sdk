@@ -69,6 +69,15 @@ const kit = (q: Quest): Need[] =>
               ...(['ashes', 'blood', 'defeated'].includes(q.stage) ? [] : [{ item: 'bucket', count: 1, or: 'dwarf brew' }]),
               { item: 'melee weapon', count: 1 },
               { item: 'shark', count: FOOD },
+              // Falador Teleport (lib/underground-pass.ts teleportOut): a resumed run in a pocket with no
+              // walk out (C8, by the paladins' well) is otherwise stranded (jacklove2, 2026-11-04).
+              ...(q.level('magic') >= 37
+                  ? [
+                        { item: 'law rune', count: 1 },
+                        { item: 'air rune', count: 3 },
+                        { item: 'water rune', count: 1 },
+                    ]
+                  : []),
           ];
 
 await runQuest({

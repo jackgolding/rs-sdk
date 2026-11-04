@@ -530,8 +530,8 @@ export const SOURCES: Record<string, Source> = {
     trout: { mule: true, muleSupply: 'jackthief' },
 
     // ── Fight Arena: the pen fights (ogre 63, scorpion 44, Bouncer 137) are ranged; a mule stocks the kit
-    'magic shortbow': { mule: true },
-    'rune arrow': { mule: true },
+    'magic shortbow': { mule: true, muleSupply: 'jackthief' },
+    'rune arrow': { mule: true, muleSupply: 'jackthief' },
     // jackthief banks thousands (restocks from the ABGARMY grinders); with no muleSupply nobody asked it, and
     // Heroes' Quest stopped on NEEDS STOCK shark x1/x4 on jacklove13 and ABGARMY20 (2026-11-04).
     shark: { mule: true, muleSupply: 'jackthief' },
@@ -603,7 +603,7 @@ export const SOURCES: Record<string, Source> = {
     /** Waterfall Quest's pillars. Betty: stock 1000. */
     'water rune': { ...runes('water rune', 4, AUBURY), muleSupply: 'jackthief' },
     /** Not sold near any hub (the Magic Guild store needs 66 Magic): mule stock, like the Telegrab laws. */
-    'law rune': { obj: 'lawrune', mule: true },
+    'law rune': { obj: 'lawrune', mule: true, muleSupply: 'jackthief' },
     /** Lost City past the spirit with the staff lost: back to Entrana for another branch (lib/lost-city.ts). */
     'dramen staff': {
         obj: 'dramen_staff',
