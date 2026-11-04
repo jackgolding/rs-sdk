@@ -841,10 +841,20 @@ export const SOURCES: Record<string, Source> = {
     /**
      * Agility potion herb (clean). In no herb drop table (shared_droptables randomherb), no shop, no spawn:
      * the one source is the Brimhaven Agility Arena's Jack o' Tickets, 3 tickets each
-     * (agilityarena_tickettrader.rs2), a ticket per pillar tagged under the moving arrow. Not scripted:
-     * the mule's herb stock.
+     * (agilityarena_tickettrader.rs2), a ticket per pillar tagged under the moving arrow. jackthief's
+     * herb stock first (bots/quests/arena-tickets.ts --deliver=jackthief restocks it), else the arena
+     * (lib/agility-arena.ts): Barnaby's boat, 200gp entry, Agility 40 for every bridge.
      */
-    toadflax: { mule: true, muleSupply: 'jackthief' },
+    toadflax: {
+        muleSupply: 'jackthief',
+        levels: { agility: 40 },
+        inputs: () => [{ item: 'coins', count: 500 }],
+        get: async (q, count) => {
+            const { arenaToadflax } = await import('./agility-arena');
+            await q.ensure('coins', 500);
+            await arenaToadflax(q, count);
+        },
+    },
     /** Swamp toads south of Taverley (m45_53 obj 2150 x3, ~100t respawn), legs pulled off (gnome_cooking swamp_toad.rs2). */
     "toad's legs": {
         obj: 'toads_legs',
