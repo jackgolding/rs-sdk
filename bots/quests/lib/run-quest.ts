@@ -81,6 +81,7 @@ import { inGnomeVillage, inKhazardStronghold, leaveGnomeVillage, leaveKhazardStr
 import { inGrandTreeArea, leaveGrandTreeArea } from './grand-tree';
 import { inMillYard, leaveMill } from './gertrudes-cat';
 import { inCannonArea, leaveCannonArea } from './dwarf-cannon';
+import { inWatchtowerArea, leaveWatchtowerArea } from './watchtower';
 import { inObservatoryArea, leaveObservatory } from './observatory';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
@@ -524,6 +525,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inMillYard(pos()) && !inMillYard(tile)) await leaveMill(q);
                 // Dwarf Cannon: the goblin cave (out by its mud pile) and the watchtower (lib/dwarf-cannon.ts).
                 if (inCannonArea(pos()) && !inCannonArea({ ...tile, level: tile.level ?? 0 })) await leaveCannonArea(q);
+                // Watchtower: Grew's island, Toban's plateau, the skavid caves, the shamans' enclave, the tower (lib/watchtower.ts).
+                if (inWatchtowerArea(pos())) await leaveWatchtowerArea(q, { ...tile, level: tile.level ?? 0 });
                 // Observatory: the goblin cavern and the dome on its cliff (lib/observatory.ts).
                 if (inObservatoryArea(pos()) && !inObservatoryArea({ ...tile, level: tile.level ?? 0 })) await leaveObservatory(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0, tile);
@@ -798,7 +801,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inLegendsArea(pos())) await leaveLegends(q, hub);
         if (inMansionUpstairs(pos())) await leaveMansionUpstairs(q);
         if (inGrailArea(pos())) await leaveGrail(q, hub);
-        // The Observatory's goblin cavern and dome (lib/observatory.ts).
+        // Watchtower's tower floors, caves, island and plateau; the Observatory's cavern and dome.
+        if (inWatchtowerArea(pos())) await leaveWatchtowerArea(q, hub);
         if (inObservatoryArea(pos())) await leaveObservatory(q);
         if (pos().level !== 0) await q.climbTo(0);
         if (inShiloArea(pos())) await leaveShilo(q, hub);
