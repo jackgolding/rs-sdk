@@ -1369,6 +1369,8 @@ export const SOURCES: Record<string, Source> = {
     grain: { get: (q, count) => pickLocs(q, 'grain', /^wheat$/i, SEERS_WHEAT, count) },
     /** The fleet's banks hold ~1,250 (prayer brewing); jackthief brews from it too. */
     'ranarr weed': { obj: 'ranarr_weed', mule: true, muleSupply: 'jackthief' },
+    // ── Throne of Miscellania: Princess Astrid's ring (a gem ring banked is taken instead; no shop sells a gold ring)
+    'gold ring': { obj: 'gold_ring', mule: true, muleSupply: 'jackthief' },
 };
 
 /** Horvik's armour shop, Varrock (varrock.inv armourshop): black platebody, stock 1. */

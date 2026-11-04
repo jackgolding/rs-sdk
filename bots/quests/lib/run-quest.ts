@@ -93,6 +93,7 @@ import { inHorrorArea, leaveHorror } from './horror';
 import { inChompyArea, leaveChompyCave } from './chompybird';
 import { inTrollArea, leaveTrollArea } from './troll-stronghold';
 import { inHauntedMineArea, leaveHauntedMine } from './haunted-mine';
+import { inMiscArea, leaveIsland as leaveMiscellania } from './miscellania';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, awaitQuestStartTurn, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -560,6 +561,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inTrollArea(pos()) && !inTrollArea({ ...tile, level: tile.level ?? 0 })) await leaveTrollArea(q);
                 // Haunted Mine: Mort'ton and the mine under Mort Ridge (not at z + 6400): teleport out (lib/haunted-mine.ts).
                 if (inHauntedMineArea(pos()) && !inHauntedMineArea({ ...tile, level: tile.level ?? 0 })) await leaveHauntedMine(q);
+                // Throne of Miscellania: the islands, off by the pier's longship to Rellekka (lib/miscellania.ts).
+                if (inMiscArea(pos()) && !inMiscArea(tile)) await leaveMiscellania(q);
                 if (pos().level !== (tile.level ?? 0)) await q.climbTo(tile.level ?? 0, tile);
                 // Underground (z + 6400) to the surface: walkTo cannot plan through a ladder
                 // and travelTo re-plans on the spot forever. A Witch's House run resumed in
@@ -846,6 +849,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inChompyArea(pos())) await leaveChompyCave(q);
         if (inTrollArea(pos())) await leaveTrollArea(q);
         if (inHauntedMineArea(pos())) await leaveHauntedMine(q);
+        if (inMiscArea(pos())) await leaveMiscellania(q);
         if (pos().level !== 0) await q.climbTo(0);
         if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.
