@@ -552,8 +552,6 @@ export const SOURCES: Record<string, Source> = {
     'air rune': { ...runes('air rune', 4, AUBURY), muleSupply: 'jackthief' },
     // Shops are emptied by other players' bots (jackquests waited hours on Aubury's chaos, 2026-11-01): the mule first.
     'chaos rune': { ...runes('chaos rune', 15, AUBURY), muleSupply: 'jackthief' },
-    /** Family Crest's Chronozon (32). No shop near a hub sells them; jackthief banks ~3000. */
-    'death rune': { mule: true, muleSupply: 'jackthief' },
     // ── Tools for the skill trainers (lib/training.ts) and Lost City
     axe: {
         obj: 'bronze_axe',
