@@ -2775,12 +2775,20 @@ async function climbDown(): Promise<void> {
     }
 }
 
+let strangeUnderground = 0;
 async function returnToArdougne(): Promise<void> {
     session.noteProgress('location', `${pos().x},${pos().z}`);
     await leaveAdjacentClosedDoor(sdk);
     if (pos().z >= 6400) {
         if (inEdgevilleDungeon()) await leaveEdgevilleDungeon();
-        else log(`Underground @ ${pos().x},${pos().z} — not Edgeville dungeon`);
+        else {
+            // Unknown dungeon: wait a beat, and give up after ~30 tries instead of spinning — jacklove13
+            // in the Temple of Ikov dungeon logged this line 13 million times with no wait (2026-11-04).
+            strangeUnderground++;
+            log(`Underground @ ${pos().x},${pos().z} — not Edgeville dungeon (${strangeUnderground}/30)`);
+            if (strangeUnderground >= 30) throw new Error(`thieving: stuck underground at ${pos().x},${pos().z} — no way out known`);
+            await sdk.waitForTicks(10).catch(() => {});
+        }
         return;
     }
     if (inArdougne()) {
