@@ -377,7 +377,20 @@ export async function toFireWarrior(q: Quest): Promise<void> {
 
 // ── 40 -> 60 -> 70
 
+/** A resumed run starts at the hub: boots and pendant on, down the cellar, past the trap lever. */
+async function backIntoDungeon(q: Quest): Promise<void> {
+    if (!inIkovDungeon(pos(q)) && !inExitRoom(pos(q))) {
+        await wear(q, OBJ.boots);
+        await wear(q, OBJ.pendantL);
+        await intoDungeon(q);
+    }
+    if (inIkovDungeon(pos(q)) && pos(q).z < 9858) await trapLever(q);
+}
+
 export async function winelda(q: Quest): Promise<void> {
+    // Resumed at "warrior"/"winelda" from the hub (Jackpoo5, jacklove20 walked for the Fire Warrior's
+    // door from Ardougne and never met Winelda, 2026-11-04).
+    await backIntoDungeon(q);
     for (let attempt = 1; attempt <= 4 && pos(q).z < 9871; attempt++) {
         await walk(q, { x: FW_DOOR.x, z: FW_DOOR.z - 1 }, 0);
         await q.sdk.sendInteractLoc(FW_DOOR.x, FW_DOOR.z, 93, 1);
@@ -393,12 +406,7 @@ export async function winelda(q: Quest): Promise<void> {
 export async function guardian(q: Quest): Promise<void> {
     // A resumed run at "paid" starts at the hub (ABGARMY17 walked for the secret door from Ardougne,
     // 2026-11-04): back down the cellar, through the Fire Warrior's door and across the lava with Winelda.
-    if (!inIkovDungeon(pos(q)) && !inExitRoom(pos(q))) {
-        await wear(q, OBJ.boots);
-        await wear(q, OBJ.pendantL);
-        await intoDungeon(q);
-    }
-    if (inIkovDungeon(pos(q)) && pos(q).z < 9858) await trapLever(q);
+    await backIntoDungeon(q);
     if (inIkovDungeon(pos(q)) && pos(q).z < 9871) await winelda(q);
     await unwear(q, OBJ.pendantL);
     if (pos(q).z < 9893) {
