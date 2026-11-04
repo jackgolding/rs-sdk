@@ -502,6 +502,7 @@ export async function escapeJail(q: Quest): Promise<void> {
             q.log(`grandtree: jail — Charlie #${charlie.index} at (${charlie.x},${charlie.z}) d${charlie.distance}, op ${r?.success ? 'sent' : r?.message}, dialog ${opened ? 'opened' : 'never opened'}`);
         } else {
             q.log(`grandtree: jail — no Charlie in view (npcs: ${(q.sdk.getNearbyNpcs() ?? []).map((n) => n.name).slice(0, 8).join(', ')})`);
+            break;
         }
         const seen: string[] = [];
         // Charlie's lines, then Narnode's apology; the door opens as his dialog closes.
@@ -512,7 +513,31 @@ export async function escapeJail(q: Quest): Promise<void> {
         }
         q.log(`grandtree: jail attempt ${attempt} — now at ${where(q)}; dialog: ${seen.join(' ').slice(-200) || '(none)'}`);
     }
-    if (inJail(pos(q))) throw new Error(`grandtree: still in Glough's cell after 4 tries (Charlie's dialog did not free it)`);
+    if (inJail(pos(q))) {
+        // No Charlie (his spawn lasts 500 ticks; jacklove16 saw only the Gnome pilot even after a
+        // relog, 2026-11-04): teleport out. The quest stays at 70, and talking to Glough again
+        // re-jails with a fresh Charlie whose dialog runs straight into Narnode's release (glough.rs2).
+        const magic = q.level('magic');
+        const spells = [
+            { name: 'Varrock', id: 1164, ok: magic >= 25 && q.count('law rune') >= 1 && q.count('air rune') >= 3 && q.count('fire rune') >= 1 },
+            { name: 'Lumbridge', id: 1167, ok: magic >= 31 && q.count('law rune') >= 1 && q.count('air rune') >= 3 && q.count('earth rune') >= 1 },
+            { name: 'Falador', id: 1170, ok: magic >= 37 && q.count('law rune') >= 1 && q.count('air rune') >= 3 && q.count('water rune') >= 1 },
+            { name: 'Camelot', id: 1174, ok: magic >= 45 && q.count('law rune') >= 1 && q.count('air rune') >= 5 },
+        ].filter((s) => s.ok);
+        for (const s of spells) {
+            for (let i = 0; i < 3 && inJail(pos(q)); i++) {
+                await q.sdk.sendSetTab(6).catch(() => undefined);
+                await q.sdk.waitForTicks(1);
+                await q.sdk.sendClickComponent(s.id);
+                await untilTicks(q.sdk, () => !inJail(pos(q)), 8);
+            }
+            if (!inJail(pos(q))) {
+                q.log(`grandtree: teleported out of Glough's cell (${s.name}) to ${where(q)}`);
+                return;
+            }
+        }
+        throw new Error(`grandtree: still in Glough's cell — no Charlie and no teleport runes (carrying ${q.sdk.getInventory().map((i) => i.name).join(', ')})`);
+    }
 }
 
 export async function leaveGrandTreeArea(q: Quest): Promise<void> {
