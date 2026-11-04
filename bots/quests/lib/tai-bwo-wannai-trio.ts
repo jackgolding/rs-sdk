@@ -542,7 +542,8 @@ export async function kpSpear(q: Quest): Promise<void> {
         }
         await grind(q, OBJ.poorKarambwan, OBJ.poisonPaste, 'the poorly cooked karambwan');
     }
-    if (!held(q, ...SPEARS)) await huntJogres(q, () => held(q, ...SPEARS) > 0 && held(q, OBJ.jogreBones, OBJ.burntBones, OBJ.burntBonesPaste, OBJ.marinated) > 0, 'a non-bronze spear');
+    // The spear from the hobgoblins (qltb6 killed 52 jogres without one and ran out of food, staging 2026-11-04).
+    if (!held(q, ...SPEARS)) await huntJogres(q, () => held(q, ...SPEARS) > 0, 'a non-bronze spear', HOBGOBLIN_HUNT);
     // The spear used on the paste (weapon_poison.rs2 opheldu,tbwt_poisonous_karambwan_paste).
     await useOn(q, SPEARS, [OBJ.poisonPaste], () => held(q, ...KP_SPEARS) > 0, 'the spear on the poisonous paste');
 }
@@ -567,8 +568,12 @@ async function fishKarambwan(q: Quest): Promise<void> {
 }
 
 /** Jogres in the east jungle until `done` (always drop their bones; 4/129 an iron spear). Bronze spears are left. */
-async function huntJogres(q: Quest, done: () => boolean, label: string): Promise<void> {
-    await go(q, JOGRES, 6);
+/** Hunting grounds: the east jungle's jogres (bones, 4/129 an iron spear) and the Holy Lake's three level-28
+ *  hobgoblins (hobgoblin.rs2: iron 2/128, steel 2/128 on members worlds) — the spear's safe source. */
+const JOGRE_HUNT = { at: JOGRES, npc: /^jogre$/i };
+const HOBGOBLIN_HUNT = { at: { x: 2791, z: 3011 } as Tile, npc: /^hobgoblin$/i };
+async function huntJogres(q: Quest, done: () => boolean, label: string, hunt = JOGRE_HUNT): Promise<void> {
+    await go(q, hunt.at, 6);
     const w = inv(q).find((i) => /scimitar|longsword|sword|battleaxe|mace|warhammer|whip|dagger/i.test(i.name));
     if (w) await q.bot.equipItem(w).catch(() => undefined);
     const t0 = tickNow(q.sdk);
@@ -601,9 +606,9 @@ async function huntJogres(q: Quest, done: () => boolean, label: string): Promise
                 await q.sdk.waitForTicks(2);
                 continue;
             }
-            const j = (q.sdk.getNearbyNpcs() ?? []).filter((n) => /^jogre$/i.test(n.name) && !n.inCombat && n.reachable !== false).sort((a, b) => a.distance - b.distance)[0];
+            const j = (q.sdk.getNearbyNpcs() ?? []).filter((n) => hunt.npc.test(n.name) && !n.inCombat && n.reachable !== false).sort((a, b) => a.distance - b.distance)[0];
             if (!j) {
-                await go(q, JOGRES, 4);
+                await go(q, hunt.at, 4);
                 await q.sdk.waitForTicks(4);
                 continue;
             }
