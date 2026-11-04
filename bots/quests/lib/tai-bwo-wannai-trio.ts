@@ -255,19 +255,22 @@ export async function go(q: Quest, t: Tile, tolerance = 3): Promise<void> {
     }
     if ((t.level ?? 0) === 0 && pos(q).level > 0) await q.climbTo(0);
     const want = pocketOf(t);
+    // Out of a pocket first: the Musa Point leg below starts on the main jungle (qltb5 left Tinsay's ruin for Zambo and
+    // took walkTo's route through the Brimhaven house, staging 2026-11-04).
+    if (pocketOf(pos(q)) !== want) await leavePocket(q);
     // Between the jungle and Musa Point: Brimhaven's back street by hand. walkTo's route went in through a house door
     // and stuck at (2804,3177) every time (qltb1, staging 2026-11-04; jungle-potion.ts noted the same gap).
     const musa = (p: Tile) => p.x >= 2840 && p.z >= 3130 && p.z <= 3200;
-    if (pocketOf(pos(q)) === 'main' && pocketOf(t) === 'main' && musa(t) !== musa(pos(q)) && pos(q).level === 0) {
+    if (pocketOf(pos(q)) === 'main' && want === 'main' && musa(t) !== musa(pos(q)) && pos(q).level === 0) {
         const legs = musa(t) ? BRIMHAVEN_STREET : [...BRIMHAVEN_STREET].reverse();
-        const start = legs.findIndex((w) => Math.hypot(w.x - pos(q).x, w.z - pos(q).z) < 40);
+        let from = 0;
         if (musa(t)) await toJungle(q, legs[0]!, 3);
-        for (const w of legs.slice(Math.max(0, start))) {
+        else from = Math.max(0, legs.findIndex((w) => Math.hypot(w.x - pos(q).x, w.z - pos(q).z) < 40));
+        for (const w of legs.slice(from)) {
             for (let i = 0; i < 3 && Math.hypot(w.x - pos(q).x, w.z - pos(q).z) > 3; i++) await q.bot.walkTo(w.x, w.z, 2).catch(() => undefined);
         }
     }
     if (pocketOf(pos(q)) !== want) {
-        await leavePocket(q);
         if (want === 'east') await crossStones(q, 'east');
         if (want === 'tinsay') await climbRocks(q, 'tinsay');
     }
