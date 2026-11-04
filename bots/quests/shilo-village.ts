@@ -16,7 +16,11 @@
  *   - rope            lib/sources.ts (Ned) — tied in the fissure
  *   - bones ×3        lib/sources.ts (chickens) — the tomb door's recesses
  *   - bronze wire     mule stock (Smithing 4 from a bronze bar) — the Beads of the Dead
- *   - shark ×14       mule stock — Ah Za Rhoon's and the tomb's undead, Cairn's bridge, Nazastarool
+ *   - shark ×14       mule stock — Ah Za Rhoon's undead, Cairn's bridge; before Rashiliyia's tomb
+ *                     lib readyForTomb sails home and tops up to 20 (bank, then jackthief) when
+ *                     under 12 are left, and re-prays at the arena altar (Prayer 43+)
+ *   - lost on a death  the beads: Bervirius' dolmen hands out another pommel (chisel + wire from the
+ *                     bank); the remains: the tomb dolmen wakes Nazastarool again
  *   - melee weapon    the best banked (lib/sources.ts GROUPS), else NEEDS STOCK
  *   - the belt, scrolls, Zadimus, the shard/key, pommel/beads, the corpse: the quest's own
  * Route and mechanics: lib/shilo-village.ts.

@@ -605,13 +605,18 @@ export const SOURCES: Record<string, Source> = {
             await buyWaitingForRestock(q, DOMMIK, 'needle', 1);
         },
     },
-    /** process-bank.ts: gem cutting. Dommik stocks two (alkharid.inv craftingshop2). */
+    /**
+     * process-bank.ts: gem cutting. Dommik stocks two (alkharid.inv craftingshop2); so does Arhein's
+     * Catherby store (catherby.inv arheinstore), the one to use west of Al Kharid: Shilo Village's
+     * Ardougne restart walked to Dommik and looped at the toll gate (3268,3227) (staging, 2026-11-04).
+     */
     chisel: {
         tool: true,
         inputs: () => [{ item: 'coins', count: 5 }],
         get: async (q) => {
             await q.ensure('coins', 1);
-            await buyWaitingForRestock(q, DOMMIK, 'chisel', 1);
+            const x = q.sdk.getState()?.player?.worldX ?? 0;
+            await buyWaitingForRestock(q, x < 3100 ? ARHEIN : DOMMIK, 'chisel', 1);
         },
     },
     /** process-bank.ts: emerald rings. Dommik stocks four (alkharid.inv craftingshop2). */

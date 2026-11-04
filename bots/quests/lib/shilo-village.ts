@@ -23,11 +23,13 @@
  * through food fast: never idle down there. Nazastarool (zombie 91, skeleton 68, ghost 93) is
  * fought in melee under Protect from Melee when Prayer allows.
  */
-import type { Quest } from './run-quest';
+import { NeedsStock, type Quest } from './run-quest';
+import { SAFE_BANKS } from '../safe-stops';
+import { requestFromMule } from '../supply';
 import type { NearbyLoc } from '../../../sdk/types';
 import { driveDialog } from './dialog';
-import { tickNow, untilTicks } from './ticks';
-import { leaveJungle, onIsland, toJungle, TRUFITUS } from './jungle-potion';
+import { tickNow, ticksToMs, untilTicks } from './ticks';
+import { FARE, leaveJungle, onIsland, toJungle, TRUFITUS } from './jungle-potion';
 import { PrayerFlicker } from '../prayer-flick';
 
 interface Tile {
@@ -186,7 +188,7 @@ function protect(q: Quest, on: boolean): void {
  * is adjacent and out of combat for 8 ticks (Npc.ts checkNotCombat): kill whatever is next to us
  * or hitting us, then act at once, inside the quiet ticks before a new one may start.
  */
-async function clearAttackers(q: Quest): Promise<void> {
+async function clearAttackers(q: Quest, radius = 1): Promise<void> {
     if (!inAhZaRhoon(pos(q)) && !inRashTomb(pos(q))) return;
     const t0 = tickNow(q.sdk);
     const mark = lastCombatObs(q);
@@ -200,7 +202,9 @@ async function clearAttackers(q: Quest): Promise<void> {
             .filter((e) => ((e.observationId ?? e.tick) > mark || e.tick >= now - 8) && e.type === 'damage_taken' && e.sourceType === 'npc')
             .map((e) => e.sourceIndex);
         const near = q.sdk.getNearbyNpcs().filter((n) => undead.test(n.name) && (n.distance ?? 99) <= 1);
-        return near.find((n) => hitter.includes(n.index)) ?? near.find((n) => n.targetIndex >= 32768);
+        // radius > 1 (the cave-in): also any reachable one close enough to step beside us mid-prompt.
+        const around = radius > 1 ? q.sdk.getNearbyNpcs().filter((n) => undead.test(n.name) && (n.distance ?? 99) <= radius && n.reachable !== false) : [];
+        return near.find((n) => hitter.includes(n.index)) ?? near.find((n) => n.targetIndex >= 32768) ?? around.sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
     };
     try {
         while (tickNow(q.sdk) - t0 < 600) {
@@ -213,7 +217,7 @@ async function clearAttackers(q: Quest): Promise<void> {
             let sent = -99;
             let landed = k0;
             const obs0 = lastCombatObs(q);
-            while (alive() && (alive()!.distance ?? 99) <= 2 && tickNow(q.sdk) - k0 < 150 && tickNow(q.sdk) - landed < 20) {
+            while (alive() && (alive()!.distance ?? 99) <= Math.max(2, radius + 1) && tickNow(q.sdk) - k0 < 150 && tickNow(q.sdk) - landed < 20) {
                 if ((q.sdk.getState()?.combatEvents ?? []).some((e) => (e.observationId ?? e.tick) > obs0 && e.targetType === 'npc' && e.targetIndex === index)) landed = tickNow(q.sdk);
                 await eatIfLow(q);
                 const combat = q.sdk.getState()?.player?.combat;
@@ -329,10 +333,17 @@ export async function dungeonMode(q: Quest): Promise<void> {
 let lifeguard = false;
 async function guardLife(q: Quest): Promise<void> {
     lifeguard = true;
+    let lastNote = tickNow(q.sdk);
     try {
         while (inAhZaRhoon(pos(q)) || inRashTomb(pos(q))) {
             if (hp(q) > 0 && hp(q) < maxHp(q) * 0.45) await eatIfLow(q, 0.45);
             await q.sdk.waitForTicks(1).catch(() => undefined);
+            // A pulse every 100 ticks underground: where the food goes (two staging deaths at the bone door).
+            if (tickNow(q.sdk) - lastNote >= 100) {
+                lastNote = tickNow(q.sdk);
+                const undead = q.sdk.getNearbyNpcs().filter((n) => /^undead one$/i.test(n.name) && (n.distance ?? 99) <= 3).length;
+                q.log(`shilo: [below] ${where(q)} hp ${hp(q)}/${maxHp(q)}, ${foodHeld(q)} food, prayer ${q.sdk.getPrayerState()?.prayerPoints}, ${undead} undead within 3`);
+            }
         }
     } catch {
         /* the guard must never break a step */
@@ -507,12 +518,18 @@ async function leaveRashTomb(q: Quest): Promise<void> {
 async function wriggle(q: Quest, toSouth: boolean): Promise<void> {
     const there = () => (toSouth ? inAhZaRhoonSouth(pos(q)) : inAhZaRhoon(pos(q)) && !inAhZaRhoonSouth(pos(q)));
     await dungeonMode(q);
-    for (let attempt = 1; attempt <= 6 && !there(); attempt++) {
+    // oploc2 secretrubble is a mesbox then a choice, and every Undead One swing closes it
+    // (if_close in playerhit): with one beside us the prompt never survives its two clicks. Clear
+    // every undead within reach of the rubble first, then op at once (production: six tries all
+    // closed at (2887,9374), 2026-11-03; staging: two of three on qlsh1).
+    for (let attempt = 1; attempt <= 12 && !there(); attempt++) {
         await walk(q, toSouth ? AZR.caveInNorth : AZR.caveInSouth, 1);
         const rubble = await findLoc(q, LOC_NAME.caveIn, /^search$/i);
         if (!rubble) throw new Error(`shilo: no cave-in near ${where(q)}`);
+        await eatIfLow(q);
+        await clearAttackers(q, 4);
         const mark = messageId(q);
-        await opLoc(q, rubble, /^search$/i, [/yes, i'll wriggle through/i], there);
+        await opLoc(q, rubble, /^search$/i, [/yes, i'll wriggle through/i], there, 30, false);
         if (!there()) {
             const st = q.sdk.getState();
             q.log(`shilo: cave-in attempt ${attempt} at ${where(q)}: ${messagesSince(q, mark).slice(0, 120)} [rubble ${rubble.x},${rubble.z} #${rubble.id} ${JSON.stringify(rubble.optionsWithIndex)}; autoret ${st?.autoRetaliateEnabled}; combat ${JSON.stringify(st?.player?.combat)}; rejected ${st?.opFeedback?.opRejectedCount}; dialog ${st?.dialog?.isOpen}; modal ${st?.modalOpen}]`);
@@ -580,9 +597,16 @@ export async function toMainJungle(q: Quest, tile: Tile, tolerance = 3): Promise
 async function enterAhZaRhoon(q: Quest): Promise<void> {
     if (inAhZaRhoon(pos(q))) return;
     await toValley(q, MOUND, 1);
-    for (let attempt = 1; attempt <= 3 && !inAhZaRhoon(pos(q)); attempt++) {
-        const fissure = await findLoc(q, /^(fissure|mound of earth)$/i, /^search$/i, { x: 2921, z: 2999 });
-        if (!fissure) throw new Error(`shilo: no fissure near ${where(q)}`);
+    // Any of the entrance's three forms: at stage roped and later, Search on each of them ends in
+    // the crawl prompt (oploc2 ahzarhoon_entrance default / _fissure / _fissure_withrope).
+    for (let attempt = 1; attempt <= 5 && !inAhZaRhoon(pos(q)); attempt++) {
+        if (Math.hypot(pos(q).x - MOUND.x, pos(q).z - MOUND.z) > 3) await toValley(q, MOUND, 1);
+        const fissure = await entranceLoc(q);
+        if (!fissure) {
+            q.log(`shilo: no fissure or mound by (2921,2999) from ${where(q)} (try ${attempt})`);
+            await q.sdk.waitForTicks(5);
+            continue;
+        }
         await opLoc(q, fissure, /^search$/i, [/yes, i'll give it a go/i], () => inAhZaRhoon(pos(q)), 20);
     }
     if (inAhZaRhoon(pos(q))) await dungeonMode(q);
@@ -721,7 +745,7 @@ async function useFissure(q: Quest, item: RegExp, what: string): Promise<void> {
     // Tie-break so two of ours never wait on each other: the name that sorts first goes ahead.
     const me = (q.sdk.getState()?.player?.name ?? '').toLowerCase();
     const crowded = () => (q.sdk.getNearbyPlayers() ?? []).some((pl) => Math.abs(pl.x - 2921) <= 4 && Math.abs(pl.z - 2999) <= 4 && pl.name.toLowerCase() < me);
-    for (let attempt = 1; attempt <= 5 && q.count(item) >= before; attempt++) {
+    for (let attempt = 1; attempt <= 8 && q.count(item) >= before; attempt++) {
         const t0 = tickNow(q.sdk);
         let noted = false;
         while (crowded() && tickNow(q.sdk) - t0 < 300) {
@@ -729,22 +753,23 @@ async function useFissure(q: Quest, item: RegExp, what: string): Promise<void> {
             noted = true;
             await q.sdk.waitForTicks(5);
         }
-        let fissure = await findLoc(q, LOC_NAME.fissure, undefined, { x: 2921, z: 2999 }, 4);
-        if (!fissure) {
-            const mound = await findLoc(q, /^mound of earth$/i, /^look-at$/i, { x: 2921, z: 2999 }, 4);
-            if (!mound) {
-                q.log(`shilo: no mound or fissure by (2921,2999) from ${where(q)} (try ${attempt})`);
-                await q.sdk.waitForTicks(3);
-                continue;
-            }
-            await opLoc(q, mound, /^look-at$/i, [], () => false, 4);
-            await driveDialog(q.sdk, [/no thanks/i], { ticks: 10 });
-            await q.sdk.scanNearbyLocs(6).catch(() => undefined);
-            fissure = await findLoc(q, LOC_NAME.fissure, undefined, { x: 2921, z: 2999 }, 4);
+        // Only the bare fissure (2218) takes the candle or the rope. The mound (2217) and the roped
+        // fissure (2219) share its name and its 3x3 tile, and either answers an item with "Nothing
+        // interesting happens" (oplocu ahzarhoon_entrance / _fissure_withrope). Every account's
+        // Look-at or Search flips the loc world-wide for 50 ticks, so a second account at another
+        // stage leaves it as 2219 (roped and later) or 2217 (after the timer). Look-at (op1) on
+        // either, at stage dug or lit, turns it into 2218 (oploc1 ahzarhoon_entrance and
+        // ahzarhoon_entrance_fissure_withrope): then the item goes on at once.
+        let fissure = await entranceLoc(q);
+        for (let look = 0; look < 3 && fissure && fissure.id !== FISSURE_ID.bare; look++) {
+            await opLoc(q, fissure, /^look-at$/i, [], () => false, 6);
+            await driveDialog(q.sdk, [/no thanks/i], { ticks: 12 });
+            fissure = await entranceLoc(q);
         }
-        if (!fissure) {
+        if (!fissure || fissure.id !== FISSURE_ID.bare) {
             const near = (await locs(q, 4)).map((l) => `${l.name}#${l.id}@${l.x},${l.z}`).join(' ');
-            q.log(`shilo: the mound's Look-at showed no fissure (try ${attempt}); near: ${near.slice(0, 160)}`);
+            q.log(`shilo: no bare fissure by (2921,2999) from ${where(q)} (try ${attempt}); near: ${near.slice(0, 160)}`);
+            await q.sdk.waitForTicks(5);
             continue;
         }
         const mark = messageId(q);
@@ -759,6 +784,18 @@ async function useFissure(q: Quest, item: RegExp, what: string): Promise<void> {
         if (q.count(item) >= before) q.log(`shilo: ${what} did not go into the fissure (try ${attempt}; ${fissure.name}#${fissure.id} @${fissure.x},${fissure.z}): ${said.slice(0, 140)}`);
     }
     if (q.count(item) >= before) throw new Error(`shilo: ${what} did not go into the fissure near ${where(q)}`);
+}
+
+/** quest_zombiequeen.loc → content/pack/loc.pack: the mound and the fissure's two forms, all at (2921,2999). */
+const FISSURE_ID = { mound: 2217, bare: 2218, roped: 2219 };
+/** Whatever form the entrance is in right now (a scan can miss it for a tick after a walk or a loc_change). */
+async function entranceLoc(q: Quest): Promise<NearbyLoc | undefined> {
+    for (let i = 0; i < 4; i++) {
+        const loc = (await locs(q, 6)).find((l) => Object.values(FISSURE_ID).includes(l.id) && Math.abs(l.x - 2921) <= 2 && Math.abs(l.z - 2999) <= 2);
+        if (loc) return loc;
+        await q.sdk.waitForTicks(1);
+    }
+    return undefined;
 }
 
 export async function descendFissure(q: Quest): Promise<void> {
@@ -840,6 +877,20 @@ async function makeBeads(q: Quest): Promise<void> {
 }
 
 async function wearBeads(q: Quest): Promise<void> {
+    // Lost (a death in the tomb drops the pack; only three items are kept): Bervirius' dolmen hands
+    // out another pommel whenever none of the pommel, the bone beads or the Beads of the Dead is held
+    // or banked (zqhaspommel, quest_zombiequeen.rs2). readyForTomb brought the chisel and the wire.
+    if (!beadsInSomeForm(q)) {
+        q.log('shilo: no beads in any form — back to Bervirius\' dolmen for another pommel');
+        await enterBervTomb(q);
+        await walk(q, BERV.dolmen, 1);
+        const dolmen = await findLoc(q, LOC_NAME.dolmen, /^search$/i);
+        if (!dolmen) throw new Error(`shilo: no tomb dolmen near ${where(q)}`);
+        await opLoc(q, dolmen, /^search$/i, [/^no, i don't want/i], () => has(q, ITEM.pommel), 20);
+        await driveDialog(q.sdk, [/^no, i don't want/i], { ticks: 20 });
+        if (!has(q, ITEM.pommel)) throw new Error(`shilo: Bervirius' dolmen gave no pommel (carrying ${q.sdk.getInventory().map((i) => i.name).join(', ')})`);
+        await leaveBervTomb(q);
+    }
     await makeBeads(q);
     if (q.sdk.getEquipment().some((i) => ITEM.deadBeads.test(i.name))) return;
     const beads = held(q, ITEM.deadBeads);
@@ -884,9 +935,103 @@ export async function unlockDoor(q: Quest): Promise<void> {
     }
 }
 
+// ── before Rashiliyia's tomb
+
+const FOOD = /^(shark|swordfish|lobster|monkfish|tuna|bass)$/i;
+const foodHeld = (q: Quest) => q.sdk.getInventory().filter((i) => FOOD.test(i.name)).length;
+/** Fewer than this going into the tomb: home for more first. */
+const TOMB_FOOD = 12;
+/** Topped up to this (or the free slots). */
+const TOMB_FOOD_FULL = 20;
+const WEAPON = /^(dragon|rune|adamant|mithril|black|steel|iron) (scimitar|longsword)$/i;
+const WEAPON_ORDER = ['dragon', 'rune', 'adamant', 'mithril', 'black', 'steel', 'iron'];
+/** Done with by the tomb (the scrolls are read, the crystal is never used): banked on a restock. */
+const TOMB_JUNK = /^(spade|tinderbox|tattered scroll|crumpled scroll|locating crystal|bervirius notes|rope|candle|lit candle)$/i;
+/** The Fight Arena's altars, the nearest to the hub (lib/fight-arena.ts). */
+const ALTAR = { x: 2605, z: 3209 };
+
+/** Any form of the beads: the pommel and the bone beads still make them (makeBeads). */
+const beadsInSomeForm = (q: Quest) => has(q, ITEM.deadBeads) || has(q, ITEM.boneBeads) || has(q, ITEM.pommel);
+
+/**
+ * Bank-stocked for Rashiliyia's tomb: food, the weapon, a prayer bar, the bones (before the bone
+ * door) and a way to the beads. Nine Undead Ones and Nazastarool take ~10 sharks at 60 hp; the trip
+ * from Ah Za Rhoon and Cairn Isle arrives with ~5. qlsh1 died at the bone door with 5 (staging,
+ * 2026-11-04), as jacklove5 and ABGARMY07 did in production, and the respawn in Lumbridge is where
+ * the next step's "could not get into the dolmen room (at (3221,3219))" came from. Also the
+ * recovery after any death: the pack is gone, so the bank (then the mule) fills it again.
+ */
+export async function readyForTomb(q: Quest, bones: boolean): Promise<void> {
+    if (inRashTomb(pos(q))) return;
+    const weaponed = () => q.sdk.getEquipment().some((i) => WEAPON.test(i.name)) || !!held(q, WEAPON);
+    const prayerLow = () => q.level('prayer') >= PROTECT_MELEE_LEVEL && (q.sdk.getPrayerState()?.prayerPoints ?? 0) < q.level('prayer') * 0.8;
+    const bonesShort = () => bones && q.count(/^bones$/i) < 3;
+    const beadKit = () => beadsInSomeForm(q) || (has(q, /^chisel$/i) && has(q, /^bronze wire$/i)) || (has(q, ITEM.boneBeads) && has(q, /^bronze wire$/i));
+    const short = () => [foodHeld(q) < TOMB_FOOD && `food ${foodHeld(q)}`, !weaponed() && 'weapon', bonesShort() && `bones ${q.count(/^bones$/i)}`, !beadKit() && 'beads', prayerLow() && `prayer ${q.sdk.getPrayerState()?.prayerPoints}`].filter(Boolean);
+    if (!short().length) return;
+    q.log(`shilo: restocking for Rashiliyia's tomb (${short().join(', ')}) from ${where(q)}`);
+    await q.goTo(SAFE_BANKS.ardougne, 4);
+    const opened = q.sdk.getState()?.bank?.isOpen || (await q.bot.openBank()).success;
+    if (!opened) throw new Error(`shilo: the Ardougne bank did not open for the tomb restock (at ${where(q)})`);
+    for (const it of q.sdk.getInventory().filter((i) => TOMB_JUNK.test(i.name) || (beadsInSomeForm(q) && /^(bronze wire|chisel)$/i.test(i.name)))) {
+        await q.bot.depositItem(it, -1).catch(() => undefined);
+        await q.sdk.waitForTicks(1);
+    }
+    const take = async (pattern: RegExp, want: number) => {
+        const have = q.count(pattern);
+        if (have >= want) return;
+        const banked = q.sdk.findBankItem(pattern);
+        if (!banked) return;
+        await q.bot.withdrawItem(banked, Math.min(want - have, banked.count ?? want)).catch(() => undefined);
+        await untilTicks(q.sdk, () => q.count(pattern) > have, 4);
+    };
+    await take(/^coins$/i, 2 * FARE);
+    if (!weaponed()) {
+        const best = WEAPON_ORDER.map((m) => q.sdk.findBankItem(new RegExp(`^${m} (scimitar|longsword)$`, 'i'))).find(Boolean);
+        if (best) await take(new RegExp(`^${best.name}$`, 'i'), 1);
+    }
+    if (bones) await take(/^bones$/i, 3);
+    if (!beadsInSomeForm(q)) {
+        // Banked by a naked prologue (QuestDef.carry withdraws them too); else the dolmen's pommel again.
+        for (const it of [ITEM.deadBeads, ITEM.boneBeads, ITEM.pommel]) if (!beadsInSomeForm(q)) await take(it, 1);
+        if (!beadsInSomeForm(q)) {
+            await take(/^chisel$/i, 1);
+            await take(/^bronze wire$/i, 1);
+        }
+    }
+    const room = () => 28 - q.sdk.getInventory().length - 1;
+    await take(/^shark$/i, Math.min(TOMB_FOOD_FULL, foodHeld(q) + room()));
+    await q.bot.closeBank().catch(() => undefined);
+    if (foodHeld(q) < TOMB_FOOD) {
+        const want = Math.min(TOMB_FOOD_FULL, foodHeld(q) + room());
+        const ok = await requestFromMule({ sdk: q.sdk, bot: q.bot, session: null, log: q.log }, [{ label: 'shark', pattern: /^shark$/i, count: want }], { mule: 'jackthief', timeoutMs: ticksToMs(600) }).catch(() => false);
+        q.log(`shilo: mule jackthief for sharks: ${ok ? 'supplied' : 'not all supplied'} (${foodHeld(q)} food)`);
+    }
+    if (foodHeld(q) < TOMB_FOOD) throw new NeedsStock([{ item: 'shark', count: TOMB_FOOD - foodHeld(q) }]);
+    if (!weaponed()) throw new NeedsStock([{ item: 'melee weapon', count: 1 }]);
+    if (!has(q, ITEM.boneBeads) && !beadsInSomeForm(q)) {
+        if (!has(q, /^chisel$/i)) await q.ensure('chisel', 1);
+        if (!has(q, /^bronze wire$/i)) await q.ensure('bronze wire', 1);
+    }
+    if (bonesShort()) await q.ensure('bones', 3);
+    if (prayerLow()) {
+        await q.goTo(ALTAR, 2);
+        await q.sdk.scanNearbyLocs(6).catch(() => undefined);
+        const altar = q.sdk.findNearbyLoc(/^altar$/i, { withOption: /pray/i });
+        if (altar) {
+            await q.bot.interactLoc(altar, /pray/i).catch(() => undefined);
+            await untilTicks(q.sdk, (s) => (s.prayers?.prayerPoints ?? 0) >= (s.prayers?.prayerLevel ?? 99), 10);
+        }
+    }
+    await wieldWeapon(q);
+    q.log(`shilo: restocked — ${foodHeld(q)} food, prayer ${q.sdk.getPrayerState()?.prayerPoints}/${q.level('prayer')}; carrying ${q.sdk.getInventory().map((i) => i.name).join(', ')}`);
+}
+
 /** Beads worn, through the doors and the ancient gate: entered with beads. */
 export async function enterWithBeads(q: Quest): Promise<void> {
+    await readyForTomb(q, true);
     await wearBeads(q);
+    await readyForTomb(q, true);
     await enterRashTomb(q);
     for (let attempt = 1; attempt <= 3 && pos(q).z > 9516; attempt++) {
         const gate = await findLoc(q, LOC_NAME.gate, /^open$/i);
@@ -918,7 +1063,9 @@ async function toBoneDoor(q: Quest): Promise<void> {
 
 /** Three bones in the door's recesses: it opens and lets us in (unlocked tomb door). */
 export async function fillBoneDoor(q: Quest): Promise<void> {
+    await readyForTomb(q, true);
     await wearBeads(q);
+    await readyForTomb(q, true);
     if (!inDolmenRoom(pos(q))) await toBoneDoor(q);
     await dungeonMode(q);
     // Prayed while the bones go in: the undead swing at us through every objbox here, and two
@@ -938,6 +1085,18 @@ export async function fillBoneDoor(q: Quest): Promise<void> {
     }
     // The last bone's mesbox walks you in; if a swing closed it, the door now opens (stage 12).
     await driveDialog(q.sdk, [], { ticks: 10 });
+    // Inside before returning, never left at the door: the journal read that follows a step takes
+    // ~600 ticks when the undead keep closing the quest interface, and four of them beat qlshb1 and
+    // qlsh2 to death on (2892,9480) holding 13-20 sharks (staging, 2026-11-04). The dolmen room has
+    // none of them.
+    for (let attempt = 1; attempt <= 5 && !inDolmenRoom(pos(q)) && q.count(/^bones$/i) === 0 && inRashTomb(pos(q)); attempt++) {
+        await eatIfLow(q);
+        await clearAttackers(q);
+        const door = await findLoc(q, LOC_NAME.tombDoors, /^open$/i, { x: 2892, z: RASH.doorZ });
+        if (door) await opLoc(q, door, /^open$/i, [], () => inDolmenRoom(pos(q)), 10, false);
+        else await q.sdk.waitForTicks(2);
+    }
+    q.log(`shilo: bone door — ${q.count(/^bones$/i)} bones left, ${inDolmenRoom(pos(q)) ? 'in the dolmen room' : 'outside'} at ${where(q)} (hp ${hp(q)}, ${foodHeld(q)} food)`);
 }
 
 /** Into the dolmen room once the door is unlocked. */
@@ -947,6 +1106,7 @@ async function intoDolmenRoom(q: Quest): Promise<void> {
     for (let attempt = 1; attempt <= 3 && !inDolmenRoom(pos(q)); attempt++) {
         const door = await findLoc(q, LOC_NAME.tombDoors, /^open$/i, { x: 2892, z: RASH.doorZ });
         if (door) await opLoc(q, door, /^open$/i, [], () => inDolmenRoom(pos(q)), 10, false);
+        if (!inDolmenRoom(pos(q))) q.log(`shilo: tomb door attempt ${attempt} left us at ${where(q)} (${door ? `${door.name}#${door.id}@${door.x},${door.z}` : 'no door with Open'}; hp ${hp(q)}, ${foodHeld(q)} food)`);
     }
     if (!inDolmenRoom(pos(q))) throw new Error(`shilo: could not get into the dolmen room (at ${where(q)})`);
 }
@@ -969,7 +1129,9 @@ function ourNazastarool(q: Quest) {
  * Rashiliyia's remains, taken by searching the dolmen again (retrieved corpse).
  */
 export async function fightNazastarool(q: Quest): Promise<void> {
+    await readyForTomb(q, false);
     await wearBeads(q);
+    await readyForTomb(q, false);
     await intoDolmenRoom(q);
     await dungeonMode(q);
     // Into the fight topped up: the ghost hits through a dry prayer book.
@@ -1042,6 +1204,12 @@ export async function fightNazastarool(q: Quest): Promise<void> {
 
 /** Out of the tomb, over to Cairn Isle and the remains onto Bervirius' dolmen: complete. */
 export async function layToRest(q: Quest): Promise<void> {
+    // Lost to a death on the way (stage 14 stays): the tomb dolmen wakes Nazastarool again, since
+    // taking the remains cleared his three bits (search_tombdolmen), and his third form leaves another.
+    if (!has(q, ITEM.corpse)) {
+        q.log('shilo: no Rashiliya corpse at stage corpse — back to the tomb dolmen for it');
+        await fightNazastarool(q);
+    }
     if (!has(q, ITEM.corpse)) throw new Error('shilo: no Rashiliya corpse to lay to rest');
     if (!inBervTomb(pos(q))) {
         await leaveShilo(q);
