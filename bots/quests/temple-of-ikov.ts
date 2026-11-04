@@ -36,7 +36,9 @@ const O = ikov.OBJ;
 // Light: three sharks and nothing else heavy (the bridge).
 const dungeon = [
     { item: 'bow', count: 1 },
-    { item: 'shark', count: 3 },
+    // One shark until Winelda takes the 20 roots: 20 roots + bow + runes + the candle's coins/tinderbox fill 28 with three
+    // (jacklove13: "pack is full — no room to buy candle", 2026-11-04). Lucien's step asks for its own 3 below.
+    { item: 'shark', count: 1 },
     { item: 'limpwurt root', count: 20 },
     // Past the lava the only walk out is a cellar room behind the shiny-key door: Camelot Teleport out.
     { item: 'law rune', count: 1 },

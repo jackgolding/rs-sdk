@@ -68,7 +68,7 @@ const kit = (q: Quest): Need[] =>
               // The brew's bucket, until the ashes are on the doll.
               ...(['ashes', 'blood', 'defeated'].includes(q.stage) ? [] : [{ item: 'bucket', count: 1, or: 'dwarf brew' }]),
               { item: 'melee weapon', count: 1 },
-              { item: 'shark', count: FOOD },
+              { item: 'shark', count: q.level('magic') >= 37 ? FOOD - 3 : FOOD }, // three slots go to the teleport runes below (Jackpoo5's pack overflowed at 28, 2026-11-04)
               // Falador Teleport (lib/underground-pass.ts teleportOut): a resumed run in a pocket with no
               // walk out (C8, by the paladins' well) is otherwise stranded (jacklove2, 2026-11-04).
               ...(q.level('magic') >= 37
