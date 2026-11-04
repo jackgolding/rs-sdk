@@ -8,7 +8,7 @@
  * out of the bank, and Protect from Melee goes up at Prayer 43. Items: coins (Femi's cart 1000 when her boxes were declined, the Karamja boat home).
  * Reward: 5 QP, Attack/Agility/Magic XP.
  */
-import { runQuest } from './lib/run-quest';
+import { runQuest, type Quest } from './lib/run-quest';
 import {
     femiCart,
     fightDemon,
@@ -34,6 +34,18 @@ const stage = (id: string, kind: 'unstarted' | 'active' | 'complete', all: strin
 
 const coins = [{ item: 'coins', count: 1100 }];
 // 18: ten ran out at hp 7 on jacklove4 even with Prayer 78 (2026-11-04); the demon hits through when prayer drains.
+/** At least `free` empty pack slots, dropping sharks one at a time. */
+async function roomFor(q: Quest, free: number): Promise<void> {
+    const empty = () => 28 - q.sdk.getInventory().filter((i) => (i.count ?? 1) > 0).length;
+    for (let n = 0; n < 10 && empty() < free; n++) {
+        const shark = q.sdk.getInventory().find((i) => /^shark$/i.test(i.name));
+        if (!shark) break;
+        await q.sdk.sendDropItem(shark.slot);
+        await q.sdk.waitForTicks(1);
+    }
+    if (empty() < free) q.log(`grandtree: only ${empty()} free slots for the twigs`);
+}
+
 const fight = [{ item: 'melee weapon', count: 1 }, { item: 'shark', count: 18 }];
 
 await runQuest({
@@ -93,7 +105,10 @@ await runQuest({
             },
         },
         { from: 'clue', to: 'plans', run: (q) => getPlans(q) },
-        { from: 'plans', to: 'twigs', run: (q) => talkNarnode(q, []).then(() => undefined) },
+        // Narnode hands over four twigs: with the demon's 18 sharks plus six quest items the pack had 3 free
+        // slots and the talk failed three runs running (jacklove16, 2026-11-04). Drop sharks to make room;
+        // the demon fight's needs top them back up before it.
+        { from: 'plans', to: 'twigs', run: async (q) => { await roomFor(q, 4); await talkNarnode(q, []); } },
         { from: 'twigs', to: 'trapdoor', run: (q) => placeTwigs(q) },
         { from: 'trapdoor', to: 'demon', needs: fight, run: (q) => fightDemon(q) },
         { from: 'demon', to: 'daconia', run: (q) => talkNarnode(q, []).then(() => undefined) },

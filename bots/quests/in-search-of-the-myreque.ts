@@ -90,6 +90,16 @@ function kit(q: Quest): Need[] {
     return needs;
 }
 
+/**
+ * Nature Spirit must be complete: without it the Paterdomus holy barrier refuses us (ABGARMY08 started
+ * Myreque with Nature Spirit at 2 failures and died at the barrier, 2026-11-04). Read before walking there.
+ */
+async function requireNatureSpirit(q: Quest): Promise<void> {
+    const read = await readJournalCheckpoint(q.sdk, { label: 'Nature Spirit', title: 'Nature Spirit' }, { id: 'druidspirit:complete', kind: 'complete', all: ['QUEST COMPLETE'] });
+    await q.sdk.sendCloseModal().catch(() => undefined);
+    if (read.verdict?.verdict !== 'PASS') throw new Error(`prerequisite gate: Nature Spirit not complete (journal ${read.verdict?.verdict ?? 'unread'})`);
+}
+
 /** The weapon on before the step (never a steel quest weapon). */
 const go = (run: (q: Quest) => Promise<void>) => async (q: Quest) => {
     await myq.wieldWeapon(q);
@@ -108,7 +118,7 @@ await runQuest({
     maxConcurrent: 2,
     stages,
     transitions: [
-        { from: 'unstarted', to: 'started', needs: kit, run: go((q) => myq.start(q, () => passesAny(q.sdk, 'started'))) },
+        { from: 'unstarted', to: 'started', needs: kit, run: go(async (q) => { await requireNatureSpirit(q); await myq.start(q, () => passesAny(q.sdk, 'started')); }) },
         { from: 'started', to: 'repaired', needs: kit, run: go((q) => myq.cyreg(q, () => passesAny(q.sdk, 'repaired'))) },
         { from: 'boatman', to: 'repaired', needs: kit, run: go((q) => myq.cyreg(q, () => passesAny(q.sdk, 'repaired'))) },
         { from: 'agreed', to: 'repaired', needs: kit, run: go((q) => myq.cyreg(q, () => passesAny(q.sdk, 'repaired'))) },
