@@ -674,6 +674,16 @@ export async function runQuest(def: QuestDef): Promise<void> {
                     const hopped = await spiritTreeShortcut(q, tile);
                     if (!left || hopped) await enterStuckArea(sdk, bot, tile, log);
                 }
+                // Just west of the toll gate with a destination on this side (back from Al Kharid, e.g. the
+                // silver sickle): the travel planner routed through the gate and was refused for an hour
+                // (ABGARMY08 at 3267,3227, 2026-11-04). Step out along the Lumbridge road first.
+                {
+                    const p0 = pos();
+                    if (p0.level === 0 && p0.x >= 3260 && p0.x < TOLL_X && p0.z >= 3220 && p0.z <= 3234 && !inAlKharid(tile) && away(tile) > 20) {
+                        log(`toll gate pocket at (${p0.x},${p0.z}) — stepping west before the route`);
+                        await bot.walkTo(3250, 3227, 3).catch(() => undefined);
+                    }
+                }
                 // Lumbridge side <-> Al Kharid: pay the border guard first. walkTo at the toll
                 // gate blacklists it and detours around the fence (alkharid-toll.ts).
                 const here = pos();
