@@ -2366,7 +2366,9 @@ function impBead(colour: string): Source {
 async function pickUpSpawn(q: Quest, tile: { x: number; z: number }, item: string, count: number): Promise<void> {
     await q.goTo(tile, 2);
     const pattern = itemPattern(item);
-    for (let i = 0; i < 30 && q.count(item) < count; i++) {
+    // ~450 ticks: shared spawns (Catherby's insect repellent) are taken by other accounts; 150 was not
+    // enough to see one respawn (ABGARMY06 failed twice, 2026-11-04).
+    for (let i = 0; i < 90 && q.count(item) < count; i++) {
         await q.sdk.scanGroundItems(8).catch(() => undefined);
         const ground = q.sdk.findGroundItem(pattern);
         if (!ground) {

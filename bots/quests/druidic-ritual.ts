@@ -74,6 +74,8 @@ async function enterCauldronRoom(q: Quest): Promise<void> {
         await q.sdk.scanNearbyLocs(12).catch(() => undefined);
         return q.sdk.findNearbyLoc(/^cauldron of thunder$/i)?.reachable === true;
     };
+    // A resumed run starts on the surface (jackquests walked for the doors from Taverley, twice, 2026-11-04).
+    if (!underground(q)) await useDungeonLadder(q, true);
     await q.goTo(PRISON_DOORS, 2);
     for (let i = 0; i < 6 && !(await cauldronReachable()); i++) {
         await killSuitsOfArmour(q);
