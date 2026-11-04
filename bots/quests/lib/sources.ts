@@ -247,6 +247,8 @@ const WAYNE_CHAINS = { x: 2973, z: 3312, npc: /^wayne$/i };
 const MONASTERY_CABBAGES = [{ x: 3051, z: 3506 }];
 /** Tostig, behind the Toad and Chicken's ground-floor bar (Burthorpe). */
 const TOSTIG_BAR = { x: 2906, z: 3540, npc: /^tostig$/i };
+/** Lowe's Archery Emporium, Varrock (npc 550 spawn 3232,3423). */
+const LOWE = { x: 3232, z: 3423, npc: /^lowe$/i };
 const GERRANT = { x: 3013, z: 3225, npc: /^gerrant$/i };
 /** Barbarian Village (m48_53: potterywheel at 3087,3409 and 3087,3410). */
 const POTTERS_WHEEL = { x: 3087, z: 3409 };
@@ -847,6 +849,7 @@ export const SOURCES: Record<string, Source> = {
     "toad's legs": {
         obj: 'toads_legs',
         get: async (q, count) => {
+            if (q.sdk.getInventory().length >= 28) throw new Error("toad's legs: the pack is full — no room to pick up a swamp toad");
             for (let round = 0; round < 4 && q.count("toad's legs") < count; round++) {
                 const toads = q.count(/^swamp toad$/i);
                 if (q.count("toad's legs") + toads < count) await pickSpawns(q, 'swamp toad', count - q.count("toad's legs"), TAVERLEY_SWAMP_TOADS);
@@ -1109,9 +1112,16 @@ export const SOURCES: Record<string, Source> = {
         get: async (q) => {
             await q.ensure('coins', 150);
             const { throughWallDoors } = await import('./underground-pass');
-            await throughWallDoors(q, true);
-            await buyWaitingForRestock(q, CHADWELL, 'longbow', 1);
-            await throughWallDoors(q, false);
+            try {
+                await throughWallDoors(q, true);
+                await buyWaitingForRestock(q, CHADWELL, 'longbow', 1);
+                await throughWallDoors(q, false);
+            } catch (e) {
+                // West Ardougne's wall doors want Biohazard (qltb2, staging 2026-11-04): Lowe's Archery Emporium,
+                // Varrock (varrock.inv: longbow 4, shortbow 4).
+                q.log(`bow: Chadwell failed (${(e as Error).message}) — Lowe's in Varrock`);
+                await buyWaitingForRestock(q, LOWE, 'longbow', 1);
+            }
         },
     },
     /** Aemad's Adventuring Supplies, East Ardougne (bronze arrows 1gp, stock 500). */

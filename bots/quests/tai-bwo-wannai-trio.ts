@@ -67,7 +67,8 @@ const kit = (q: Quest) => [
     // (staging: 70 coins after Zambo's rum went pickpocketing in Yanille; arrows spent on a monkey would buy more in Ardougne).
     { item: 'coins', count: q.sdk.isBankOpen() ? 2 * FARE + 100 : onIslandNow(q) ? FARE : 2 * FARE },
     { item: 'melee weapon', count: 1 },
-    ...banked(q, 'shark', 6, /^shark$/i),
+    // Food for the jogres (spear and bones), taken at the open bank only.
+    ...banked(q, 'shark', atOrBefore(q, 'sandwich') ? 10 : 6, /^shark$/i),
     ...(atOrBefore(q, 'caught') ? [{ item: 'small fishing net', count: 1 }] : []),
     // Tamayu: 4 doses (two 3-dose potions), until the journal says his agility matches.
     ...(atOrBefore(q, 'hunt') && (q.sdk.isBankOpen() || !underway) ? [{ item: 'agility potion(3)', count: 2 }] : []),
@@ -93,7 +94,8 @@ await runQuest({
     id: 'tbwt',
     hub: 'ardougne',
     journal,
-    skills: { cooking: 30, firemaking: 30, fishing: 5 },
+    // Agility 15: Tinsay's climbing rocks (zqclimbingrocks). Herblore 34 is the agility potion source's own level.
+    skills: { cooking: 30, firemaking: 30, fishing: 5, agility: 15 },
     carry: [
         tb.OBJ.vessel,
         tb.OBJ.vesselLoaded,

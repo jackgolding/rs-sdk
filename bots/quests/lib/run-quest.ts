@@ -99,7 +99,7 @@ import { inHauntedMineArea, leaveHauntedMine } from './haunted-mine';
 import { inMiscArea, leaveIsland as leaveMiscellania } from './miscellania';
 import { inRomanceArea, leaveRomanceArea } from './troll-romance';
 import { inMorttonSouth, leaveMortton } from './shades-of-mortton';
-import { inTbwtIsland, leaveTbwt } from './tai-bwo-wannai-trio';
+import { inHuntCutscene, inTbwtIsland, leaveTbwt, waitOutCutscene } from './tai-bwo-wannai-trio';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, awaitQuestStartTurn, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -567,6 +567,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // Nature Spirit: Mort Myre, Filliman's camp and grotto, Morytania's bank and the mausoleum — back under the Salve (lib/nature-spirit.ts).
                 if (inNatureSpiritArea(pos()) && !inNatureSpiritArea({ ...tile, level: tile.level ?? 0 })) await leaveNatureSpirit(q);
                 // Horror from the Deep: the lighthouse, its caves, the causeway past the basalt rocks, the agility course's start (lib/horror.ts).
+                // Tamayu's hunt cutscene (Tai Bwo Wannai Trio) plays inside the lighthouse box: wait for the teleport back, not Camelot.
+                if (inHuntCutscene(pos())) await waitOutCutscene(q);
                 if (inHorrorArea(pos()) && !inHorrorArea({ ...tile, level: tile.level ?? 0 })) await leaveHorror(q);
                 // Big Chompy Bird Hunting: Rantz's cave, out by its own exit (lib/chompybird.ts).
                 if (inChompyArea(pos()) && !inChompyArea({ ...tile, level: tile.level ?? 0 })) await leaveChompyCave(q);
@@ -873,6 +875,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inScorpionArea(pos())) await leaveScorpionArea(q);
         if (inMyrequeArea(pos())) await leaveMyreque(q);
         if (inNatureSpiritArea(pos())) await leaveNatureSpirit(q);
+        if (inHuntCutscene(pos())) await waitOutCutscene(q);
         if (inHorrorArea(pos())) await leaveHorror(q);
         if (inChompyArea(pos())) await leaveChompyCave(q);
         if (inRomanceArea(pos())) await leaveRomanceArea(q);

@@ -231,8 +231,21 @@ export async function leavePocket(q: Quest): Promise<void> {
     if (from === 'tinsay') await climbRocks(q, 'main');
 }
 
+/**
+ * Tamayu's hunts play in an instance off the map (m39_71: x 2496-2559, z 4544-4607 — inside lib/horror.ts's lighthouse
+ * box, so a goTo from there "left" the lighthouse with Camelot Teleport, staging qltb2). Wait for the teleport back.
+ */
+export const inHuntCutscene = (p: Tile) => p.x >= 2496 && p.x <= 2559 && p.z >= 4544 && p.z <= 4607;
+export async function waitOutCutscene(q: Quest): Promise<void> {
+    if (!inHuntCutscene(pos(q))) return;
+    await untilTicks(q.sdk, () => !inHuntCutscene(pos(q)), 150);
+    if (q.sdk.getDialog()?.isOpen) await followDialog(q, []);
+    if (inHuntCutscene(pos(q))) throw new Error(`tbwt: still in Tamayu's hunt cutscene at ${where(q)} after 150t`);
+}
+
 /** On Karamja (Barnaby's boat from Ardougne first), then to `t` (through the pockets' crossings). */
 export async function go(q: Quest, t: Tile, tolerance = 3): Promise<void> {
+    await waitOutCutscene(q);
     if ((t.level ?? 0) > 0 && pos(q).level === 0) {
         await leavePocket(q);
         // Upstairs (Timfraku's hut): to the foot of its ladder first, or goTo climbs the nearest one anywhere.
@@ -278,6 +291,8 @@ export async function talk(q: Quest, name: RegExp, at: Tile, choices: Array<RegE
         await go(q, at, 4);
         // No `at` for q.talk: its goTo has no way into the pockets (go() above handles them).
         text += await q.talk(name, choices);
+        text += await followDialog(q, choices);
+        await waitOutCutscene(q);
         text += await followDialog(q, choices);
         await closeDialogs(q);
     }
@@ -556,30 +571,48 @@ async function huntJogres(q: Quest, done: () => boolean, label: string): Promise
     const t0 = tickNow(q.sdk);
     let kills = 0;
     const loot = (id: number) => SPEARS.includes(id) || (id === OBJ.jogreBones && !held(q, OBJ.jogreBones, OBJ.burntBones, OBJ.burntBonesPaste, OBJ.marinated));
-    while (!done()) {
-        if (tickNow(q.sdk) - t0 > 4000) throw new Error(`tbwt: ${label}: none after 4000t (${kills} jogres)`);
-        await eatIfLow(q);
-        // Room for the loot: bronze spears and spare bones go.
-        for (const junk of inv(q).filter((i) => i.id === 1237 || (i.id === OBJ.jogreBones && held(q, OBJ.jogreBones) > 1))) await q.bot.dropItem(junk, 1).catch(() => undefined);
-        await q.sdk.scanGroundItems(8).catch(() => undefined);
-        const g = (q.sdk.getState()?.groundItems ?? []).find((x) => loot(x.id) && x.distance <= 8);
-        if (g && free(q) > 0) {
-            await q.bot.pickupItem(g).catch(() => undefined);
-            await q.sdk.waitForTicks(2);
-            continue;
+    // Jogres are aggressive and come in packs: qltb2 died to them on 6 sharks (staging 2026-11-04). Protect from Melee
+    // nulls NPC melee; without it (or food), back off over the river before the hp runs out.
+    const pray = async (on: boolean) => {
+        const pr = q.sdk.getPrayerState();
+        const active = q.sdk.isPrayerActive('protect_from_melee');
+        if (on && !active && pr && pr.prayerLevel >= 43 && pr.prayerPoints > 0) await q.bot.activatePrayer('protect_from_melee').catch(() => undefined);
+        if (!on && active) await q.bot.deactivatePrayer('protect_from_melee').catch(() => undefined);
+    };
+    try {
+        while (!done()) {
+            if (tickNow(q.sdk) - t0 > 4000) throw new Error(`tbwt: ${label}: none after 4000t (${kills} jogres)`);
+            await pray(true);
+            await eatIfLow(q);
+            const me = q.sdk.getState()?.player;
+            if (me && me.hp < (me.maxHp ?? 10) * 0.4 && !inv(q).some((i) => FOOD.test(i.name))) {
+                await leavePocket(q).catch(() => undefined);
+                throw new Error(`tbwt: ${label}: out of food at ${me.hp} hp after ${kills} jogres — retreated`);
+            }
+            // Room for the loot: bronze spears and spare bones go.
+            for (const junk of inv(q).filter((i) => i.id === 1237 || (i.id === OBJ.jogreBones && held(q, OBJ.jogreBones) > 1))) await q.bot.dropItem(junk, 1).catch(() => undefined);
+            await q.sdk.scanGroundItems(8).catch(() => undefined);
+            const g = (q.sdk.getState()?.groundItems ?? []).find((x) => loot(x.id) && x.distance <= 8);
+            if (g && free(q) > 0) {
+                await q.bot.pickupItem(g).catch(() => undefined);
+                await q.sdk.waitForTicks(2);
+                continue;
+            }
+            const j = (q.sdk.getNearbyNpcs() ?? []).filter((n) => /^jogre$/i.test(n.name) && !n.inCombat && n.reachable !== false).sort((a, b) => a.distance - b.distance)[0];
+            if (!j) {
+                await go(q, JOGRES, 4);
+                await q.sdk.waitForTicks(4);
+                continue;
+            }
+            const r = await q.bot.attack(j, 12_000).catch(() => ({ success: false }));
+            if (r.success) {
+                kills++;
+                await untilTicks(q.sdk, (s) => !(s.nearbyNpcs ?? []).some((n) => n.index === j.index && n.distance <= 8 && (n.hp ?? 1) > 0), 80);
+                await q.sdk.waitForTicks(2);
+            }
         }
-        const j = (q.sdk.getNearbyNpcs() ?? []).filter((n) => /^jogre$/i.test(n.name) && !n.inCombat && n.reachable !== false).sort((a, b) => a.distance - b.distance)[0];
-        if (!j) {
-            await go(q, JOGRES, 4);
-            await q.sdk.waitForTicks(4);
-            continue;
-        }
-        const r = await q.bot.attack(j, 12_000).catch(() => ({ success: false }));
-        if (r.success) {
-            kills++;
-            await untilTicks(q.sdk, (s) => !(s.nearbyNpcs ?? []).some((n) => n.index === j.index && n.distance <= 8 && (n.hp ?? 1) > 0), 80);
-            await q.sdk.waitForTicks(2);
-        }
+    } finally {
+        await pray(false);
     }
     q.log(`tbwt: ${label} after ${kills} jogres, ${tickNow(q.sdk) - t0}t`);
 }
@@ -765,10 +798,12 @@ const inBox = (p: Tile, x0: number, x1: number, z0: number, z1: number) => p.x >
  * Brimhaven town (north of its z 3200 Karamja box: a run stopped at the docks had no route home, staging 2026-11-04).
  */
 export const inTbwtIsland = (p: Tile) =>
+    inHuntCutscene(p) ||
     ((p.level ?? 0) === 1 && inBox(p, 2774, 2790, 3080, 3095)) || ((p.level ?? 0) === 0 && inBox(p, 2690, 2800, 3140, 3240)) || pocketOf(p) !== 'main';
 
 /** Down Timfraku's ladder, and from Brimhaven by Barnaby's boat to Ardougne (lib/jungle-potion.ts leaveJungle). */
 export async function leaveTbwt(q: Quest, tile: Tile): Promise<void> {
+    await waitOutCutscene(q);
     if (pos(q).level === 1) await q.climbTo(0);
     if (pocketOf(pos(q)) !== 'main' && pocketOf({ ...tile, level: tile.level ?? 0 }) !== pocketOf(pos(q))) await leavePocket(q);
     const { leaveJungle, onIsland } = await import('./jungle-potion');
