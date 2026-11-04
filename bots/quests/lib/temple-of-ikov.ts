@@ -395,7 +395,14 @@ export async function guardian(q: Quest): Promise<void> {
         await walk(q, SECRET_DOOR, 1);
         await rawOp(q, SECRET_DOOR.x, SECRET_DOOR.z, 1586, 1, () => pos(q).z >= 9893, 'the secret door');
     }
-    await q.talk(/^guardian of armadyl$/i, [/i seek the staff of armadyl/i, /lucien will give me a grand reward/i, /it'?s time for my yearly bath/i, /ok! i'?ll help/i]);
+    // The guardian's dialog sometimes does not open on the first Talk-to (ABGARMY17 threw here after
+    // one miss, 2026-11-04): a few tries, closing any half-open page between them.
+    for (let attempt = 1; attempt <= 4 && !held(q, OBJ.pendantA); attempt++) {
+        await q.talk(/^guardian of armadyl$/i, [/i seek the staff of armadyl/i, /lucien will give me a grand reward/i, /it'?s time for my yearly bath/i, /ok! i'?ll help/i]).catch((e) => q.log(`ikov: guardian talk ${attempt}: ${(e as Error).message}`));
+        if (held(q, OBJ.pendantA)) break;
+        if (q.sdk.getDialog()?.isOpen) await driveDialog(q.sdk, [/i seek the staff of armadyl/i, /lucien will give me a grand reward/i, /it'?s time for my yearly bath/i, /ok! i'?ll help/i], { ticks: 20, log: q.log });
+        await untilTicks(q.sdk, () => held(q, OBJ.pendantA), 3);
+    }
     if (!held(q, OBJ.pendantA)) throw new Error('ikov: no Armadyl pendant');
 }
 
