@@ -860,6 +860,13 @@ export async function leaveAtoll(q: Quest): Promise<void> {
         if (inTempleCave(pos(q))) await leaveTemple(q);
         else if (inCellar(pos(q))) await cellar(q);
         else if (inZooknockCave(pos(q))) await leaveCave(q);
+        // Holding the greegree (chapter 3 on): out as a monkey. As a human the guards jail us on the way to the
+        // beach, and after the demon (Zooknock drops us at the village's west, sharks spent) the jail escape gave
+        // up "out of food and prayer" (qlkmm1, staging 2026-11-04). The whole atoll is mm_greegree_zone.
+        if (!greegreeOn(q) && q.sdk.getInventory().some((i) => i.id === OBJ.greegree) && onAtollSurface(pos(q))) {
+            await wearGreegree(q).catch((e) => q.log(`mm: leaving the atoll: greegree not on (${(e as Error).message})`));
+            if (greegreeOn(q)) q.log(`mm: leaving the atoll as a monkey from ${where(q)}`);
+        }
         if (inJail(pos(q))) await escapeJail(q, 'leaving the atoll');
         if (inHall(pos(q))) await leaveHall(q);
         if (!onBeach(pos(q))) {
