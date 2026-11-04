@@ -186,6 +186,10 @@ async function leaveCoursePlatform(q: Quest): Promise<void> {
 /** Down from the Grand Tree's L1 and out of its door, onto the stronghold's ground. */
 export async function leaveGrandTree(q: Quest): Promise<void> {
     if (onCoursePlatform(here(q))) return leaveCoursePlatform(q);
+    // The roots under the tree (Monkey Madness's Narnode reward left qlkmm3 at 2464,9897): up their ladder first,
+    // or the trunk door below has no route from there.
+    const { inTreeRoots, leaveGrandTreeArea } = await import('./grand-tree');
+    if (inTreeRoots(here(q))) await leaveGrandTreeArea(q);
     if (here(q).level === 0) {
         // Inside the trunk with the door shut, walkTo has no way out.
         if (Math.abs(here(q).x - TREE_LADDER.x) <= 3 && here(q).z >= 3492 && here(q).z <= 3498) await throughTreeDoor(q, TREE_OUTSIDE);

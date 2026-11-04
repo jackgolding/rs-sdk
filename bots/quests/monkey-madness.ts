@@ -19,6 +19,7 @@
  */
 import { runQuest, type Quest } from './lib/run-quest';
 import type { Need } from './lib/sources';
+import { untilTicks } from './lib/ticks';
 import { amuletItems, arm, awowogeiMission, FIGHT_WANTS, topUp, type Want, deliverMonkey, garkorSigil, greegreeItems, homeOnFoot, journalProse, jungleDemon, leaveAtoll, meetGarkor, seekAlliance, toAtoll, zooMonkey } from './lib/ape-atoll';
 import { inTreeRoots, leaveGrandTreeArea, talkNarnode } from './lib/grand-tree';
 import { daeroInHangar, daeroToHangar, flyToCrashIsland, getOrders, investigateShipyard, OBJ, reinitialise, startQuest, onApeAtoll, onCrashIsland, toApeAtoll, held, worn } from './lib/monkey-madness';
@@ -181,7 +182,9 @@ await runQuest({
                     await q.sdk.waitForTicks(1);
                 }
                 await talkNarnode(q, [/.*/]);
-                // His reward talk can leave us in the roots under the tree (2464,9897): up its ladder.
+                // His reward talk can leave us in the roots under the tree (2464,9897): up its ladder. The drop can land
+                // a few ticks after the talk returns (qlkmm3: the epilogue's goTo then started from the roots and failed).
+                await untilTicks(q.sdk, () => inTreeRoots(here(q)), 8);
                 if (inTreeRoots(here(q))) await leaveGrandTreeArea(q);
             },
         },
