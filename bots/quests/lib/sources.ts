@@ -808,9 +808,12 @@ export const SOURCES: Record<string, Source> = {
         ],
         get: async (q, count) => {
             for (let i = 0; i < 2 * count && q.count('agility potion(3)') < count; i++) {
-                await q.ensure('toadflax', 1);
-                await q.ensure("toad's legs", 1);
-                await q.ensure('vial of water', 1);
+                // Whole batch at once: one trip to the toads, not one per potion.
+                const short = count - q.count('agility potion(3)');
+                const unfHeld = q.sdk.getInventory().filter((x) => x.id === TOADFLAX_UNF).length;
+                await q.ensure('toadflax', Math.max(0, short - unfHeld));
+                await q.ensure("toad's legs", short);
+                await q.ensure('vial of water', Math.max(0, short - unfHeld));
                 const unf = () => q.sdk.getInventory().find((x) => x.id === TOADFLAX_UNF);
                 if (!unf()) {
                     const herb = q.sdk.findInventoryItem(/^toadflax$/i)!;

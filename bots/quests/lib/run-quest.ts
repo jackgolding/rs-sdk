@@ -65,7 +65,7 @@ import { crossGnomeGate, inStronghold, leaveGrandTree } from './gnome-stronghold
 import { spiritTreeShortcut } from './spirit-trees';
 import { inWaterfallArea, leaveWaterfall } from './waterfall';
 import { inPlagueArea, leavePlagueCity } from './plague-city';
-import { inJungleArea, leaveJungle } from './jungle-potion';
+import { inJungleArea, leaveJungle, onIsland as onJungleIsland } from './jungle-potion';
 import { inShiloArea, leaveShilo } from './shilo-village';
 import { inUpassArea, leaveUpass } from './underground-pass';
 import { inKeepArea, leaveKeep } from './merlins-crystal';
@@ -99,6 +99,7 @@ import { inHauntedMineArea, leaveHauntedMine } from './haunted-mine';
 import { inMiscArea, leaveIsland as leaveMiscellania } from './miscellania';
 import { inRomanceArea, leaveRomanceArea } from './troll-romance';
 import { inMorttonSouth, leaveMortton } from './shades-of-mortton';
+import { inTbwtIsland, leaveTbwt } from './tai-bwo-wannai-trio';
 import { tickNow, ticksToMs, untilTicks } from './ticks';
 import { fmtTile } from './floors';
 import { acquireQuestSlot, awaitQuestStartTurn, QUEST_SLOTS, sleepWithoutClient } from './no-client-waits';
@@ -594,6 +595,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (inShiloArea(pos()) && !inShiloArea(tile)) await leaveShilo(q, tile);
                 // Tai Bwo Wannai's jungle and the Rogues Purse cave: out by the hand holds, home by the Brimhaven boat (lib/jungle-potion.ts).
                 if (inJungleArea(pos())) await leaveJungle(q, tile);
+                // Tai Bwo Wannai Trio: Timfraku's upstairs, Brimhaven's west docks, the whole island: the Brimhaven boat (lib/tai-bwo-wannai-trio.ts).
+                if (inTbwtIsland(pos()) && !inTbwtIsland({ ...tile, level: tile.level ?? 0 })) await leaveTbwt(q, tile);
                 // Legends' Quest: the Kharazi jungle (chopped in and out), the shaman caves, the Viyeldi caves (lib/legends-quest.ts).
                 if (inLegendsArea(pos()) && !inLegendsArea(tile)) await leaveLegends(q, tile);
                 // Inside the Gnome Stronghold: walkTo has no route through Femi's gate (fatpig after a
@@ -877,6 +880,9 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inHauntedMineArea(pos())) await leaveHauntedMine(q);
         if (inMiscArea(pos())) await leaveMiscellania(q);
         if (inMorttonSouth(pos())) await leaveMortton(q);
+        // Anywhere on Karamja with the Ardougne hub: the Brimhaven boat, not Musa Point and a walk across Asgarnia
+        // (qltb1's Musa Point walk stalled in a Brimhaven house, 2026-11-04).
+        if (inTbwtIsland(pos()) || (def.hub === 'ardougne' && pos().level === 0 && onJungleIsland(pos()))) await leaveTbwt(q, hub);
         if (pos().level !== 0) await q.climbTo(0);
         if (inShiloArea(pos())) await leaveShilo(q, hub);
         // Out of a dungeon first: the nearest bank below is measured on surface coordinates.
