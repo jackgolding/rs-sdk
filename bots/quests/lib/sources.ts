@@ -957,7 +957,10 @@ export const SOURCES: Record<string, Source> = {
         },
     },
 
+    // jackthief first: Fred's pen gave jacklove13 1 wool in 40 shears on prod (Regicide, 2026-11-04).
     'ball of wool': {
+        mule: true,
+        muleSupply: 'jackthief',
         inputs: (count) => [{ item: 'wool', count }],
         get: async (q, count) => {
             await q.ensure('wool', count - q.count('ball of wool'));
