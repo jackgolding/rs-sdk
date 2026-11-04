@@ -1283,6 +1283,17 @@ export const SOURCES: Record<string, Source> = {
             await fetchDukeShield(q.bot, q.sdk, q.log);
         },
     },
+    /** Horror from the Deep's lighthouse torch: the Lumbridge swamp's ground spawns (m49_49, e.g. 3164,3169 / 3170,3167). */
+    'swamp tar': { obj: 'swamp_tar', get: (q, count) => pickUpSpawn(q, { x: 3167, z: 3169 }, 'swamp tar', count) },
+    /** Horror from the Deep's strange wall eats a stab/slash weapon: the Varrock sword shop's (varrock.inv swordshop). */
+    'bronze dagger': {
+        obj: 'bronze_dagger',
+        inputs: (count) => [{ item: 'coins', count: 10 * count }],
+        get: async (q, count) => {
+            await q.ensure('coins', 10 * count);
+            await buyWaitingForRestock(q, { x: 3204, z: 3399, npc: /^shop (keeper|assistant)$/i }, 'bronze dagger', count);
+        },
+    },
     /** Nature Spirit: The Restless Ghost's amulet (Father Urhney replaces a lost one) — bank stock, not sourced here. */
     'ghostspeak amulet': { obj: 'amulet_of_ghostspeak', mule: true, tool: true },
     /** Nature Spirit: silver bar + sickle mould (Crafting 18) — bank/mule stock, not sourced here. */
