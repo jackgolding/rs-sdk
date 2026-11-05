@@ -358,6 +358,12 @@ async function hop(q: Quest, a: Area, dest: Area): Promise<void> {
             }
             await walk(q, { x: 2840, z: 3690 }, 1);
             // The hall behind the door has Troll Generals (30+ a hit): prayer up before going in.
+            // Never with no points: Dad's fight drains them, and jacklove7 went in at 0 and died (2026-11-05).
+            await eatIfLow(q, 0.8);
+            await topUpPrayer(q);
+            if ((q.sdk.getPrayerState()?.prayerPoints ?? 0) < 20 && (q.sdk.getPrayerState()?.prayerLevel ?? 0) >= 43) {
+                throw new Error(`troll: ${q.sdk.getPrayerState()?.prayerPoints ?? 0} prayer points and no prayer potion — not entering the generals' hall`);
+            }
             await prayMelee(q, true);
             return opLoc(q, LOC.strongholdDoor, at(q, 'l2'), 'stronghold door');
         case 'xpocket':

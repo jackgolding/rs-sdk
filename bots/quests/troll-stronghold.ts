@@ -42,7 +42,9 @@ const passes = async (sdk: Sdk, id: string) => (await readJournalCheckpoint(sdk,
 
 /** Taken at the open hub bank only, so eating them never stops a transition with NEEDS STOCK. */
 const banked = (q: Quest, item: string, count: number) => (q.sdk.isBankOpen() ? [{ item, count }] : []);
-const kit = (q: Quest) => [{ item: 'melee weapon', count: 1 }, ...banked(q, 'shark', 20), ...(q.sdk.findBankItem(/^prayer potion\(\d\)$/i) ? banked(q, 'prayer potion', 4) : [])];
+// Prayer potions always (jackthief serves them when the bank has none): Dad drains the points, and jacklove7
+// walked into the Troll Generals' hall at 0 points and died twice (2026-11-05).
+const kit = (q: Quest) => [{ item: 'melee weapon', count: 1 }, ...banked(q, 'shark', 20), ...banked(q, 'prayer potion(3)', 4)];
 /** Tenzing's boots (12gp) while none are held, worn or banked. */
 const hasBoots = (q: Quest) => q.count(/^climbing boots$/i) > 0 || q.sdk.getEquipment().some((i) => /^climbing boots$/i.test(i.name)) || !!q.sdk.findBankItem(/^climbing boots$/i);
 const bootKit = (q: Quest) => [...kit(q), ...(hasBoots(q) ? [] : [{ item: 'coins', count: 20 }])];
