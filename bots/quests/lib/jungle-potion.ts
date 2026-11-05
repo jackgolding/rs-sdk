@@ -124,7 +124,19 @@ async function sailToArdougne(q: Quest): Promise<void> {
     // bot.walkTo, not q.goTo: run-quest's Karamja box ends at z 3200, so goTo would take the
     // customs tile for the mainland and sail from Musa Point instead.
     const walk = await q.bot.walkTo(BRIMHAVEN_CUSTOMS.x, BRIMHAVEN_CUSTOMS.z, 4);
-    if (!walk.success) q.log(`jungle: walk to the Brimhaven customs: ${walk.message}`);
+    if (!walk.success) {
+        q.log(`jungle: walk to the Brimhaven customs: ${walk.message} — hopping along the static path`);
+        // One long walkTo from the south jungle stalls (jacklove1 sat at 2802,3111 for 3h,
+        // 2026-11-05) while 10-tile walks get through: hop the path a dozen tiles at a time.
+        const here = pos(q);
+        const { findLongPath } = await import('../../../sdk/pathfinding');
+        const path = findLongPath(0, here.x, here.z, BRIMHAVEN_CUSTOMS.x, BRIMHAVEN_CUSTOMS.z);
+        for (let i = 12; path.length && i < path.length + 12; i += 12) {
+            const wp = path[Math.min(i, path.length - 1)]!;
+            const r = await q.bot.walkTo(wp.x, wp.z, 2);
+            if (!r.success) q.log(`jungle: hop to (${wp.x},${wp.z}): ${r.message}`);
+        }
+    }
     for (let i = 0; i < 3 && onIsland(pos(q)); i++) {
         await q.talk(/^customs officer$/i, [/can i journey on this ship/i, /search away/i, /^ok\.?$/i]);
         await untilTicks(q.sdk, () => !onIsland(pos(q)), 30);
