@@ -1580,6 +1580,8 @@ export const SOURCES: Record<string, Source> = {
             await buyWaitingForRestock(q, DOMMIK, 'sickle mould', 1);
         },
     },
+    /** jackthief holds ~145 (Nature Spirit's sickle harvest, 2026-11-05). */
+    'prayer potion(3)': { obj: '3doseprayerrestore', mule: true, muleSupply: 'jackthief' },
     /** Silver bars: jackthief's stock (smelting silver ore is not sourced here). */
     'silver bar': { obj: 'silver_bar', mule: true, muleSupply: 'jackthief' },
     /**
