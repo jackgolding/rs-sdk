@@ -150,6 +150,22 @@ const canPassPrisonDoor = (q: Quest) => stageAtLeast(q, 'entered_prison') || q.c
 const messagesSince = (q: Quest, t0: number) => (q.sdk.getState()?.gameMessages ?? []).filter((m) => m.tick >= t0).map((m) => m.text);
 const heard = (q: Quest, t0: number, re: RegExp) => messagesSince(q, t0).some((m) => re.test(m));
 
+const MAGIC_TAB = 6;
+const CAMELOT_TELEPORT = 1174;
+/** Camelot Teleport (Magic 45: 1 law, 5 air) out of a pocket with no walk out; throws either way so the attempt restarts. */
+async function teleportOutOfPocket(q: Quest): Promise<never> {
+    const ok = q.level('magic') >= 45 && q.count('law rune') >= 1 && q.count('air rune') >= 5;
+    if (!ok) throw new Error(`troll: shut in the secret-door pocket at ${where(q)} with no Camelot Teleport runes`);
+    const from = pos(q);
+    for (let i = 0; i < 3 && Math.hypot(pos(q).x - from.x, pos(q).z - from.z) < 20; i++) {
+        await q.sdk.sendSetTab(MAGIC_TAB).catch(() => undefined);
+        await q.sdk.waitForTicks(1);
+        await q.sdk.sendClickComponent(CAMELOT_TELEPORT);
+        await untilTicks(q.sdk, () => Math.hypot(pos(q).x - from.x, pos(q).z - from.z) >= 20, 8);
+    }
+    throw new Error(`troll: teleported out of the secret-door pocket to ${where(q)} — next attempt walks in`);
+}
+
 async function eatIfLow(q: Quest, below = 0.6): Promise<void> {
     const p = q.sdk.getState()?.player;
     if (!p || p.hp > (p.maxHp ?? 10) * below) return;
@@ -368,6 +384,10 @@ async function hop(q: Quest, a: Area, dest: Area): Promise<void> {
             return opLoc(q, LOC.strongholdDoor, at(q, 'l2'), 'stronghold door');
         case 'xpocket':
             if (back || !viaSecret) {
+                // The box holds two pockets: the secret door's west side has no walk to the rocks (jacklove7 sat at
+                // 2820,3635 failing the rocks ×8 per run, 2026-11-05). Teleport out and let the next attempt route in.
+                const { findLongPath } = await import('../../../sdk/pathfinding');
+                if (!findLongPath(0, pos(q).x, pos(q).z, 2834, 3629).length) await teleportOutOfPocket(q);
                 await walk(q, { x: 2834, z: 3629 }, 0);
                 return opLoc(q, LOC.rocksWest, at(q, 'band'), 'troll rocks (2834,3628) south', 8);
             }
