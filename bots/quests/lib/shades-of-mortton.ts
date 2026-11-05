@@ -159,11 +159,13 @@ export async function prayMelee(q: Quest, on: boolean): Promise<void> {
 }
 
 /** A risen shade on us (it closes any interface we open): kill it first. */
-async function defend(q: Quest, maxTicks = 80, within = 2): Promise<void> {
+async function defend(q: Quest, maxTicks = 80, within = 2, shadows = false): Promise<void> {
     const t0 = tickNow(q.sdk);
     let last = -99;
     while (tickNow(q.sdk) - t0 < maxTicks) {
-        const on = npcsById(q, NPC.shade).filter((n) => n.distance <= within);
+        // `shadows`: also the dormant Loar Shadows (1240), which rise into shades beside you — one a tile from
+        // Razmire kept closing his store (ABGARMY20, 2026-11-05).
+        const on = (shadows ? npcsById(q, NPC.shade, NPC.shadow) : npcsById(q, NPC.shade)).filter((n) => n.distance <= within);
         if (!on.length) return;
         await eatIfLow(q);
         if (q.sdk.getDialog()?.isOpen) await closeDialogs(q);
@@ -437,7 +439,7 @@ export async function buyFromRazmire(q: Quest, store: 'general' | 'building', it
     // empty shelf for a tick: clear shades over a wider radius before each round, and allow more rounds.
     for (let round = 1; round <= 25 && want().length; round++) {
         await prayMelee(q, true);
-        await defend(q, 160, 10);
+        await defend(q, 200, 10, true);
         if (!open()) await serumTalk(q, 'razmire', menu, () => open(), `Razmire's ${store} store`).catch((e: Error) => q.log(e.message));
         for (const [re, n] of want()) {
             if (!open()) break;
