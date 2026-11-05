@@ -83,6 +83,8 @@ const step = (fn: (q: Quest) => Promise<void>) => async (q: Quest) => {
 await runQuest({
     id: 'legends',
     hub: 'ardougne',
+    // legends_guard.rs2 also wants 107 QP; the quest list's name for Heroes' Quest is "Hero's Quest".
+    requires: ["Hero's Quest", 'Family Crest', 'Shilo Village', 'Underground Pass', 'Waterfall Quest'],
     skills: { magic: 56, mining: 52, agility: 50, crafting: 50, smithing: 50, strength: 50, thieving: 50, woodcutting: 50, herblore: 45, prayer: 42 },
     // One jungle, one octagram, one source: Gujuo and Nezikchened spawn per player, but two accounts
     // on the same boulder or tree would fight over it.
