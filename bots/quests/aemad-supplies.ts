@@ -5,7 +5,7 @@
  * Ardougne south bank, repeats until the bank holds the targets, then parks and rechecks.
  * Starts and ends at the south bank: a stop mid-trip walks back and banks the pack.
  *
- *   bun bots/quests/aemad-supplies.ts {botname} [--vials=1000] [--ropes=50]
+ *   bun bots/quests/aemad-supplies.ts {botname} [--vials=1000] [--ropes=50] [--wool=0]
  *
  * The user's call (2026-11-01): its own job, not a step inside the boss scripts.
  */
@@ -25,6 +25,7 @@ import type { Quest } from './lib/run-quest';
 const AEMAD = { x: 2613, z: 3294, npc: /^aemad$/i };
 const VIAL = /^vial of water$/i;
 const ROPE = /^rope$/i;
+const WOOL = /^ball of wool$/i;
 const COINS = /^coins$/i;
 /** Enough for a full pack of rope at 23gp with headroom for the price rising as stock falls. */
 const COINS_WANT = 1_000;
@@ -39,6 +40,7 @@ const numArg = (name: string, dflt: number) => {
 };
 const VIAL_TARGET = numArg('vials', 1_000);
 const ROPE_TARGET = numArg('ropes', 50);
+const WOOL_TARGET = numArg('wool', 0);
 
 function loadBotEnv(): void {
     const envPath = botArg ? join(process.cwd(), 'bots', botArg, 'bot.env') : join(dirname(import.meta.path), 'bot.env');
@@ -148,14 +150,16 @@ async function bank(): Promise<boolean> {
 }
 
 /** One pack from Aemad: ropes first (the scarce stock), vials in the rest. */
-async function buyPack(needVials: number, needRopes: number): Promise<number> {
+async function buyPack(needVials: number, needRopes: number, needWool = 0): Promise<number> {
     await session.setPhase('shop');
     await closeUi(bot, sdk);
     const ropes = Math.min(ROPES_PER_TRIP, needRopes, Math.floor(count(COINS) / 30));
-    const vials = Math.min(needVials, freeSlots() - ropes, Math.floor((count(COINS) - ropes * 30) / 3));
-    const before = { v: count(VIAL), r: count(ROPE) };
+    const wool = Math.min(needWool, Math.max(0, Math.floor((freeSlots() - ropes) / 2)), Math.floor((count(COINS) - ropes * 30) / 3));
+    const vials = Math.min(needVials, freeSlots() - ropes - wool, Math.floor((count(COINS) - ropes * 30 - wool * 3) / 3));
+    const before = { v: count(VIAL), r: count(ROPE), w: count(WOOL) };
     const items = [
         ...(ropes > 0 ? [{ pattern: ROPE, amount: ropes, label: 'rope' }] : []),
+        ...(wool > 0 ? [{ pattern: WOOL, amount: wool, label: 'ball of wool' }] : []),
         ...(vials > 0 ? [{ pattern: VIAL, amount: vials, label: 'vial of water' }] : [])
     ];
     if (items.length === 0) return 0;
@@ -165,12 +169,12 @@ async function buyPack(needVials: number, needRopes: number): Promise<number> {
         items
     ).catch((e) => log(`Aemad: ${e instanceof Error ? e.message : String(e)}`));
     await closeUi(bot, sdk);
-    const got = { v: count(VIAL) - before.v, r: count(ROPE) - before.r };
+    const got = { v: count(VIAL) - before.v, r: count(ROPE) - before.r, w: count(WOOL) - before.w };
     boughtVials += got.v;
     boughtRopes += got.r;
-    if (got.v + got.r > 0) session.noteProgress('inventory', `vials +${got.v} ropes +${got.r}`);
-    log(`Aemad: bought ${got.v} vials of water, ${got.r} ropes (coins ${count(COINS)})`);
-    return got.v + got.r;
+    if (got.v + got.r + got.w > 0) session.noteProgress('inventory', `vials +${got.v} ropes +${got.r} wool +${got.w}`);
+    log(`Aemad: bought ${got.v} vials of water, ${got.r} ropes, ${got.w} balls of wool (coins ${count(COINS)})`);
+    return got.v + got.r + got.w;
 }
 
 async function park(why: string): Promise<void> {
@@ -202,8 +206,9 @@ try {
         }
         const needVials = Math.max(0, VIAL_TARGET - banked(VIAL));
         const needRopes = Math.max(0, ROPE_TARGET - banked(ROPE));
+        const needWool = Math.max(0, WOOL_TARGET - banked(WOOL));
         await bot.closeBank();
-        if (needVials + needRopes === 0) {
+        if (needVials + needRopes + needWool === 0) {
             await park(`bank holds ${banked(VIAL)} vials and ${banked(ROPE)} ropes`);
             continue;
         }
@@ -212,7 +217,7 @@ try {
             await park('no coins');
             continue;
         }
-        const got = await buyPack(needVials, needRopes);
+        const got = await buyPack(needVials, needRopes, needWool);
         trips++;
         // Aemad's stock restocks slowly once bought out: wait a while before the next pack.
         if (got === 0) await sdk.waitForTicks(100).catch(() => {});

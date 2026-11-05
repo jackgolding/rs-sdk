@@ -446,6 +446,9 @@ async function bankTrip(): Promise<boolean> {
         ...(!hasDuelingRing(sdk) ? [{ label: 'ring of dueling(8)', pattern: /^ring of dueling\(8\)$/i, count: 1 }] : []),
         // jacklove16's antifire (2026-11-02): with the shield, iron/steel breath does nothing.
         ...(!count(ANTIFIRE) && potRoom > 2 ? [{ label: 'antifire potion(3)', pattern: /^antifire potion\(3\)$/i, count: 2 }] : []),
+        // Boosts for the trip (user, 2026-11-06): jackthief brews these from the fleet's herbs.
+        ...(!count(SUPER_ATTACK) && potRoom > 4 ? [{ label: 'super attack(3)', pattern: /^super attack\(3\)$/i, count: 1 }] : []),
+        ...(!count(SUPER_STRENGTH) && potRoom > 5 ? [{ label: 'super strength(3)', pattern: /^super strength\(3\)$/i, count: 1 }] : []),
         ...(!WEAPONS.some(has) ? [{ label: 'dragon longsword', pattern: /^dragon longsword$/i, count: 1 }] : []),
         ...(!has(/^(rune|dragon) (platelegs|plateskirt)$/i) ? [{ label: 'rune platelegs', pattern: /^rune platelegs$/i, count: 1 }] : []),
         ...(!has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i) ? [{ label: 'berserker helm', pattern: /^berserker helm$/i, count: 1 }] : []),
