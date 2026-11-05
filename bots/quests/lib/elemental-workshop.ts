@@ -181,7 +181,25 @@ export async function findBook(q: Quest): Promise<void> {
     if (!holds(q, OBJ.book)) {
         await q.goTo(BOOKCASE, 3);
         await q.reach(/^bookcase$/i, /^search$/i).catch(() => undefined);
-        await opUntil(q, LOC.bookcase, BOOKCASE, () => holds(q, OBJ.book), 'search the bookcase');
+        // The house door shut: "I can't reach that!" ×4 (jacklove2, jacklove13, 2026-11-05). Open the nearest
+        // closed door and search again.
+        for (let attempt = 1; attempt <= 3 && !holds(q, OBJ.book); attempt++) {
+            const ok = await opUntil(q, LOC.bookcase, BOOKCASE, () => holds(q, OBJ.book), 'search the bookcase').then(() => true).catch((e) => {
+                q.log(`ew: ${(e as Error).message} (attempt ${attempt})`);
+                return false;
+            });
+            if (ok) break;
+            await q.sdk.scanNearbyLocs(8).catch(() => undefined);
+            const p = q.sdk.getState()?.player;
+            const door = (q.sdk.getNearbyLocs() ?? [])
+                .filter((l) => /door/i.test(l.name) && l.options.some((o) => /^open$/i.test(o)))
+                .sort((a, b) => Math.hypot(a.x - (p?.worldX ?? 0), a.z - (p?.worldZ ?? 0)) - Math.hypot(b.x - (p?.worldX ?? 0), b.z - (p?.worldZ ?? 0)))[0];
+            if (!door) break;
+            q.log(`ew: opening ${door.name} at (${door.x},${door.z})`);
+            await q.bot.openDoor(door).catch(() => undefined);
+            await q.sdk.waitForTicks(2);
+        }
+        if (!holds(q, OBJ.book)) throw new Error(`ew: search the bookcase failed (no way in)`);
     }
     await readBook(q);
 }
