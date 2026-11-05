@@ -342,6 +342,13 @@ export async function serumTalk(q: Quest, who: 'razmire' | 'ulsquire', choices: 
             continue;
         }
         text += await driveDialog(q.sdk, choices, { ticks: 60, log: q.log });
+        // The dialog's last choice can open a store: closeDialogs would close it again (its sendCloseModal fires on
+        // any open main modal), so every buy then failed with "Failed to buy from shop" (ABGARMY20, jacklove16,
+        // 2026-11-05). The modal shows in state a tick after the dialog ends, so give `done` a few ticks first.
+        for (let i = 0; i < 3; i++) {
+            if (await done()) return text;
+            await q.sdk.waitForTicks(1);
+        }
         await closeDialogs(q);
     }
     if (!(await done())) throw new Error(`mortton: ${label} not done`);
