@@ -50,6 +50,8 @@ await runQuest({
     hub: 'ardougne',
     journal,
     carry: [O.pendantL, O.pendantA, O.boots, O.lever, O.iceArrow],
+    // Worn at once: with 20 roots the three of them left no slot for the candle (jacklove8, 2026-11-05).
+    wear: [O.pendantL, O.boots, O.iceArrow],
     skills: { thieving: 42, ranged: 40 },
     // The Fire Warrior and the chests' arrows are per player; Lucien is a shared npc.
     maxConcurrent: 2,

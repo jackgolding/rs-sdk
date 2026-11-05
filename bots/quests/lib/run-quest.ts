@@ -195,6 +195,12 @@ export interface QuestDef {
      * is banked, so the prologue withdraws these again.
      */
     carry?: Array<string | number>;
+    /**
+     * Carried items (same form as `carry`) to put on as soon as the prologue withdraws them, so
+     * they take no pack slot while the needs are sourced (jacklove8's Ikov: pendant, boots and
+     * ice arrows filled the pack before the candle, 2026-11-05).
+     */
+    wear?: Array<string | number>;
     /** Attempts per transition before giving up (default 3). */
     retries?: number;
     /** Stages at which the prologue skips the walk to the hub and its banking (the run carries on from where it stands). */
@@ -1031,6 +1037,15 @@ export async function runQuest(def: QuestDef): Promise<void> {
             await bot.withdrawItem(banked, 1);
             await sdk.waitForTicks(2);
             log(`withdrew ${banked.name}${typeof item === 'number' ? ` #${item}` : ''} (quest item from an earlier run)`);
+        }
+        if (def.wear?.length) {
+            await bot.closeBank();
+            for (const item of def.wear) {
+                const it = typeof item === 'number' ? sdk.getInventory().find((i) => i.id === item) : sdk.findInventoryItem(itemPattern(item));
+                if (!it) continue;
+                const r = await bot.equipItem(it).catch((e) => ({ success: false, message: String(e) }));
+                log(`wore ${it.name}: ${r.success ? 'ok' : r.message}`);
+            }
         }
         await bot.closeBank().catch(() => undefined);
         log(`prologue: naked at ${def.hub} (${startAt.x},${startAt.z}); carrying ${describeInventory(sdk)}`);
