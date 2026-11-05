@@ -274,6 +274,12 @@ async function toDrezel(q: Quest): Promise<void> {
 export async function toEastBank(q: Quest): Promise<void> {
     if (onEastBank(pos(q)) || inSwamp(pos(q)) || inCamp(pos(q)) || inGrotto(pos(q))) return;
     await toDrezel(q);
+    // Priest in Peril complete (60) is not enough: Drezel's barrier warning sets 61, the value
+    // holy_barrier.rs2 checks. An account that never heard it is refused (jacklove13, 2026-11-05).
+    const through = await opLoc(q, LOC.barrier, BARRIER, 1, () => onEastBank(pos(q)), 'through the holy barrier', [], 2).then(() => true, () => false);
+    if (through) return;
+    q.log('ns: the holy barrier refused — hearing Drezel out first');
+    await q.talk(/^drezel$/i, [], DREZEL);
     await opLoc(q, LOC.barrier, BARRIER, 1, () => onEastBank(pos(q)), 'through the holy barrier');
 }
 
