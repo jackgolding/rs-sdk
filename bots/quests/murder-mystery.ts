@@ -110,7 +110,15 @@ async function opLocHere(q: Quest, at: Tile, name: RegExp, opt: RegExp, done: ((
     let seen = '';
     for (let attempt = 1; attempt <= 4; attempt++) {
         if (finished()) return seen;
-        await q.goTo({ x: at.x, z: at.z, level: at.level ?? 0 }, 3);
+        // goTo to an upstairs tile from the ground floor does not climb ("arrived on the wrong floor" on
+        // jacklove2, ABGARMY06, jacklove7, 2026-11-04): get near on our floor, then climb to theirs.
+        const lvl = at.level ?? 0;
+        const here = q.sdk.getState()?.player?.level ?? 0;
+        if (here !== lvl) {
+            if (lvl > here) await q.goTo({ x: at.x, z: at.z }, 6).catch((e) => q.log(`murder: ${label}: ${(e as Error).message.slice(0, 100)}`));
+            await q.climbTo(lvl, { x: at.x, z: at.z }).catch((e) => q.log(`murder: ${label}: climb: ${(e as Error).message.slice(0, 100)}`));
+        }
+        await q.goTo({ x: at.x, z: at.z, level: lvl }, 3);
         // Barrels and the like sit in rooms behind shut doors ("I can't reach that!" from Anna's).
         await q.reach(name, opt).catch((e) => q.log(`murder: ${label}: ${(e as Error).message}`));
         await q.sdk.scanNearbyLocs(10).catch(() => undefined);
