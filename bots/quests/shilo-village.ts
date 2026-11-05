@@ -87,6 +87,8 @@ const step = (fn: (q: Quest) => Promise<void>) => async (q: Quest) => {
 await runQuest({
     id: 'zombiequeen',
     hub: 'ardougne',
+    // Mosol Rei hands out the Wampum belt only after Jungle Potion (ABGARMY17 talked to him 3× for nothing, 2026-11-05).
+    requires: ['Jungle Potion'],
     skills: { agility: 32, crafting: 20 },
     carry: [
         'wampum belt',

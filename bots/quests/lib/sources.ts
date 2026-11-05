@@ -514,7 +514,17 @@ export const SOURCES: Record<string, Source> = {
 
     // ── Monk's Friend: one set of logs for Cedric's cart. Ground spawns south-west of
     // the monastery (m38_49 obj placements), so no axe or Woodcutting level is needed.
-    logs: { get: (q, count) => pickSpawns(q, 'logs', count, LOGS_SPAWNS_SW_ARDOUGNE) },
+    logs: {
+        get: async (q, count) => {
+            await pickSpawns(q, 'logs', count, LOGS_SPAWNS_SW_ARDOUGNE);
+            // Shared spawns run dry (jacklove13's Eadgar's Ruse: 1/2 logs in 637t, 2026-11-05): chop Draynor's
+            // plain trees with the account's axe, while the pack has room for the rest (the chopper drops logs when full).
+            if (q.count('logs') >= count || 28 - q.sdk.getInventory().length < count - q.count('logs')) return;
+            const { chopUntil, TREES } = await import('./training');
+            await q.ensure('axe', 1);
+            await chopUntil(q, () => q.count('logs') >= count, () => TREES.find((t) => t.logs === '')!);
+        },
+    },
 
     // ── Witch's House
     cheese: {

@@ -139,7 +139,7 @@ async function dropAll(q: Quest, item: RegExp): Promise<void> {
 }
 
 /** Chop `which()` trees until `until()` (the pack full of logs is dropped and chopping goes on). */
-async function chopUntil(q: Quest, until: () => boolean, which: () => TreeSpot): Promise<void> {
+export async function chopUntil(q: Quest, until: () => boolean, which: () => TreeSpot): Promise<void> {
     const t0 = tickNow(q.sdk);
     let misses = 0;
     while (!until() && tickNow(q.sdk) - t0 < 20_000) {
