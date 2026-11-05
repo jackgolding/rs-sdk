@@ -20,7 +20,19 @@ export const inMansionUpstairs = (p: Tile) => (p.level ?? 0) === 1 && p.x >= 272
 export async function leaveMansionUpstairs(q: Quest): Promise<void> {
     const p = q.sdk.getState()?.player;
     if (!p || !inMansionUpstairs({ x: p.worldX, z: p.worldZ, level: p.level })) return;
-    const walk = await q.bot.walkTo(LADDER_TOP_SIDE.x, LADDER_TOP_SIDE.z, 1);
-    if (!walk.success) q.log(`mansion: walk to the upstairs ladder: ${walk.message}`);
+    // A door walkTo will not open (jacklove8 "Stuck at (2744,3578)", 2026-11-05): open the nearest closed door, retry.
+    for (let attempt = 1; attempt <= 4; attempt++) {
+        const walk = await q.bot.walkTo(LADDER_TOP_SIDE.x, LADDER_TOP_SIDE.z, 1);
+        if (walk.success) break;
+        q.log(`mansion: walk to the upstairs ladder (attempt ${attempt}): ${walk.message}`);
+        await q.sdk.scanNearbyLocs(6).catch(() => undefined);
+        const me = q.sdk.getState()?.player;
+        const door = (q.sdk.getNearbyLocs() ?? [])
+            .filter((l) => /door/i.test(l.name) && l.options.some((o) => /^open$/i.test(o)))
+            .sort((a, b) => Math.hypot(a.x - (me?.worldX ?? 0), a.z - (me?.worldZ ?? 0)) - Math.hypot(b.x - (me?.worldX ?? 0), b.z - (me?.worldZ ?? 0)))[0];
+        if (!door) break;
+        await q.bot.openDoor(door).catch(() => undefined);
+        await q.sdk.waitForTicks(2);
+    }
     await q.climbTo(0);
 }

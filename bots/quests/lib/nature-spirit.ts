@@ -523,6 +523,8 @@ export async function fillPouch(q: Quest): Promise<void> {
     // Each sickle cast costs prayer (quest_druidspirit.rs2): top up at the grotto's nature altar before the
     // swamp — jacklove16 ran dry mid-harvest (2026-11-05). The transition's retry tops up again.
     const prayer = () => q.sdk.getSkill('prayer');
+    // A run resumed outside (jacklove16 from Varrock, 2026-11-05) never passes through: go in to pray.
+    if (!inGrotto(pos(q)) && (prayer()?.level ?? 0) < (prayer()?.baseLevel ?? 1)) await intoGrotto(q).catch((e) => q.log(`ns: into the grotto to pray: ${(e as Error).message}`));
     if (inGrotto(pos(q)) && (prayer()?.level ?? 0) < (prayer()?.baseLevel ?? 1)) {
         await q.sdk.scanNearbyLocs(10).catch(() => undefined);
         const altar = (q.sdk.getNearbyLocs() ?? []).find((l) => /altar/i.test(l.name) && l.optionsWithIndex.length > 0);
