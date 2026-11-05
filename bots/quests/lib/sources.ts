@@ -2333,7 +2333,14 @@ export async function huntDrop(q: Quest, spot: HuntSpot, item: string, count: nu
         const npc = (q.sdk.getNearbyNpcs() ?? [])
             .filter((n) => spot.npc.test(n.name) && !n.inCombat && n.reachable !== false)
             .sort((a, b) => a.distance - b.distance)[0];
-        if (loot) {
+        if (loot && q.sdk.getInventory().length >= 28) {
+            // A full pack leaves the drop on the ground and the hunt times out on "no progress" (jacklove2's
+            // Eadgar's Ruse: 4/5 raw chickens with a 28-slot kit, 2026-11-05): eat food for the slot.
+            const food = q.sdk.getInventory().find((i) => /^(shark|lobster|swordfish|monkfish|tuna|trout|salmon|bass|cake|bread)$/i.test(i.name));
+            if (!food) throw new Error(`pack is full — no room for ${item} (holding ${q.count(item)}/${count})`);
+            await q.bot.eatFood(food).catch(() => undefined);
+            await q.sdk.waitForTicks(2);
+        } else if (loot) {
             await q.bot.pickupItem(loot);
             await untilTicks(q.sdk, () => looted() > before, 8);
         } else if (npc) {
