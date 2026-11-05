@@ -127,6 +127,8 @@ async function restock(q: Quest, bank: { x: number; z: number }, spare = 2): Pro
 await runQuest({
     id: 'eadgar',
     hub: 'falador-west',
+    // Sanfew only starts it once Troll Stronghold is done (ABGARMY20/ABGARMY05 walked to Taverley and Tenzing for nothing, 2026-11-05).
+    requires: ['Troll Stronghold'],
     journal,
     skills: { herblore: 31, agility: 15 },
     carry: CARRY,

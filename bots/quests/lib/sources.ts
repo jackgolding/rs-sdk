@@ -1030,6 +1030,16 @@ export const SOURCES: Record<string, Source> = {
                 await spinBatch(q);
                 misses = q.count('wool') < before ? 0 : misses + 1;
             }
+            // Spare wool and the shears stayed in the pack and filled it before Regicide's water rune
+            // (jacklove13, 2026-11-05): drop them once the balls are spun.
+            if (q.count('ball of wool') >= count) {
+                for (let guard = 0; guard < 10; guard++) {
+                    const junk = q.sdk.getInventory().find((i) => /^(wool|shears)$/i.test(i.name));
+                    if (!junk) break;
+                    await q.sdk.sendDropItem(junk.slot).catch(() => undefined);
+                    await q.sdk.waitForTicks(2);
+                }
+            }
             await q.climbTo(0);
         },
     },
