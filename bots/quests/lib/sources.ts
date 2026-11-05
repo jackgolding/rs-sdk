@@ -1164,6 +1164,8 @@ export const SOURCES: Record<string, Source> = {
         },
     },
     rope: {
+        // jackthief banks 90 ropes: a coin-short account failed Regicide at Ned (ABGARMY17/20, 2026-11-05).
+        muleSupply: 'jackthief',
         inputs: (count) => [{ item: 'coins', count: 15 * count }],
         get: async (q, count) => {
             for (let misses = 0; misses < 3 && q.count('rope') < count; ) {
