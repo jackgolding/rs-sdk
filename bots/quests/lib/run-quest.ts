@@ -612,7 +612,9 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // Scorpion Catcher: the Barbarian Outpost (out by its gate), the Sorcerer's Tower, Taverley's secret room (lib/scorpion-catcher.ts).
                 // Death Plateau: Saba's cave (an instance at 2255-2285,4740-4770) — a run stopped inside it had no way out
                 // (jacklove4 restarted mid-visit, 2026-11-05). lib/death-plateau.ts leaveAnywhere uses the cave exit.
-                if (pos().x >= 2255 && pos().x <= 2285 && pos().z >= 4740 && pos().z <= 4770 && !(tile.x >= 2255 && tile.x <= 2285 && tile.z >= 4740 && tile.z <= 4770)) {
+                // Also Tenzing's hut yard and the other Burthorpe pockets (jacklove13 stuck at 2822,3555, 2026-11-05).
+                const deathPockets = (t: { x: number; z: number }) => (t.x >= 2255 && t.x <= 2285 && t.z >= 4740 && t.z <= 4770) || (t.x >= 2800 && t.x <= 2920 && t.z >= 3530 && t.z <= 3620);
+                if (deathPockets(pos()) && !deathPockets(tile)) {
                     const { leaveAnywhere } = await import('./death-plateau');
                     await leaveAnywhere(q).catch((e) => log(`Saba's cave: ${(e as Error).message}`));
                 }
@@ -955,7 +957,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inSeaSlugArea(pos()) && !noHub) await leaveSeaSlug(q);
         if (inMonkeyMadnessArea(pos()) && !noHub) await leaveMonkeyMadness(q);
         if (inScorpionArea(pos())) await leaveScorpionArea(q);
-        if (pos().x >= 2255 && pos().x <= 2285 && pos().z >= 4740 && pos().z <= 4770) {
+        if ((pos().x >= 2255 && pos().x <= 2285 && pos().z >= 4740 && pos().z <= 4770) || (pos().x >= 2800 && pos().x <= 2920 && pos().z >= 3530 && pos().z <= 3620)) {
             const { leaveAnywhere } = await import('./death-plateau');
             await leaveAnywhere(q).catch((e) => log(`Saba's cave: ${(e as Error).message}`));
         }
