@@ -187,6 +187,7 @@ export interface QuestDef {
      * Journal titles of quests that must be complete before an unstarted run begins (Holy Grail
      * without Merlin's Crystal looped on King Arthur's knight dialog; Myreque without Nature Spirit
      * died at the holy barrier, 2026-11-04). Checked only at the first stage; resumed runs skip it.
+     * "Title (started)" only needs the quest begun (Mort'ton's swamp gate wants Nature Spirit started).
      */
     requires?: string[];
     /**
@@ -507,7 +508,10 @@ export async function runQuest(def: QuestDef): Promise<void> {
             throw new Error(`skill gate: account cannot do this quest yet (needs ${Object.entries(untrainable).map(([s, l]) => `${s} ${l}`).join(', ')})`);
         }
         if (run && def.requires?.length && start === def.stages[0]!.id) {
-            for (const title of def.requires) {
+            for (const entry of def.requires) {
+                // "Nature Spirit (started)": begun is enough (Mort'ton's swamp gate) — block only while unstarted.
+                const startedOnly = / \(started\)$/.test(entry);
+                const title = entry.replace(/ \(started\)$/, '');
                 // The quest's own journal is still open from the checkpoint: the reader waits for a journal to
                 // open, and an open one read as UNKNOWN (Monkey Madness staging, 2026-11-05). Close it first; then
                 // retry an unread journal and only block on FAIL (jacklove4's Holy Grail, 2026-11-04).
@@ -515,10 +519,18 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 await untilTicks(sdk, (s) => !s.interface?.isOpen, 3);
                 let verdict: string | undefined;
                 for (let attempt = 1; attempt <= 3 && verdict !== 'PASS' && verdict !== 'FAIL'; attempt++) {
-                    const read = await readJournalCheckpoint(sdk, { label: title, title }, { id: `requires:${title}`, kind: 'complete', all: ['QUEST COMPLETE'] });
+                    const rule = startedOnly
+                        ? { id: `requires:${title}:started`, kind: 'unstarted' as const, all: ['I can start this quest'] }
+                        : { id: `requires:${title}`, kind: 'complete' as const, all: ['QUEST COMPLETE'] };
+                    const read = await readJournalCheckpoint(sdk, { label: title, title }, rule);
                     await sdk.sendCloseModal().catch(() => undefined);
                     verdict = read.verdict?.verdict;
                     if (verdict !== 'PASS' && verdict !== 'FAIL') await sdk.waitForTicks(3);
+                }
+                if (startedOnly) {
+                    // The unstarted rule PASSing means the quest has not been begun.
+                    if (verdict === 'PASS') throw new Error(`prerequisite gate: ${title} not started`);
+                    continue;
                 }
                 if (verdict === 'FAIL') throw new Error(`prerequisite gate: ${title} not complete`);
                 if (verdict !== 'PASS') log(`prerequisite ${title}: journal unread (${verdict ?? 'no verdict'}) — going ahead`);

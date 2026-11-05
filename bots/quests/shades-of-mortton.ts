@@ -186,6 +186,9 @@ const underwayOnRun = (ts: Transition[]): Transition[] =>
 await runQuest({
     id: 'mortton',
     hub: 'varrock-east',
+    // Mort Myre's gate: Nature Spirit begun. Its 2-account slot cap made the runner skip on to this and
+    // walk to the gate for nothing (jacklove2, ABGARMY17, 2026-11-05).
+    requires: ['Nature Spirit (started)'],
     journal,
     skills: { herblore: 15, crafting: 20, firemaking: 5 },
     carry: ['diary', 'serum 207 (4)', 'serum 207 (3)', 'serum 207 (2)', 'serum 207 (1)', 'loar remains', 'hammer', 'tinderbox', 'olive oil(4)', 'olive oil(3)', 'olive oil(2)', 'sacred oil(3)', 'sacred oil(2)', 'pyre logs', sm.OBJ.unf],
