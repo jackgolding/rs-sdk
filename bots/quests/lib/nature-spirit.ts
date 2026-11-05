@@ -520,6 +520,18 @@ const bloomedHarvest = (q: Quest) => countId(q, OBJ.pear) + countId(q, OBJ.stem)
 export async function fillPouch(q: Quest): Promise<void> {
     if (holds(q, OBJ.pouch)) return;
     await grottoPouch(q);
+    // Each sickle cast costs prayer (quest_druidspirit.rs2): top up at the grotto's nature altar before the
+    // swamp — jacklove16 ran dry mid-harvest (2026-11-05). The transition's retry tops up again.
+    const prayer = () => q.sdk.getSkill('prayer');
+    if (inGrotto(pos(q)) && (prayer()?.level ?? 0) < (prayer()?.baseLevel ?? 1)) {
+        await q.sdk.scanNearbyLocs(10).catch(() => undefined);
+        const altar = (q.sdk.getNearbyLocs() ?? []).find((l) => /altar/i.test(l.name) && l.optionsWithIndex.length > 0);
+        if (altar) {
+            await q.bot.interactLoc(altar, altar.optionsWithIndex[0]!.text).catch(() => undefined);
+            await untilTicks(q.sdk, () => (prayer()?.level ?? 0) >= (prayer()?.baseLevel ?? 1), 12);
+            q.log(`ns: prayer at the grotto altar → ${prayer()?.level}/${prayer()?.baseLevel}`);
+        } else q.log('ns: no altar in view in the grotto');
+    }
     await leaveCamp(q);
     await intoSwamp(q);
     for (let i = 0; i < 3 && (pos(q).x !== PEAR_AT.x || pos(q).z !== PEAR_AT.z); i++) await q.bot.walkTo(PEAR_AT.x, PEAR_AT.z, 0).catch(() => undefined);
