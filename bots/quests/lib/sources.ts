@@ -97,7 +97,8 @@ export function itemPattern(item: string): RegExp {
  * level it takes to use. `q.count('pickaxe')` counts the usable ones held or worn;
  * the prologue withdraws the best usable one the bank has.
  */
-export const GROUPS: Record<string, Array<{ item: string; skill: string; level: number }>> = {
+/** `id` pins a member to one obj when another obj shares its name (an unstrung "Yew longbow" cannot be wielded). */
+export const GROUPS: Record<string, Array<{ item: string; skill: string; level: number; id?: number }>> = {
     pickaxe: [
         { item: 'rune pickaxe', skill: 'mining', level: 41 },
         { item: 'adamant pickaxe', skill: 'mining', level: 31 },
@@ -129,20 +130,24 @@ export const GROUPS: Record<string, Array<{ item: string; skill: string; level: 
     ],
     /** Pirate's Treasure: worn into Wydin's back room, so worn ones count. */
     'white apron': [{ item: 'white apron', skill: 'defence', level: 1 }],
-    /** Underground Pass: a bow to fire the burning cloth arrow at the guide rope (weapon_bow category). */
+    /**
+     * Underground Pass: a bow to fire the burning cloth arrow at the guide rope (weapon_bow category).
+     * By id: unstrung bows share the names, and jacklove4/ABGARMY06 carried an unstrung yew longbow
+     * into Ikov's Fire Warrior and Upass's bridge rope (2026-11-05).
+     */
     bow: [
-        { item: 'magic longbow', skill: 'ranged', level: 50 },
-        { item: 'magic shortbow', skill: 'ranged', level: 50 },
-        { item: 'yew longbow', skill: 'ranged', level: 40 },
-        { item: 'yew shortbow', skill: 'ranged', level: 40 },
-        { item: 'maple longbow', skill: 'ranged', level: 30 },
-        { item: 'maple shortbow', skill: 'ranged', level: 30 },
-        { item: 'willow longbow', skill: 'ranged', level: 20 },
-        { item: 'willow shortbow', skill: 'ranged', level: 20 },
-        { item: 'oak longbow', skill: 'ranged', level: 5 },
-        { item: 'oak shortbow', skill: 'ranged', level: 5 },
-        { item: 'longbow', skill: 'ranged', level: 1 },
-        { item: 'shortbow', skill: 'ranged', level: 1 },
+        { item: 'magic longbow', skill: 'ranged', level: 50, id: 859 },
+        { item: 'magic shortbow', skill: 'ranged', level: 50, id: 861 },
+        { item: 'yew longbow', skill: 'ranged', level: 40, id: 855 },
+        { item: 'yew shortbow', skill: 'ranged', level: 40, id: 857 },
+        { item: 'maple longbow', skill: 'ranged', level: 30, id: 851 },
+        { item: 'maple shortbow', skill: 'ranged', level: 30, id: 853 },
+        { item: 'willow longbow', skill: 'ranged', level: 20, id: 847 },
+        { item: 'willow shortbow', skill: 'ranged', level: 20, id: 849 },
+        { item: 'oak longbow', skill: 'ranged', level: 5, id: 845 },
+        { item: 'oak shortbow', skill: 'ranged', level: 5, id: 843 },
+        { item: 'longbow', skill: 'ranged', level: 1, id: 839 },
+        { item: 'shortbow', skill: 'ranged', level: 1, id: 841 },
     ],
     /** Black Knights' Fortress: the guard disguise is worn, so worn ones count. */
     'bronze med helm': [{ item: 'bronze med helm', skill: 'defence', level: 1 }],

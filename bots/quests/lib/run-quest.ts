@@ -534,8 +534,8 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 if (typeof item !== 'string') return countItems(sdk, item);
                 const group = GROUPS[item];
                 if (!group) return countItems(sdk, itemPattern(item));
-                const usable = group.filter((m) => q.level(m.skill) >= m.level).map((m) => itemPattern(m.item));
-                return [...sdk.getInventory(), ...sdk.getEquipment()].filter((i) => usable.some((p) => p.test(i.name))).length;
+                const usable = group.filter((m) => q.level(m.skill) >= m.level);
+                return [...sdk.getInventory(), ...sdk.getEquipment()].filter((i) => usable.some((m) => (m.id !== undefined ? i.id === m.id : itemPattern(m.item).test(i.name)))).length;
             },
             level: (skill) => sdk.getSkill(skill)?.baseLevel ?? 0,
             stopRequested: () => session.stopRequested,
@@ -1254,8 +1254,8 @@ async function withdrawTowardNeeds(q: Quest, transitions: Transition[]): Promise
         const target = tool ? count : (claimed.get(item) ?? 0) + count;
         claimed.set(item, target);
         // A group ('pickaxe') takes the best member the account can use.
-        const names = GROUPS[item]?.filter((m) => q.level(m.skill) >= m.level).map((m) => m.item) ?? [item];
-        const banked = names.map((n) => q.sdk.findBankItem(itemPattern(n))).find(Boolean);
+        const members = GROUPS[item]?.filter((m) => q.level(m.skill) >= m.level) ?? [{ item, id: undefined }];
+        const banked = members.map((m) => (m.id !== undefined ? q.sdk.getBankItems().find((b) => b.id === m.id) : q.sdk.findBankItem(itemPattern(m.item)))).find(Boolean);
         const take = Math.min(target - q.count(item), banked?.count ?? 0);
         if (banked && take > 0) {
             await q.bot.withdrawItem(banked, take);
