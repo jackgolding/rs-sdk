@@ -629,9 +629,9 @@
       "args": [
         "jackquests",
         "--then",
-        "bots/quests/edgeville-dungeon-melee.ts",
+        "bots/quests/fishing-route.ts",
         "jackquests",
-        "thugs"
+        "--bignet"
       ],
       "noEffectMinutes": 60
     }
