@@ -1443,10 +1443,25 @@ export const SOURCES: Record<string, Source> = {
     },
     vial: {
         obj: 'vial_empty',
+        muleSupply: 'jackthief',
         inputs: (count) => [{ item: 'coins', count: 5 * count }],
         get: async (q, count) => {
             await q.ensure('coins', 5 * count);
-            await buyWaitingForRestock(q, JATIX, 'vial', count);
+            const ok = await buyWaitingForRestock(q, JATIX, 'vial', count).then(() => true).catch((e) => {
+                q.log(`vial: ${(e as Error).message} — a vial of water emptied instead`);
+                return false;
+            });
+            if (ok && q.count('vial') >= count) return;
+            // Jatix sat at 0 (jacklove7/8's Dig Site, 2026-11-05): a vial of water (Aemad) emptied.
+            for (let i = 0; i < count && q.count('vial') < count; i++) {
+                if (q.count('vial of water') === 0) await q.ensure('vial of water', 1);
+                const full = q.sdk.findInventoryItem(/^vial of water$/i);
+                const empty = full?.optionsWithIndex.find((o) => /^empty$/i.test(o.text));
+                if (!full || !empty) break;
+                const before = q.count('vial');
+                await q.sdk.sendUseItem(full.slot, empty.opIndex);
+                await untilTicks(q.sdk, () => q.count('vial') > before, 4);
+            }
         },
     },
     /** Observatory: the professor's lens (no shop sells it; sand and soda ash are a Crafting trip). */

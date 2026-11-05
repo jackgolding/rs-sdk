@@ -610,6 +610,12 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // Monkey Madness: the glider hangars, Crash Island, Ape Atoll (lib/monkey-madness.ts).
                 if (inMonkeyMadnessArea(pos()) && !inMonkeyMadnessArea({ ...tile, level: tile.level ?? 0 })) await leaveMonkeyMadness(q);
                 // Scorpion Catcher: the Barbarian Outpost (out by its gate), the Sorcerer's Tower, Taverley's secret room (lib/scorpion-catcher.ts).
+                // Death Plateau: Saba's cave (an instance at 2255-2285,4740-4770) — a run stopped inside it had no way out
+                // (jacklove4 restarted mid-visit, 2026-11-05). lib/death-plateau.ts leaveAnywhere uses the cave exit.
+                if (pos().x >= 2255 && pos().x <= 2285 && pos().z >= 4740 && pos().z <= 4770 && !(tile.x >= 2255 && tile.x <= 2285 && tile.z >= 4740 && tile.z <= 4770)) {
+                    const { leaveAnywhere } = await import('./death-plateau');
+                    await leaveAnywhere(q).catch((e) => log(`Saba's cave: ${(e as Error).message}`));
+                }
                 // Not for a trip deeper into Taverley dungeon: its entrance ladder lands inside the Scorpion box
                 // (2884,9798), and the hook climbed Druidic Ritual back up to the surface (jackquests ×3, 2026-11-04).
                 const intoTaverleyDungeon = tile.x >= 2800 && tile.x <= 2980 && tile.z >= 9700 && tile.z <= 9900 && (tile.level ?? 0) === 0;
@@ -949,6 +955,10 @@ export async function runQuest(def: QuestDef): Promise<void> {
         if (inSeaSlugArea(pos()) && !noHub) await leaveSeaSlug(q);
         if (inMonkeyMadnessArea(pos()) && !noHub) await leaveMonkeyMadness(q);
         if (inScorpionArea(pos())) await leaveScorpionArea(q);
+        if (pos().x >= 2255 && pos().x <= 2285 && pos().z >= 4740 && pos().z <= 4770) {
+            const { leaveAnywhere } = await import('./death-plateau');
+            await leaveAnywhere(q).catch((e) => log(`Saba's cave: ${(e as Error).message}`));
+        }
         if (inMyrequeArea(pos())) await leaveMyreque(q);
         if (inNatureSpiritArea(pos())) await leaveNatureSpirit(q);
         if (inHuntCutscene(pos())) await waitOutCutscene(q);
