@@ -594,6 +594,10 @@ function leftovers(q: Quest): string[] {
     return out;
 }
 
+/** --only=rings,tanning runs just those steps (gems, herbs, cooking, smelting, rings, tanning). */
+const only = process.argv.find((a) => a.startsWith('--only='))?.slice(7).split(',');
+const on = (step: string) => !only || only.includes(step);
+
 await runTask({
     id: 'process-bank',
     hub: 'al-kharid',
@@ -601,13 +605,15 @@ await runTask({
     maxConcurrent: 8,
     task: async (q) => {
         const t0 = tickNow(q.sdk);
-        await activity(q, 'gems', 'crafting', GEMS, (m) => gemPack(q, m), [CHISEL]);
-        await activity(q, 'herbs', 'herblore', HERBS, (m) => herbPack(q, m));
-        await activity(q, 'cooking', 'cooking', FOODS, (m) => cookPack(q, m));
-        await smelting(q);
-        await makeRings(q);
-        await enchantRings(q);
-        await tanHides(q);
+        if (on('gems')) await activity(q, 'gems', 'crafting', GEMS, (m) => gemPack(q, m), [CHISEL]);
+        if (on('herbs')) await activity(q, 'herbs', 'herblore', HERBS, (m) => herbPack(q, m));
+        if (on('cooking')) await activity(q, 'cooking', 'cooking', FOODS, (m) => cookPack(q, m));
+        if (on('smelting')) await smelting(q);
+        if (on('rings')) {
+            await makeRings(q);
+            await enchantRings(q);
+        }
+        if (on('tanning')) await tanHides(q);
         await depositAll(q);
         const left = leftovers(q);
         await closeBank(q);
