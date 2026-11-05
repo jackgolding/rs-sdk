@@ -78,6 +78,9 @@ function kit(q: Quest): Need[] {
     if (logs) needs.push({ item: 'logs', count: logs });
     const potionDone = held(q, ead.RE.potion) || ead.hasUnf(q) || q.sdk.getBankItems().some((b) => b.id === ead.RANARR_UNF);
     if (before(q, 'parrot_back') && !potionDone) needs.push({ item: 'ranarr weed', count: 1 }, { item: 'vial of water', count: 1 });
+    // Prayer for the troll country (jackthief serves 3-dose): jacklove2 found 0 points in the stronghold and stopped,
+    // then died leaving (2026-11-05).
+    if (q.level('prayer') >= 43) needs.push(...banked(q, 'prayer potion(3)', 2));
     // Coins, the weapon and the boots (worn once the first step starts) take a slot each in the bank's pack.
     // Quest items from an earlier run (the parrot, the potion...) are withdrawn after these needs: keep their slots free.
     const questItems = CARRY.filter((c) => c !== 'climbing boots').filter((c) => {

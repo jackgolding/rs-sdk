@@ -254,7 +254,11 @@ export async function wieldWeapon(q: Quest): Promise<void> {
 
 /** Op1 on the loc (by id, nearest to `at`) until `done`; blind op when the scan does not show it. */
 async function opLoc(q: Quest, loc: { id: number; x: number; z: number }, done: () => boolean, label: string, tries = 4, ticks = 15): Promise<void> {
+    const startedIn = areaOf(pos(q));
     for (let attempt = 1; attempt <= tries && !done(); attempt++) {
+        // Died (respawned in Lumbridge) or teleported out mid-op: stop, the caller re-plans from where it is
+        // (jacklove2 tried the arena exit 4× from Lumbridge after dying in the arena, 2026-11-05).
+        if (startedIn !== 'other' && areaOf(pos(q)) === 'other') throw new Error(`troll: out of the troll country during ${label} (died?) at ${where(q)}`);
         await eatIfLow(q);
         await q.sdk.scanNearbyLocs(15).catch(() => undefined);
         const seen = (q.sdk.getNearbyLocs() ?? []).filter((l) => l.id === loc.id && Math.hypot(l.x - loc.x, l.z - loc.z) <= 2).sort((a, b) => Math.hypot(a.x - loc.x, a.z - loc.z) - Math.hypot(b.x - loc.x, b.z - loc.z))[0];
@@ -514,7 +518,13 @@ async function hops(q: Quest, dest: Area): Promise<void> {
         // (qlqftr2/3 reached L2 with 0-41 points after praying the whole route, and died to a general).
         await prayMelee(q, a === 'l2' || a === 'l1w' || a === 'l1e');
         q.log(`troll: ${a} -> ${step} from ${where(q)} hp ${q.sdk.getState()?.player?.hp} melee prayer ${q.sdk.isPrayerActive('protect_from_melee')} (${q.sdk.getPrayerState()?.prayerPoints ?? '?'} pts)`);
-        await hop(q, a, step);
+        try {
+            await hop(q, a, step);
+        } catch (e) {
+            // Leaving and now out of the troll country (a death respawns in Lumbridge): that is the leave done.
+            if (dest === 'south' && areaOf(pos(q)) === 'other') return;
+            throw e;
+        }
     }
     if (areaOf(pos(q)) !== dest) throw new Error(`troll: could not reach ${dest} (in ${areaOf(pos(q))} at ${where(q)})`);
 }
