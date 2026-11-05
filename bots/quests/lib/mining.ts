@@ -11,15 +11,19 @@
 import type { Quest } from './run-quest';
 import { tickNow, untilTicks } from './ticks';
 
-export type Ore = 'clay' | 'copper ore' | 'iron ore';
+export type Ore = 'clay' | 'copper ore' | 'iron ore' | 'silver ore';
 
 export const ROCKS: Record<Ore, { ids: Set<number>; level: number }> = {
     clay: { ids: new Set([2108, 2109, 2137, 2138]), level: 1 },
     'copper ore': { ids: new Set([2090, 2091, 2119, 2120]), level: 1 },
     'iron ore': { ids: new Set([2092, 2093, 2121, 2122]), level: 15 },
+    /** silverrock1/2, macro_silverrock1/2 (loc.pack). */
+    'silver ore': { ids: new Set([2100, 2101, 2129, 2130]), level: 20 },
 };
 
 export const RIMMINGTON_MINE = { x: 2980, z: 3242 };
+/** Al Kharid mine (learnings/mining.md): silver among iron, coal, gold. Scorpions. */
+export const AL_KHARID_MINE = { x: 3295, z: 3287 };
 
 /** Ticks a rock that gave nothing is skipped: depleted, or held by another miner. */
 const ROCK_COOLDOWN_TICKS = 40;
@@ -48,10 +52,15 @@ async function findRock(q: Quest, ore: Ore) {
  * click: a swing self-queues server-side and lands only on a successful roll.
  */
 export async function mineAtRimmington(q: Quest, ore: Ore, opts: { count?: number; until?: () => boolean; dropAbove?: number }): Promise<void> {
+    return mineAt(q, ore, RIMMINGTON_MINE, opts);
+}
+
+/** mineAtRimmington's loop at any mine whose rocks are within 16 tiles of `at`. */
+export async function mineAt(q: Quest, ore: Ore, at: { x: number; z: number }, opts: { count?: number; until?: () => boolean; dropAbove?: number }): Promise<void> {
     const done = () => (opts.until ? opts.until() : q.count(ore) >= (opts.count ?? 0));
     if (done()) return;
-    if (Math.hypot(q.sdk.getState()!.player!.worldX - RIMMINGTON_MINE.x, q.sdk.getState()!.player!.worldZ - RIMMINGTON_MINE.z) > 12) {
-        await q.goTo(RIMMINGTON_MINE, 6);
+    if (Math.hypot(q.sdk.getState()!.player!.worldX - at.x, q.sdk.getState()!.player!.worldZ - at.z) > 12) {
+        await q.goTo(at, 6);
     }
     const t0 = tickNow(q.sdk);
     let mined = 0;
