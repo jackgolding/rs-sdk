@@ -806,8 +806,15 @@ export function getInterfaceDebugInfo(c: LiteClient, interfaceId: number): strin
 
 // =================================================================== shop
 
+const SHOP_INV_ID = 3900; // shop_template:inv
+
 export function isShopOpen(c: LiteClient): boolean {
-    return c.mainModalId === SHOP_MAIN_ID;
+    // A server-side close (a Mort'ton shade's swing runs if_close, so does walking)
+    // sends UPDATE_INV_STOP_TRANSMIT for the shelf at once, but IF_CLOSE only at the
+    // end of the next tick's batch, after PLAYER_INFO has published state. In that
+    // window the shop read as open with nothing listed and every buy failed
+    // ("lists nothing", Razmire's store, 2026-11-05). A stopped shelf is a closed shop.
+    return c.mainModalId === SHOP_MAIN_ID && !c.invTransmitStopped?.has(SHOP_INV_ID);
 }
 
 export function shopBuy(c: LiteClient, slot: number, amount = 1): boolean {

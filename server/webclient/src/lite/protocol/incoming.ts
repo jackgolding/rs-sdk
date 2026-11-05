@@ -291,7 +291,9 @@ export function dispatch(c: LiteClient, opcode: number, buf: Packet, psize: numb
 
         // ----------------------------------------------------------- inventory
         case ServerProt.UPDATE_INV_STOP_TRANSMIT: {
-            const inv = c.ifMutable(buf.g2());
+            const comId = buf.g2();
+            c.invTransmitStopped.add(comId);
+            const inv = c.ifMutable(comId);
             if (inv?.linkObjType) {
                 for (let i = 0; i < inv.linkObjType.length; i++) {
                     inv.linkObjType[i] = 0;
@@ -300,7 +302,9 @@ export function dispatch(c: LiteClient, opcode: number, buf: Packet, psize: numb
             return;
         }
         case ServerProt.UPDATE_INV_FULL: {
-            const inv = c.ifMutable(buf.g2());
+            const comId = buf.g2();
+            c.invTransmitStopped.delete(comId);
+            const inv = c.ifMutable(comId);
             if (!inv?.linkObjType || !inv.linkObjNumber) {
                 return;
             }

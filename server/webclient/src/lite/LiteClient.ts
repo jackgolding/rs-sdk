@@ -106,6 +106,14 @@ export class LiteClient {
     runenergy = 0;
     runweight = 0;
     mainModalId = -1;
+    /**
+     * Inventory components the server has stopped transmitting (UPDATE_INV_STOP_TRANSMIT)
+     * and not refilled since (UPDATE_INV_FULL). A server-side close sends the stop
+     * immediately but IF_CLOSE only with the next tick's batch - after PLAYER_INFO,
+     * which is where state is published - so for that tick a closed shop still looks
+     * open with an empty shelf. See isShopOpen in actions.ts.
+     */
+    invTransmitStopped = new Set<number>();
     chatModalId = -1;
     sideModalId = -1;
     mainOverlayId = -1;
