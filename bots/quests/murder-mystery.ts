@@ -258,6 +258,11 @@ async function salesman(q: Quest): Promise<void> {
 
 /** Salesman, the suspect's poison story, then their poisoned place. True once it proves them a liar. */
 async function poisonProof(q: Quest, s: Suspect): Promise<boolean> {
+    // Upstairs suspects (Carol, Elizabeth): climb first — talk's goTo does not (jacklove2 wrong floor, 2026-11-05).
+    if ((s.at.level ?? 0) > (q.sdk.getState()?.player?.level ?? 0)) {
+        await q.goTo({ x: s.at.x, z: s.at.z }, 6).catch((e) => q.log(`murder: ${s.name}: ${(e as Error).message.slice(0, 100)}`));
+        await q.climbTo(s.at.level ?? 0, { x: s.at.x, z: s.at.z }).catch((e) => q.log(`murder: ${s.name}: climb: ${(e as Error).message.slice(0, 100)}`));
+    }
     const seen = await q.talk(s.npc, [/why'?d you buy poison/i], s.at);
     await downstairs(q);
     if (!/poison/i.test(seen)) q.log(`murder: ${s.name} said nothing of poison: ${seen.slice(0, 120)}`);

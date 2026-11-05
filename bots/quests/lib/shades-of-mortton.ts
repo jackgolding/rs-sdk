@@ -440,6 +440,16 @@ export async function buyFromRazmire(q: Quest, store: 'general' | 'building', it
         for (const [re, n] of want()) {
             if (!open()) break;
             const short = n - q.count(re);
+            // Razmire's general store publishes no item list to the client ("lists nothing", jacklove16 2026-11-05):
+            // buy olive oil by its fixed slot (razmiregeneralstore stock8 = oliveoil3, slot 7).
+            const listed = (q.sdk.getState()?.shop?.shopItems ?? []).length > 0;
+            if (!listed && store === 'general' && re.test('Olive oil(3)')) {
+                const before = q.count(re);
+                for (let i = 0; i < short; i++) await q.sdk.sendShopBuy(7, 1).catch(() => undefined);
+                await untilTicks(q.sdk, () => q.count(re) > before, 6);
+                q.log(`mortton: olive oil by slot 7: ${before} → ${q.count(re)}`);
+                continue;
+            }
             const r = await q.bot.buyFromShop(re, Math.min(short, 20)).catch((e) => ({ success: false, message: String(e) }));
             if (!r.success && open()) {
                 // What the store actually lists (jacklove16 could not buy olive oil it stocks 150 of, 2026-11-04).
