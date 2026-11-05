@@ -353,7 +353,9 @@ async function kill(q: Quest, npc: RegExp, label: string, ticks = 400): Promise<
             const combat = q.sdk.getState()?.player?.combat;
             const swinging = combat?.targetType === 'npc' && combat.targetIndex === index;
             if ((!swinging || (guard && guard.toggledAt > sent)) && tickNow(q.sdk) - sent > 4) {
-                const n = alive()!;
+                // Dead while we ate (jacklove7: "undefined is not an object (evaluating 'n.index')", 2026-11-05).
+                const n = alive();
+                if (!n) break;
                 await q.sdk.sendInteractNpc(n.index, n.optionsWithIndex.find((o) => /^attack$/i.test(o.text))?.opIndex ?? 2);
                 sent = tickNow(q.sdk);
             }
