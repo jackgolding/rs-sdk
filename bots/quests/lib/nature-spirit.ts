@@ -517,28 +517,31 @@ async function grottoPouch(q: Quest): Promise<void> {
 const bloomedHarvest = (q: Quest) => countId(q, OBJ.pear) + countId(q, OBJ.stem) + countId(q, OBJ.fungus);
 
 /** Bloom with the blessed sickle by the pear bush, pick three, fill the pouch (90). */
+/** Top up prayer at the grotto's nature altar (druidic_spirit_grotto_naturealtar); `force` goes in even when full-ish. */
+async function prayAtGrotto(q: Quest, force = false): Promise<void> {
+    const prayer = () => q.sdk.getSkill('prayer');
+    const low = () => (prayer()?.level ?? 0) < (prayer()?.baseLevel ?? 1);
+    if (!force && !low()) return;
+    if (!inGrotto(pos(q))) await intoGrotto(q).catch((e) => q.log(`ns: into the grotto to pray: ${(e as Error).message}`));
+    if (!inGrotto(pos(q))) return;
+    await q.sdk.scanNearbyLocs(10).catch(() => undefined);
+    const altar = (q.sdk.getNearbyLocs() ?? []).find((l) => /altar/i.test(l.name) && l.optionsWithIndex.length > 0);
+    if (!altar) return void q.log('ns: no altar in view in the grotto');
+    await q.bot.interactLoc(altar, altar.optionsWithIndex[0]!.text).catch(() => undefined);
+    await untilTicks(q.sdk, () => !low(), 12);
+    q.log(`ns: prayer at the grotto altar → ${prayer()?.level}/${prayer()?.baseLevel}`);
+}
+
 export async function fillPouch(q: Quest): Promise<void> {
     if (holds(q, OBJ.pouch)) return;
     await grottoPouch(q);
-    // Each sickle cast costs prayer (quest_druidspirit.rs2): top up at the grotto's nature altar before the
-    // swamp — jacklove16 ran dry mid-harvest (2026-11-05). The transition's retry tops up again.
-    const prayer = () => q.sdk.getSkill('prayer');
-    // A run resumed outside (jacklove16 from Varrock, 2026-11-05) never passes through: go in to pray.
-    if (!inGrotto(pos(q)) && (prayer()?.level ?? 0) < (prayer()?.baseLevel ?? 1)) await intoGrotto(q).catch((e) => q.log(`ns: into the grotto to pray: ${(e as Error).message}`));
-    if (inGrotto(pos(q)) && (prayer()?.level ?? 0) < (prayer()?.baseLevel ?? 1)) {
-        await q.sdk.scanNearbyLocs(10).catch(() => undefined);
-        const altar = (q.sdk.getNearbyLocs() ?? []).find((l) => /altar/i.test(l.name) && l.optionsWithIndex.length > 0);
-        if (altar) {
-            await q.bot.interactLoc(altar, altar.optionsWithIndex[0]!.text).catch(() => undefined);
-            await untilTicks(q.sdk, () => (prayer()?.level ?? 0) >= (prayer()?.baseLevel ?? 1), 12);
-            q.log(`ns: prayer at the grotto altar → ${prayer()?.level}/${prayer()?.baseLevel}`);
-        } else q.log('ns: no altar in view in the grotto');
-    }
+    await prayAtGrotto(q);
     await leaveCamp(q);
     await intoSwamp(q);
     for (let i = 0; i < 3 && (pos(q).x !== PEAR_AT.x || pos(q).z !== PEAR_AT.z); i++) await q.bot.walkTo(PEAR_AT.x, PEAR_AT.z, 0).catch(() => undefined);
     const t0 = tickNow(q.sdk);
-    while (bloomedHarvest(q) < 3 && tickNow(q.sdk) - t0 < 400) {
+    let recharges = 0;
+    while (bloomedHarvest(q) < 3 && tickNow(q.sdk) - t0 < 1200) {
         await q.sdk.scanNearbyLocs(3).catch(() => undefined);
         const ripe = (q.sdk.getNearbyLocs() ?? [])
             .filter((l) => [LOC.pearBloomed, LOC.branchBloomed, LOC.logBloomed].includes(l.id as 3513) && Math.max(Math.abs(l.x - pos(q).x), Math.abs(l.z - pos(q).z)) <= 1)
@@ -551,7 +554,16 @@ export async function fillPouch(q: Quest): Promise<void> {
             if (pos(q).x !== PEAR_AT.x || pos(q).z !== PEAR_AT.z) await q.bot.walkTo(PEAR_AT.x, PEAR_AT.z, 0).catch(() => undefined);
             continue;
         }
-        if ((q.sdk.getSkill('prayer')?.level ?? 0) <= 0) throw new Error('ns: out of prayer points for the sickle');
+        if ((q.sdk.getSkill('prayer')?.level ?? 0) <= 0) {
+            // Casts drain prayer mid-harvest (jacklove16 started full and ran dry, 2026-11-05): recharge and come back.
+            if (++recharges > 2) throw new Error('ns: out of prayer points for the sickle');
+            q.log(`ns: out of prayer mid-harvest (${bloomedHarvest(q)}/3) — back to the grotto altar`);
+            await prayAtGrotto(q, true);
+            await leaveCamp(q);
+            await intoSwamp(q);
+            for (let i = 0; i < 3 && (pos(q).x !== PEAR_AT.x || pos(q).z !== PEAR_AT.z); i++) await q.bot.walkTo(PEAR_AT.x, PEAR_AT.z, 0).catch(() => undefined);
+            continue;
+        }
         const sickle = q.sdk.getInventory().find((i) => i.id === OBJ.sickleBlessed);
         if (!sickle) throw new Error('ns: no blessed sickle in the pack');
         await q.sdk.sendUseItem(sickle.slot, 3);
