@@ -320,9 +320,32 @@ async function trapLever(q: Quest): Promise<void> {
     if (pos(q).z < 9858) throw new Error(`ikov: the trap lever's door stayed shut (Thieving 42?) at ${where(q)}`);
 }
 
+const BOW = /(yew|magic) (short|long)bow$/i;
+/**
+ * The bow must really be in hand: with a full pack a two-handed bow cannot push the shield off, the
+ * equip silently fails and the bot walks up and melees a warrior that only ranged hurts (ABGARMY06,
+ * yew longbow: arrows never fell, his hp never moved, 700t timeouts ×5, 2026-11-05).
+ */
+async function wieldBow(q: Quest): Promise<void> {
+    const wielded = () => q.sdk.getEquipment().some((e) => BOW.test(e.name));
+    for (let i = 0; i < 3 && !wielded(); i++) {
+        const bow = q.sdk.getInventory().find((it) => BOW.test(it.name));
+        if (!bow) break;
+        if (q.sdk.getInventory().length >= 28 || i > 0) {
+            // Spent by now (the web and the candle are behind us): make room for the shield.
+            // Tinderbox first: the way out may need the knife for a regrown web.
+            const spare = q.sdk.getInventory().find((it) => /^tinderbox$/i.test(it.name)) ?? q.sdk.getInventory().find((it) => /^knife$/i.test(it.name));
+            if (spare) { await q.sdk.sendDropItem(spare.slot).catch(() => undefined); await q.sdk.waitForTicks(2); }
+        }
+        const r = await q.bot.equipItem(bow).catch((e) => ({ success: false, message: String(e) }));
+        await untilTicks(q.sdk, wielded, 4);
+        q.log(`ikov: wield ${bow.name}: ${wielded() ? 'ok' : r.message} (pack ${q.sdk.getInventory().length}/28, worn ${q.sdk.getEquipment().map((e) => e.name).join(',')})`);
+    }
+    if (!wielded()) throw new Error('ikov: no bow in hand for the Fire Warrior');
+}
+
 async function fireWarrior(q: Quest): Promise<void> {
-    const bow = q.sdk.getInventory().find((i) => /(yew|magic) (short|long)bow$/i.test(i.name));
-    if (bow) await q.bot.equipItem(bow).catch(() => undefined);
+    await wieldBow(q);
     await wear(q, OBJ.iceArrow);
     const t0 = tickNow(q.sdk);
     let warrior = q.sdk.getNearbyNpcs().find((n) => n.id === NPC.warrior);
