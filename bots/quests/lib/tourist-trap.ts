@@ -557,6 +557,13 @@ export async function makeDart(q: Quest, stageMoved: () => Promise<boolean>): Pr
         }
         if (!held(q, OBJ.dartTip)) throw new Error('tourist: no dart tip from the anvil');
     }
+    // Feathers short (a run resumed in the camp skips kit(); wasted feathers): Shantay's shop sells them
+    // (shantaypass.inv stock 500), else the usual feather source (ABGARMY05, 2026-11-05).
+    if (!held(q, OBJ.dart) && countOf(q, OBJ.feather) < 10) {
+        q.log(`tourist: ${countOf(q, OBJ.feather)} feathers for the dart — buying 20 at Shantay's`);
+        await buy(q, [{ pattern: /^feather$/i, amount: 20 - countOf(q, OBJ.feather), label: 'feather' }]);
+        if (countOf(q, OBJ.feather) < 10) await q.ensure('feather', 20).catch((e) => q.log(`tourist: feathers: ${(e as Error).message}`));
+    }
     for (let attempt = 1; attempt <= 4 && !held(q, OBJ.dart); attempt++) {
         const f = inv(q, OBJ.feather);
         const tip = inv(q, OBJ.dartTip);
