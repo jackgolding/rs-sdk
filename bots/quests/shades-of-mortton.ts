@@ -126,7 +126,9 @@ const kit = (q: Quest) => [
     // Store money, taken at the open hub bank only: a transition that finds it spent must not walk off to pickpocket.
     // 3000 ran dry mid-temple at the builders' store (jacklove4, jacklove13: coins 0, 2026-11-05).
     ...banked(q, 'coins', 8000, /^coins$/i),
-    ...banked(q, 'shark', 10, /^shark$/i),
+    // Fewer sharks while banked repair sets come back out with the kit: 7 planks + bricks + 10 sharks left no slot for
+    // the vial, ashes and logs (jacklove13 "pack is full", 2026-11-05).
+    ...banked(q, 'shark', q.sdk.isBankOpen() && q.sdk.findBankItem(/^(plank|limestone brick)$/i) ? 4 : 10, /^shark$/i),
     ...banked(q, 'prayer potion', 2, /^prayer potion\(\d\)$/i),
     ...serumNeeds(q),
     ...bankedHerbs(q),
