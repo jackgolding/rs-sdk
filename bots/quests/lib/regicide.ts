@@ -192,6 +192,9 @@ export async function messenger(q: Quest, received: () => Promise<boolean>): Pro
     }
     await closeDialogs(q);
     q.log(`regicide: the summons after ${tickNow(q.sdk) - t0}t`);
+    // login.rs2 arms the messenger timer only at login and only once Underground Pass is complete: an account that
+    // finished the Pass in this session never gets him until it logs in again (ABGARMY05 waited 3×1600t, 2026-11-05).
+    if (!(await received())) throw new Error('regicide: no King\'s messenger — Underground Pass finished since this login? restart the lite client (re-login)');
     async function quickReceived() {
         if (dialogs > 0 || tickNow(q.sdk) - lastRead > 150) {
             lastRead = tickNow(q.sdk);
