@@ -1307,8 +1307,9 @@ export const SOURCES: Record<string, Source> = {
     /** Jatix's vials (Taverley), filled at Falador's fountain. */
     'vial of water': {
         obj: 'vial_water',
-        // Not mule-served: jackthief's ~480 went into prayer brewing and it answered "out of vial
-        // of water" four times (2026-11-03), each a 4-minute wait. Jatix, then Aemad (below).
+        // jackthief first again: it banked ABGARMY09's 131 (2026-11-05) while Aemad was bought out and
+        // jacklove2's Eadgar's Ruse sat in a restock wait. (It ran dry on 2026-11-03, a 4-minute wait each.)
+        muleSupply: 'jackthief',
         inputs: (count) => [{ item: 'coins', count: 5 * count }],
         get: (q, count) => vialsOfWater(q, count),
     },
