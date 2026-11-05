@@ -196,6 +196,14 @@ await runQuest({
                     await toTenzing(q);
                     await q.talk(/^tenzing$/i);
                 }
+                // Denulth also takes the combination (death_ig_commander.rs2 denulth_has_map): lost,
+                // Harold writes another (harold_reclaim_iou) — jacklove7 held the map only, 2026-11-05.
+                if (q.count('combination') === 0) {
+                    q.log('no combination — Harold writes another IOU');
+                    await leaveAnywhere(q);
+                    await toHarold(q);
+                    await q.talk(HAROLD);
+                }
                 await leaveAnywhere(q);
                 await q.talk(/^denulth$/i, [], DENULTH);
             },
