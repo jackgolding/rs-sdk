@@ -34,6 +34,7 @@ const RECIPES: Record<string, Recipe> = {
     attack: { name: 'attack potion', level: 3, herb: 249, unf: 91, second: 221, product: 121, training: true },
     prayer: { name: 'prayer potion', level: 38, herb: 257, unf: 99, second: 231, product: 139, training: true },
     superattack: { name: 'super attack', level: 45, herb: 259, unf: 101, second: 221, product: 145, training: true },
+    superstrength: { name: 'super strength', level: 55, herb: 263, unf: 105, second: 225, product: 157, training: true },
     antifire: { name: 'antifire potion', level: 69, herb: 2481, unf: 2483, second: SCALE_DUST, product: 2454, training: false },
 };
 const ORDER = (arg('recipes') ?? 'prayer,superattack').split(',').map((r) => r.trim()).filter((r) => RECIPES[r]);

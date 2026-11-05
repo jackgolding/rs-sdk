@@ -436,9 +436,8 @@
       "args": [
         "ABGARMY05",
         "--then",
-        "bots/quests/hobgoblins.ts",
-        "ABGARMY05",
-        "--no-snape"
+        "bots/quests/essence.ts",
+        "ABGARMY05"
       ],
       "noEffectMinutes": 60
     },
@@ -461,7 +460,7 @@
       "args": [
         "ABGARMY07",
         "--then",
-        "bots/quests/hobgoblins.ts",
+        "bots/quests/essence.ts",
         "ABGARMY07"
       ],
       "noEffectMinutes": 60
@@ -485,10 +484,8 @@
       "args": [
         "ABGARMY09",
         "--then",
-        "bots/quests/hobgoblins.ts",
-        "ABGARMY09",
-        "--spot=westardy",
-        "--food=8"
+        "bots/quests/essence.ts",
+        "ABGARMY09"
       ],
       "noEffectMinutes": 60
     },
