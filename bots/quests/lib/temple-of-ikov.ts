@@ -334,6 +334,7 @@ async function fireWarrior(q: Quest): Promise<void> {
         warrior = q.sdk.getNearbyNpcs().find((n) => n.id === NPC.warrior);
         if (!warrior) throw new Error('ikov: the Fire Warrior did not appear');
     }
+    let lastNote = 0;
     while (tickNow(q.sdk) - t0 < 700) {
         await eatIfLow(q);
         if (q.sdk.getDialog()?.isOpen) await driveDialog(q.sdk, [], { ticks: 4 });
@@ -344,7 +345,13 @@ async function fireWarrior(q: Quest): Promise<void> {
             else await pickUp(q, OBJ.iceArrow, { x: w.x, z: w.z }, 'ice arrows under him', 20).then(() => wear(q, OBJ.iceArrow), () => undefined);
             if (!q.sdk.getEquipment().some((e) => e.id === OBJ.iceArrow)) throw new Error('ikov: out of ice arrows mid-fight');
         }
-        await q.bot.attack(w).catch(() => undefined);
+        const r = await q.bot.attack(w).catch((e) => ({ success: false, message: String(e) }));
+        // Two prod timeouts (jacklove4, ABGARMY06, 2026-11-05) left no trace of why: log the fight.
+        if (tickNow(q.sdk) - lastNote >= 100) {
+            lastNote = tickNow(q.sdk);
+            const me = q.sdk.getState()?.player;
+            q.log(`ikov: fighting the Fire Warrior ${tickNow(q.sdk) - t0}t: attack ${r.success ? 'ok' : r.message}; him ${JSON.stringify({ hp: w.healthPercent, x: w.x, z: w.z, d: w.distance })} me (${me?.worldX},${me?.worldZ}) hp ${q.sdk.getSkill('Hitpoints')?.level} arrows ${countOf(q, OBJ.iceArrow)}`);
+        }
         await q.sdk.waitForTicks(6);
     }
     if (q.sdk.getNearbyNpcs().some((n) => n.id === NPC.warrior)) throw new Error('ikov: the Fire Warrior fight timed out');
