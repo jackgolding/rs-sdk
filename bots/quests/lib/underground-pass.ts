@@ -544,6 +544,7 @@ async function shootTheRope(q: Quest): Promise<void> {
             await q.sdk.sendCloseModal().catch(() => undefined);
             if (!held(q, ITEM.cloth)) q.log(`upass: Koftik gave no cloth: ${seen.slice(-160)}`);
         }
+        q.log(`upass: shot ${shot} kit: cloth ${!!held(q, ITEM.cloth)}, fire arrows ${has(q, /fire arrows?$/i)}, tinderbox ${!!held(q, /^tinderbox$/i)}, arrows ${!!held(q, ITEM.arrows)}, free ${freeSlots(q)}`);
         if (held(q, ITEM.cloth) && freeSlots(q) < 1) await makeRoom(q, 1);
         if (held(q, ITEM.cloth)) await combine(q, ITEM.arrows, ITEM.cloth, () => !held(q, ITEM.cloth), 'wrap an arrow in the damp cloth');
         // The unlit and lit cloth arrows share a name; the lit one is what the tinderbox makes.
@@ -1273,6 +1274,9 @@ export async function leaveUpass(q: Quest): Promise<void> {
                 await opAt(q, PASS_EXIT.x, PASS_EXIT.z, PASS_EXIT.id, 1, () => !inUpassArea(pos(q)), 'leave by the pass exit', 15);
                 break;
             case 'KOFTIK':
+                // Teleport first when the runes are there: the rockslides back east stall at (2460,9719) with
+                // "I can't reach that!" on the next one (jacklove4 2026-11-04, jacklove2 2026-11-05).
+                if (await teleportOut(q)) break;
                 try {
                     await rockslides(q, [...ENTRANCE_ROCKS].reverse(), REGIONS[0]!.at);
                 } catch (e) {
