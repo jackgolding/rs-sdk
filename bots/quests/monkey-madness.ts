@@ -40,7 +40,8 @@ const offshore = (q: Quest) => onApeAtoll(here(q)) || onCrashIsland(here(q));
 const FIGHT: Need[] = [
     { item: 'melee weapon', count: 1 },
     { item: 'shark', count: 11 },
-    { item: 'prayer potion', count: 5 },
+    // prayer potion(3) has a jackthief source; the 'prayer potion' group has none (jacklove16 NEEDS STOCK, 2026-11-05).
+    { item: 'prayer potion(3)', count: 5 },
     { item: 'antipoison(3)', count: 1 },
 ];
 /** Set once a chapter 2-4 step runs: from then on topUp restocks, not the transition's needs (a death mid-run). */

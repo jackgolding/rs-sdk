@@ -513,6 +513,8 @@ export async function start(q: Quest): Promise<void> {
 /** Climbing boots held or worn; Tenzing sells them for 12gp after Death Plateau. */
 export async function ensureBoots(q: Quest): Promise<void> {
     if (q.count(RE.boots) > 0 || worn(q, RE.boots)) return;
+    // Fetch the fare instead of failing (jacklove2 reached Tenzing with no coins, 2026-11-05).
+    if (q.count('coins') < 12) await q.ensure('coins', 12);
     if (q.count('coins') < 12) throw new Error('troll: 12 coins needed for climbing boots');
     await toTenzing(q);
     if (!inHut(q)) throw new Error(`troll: not in Tenzing's hut (${where(q)})`);
