@@ -425,11 +425,24 @@ export async function runQuest(def: QuestDef): Promise<void> {
         }
 
         /** The last stage whose rule PASSes is the account's real stage. */
+        /**
+         * The journal scroll (interface 8134) stays open after a read, and an open modal swallows the next NPC
+         * talk ("Dialog did not open"): Tenzing, Filliman, Narnode, the Guardian of Armadyl all hit it (2026-11-05).
+         */
+        async function closeJournal(): Promise<void> {
+            if (!sdk.getState()?.interface?.isOpen) return;
+            await sdk.sendCloseModal().catch(() => undefined);
+            await untilTicks(sdk, (st) => !st.interface?.isOpen, 3);
+        }
         async function readStage(): Promise<string | null> {
             for (const stage of [...def.stages].reverse()) {
                 const read = await readJournalCheckpoint(sdk, def.journal!, stage.rule);
-                if (read.verdict?.verdict === 'PASS') return stage.id;
+                if (read.verdict?.verdict === 'PASS') {
+                    await closeJournal();
+                    return stage.id;
+                }
             }
+            await closeJournal();
             return null;
         }
 
@@ -438,6 +451,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
         async function checkpoint(id: string): Promise<boolean> {
             const rule = def.stages.find((s) => s.id === id)!.rule;
             const read = await readJournalCheckpoint(sdk, def.journal!, rule);
+            await closeJournal();
             const verdict = read.verdict?.verdict ?? 'UNKNOWN';
             if (run) {
                 appendCheckpoint(run.directory, { checkpointId: id, verdict, reason: read.reason, kind: rule.kind, rawLines: read.rawLines });
