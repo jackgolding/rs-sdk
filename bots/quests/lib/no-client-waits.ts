@@ -47,8 +47,10 @@ export async function awaitQuestStartTurn(id: string, account: string, grindLog:
     for (;;) {
         const window = Math.floor(Date.now() / QUEST_START_GAP_MS);
         // Two starts per window (user, 2026-11-03: one per 5 min left a dozen ex-KBD accounts
-        // queued for an hour): the second takes `<window>.2`. Old-window cleanup is by Number().
-        const slot = [String(window), `${window}.2`].find((w) => {
+        // queued for an hour): the second takes `<window>.2`, the third `<window>.3`. Old-window cleanup is by Number().
+        // Three per window (user, 2026-11-05: memory and load are down after the pathfinding fix and
+        // the swarm-duplicate cleanup; two left the queue backed up for an hour after each roll).
+        const slot = [String(window), `${window}.2`, `${window}.3`].find((w) => {
             try {
                 mkdirSync(join(dir, w));
                 return true;
@@ -74,7 +76,7 @@ export async function awaitQuestStartTurn(id: string, account: string, grindLog:
         }
         if (!noted) {
             noted = true;
-            const line = `waiting for a quest start turn (two fleet-wide every ${QUEST_START_GAP_MS / 60_000} min)`;
+            const line = `waiting for a quest start turn (three fleet-wide every ${QUEST_START_GAP_MS / 60_000} min)`;
             console.log(line);
             try {
                 appendFileSync(grindLog, `${new Date().toISOString()} [${id}] ${line}\n`);
