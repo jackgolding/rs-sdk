@@ -1373,7 +1373,10 @@ export const SOURCES: Record<string, Source> = {
     // soul rune needs Magic 66 to walk in, cosmic runes are Mage Arena-only. The gems, orb and
     // lockpick are nobody's shop stock: still jackthief first, else made (lib/legends-supplies.ts).
     /** Radimus' map: one papyrus a section (three), a botched attempt can ruin one. Aemad: 13gp, stock 50. */
+    // jackthief first: it banks the stock run's papyrus (15 from jacklove20) while Aemad is bought out, and Legends'
+    // mapping restocks it (jacklove13 "papyrus 0/5", 2026-11-05).
     papyrus: {
+        muleSupply: 'jackthief',
         inputs: (count) => [{ item: 'coins', count: 15 * count }],
         get: async (q, count) => {
             await q.ensure('coins', 15 * count);

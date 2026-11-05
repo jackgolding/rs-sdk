@@ -922,7 +922,18 @@ export async function runQuest(def: QuestDef): Promise<void> {
                     session.noteProgress('inventory', item);
                     return;
                 }
-                if (source?.mule) throw new NeedsStock([{ item, count: count - have }]);
+                // A mid-run shortfall asks the item's mule first (the prepare phase is not the only place stock is
+                // needed): Legends' mapping restocked papyrus from a bought-out Aemad while jackthief banked 15
+                // (jacklove13, 2026-11-05). Not coins: small coin ensures are everywhere and the shops cover them.
+                const by = item !== 'coins' ? mulesFor(item)[0] : undefined;
+                const self = (sdk.getState()?.player?.name ?? '').toLowerCase();
+                if (by && by.toLowerCase() !== self && sdk.getInventory().length < 28) {
+                    const shortBy = count - have;
+                    const ok = await requestFromMule({ sdk, bot, session: null, log } as never, [{ label: item, pattern: itemPattern(item), count: shortBy }], { mule: by, timeoutMs: 120_000 }).catch(() => false);
+                    log(`mule ${by}: ${ok ? 'supplied' : 'not supplied'} ${item} mid-run (have ${q.count(item)}/${count})`);
+                    if (q.count(item) >= count) return;
+                }
+                if (source?.mule) throw new NeedsStock([{ item, count: count - q.count(item) }]);
                 if (!source?.get) throw new Error(`need ${count} ${item}, have ${have}, and no source procedure for it`);
                 for (const [skill, level] of Object.entries(source.levels ?? {})) await q.ensureLevel(skill, level);
                 log(`sourcing ${count - have} ${item}`);
