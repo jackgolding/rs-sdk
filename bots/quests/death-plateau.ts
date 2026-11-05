@@ -42,7 +42,7 @@ await runQuest({
     hub: 'falador-east',
     // Denulth only finishes the quest with the map in the pack (death_ig_commander.rs2): a resumed
     // run had banked it and talked to him three times for nothing (ABGARMY08, 2026-10-30).
-    carry: ['secret way map', 'combination'],
+    carry: ['secret way map', 'combination', 'spiked boots', 'climbing boots'],
     journal: { label: 'Death Plateau', title: 'Death Plateau' },
     stages: [
         stage('unstarted', 'unstarted', 'I can start this quest by speaking to'),
@@ -158,8 +158,18 @@ await runQuest({
             needs: [
                 { item: 'bread', count: 10 },
                 { item: 'trout', count: 10 },
+                // Spare bar for re-spiking: a resumed run that lost the spiked boots gets plain
+                // climbing boots from Tenzing (death_sherpa.rs2) and Dunstan needs a bar again.
+                { item: 'iron bar', count: 1 },
             ],
             run: async (q) => {
+                await toTenzing(q);
+                await q.talk(/^tenzing$/i);
+                if (q.count('spiked boots') > 0 || q.count('climbing boots') === 0) return;
+                q.log('Tenzing handed out new climbing boots; Dunstan re-spikes them');
+                await leaveAnywhere(q);
+                await q.talk(/^dunstan$/i, [], DUNSTAN);
+                if (q.count('spiked boots') === 0) return;
                 await toTenzing(q);
                 await q.talk(/^tenzing$/i);
             },
