@@ -916,6 +916,15 @@ session.setAnchor(PIT.x, PIT.z);
 try {
     await bot.skipTutorial();
     await closeUi(bot, sdk);
+    // Left on a docked ship's deck (Jackpoo1 at Ardougne, 2677,3267 L1, 2026-11-05: "No banker" ×10): off the gangplank first.
+    if ((sdk.getState()?.player?.level ?? 0) === 1) {
+        await sdk.scanNearbyLocs(10).catch(() => undefined);
+        const plank = sdk.findNearbyLoc(/gangplank/i);
+        if (plank && Math.hypot(plank.x - pos().x, plank.z - pos().z) <= 10) {
+            log(`on a ship's deck @ ${pos().x},${pos().z}: crossing the gangplank`);
+            await crossGangplank(bot, sdk);
+        }
+    }
     log(`Brimhaven dragons @ ${pos().x},${pos().z} food=${foodCount()} coins=${count(COINS)} agility=${sdk.getSkill('Agility')?.baseLevel} wc=${sdk.getSkill('Woodcutting')?.baseLevel}`);
     if ((sdk.getSkill('Agility')?.baseLevel ?? 1) < 12) {
         session.stop('agility', 'needs Agility 12 for the stepping stones');
