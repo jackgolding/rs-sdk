@@ -280,7 +280,10 @@ export async function requestFromMule(
         // "nails x12, dragon longsword" arrived as "na**********ragon longsword" and the
         // mule served nothing (ABGARMY01, 2026-10-31). `label=count; …` passes it for every
         // stocked label and count tested (WordEnc.filter), and ';' is in the chat charset.
-        const detail = pending.map((n) => `${n.label}=${n.count - countItems(sdk, n.pattern)}`).join('; ');
+        // "red topaz=1; <next>" is censored across the separator ("red top*******oul rune=1"): the mule never served
+        // red topaz or soul rune to jacklove13's Legends kit (2026-11-05). WordEnc.filter passes it last, with nothing after.
+        const ordered = [...pending].sort((a, b) => Number(/topaz/i.test(a.label)) - Number(/topaz/i.test(b.label)));
+        const detail = ordered.map((n) => `${n.label}=${n.count - countItems(sdk, n.pattern)}`).join('; ');
         const account = muleAccount(opts.mule);
         await dmMule(sdk, account, `quest-supply ${opts.noted ? 'noted ' : ''}${detail}`);
         ctx.log(`supply: requested from ${opts.mule}${account !== opts.mule ? ` (${account})` : ''}: ${detail}`);
