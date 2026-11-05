@@ -92,9 +92,9 @@ await runQuest({
             run: (q) => ns.grotto(q, async () => ((await passes(q.sdk, 'transform')) ? 'transform' : 'other')),
         },
         { from: 'transform', to: 'sickle', needs: [amulet, sickle, ...fight], run: (q) => ns.grotto(q, async () => 'transform') },
-        { from: 'sickle', to: 'pouch', needs: [amulet, ...fight], run: (q) => ns.fillPouch(q) },
-        { from: 'bloom', to: 'pouch', needs: [amulet, ...fight], run: (q) => ns.fillPouch(q) },
-        { from: 'picked', to: 'pouch', needs: [amulet, ...fight], run: (q) => ns.fillPouch(q) },
+        { from: 'sickle', to: 'pouch', needs: [amulet, ...fight, { item: 'prayer potion', count: 2 }], run: (q) => ns.fillPouch(q) },
+        { from: 'bloom', to: 'pouch', needs: [amulet, ...fight, { item: 'prayer potion', count: 2 }], run: (q) => ns.fillPouch(q) },
+        { from: 'picked', to: 'pouch', needs: [amulet, ...fight, { item: 'prayer potion', count: 2 }], run: (q) => ns.fillPouch(q) },
         {
             from: 'pouch',
             to: 'ghast3',

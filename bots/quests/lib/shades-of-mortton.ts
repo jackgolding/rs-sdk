@@ -433,9 +433,11 @@ export async function buyFromRazmire(q: Quest, store: 'general' | 'building', it
     if (!want().length) return;
     const menu = store === 'general' ? [/can i see the general store/i, /can you open a store for me/i] : [/can i see the building store/i, /running out of building materials/i, /can you open a store for me/i];
     const open = () => !!q.sdk.getState()?.shop?.isOpen;
-    for (let round = 1; round <= 10 && want().length; round++) {
+    // Every shade swing closes the store (mortton_shades.rs2 shade_playerhit if_close), and the client then shows an
+    // empty shelf for a tick: clear shades over a wider radius before each round, and allow more rounds.
+    for (let round = 1; round <= 25 && want().length; round++) {
         await prayMelee(q, true);
-        await defend(q, 100, 6);
+        await defend(q, 160, 10);
         if (!open()) await serumTalk(q, 'razmire', menu, () => open(), `Razmire's ${store} store`).catch((e: Error) => q.log(e.message));
         for (const [re, n] of want()) {
             if (!open()) break;

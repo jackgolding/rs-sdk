@@ -522,6 +522,15 @@ async function prayAtGrotto(q: Quest, force = false): Promise<void> {
     const prayer = () => q.sdk.getSkill('prayer');
     const low = () => (prayer()?.level ?? 0) < (prayer()?.baseLevel ?? 1);
     if (!force && !low()) return;
+    // During the quest the grotto is not yet the Altar of nature (it becomes one after): drink a prayer potion.
+    const pot = q.sdk.getInventory().find((i) => /^prayer potion\(\d\)$/i.test(i.name));
+    if (pot) {
+        const before = prayer()?.level ?? 0;
+        await q.bot.eatFood(pot).catch(() => undefined);
+        await untilTicks(q.sdk, () => (prayer()?.level ?? 0) > before, 4);
+        q.log(`ns: prayer potion → ${prayer()?.level}/${prayer()?.baseLevel}`);
+        return;
+    }
     if (!inGrotto(pos(q))) await intoGrotto(q).catch((e) => q.log(`ns: into the grotto to pray: ${(e as Error).message}`));
     if (!inGrotto(pos(q))) return;
     await q.sdk.scanNearbyLocs(10).catch(() => undefined);
@@ -558,7 +567,9 @@ export async function fillPouch(q: Quest): Promise<void> {
             // Casts drain prayer mid-harvest (jacklove16 started full and ran dry, 2026-11-05): recharge and come back.
             if (++recharges > 2) throw new Error('ns: out of prayer points for the sickle');
             q.log(`ns: out of prayer mid-harvest (${bloomedHarvest(q)}/3) — back to the grotto altar`);
+            const hadPot = q.sdk.getInventory().some((i) => /^prayer potion\(\d\)$/i.test(i.name));
             await prayAtGrotto(q, true);
+            if (hadPot) continue;
             await leaveCamp(q);
             await intoSwamp(q);
             for (let i = 0; i < 3 && (pos(q).x !== PEAR_AT.x || pos(q).z !== PEAR_AT.z); i++) await q.bot.walkTo(PEAR_AT.x, PEAR_AT.z, 0).catch(() => undefined);
