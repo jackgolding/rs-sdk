@@ -65,7 +65,9 @@ const passesAny = async (sdk: Sdk, from: string) => {
  * Tirannwn back to a shop. Every restart walks in from the pass entrance, so a new process needs it all again.
  */
 let underway = false;
-const passKit = (q: Quest): Need[] => (underway ? [] : [...reg.passKitNeeds(), ...(q.sdk.isBankOpen() ? [{ item: 'shark', count: 14 }] : [])]);
+// 10 sharks, not 14: the pass kit (14 slots) + weapon, coins and runes left 1 free slot, so the second rope
+// never fit (ABGARMY17/20 "source for rope left 1/2", 2026-11-05).
+const passKit = (q: Quest): Need[] => (underway ? [] : [...reg.passKitNeeds(), ...(q.sdk.isBankOpen() ? [{ item: 'shark', count: 10 }] : [])]);
 const step = (fn: (q: Quest) => Promise<void>) => async (q: Quest) => {
     underway = true;
     await fn(q);
