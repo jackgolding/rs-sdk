@@ -189,6 +189,13 @@ await runQuest({
             from: 'scouted',
             to: 'complete',
             run: async (q) => {
+                // Map lost (not held or banked): Tenzing draws another (death_sherpa.rs2), else Denulth
+                // only says "I don't have the map on me" (jacklove7, 6 attempts, 2026-11-05).
+                if (q.count('secret way map') === 0) {
+                    q.log('no secret way map — Tenzing draws another');
+                    await toTenzing(q);
+                    await q.talk(/^tenzing$/i);
+                }
                 await leaveAnywhere(q);
                 await q.talk(/^denulth$/i, [], DENULTH);
             },
