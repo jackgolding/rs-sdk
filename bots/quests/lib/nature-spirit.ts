@@ -455,13 +455,16 @@ export async function ritual(q: Quest, done: () => Promise<boolean>): Promise<vo
         for (let i = 0; i < 3 && (pos(q).x !== FAITH_STONE.x || pos(q).z !== FAITH_STONE.z); i++) await q.bot.walkTo(FAITH_STONE.x, FAITH_STONE.z, 0).catch(() => undefined);
         // jacklove16 sat silent at (3440,3337) through three ritual attempts (2026-11-04): say where and why.
         q.log(`ns: ritual attempt ${attempt} at ${where(q)} (faith stone ${FAITH_STONE.x},${FAITH_STONE.z}); spirit ${spiritNpc(q) ? 'here' : 'absent'}; fungus ${holds(q, OBJ.fungus)}, spell ${holds(q, OBJ.spell) || holds(q, OBJ.usedSpell)}; npcs ${(q.sdk.getNearbyNpcs() ?? []).filter((n) => (n.distance ?? 99) <= 6).map((n) => `${n.name}#${n.id}@${n.x},${n.z}`).join(' ') || 'none'}`);
-        if (!spiritNpc(q)) {
-            // The door-summoned spirit offers the same menu (filliman.rs2 multi5): answer the puzzle from
-            // the faith stone right there. Summoning with no answer looped 4×4 attempts with the spirit
-            // never in the npc list between dialogs (ABGARMY08/jacklove16, 2026-11-04).
-            const seen = await summonSpirit(q, [/i think i've solved the puzzle/i]);
-            q.log(`ns: puzzle via the grotto door from ${where(q)}: ${seen.slice(-160)}`);
-            continue;
+        // The npc list can be empty right after a summon or a step ("npcs none" on ABGARMY08); ABGARMY20 passed
+        // once Filliman (#1050) showed at (3440,3336) beside the stone. Summon if needed, back onto the faith stone
+        // (the server checks coord == 3440,3335), and wait for him to appear before talking.
+        if (!(await untilTicks(q.sdk, () => !!spiritNpc(q), 6))) {
+            await summonSpirit(q, []);
+            for (let i = 0; i < 3 && (pos(q).x !== FAITH_STONE.x || pos(q).z !== FAITH_STONE.z); i++) await q.bot.walkTo(FAITH_STONE.x, FAITH_STONE.z, 0).catch(() => undefined);
+            if (!(await untilTicks(q.sdk, () => !!spiritNpc(q), 12))) {
+                q.log(`ns: ritual attempt ${attempt}: no spirit in view after the summon (at ${where(q)})`);
+                continue;
+            }
         }
         await q.sdk.sendInteractNpc(spiritNpc(q)!.index, 1, { route: false });
         if (!(await untilTicks(q.sdk, (s) => !!s.dialog?.isOpen, 8))) {
