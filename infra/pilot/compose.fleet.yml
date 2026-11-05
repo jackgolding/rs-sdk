@@ -690,7 +690,7 @@ services:
   quest-abgarmy20:
     <<: *runner
     working_dir: /opt/fleet
-    command: ["bun", "bots/quests/todo-runner.ts", "ABGARMY20", "--then", "bots/quests/thieving-route.ts", "ABGARMY20"]
+    command: ["bun", "bots/quests/todo-runner.ts", "ABGARMY20", "--then", "bots/quests/fishing-route.ts", "ABGARMY20", "--shark"]
     volumes:
       # Whole bots tree (quests + every per-bot dir + roster.json): quest
       # scripts import sibling bots (e.g. bowstrings -> ../Jackpoo1/...), so
