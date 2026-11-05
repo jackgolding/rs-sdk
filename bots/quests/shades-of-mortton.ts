@@ -124,7 +124,8 @@ const bankedHerbs = (q: Quest) => {
 const kit = (q: Quest) => [
     { item: 'melee weapon', count: 1 },
     // Store money, taken at the open hub bank only: a transition that finds it spent must not walk off to pickpocket.
-    ...banked(q, 'coins', 3000, /^coins$/i),
+    // 3000 ran dry mid-temple at the builders' store (jacklove4, jacklove13: coins 0, 2026-11-05).
+    ...banked(q, 'coins', 8000, /^coins$/i),
     ...banked(q, 'shark', 10, /^shark$/i),
     ...banked(q, 'prayer potion', 2, /^prayer potion\(\d\)$/i),
     ...serumNeeds(q),

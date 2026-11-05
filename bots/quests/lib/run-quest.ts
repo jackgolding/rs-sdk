@@ -729,8 +729,14 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 }
                 // Lumbridge side <-> Al Kharid: pay the border guard first. walkTo at the toll
                 // gate blacklists it and detours around the fence (alkharid-toll.ts).
-                const here = pos();
+                let here = pos();
                 if (away(tile) > tolerance && inAlKharid(here) !== inAlKharid(tile) && Math.min(here.x, tile.x) < TOLL_X) {
+                    // The guard is only in view at the gate: from Ardougne the crossing found "no Border Guard"
+                    // three times, then the walk stalled at the gate unpaid (jacklove2, ABGARMY05, 2026-11-05).
+                    if (!inAlKharid(here) && Math.hypot(here.x - 3266, here.z - 3227) > 12) {
+                        await bot.walkTo(3266, 3227, 3).catch(() => undefined);
+                        here = pos();
+                    }
                     let crossed = await crossAlKharidToll(bot, sdk, inAlKharid(tile), { log });
                     // A naked prologue reaches the gate with no coins: Jackpoo5 sat at 3267,3227 for an
                     // hour on its way to the Al Kharid hub (2026-10-30). Get the fee, then try again.
