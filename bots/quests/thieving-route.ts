@@ -910,7 +910,7 @@ async function clickPickpocket(npc: { index: number; name: string }): Promise<'o
     try {
         await sdk.waitForCondition((s) => {
             const xp = s.skills.find((sk) => sk.name === 'Thieving')?.experience ?? 0;
-            if (xp > xpBefore) return true;
+            if (xp > xpBefore || coinCount() > coinsBefore) return true;
             for (const msg of s.gameMessages) {
                 if (msg.tick <= tickBefore) continue;
                 const t = msg.text.toLowerCase();
@@ -931,7 +931,7 @@ async function clickPickpocket(npc: { index: number; name: string }): Promise<'o
     }
 
     const xpAfter = sdk.getSkill('Thieving')?.experience ?? 0;
-    if (xpAfter > xpBefore) {
+    if (xpAfter > xpBefore || coinCount() > coinsBefore) {
         noteCoinDelta(coinsBefore);
         log(`Pickpocket ${fresh.name}: ok (+${xpAfter - xpBefore} thieving xp)`);
         return 'ok';

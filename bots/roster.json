@@ -619,8 +619,9 @@
       "args": [
         "ABGARMY20",
         "--then",
-        "bots/quests/thieving-route.ts",
-        "ABGARMY20"
+        "bots/quests/fishing-route.ts",
+        "ABGARMY20",
+        "--shark"
       ],
       "noEffectMinutes": 90
     },
