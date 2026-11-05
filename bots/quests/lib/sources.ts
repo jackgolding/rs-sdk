@@ -149,6 +149,16 @@ export const GROUPS: Record<string, Array<{ item: string; skill: string; level: 
         { item: 'longbow', skill: 'ranged', level: 1, id: 839 },
         { item: 'shortbow', skill: 'ranged', level: 1, id: 841 },
     ],
+    /**
+     * Temple of Ikov: ice arrows are levelrequire 40, and player_ranged.rs2 refuses ammo above the
+     * bow's own levelrequire, so only yew and magic bows fire them. jackthief serves magic longbows.
+     */
+    'ice bow': [
+        { item: 'magic longbow', skill: 'ranged', level: 50, id: 859 },
+        { item: 'magic shortbow', skill: 'ranged', level: 50, id: 861 },
+        { item: 'yew longbow', skill: 'ranged', level: 40, id: 855 },
+        { item: 'yew shortbow', skill: 'ranged', level: 40, id: 857 },
+    ],
     /** Black Knights' Fortress: the guard disguise is worn, so worn ones count. */
     'bronze med helm': [{ item: 'bronze med helm', skill: 'defence', level: 1 }],
     'iron chainbody': [{ item: 'iron chainbody', skill: 'defence', level: 1 }],
@@ -369,6 +379,8 @@ export const SOURCES: Record<string, Source> = {
 
     /** Jackpoo2 holds the fleet's iron bars (121 in its bank snapshot, 2026-10-29) and serves them. */
     'iron bar': { mule: true, muleSupply: 'jackthief' },
+    /** A GROUPS name: the mule is asked for the group's first member (magic longbow). */
+    'ice bow': { mule: true, muleSupply: 'jackthief' },
 
     'pot of flour': {
         inputs: () => [{ item: 'coins', count: 30 }],

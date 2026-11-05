@@ -35,7 +35,8 @@ const passes = async (sdk: Parameters<typeof readJournalCheckpoint>[0], id: stri
 const O = ikov.OBJ;
 // Light: three sharks and nothing else heavy (the bridge).
 const dungeon = [
-    { item: 'bow', count: 1 },
+    // Yew or magic only: lower bows cannot fire ice arrows (lib/sources.ts 'ice bow').
+    { item: 'ice bow', count: 1 },
     // One shark until Winelda takes the 20 roots: 20 roots + bow + runes + the candle's coins/tinderbox fill 28 with three
     // (jacklove13: "pack is full — no room to buy candle", 2026-11-04). Lucien's step asks for its own 3 below.
     { item: 'shark', count: 1 },

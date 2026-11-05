@@ -1067,7 +1067,11 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 }
                 if (byMule.size === 0) return;
                 for (const [by, list] of byMule) {
-                    const asked = list.map((n) => ({ label: n.item, pattern: itemPattern(n.item), count: n.count }));
+                    // A group ('ice bow') asks for its best member by name.
+                    const asked = list.map((n) => {
+                        const name = GROUPS[n.item]?.[0]?.item ?? n.item;
+                        return { label: name, pattern: itemPattern(name), count: n.count };
+                    });
                     const ok = await requestFromMule({ sdk, bot, session: null, log }, asked, { mule: by, timeoutMs: ticksToMs(MULE_WAIT_TICKS) });
                     log(`mule ${by}: ${ok ? 'supplied' : 'not all supplied'}; carrying ${describeInventory(sdk)}`);
                 }
