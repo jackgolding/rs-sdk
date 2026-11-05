@@ -6,35 +6,112 @@
 <title>Fleet desk</title>
 <style>
   :root {
+    color-scheme: dark;
     --bg: #12110e;
-    --panel: #1c1915;
-    --panel-2: #26221c;
-    --line: #3c362e;
+    --surface: #1a1814;
+    --surface-2: #211e19;
+    --surface-3: #2a2620;
+    --line: #34302a;
+    --line-strong: #4a4338;
     --text: #f3ecdf;
     --muted: #a89b8a;
+    --faint: #6f685e;
     --brass: #e2a85a;
+    --brass-ink: #f0d7a8;
+    --brass-bg: rgba(226, 168, 90, 0.14);
     --good: #8fce7a;
-    --bad: #e07a5f;
+    --good-bg: rgba(143, 206, 122, 0.13);
+    --bad: #ec8a6f;
+    --bad-bg: rgba(236, 138, 111, 0.13);
     --warn: #e6c36a;
+    --warn-bg: rgba(230, 195, 106, 0.13);
     --paused: #9a9286;
-    --swarm: #6fa8dc;
+    --paused-bg: rgba(154, 146, 134, 0.14);
+    --swarm: #7fb3e6;
+    --swarm-bg: rgba(127, 179, 230, 0.14);
     --focus: #f0d7a8;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 6px 18px rgba(0, 0, 0, 0.18);
+    --pop-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    --head-bg: rgba(18, 17, 14, 0.92);
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #f4f1ec;
+    --surface: #ffffff;
+    --surface-2: #f8f6f2;
+    --surface-3: #eee9e1;
+    --line: #e2dbd0;
+    --line-strong: #cbbfae;
+    --text: #231e17;
+    --muted: #6c6152;
+    --faint: #a59a8b;
+    --brass: #a5661c;
+    --brass-ink: #7b4a10;
+    --brass-bg: rgba(165, 102, 28, 0.1);
+    --good: #2e7d32;
+    --good-bg: rgba(46, 125, 50, 0.1);
+    --bad: #c0442a;
+    --bad-bg: rgba(192, 68, 42, 0.09);
+    --warn: #946400;
+    --warn-bg: rgba(178, 124, 0, 0.12);
+    --paused: #786f63;
+    --paused-bg: rgba(120, 111, 99, 0.1);
+    --swarm: #2a67a6;
+    --swarm-bg: rgba(42, 103, 166, 0.09);
+    --focus: #7b4a10;
+    --shadow: 0 1px 2px rgba(60, 45, 20, 0.08), 0 4px 14px rgba(60, 45, 20, 0.06);
+    --pop-shadow: 0 10px 30px rgba(60, 45, 20, 0.18);
+    --head-bg: rgba(244, 241, 236, 0.92);
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      color-scheme: light;
+      --bg: #f4f1ec;
+      --surface: #ffffff;
+      --surface-2: #f8f6f2;
+      --surface-3: #eee9e1;
+      --line: #e2dbd0;
+      --line-strong: #cbbfae;
+      --text: #231e17;
+      --muted: #6c6152;
+      --faint: #a59a8b;
+      --brass: #a5661c;
+      --brass-ink: #7b4a10;
+      --brass-bg: rgba(165, 102, 28, 0.1);
+      --good: #2e7d32;
+      --good-bg: rgba(46, 125, 50, 0.1);
+      --bad: #c0442a;
+      --bad-bg: rgba(192, 68, 42, 0.09);
+      --warn: #946400;
+      --warn-bg: rgba(178, 124, 0, 0.12);
+      --paused: #786f63;
+      --paused-bg: rgba(120, 111, 99, 0.1);
+      --swarm: #2a67a6;
+      --swarm-bg: rgba(42, 103, 166, 0.09);
+      --focus: #7b4a10;
+      --shadow: 0 1px 2px rgba(60, 45, 20, 0.08), 0 4px 14px rgba(60, 45, 20, 0.06);
+      --pop-shadow: 0 10px 30px rgba(60, 45, 20, 0.18);
+      --head-bg: rgba(244, 241, 236, 0.92);
+    }
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
   body {
-    font: 13px/1.4 "Avenir Next", "Segoe UI", sans-serif;
+    font: 13px/1.4 "Avenir Next", "Segoe UI", system-ui, sans-serif;
     font-variant-numeric: tabular-nums;
+    min-height: 100vh;
   }
   button, select, input { font: inherit; color: inherit; }
   button {
-    background: var(--panel-2);
+    background: var(--surface-2);
     border: 1px solid var(--line);
     border-radius: 6px;
     padding: 4px 8px;
     cursor: pointer;
   }
   button:hover { border-color: var(--brass); }
+  button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--brass); outline-offset: 1px; }
   button:disabled { opacity: 0.45; cursor: default; }
   #refresh {
     display: inline-flex;
@@ -47,7 +124,7 @@
     display: none;
     width: 12px;
     height: 12px;
-    border: 2px solid #4a4338;
+    border: 2px solid var(--line-strong);
     border-top-color: var(--brass);
     border-radius: 50%;
     animation: refresh-spin 0.7s linear infinite;
@@ -56,18 +133,18 @@
   #refresh.busy,
   #refresh:disabled.busy {
     opacity: 1;
-    background: #100e0b;
+    background: var(--surface-3);
     color: var(--muted);
-    border-color: #2a261f;
+    border-color: var(--line);
     cursor: progress;
     pointer-events: none;
   }
   #refresh.busy .spin { display: inline-block; }
   @keyframes refresh-spin { to { transform: rotate(360deg); } }
-  button.primary { background: #3d311f; border-color: #8a6733; color: var(--focus); }
-  button.danger { border-color: #6e3d32; }
+  button.primary { background: var(--brass-bg); border-color: var(--brass); color: var(--brass-ink); font-weight: 600; }
+  button.danger:hover { border-color: var(--bad); }
   select, input[type="search"], input[type="text"] {
-    background: var(--bg);
+    background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 6px;
     padding: 4px 8px;
@@ -78,71 +155,189 @@
     z-index: 5;
     display: flex;
     flex-wrap: wrap;
-    gap: 8px 12px;
+    gap: 8px 16px;
     align-items: center;
-    padding: 8px 12px;
-    background: rgba(18, 17, 14, 0.94);
+    padding: 10px 16px;
+    background: var(--head-bg);
     border-bottom: 1px solid var(--line);
     backdrop-filter: blur(8px);
   }
-  h1 { font-size: 18px; font-weight: 600; margin: 0; letter-spacing: 0.01em; }
-  .headline { color: var(--brass); font-weight: 600; }
+  h1 { font-size: 18px; font-weight: 650; margin: 0; letter-spacing: 0.01em; }
+  .headline { color: var(--brass); font-weight: 650; }
   .headline.bad { color: var(--bad); }
   .muted { color: var(--muted); }
+  #sub { font-size: 12px; }
   #box { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); }
   #box[hidden] { display: none; }
   #box .warn { color: var(--warn); }
   #box .bad { color: var(--bad); }
   .tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-left: auto; }
-  .tabs { display: flex; gap: 4px; }
-  .tabs button[aria-pressed="true"] { border-color: var(--brass); color: var(--focus); }
+  .tabs { display: flex; gap: 2px; padding: 2px; background: var(--surface-3); border-radius: 8px; }
+  .tabs button { border: 0; background: none; padding: 4px 12px; border-radius: 6px; color: var(--muted); }
+  .tabs button[aria-pressed="true"] { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--shadow); }
+  #theme { min-width: 64px; }
   main { padding: 0 0 80px; }
-  .wrap { overflow: auto; max-height: calc(100vh - 64px); }
-  table { border-collapse: separate; border-spacing: 0; width: 100%; }
-  #fleet { min-width: 1080px; }
-  th, td { padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; text-align: left; white-space: nowrap; }
-  th {
-    position: sticky;
-    top: 0;
-    background: #191712;
-    color: var(--muted);
+
+  /* Summary tiles */
+  #summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    padding: 14px 16px 4px;
+  }
+  .tile {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    box-shadow: var(--shadow);
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  button.tile { cursor: pointer; font: inherit; }
+  button.tile:hover { border-color: var(--line-strong); }
+  button.tile[aria-pressed="true"] { border-color: var(--brass); }
+  .tile .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .tile .v { font-size: 24px; font-weight: 700; line-height: 1.15; }
+  .tile .c { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile.good .v { color: var(--good); }
+  .tile.bad .v { color: var(--bad); }
+  .tile.swarm .v { color: var(--swarm); }
+  .tile.paused .v { color: var(--paused); }
+  .tile.qptile .v { color: var(--brass); }
+
+  /* Fleet sections and cards */
+  #fleet { padding: 6px 16px 0; }
+  #fleet[hidden] { display: none; }
+  .section { margin-top: 14px; }
+  .section > summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 4px 2px 8px;
+    user-select: none;
+  }
+  .section > summary::-webkit-details-marker { display: none; }
+  .section > summary::before { content: "▾"; color: var(--faint); font-size: 11px; width: 10px; }
+  .section:not([open]) > summary::before { content: "▸"; }
+  .section h2 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+  .section .count { color: var(--muted); font-weight: 600; }
+  .section .hint { color: var(--faint); font-size: 12px; }
+  .section.bad h2 { color: var(--bad); }
+  .section.good h2 { color: var(--good); }
+  .section.swarm h2 { color: var(--swarm); }
+  .section.paused h2 { color: var(--paused); }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 10px;
+  }
+  .card {
+    --kind: var(--bad);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    padding: 10px 12px 8px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    position: relative;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--kind); }
+  .card.producing { --kind: var(--good); }
+  .card.swarm { --kind: var(--swarm); }
+  .card.paused { --kind: var(--paused); }
+  .card.warn { --kind: var(--warn); }
+  .card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .card-head .name-btn { font-size: 15px; font-weight: 700; }
+  .tag {
+    font-size: 10px;
     font-weight: 600;
-    font-size: 11px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    z-index: 2;
+    color: var(--muted);
+    background: var(--surface-3);
+    border-radius: 4px;
+    padding: 1px 5px;
   }
-  tr.producing td:first-child { box-shadow: inset 3px 0 0 var(--good); }
-  tr.bad td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
-  tr.paused td:first-child { box-shadow: inset 3px 0 0 var(--paused); }
-  tr.swarm td:first-child { box-shadow: inset 3px 0 0 var(--swarm); }
-  td.account { position: sticky; left: 0; background: #16140f; z-index: 1; }
-  th.account { left: 0; z-index: 3; }
-  .name { font-weight: 650; display: flex; align-items: center; gap: 6px; }
-  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--bad); }
-  .dot.producing { background: var(--good); }
-  .dot.paused { background: var(--paused); }
-  .dot.swarm { background: var(--swarm); }
-  .dot.warn { background: var(--warn); }
+  .qp {
+    margin-left: auto;
+    flex: none;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+    background: var(--brass-bg);
+    color: var(--brass-ink);
+    border-radius: 999px;
+    padding: 1px 9px;
+    font-weight: 700;
+    font-size: 13px;
+  }
+  .qp small { font-size: 10px; font-weight: 650; letter-spacing: 0.04em; opacity: 0.8; }
+  .qp.none { background: var(--surface-3); color: var(--faint); }
+  .cb { flex: none; color: var(--muted); font-size: 12px; }
+  .cb b { color: var(--text); }
+  .status { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; }
+  .status .reason { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .pill {
     display: inline-block;
+    flex: none;
     border-radius: 999px;
-    padding: 1px 7px;
-    border: 1px solid var(--line);
+    padding: 0 8px;
     font-size: 11px;
+    font-weight: 650;
+    line-height: 18px;
+    color: var(--bad);
+    background: var(--bad-bg);
   }
-  .pill.producing { color: var(--good); border-color: #355c32; }
-  .pill.paused { color: var(--paused); }
-  .pill.swarm { color: var(--swarm); border-color: #34506b; }
-  .pill.bad { color: var(--bad); border-color: #6e3d32; }
-  .pill.warn { color: var(--warn); border-color: #6d5a28; }
-  .pos a { color: var(--focus); text-decoration: none; }
-  .pos.stale { color: var(--warn); }
-  .pos.stale a { color: var(--warn); }
+  .pill.producing { color: var(--good); background: var(--good-bg); }
+  .pill.paused { color: var(--paused); background: var(--paused-bg); }
+  .pill.swarm { color: var(--swarm); background: var(--swarm-bg); }
+  .pill.warn { color: var(--warn); background: var(--warn-bg); }
+  .now { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .now .job { font-weight: 650; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now .job .kind-label { color: var(--muted); font-weight: 600; }
+  .now .phase { font-family: var(--mono); font-size: 11px; color: var(--brass-ink); background: var(--brass-bg); border-radius: 4px; padding: 0 5px; margin-left: 6px; font-weight: 500; }
+  .now .line { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now .line.hot { color: var(--warn); }
+  .health { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+  .metric { background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; min-width: 0; }
+  .metric span { display: block; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .metric b { display: block; font-size: 12.5px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .metric.good b { color: var(--good); }
+  .metric.warn b { color: var(--warn); }
+  .metric.bad b { color: var(--bad); }
+  .metric.dim b { color: var(--faint); }
+  .meta { display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); min-width: 0; }
+  .meta .rate { color: var(--text); font-weight: 600; }
+  .pos a { color: var(--brass-ink); text-decoration: none; font-weight: 600; }
+  .pos a:hover { text-decoration: underline; }
+  .pos.stale, .pos.stale a { color: var(--warn); }
+  .card-foot { display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--line); padding-top: 7px; margin-top: 1px; flex-wrap: wrap; }
+  .job-edit { flex: 1 1 100%; order: 2; min-width: 0; }
+  .job-edit > summary { cursor: pointer; color: var(--muted); font-size: 12px; list-style: none; display: flex; gap: 6px; align-items: baseline; min-width: 0; white-space: nowrap; }
+  .job-edit > summary::-webkit-details-marker { display: none; }
+  .job-edit > summary::before { content: "▸"; font-size: 10px; flex: none; }
+  .job-edit[open] > summary::before { content: "▾"; }
+  .job-edit > summary code { font-family: var(--mono); font-size: 11px; color: var(--text); overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
+  .job-edit[open] > summary code { white-space: normal; word-break: break-all; }
+  .job-edit[open] .script-cell { margin-top: 6px; }
+  .script-cell { display: flex; gap: 4px; align-items: center; }
+  .script-cell select { flex: 1; min-width: 0; }
+  .script-cell input { width: 110px; padding: 2px 6px; }
+  .script-cell button { padding: 2px 8px; font-size: 12px; }
   #gateway-banner {
-    padding: 8px 12px;
-    background: #2a1a12;
-    border-bottom: 1px solid #6e3d32;
+    padding: 8px 16px;
+    background: var(--bad-bg);
+    border-bottom: 1px solid var(--bad);
     color: var(--bad);
     font-weight: 600;
   }
@@ -151,36 +346,36 @@
     display: inline-block;
     border-radius: 999px;
     padding: 0 6px;
-    margin-left: 6px;
     border: 1px solid var(--line);
     font-size: 10px;
     color: var(--muted);
     font-weight: 600;
   }
-  .badge.hub { color: var(--warn); border-color: #6d5a28; }
-  .sub-line { color: var(--muted); font-size: 11px; margin-top: 1px; }
-  .sub-line.hot { color: var(--warn); }
-  .script-cell { display: flex; gap: 4px; align-items: center; }
-  .script-cell select { width: 148px; }
-  .script-cell input { width: 64px; padding: 2px 4px; }
-  .script-cell button, .actions button { padding: 2px 5px; font-size: 11px; }
-  .actions { display: flex; flex-wrap: nowrap; gap: 3px; }
+  .badge.hub { color: var(--warn); border-color: var(--warn); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--bad); }
+  .dot.producing { background: var(--good); }
+  .dot.paused { background: var(--paused); }
+  .dot.swarm { background: var(--swarm); }
+  .dot.warn { background: var(--warn); }
+  .actions { display: flex; flex-wrap: nowrap; gap: 3px; order: 1; }
   .actions button.icon {
-    width: 26px;
-    height: 24px;
+    width: 28px;
+    height: 26px;
     padding: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    background: var(--surface-2);
   }
   .actions button.icon svg { width: 15px; height: 15px; display: block; }
   .actions button.icon .emoji { font-size: 14px; line-height: 1; }
-  .skills { display: flex; gap: 1px; align-items: center; cursor: pointer; }
-  .skill { display: inline-flex; align-items: center; gap: 1px; padding: 0 1px; border-radius: 3px; }
-  .skill.hot { outline: 1px solid var(--brass); background: #2a2418; }
+  .actions .sep { width: 1px; background: var(--line); margin: 3px 3px; }
+  .skills { display: flex; gap: 2px; align-items: center; cursor: pointer; flex-wrap: wrap; }
+  .skill { display: inline-flex; align-items: center; gap: 2px; padding: 1px 3px; border-radius: 4px; background: var(--surface-2); }
+  .skill.hot { outline: 1px solid var(--brass); background: var(--brass-bg); }
   .skill.extra { margin-left: 4px; }
   .skill b { font-size: 11px; font-weight: 650; min-width: 1.15em; }
-  .skill.max b { color: var(--focus); }
+  .skill.max b { color: var(--brass-ink); }
   .si {
     width: 16px; height: 16px; display: block; flex: none;
     background: url(/icons/skills.png) no-repeat;
@@ -189,32 +384,62 @@
   }
   .si.rc { background-image: url(/icons/runecraft.png); background-size: 16px 16px; background-position: 0 0; }
   #skill-pop {
-    position: fixed; z-index: 30; background: var(--panel);
+    position: fixed; z-index: 30; background: var(--surface);
     border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
     display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    box-shadow: var(--pop-shadow);
   }
   #skill-pop[hidden] { display: none; }
   .pop-skill { display: flex; align-items: center; gap: 6px; }
   .pop-skill span { flex: 1; color: var(--muted); }
   #skill-pop h3 { grid-column: 1 / -1; margin: 0 0 4px; font-size: 13px; font-weight: 650; }
-  .lvl99 { font-weight: 700; color: var(--focus); }
-  .lvl1 { color: #6d675e; }
+  #skill-pop .pop-foot { grid-column: 1 / -1; margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+  .lvl99 { font-weight: 700; color: var(--brass-ink); }
+  .lvl1 { color: var(--faint); }
   .num { text-align: right; }
-  #quest-goal { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
-  #quest-goal b { color: var(--focus); font-size: 15px; }
+  .empty { color: var(--muted); padding: 24px 2px; }
+
+  /* Stats and quests tables */
+  .table-wrap { overflow: auto; max-height: calc(100vh - 210px); margin: 12px 16px 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  .table-wrap[hidden] { display: none; }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; }
+  th, td { padding: 4px 7px; border-bottom: 1px solid var(--line); vertical-align: middle; text-align: left; white-space: nowrap; }
+  th {
+    position: sticky;
+    top: 0;
+    background: var(--surface-3);
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    z-index: 2;
+  }
+  tbody tr:hover td { background: var(--surface-2); }
+  tbody tr:hover td.account { background: var(--surface-2); }
+  td.account { position: sticky; left: 0; background: var(--surface); z-index: 1; }
+  th.account { left: 0; z-index: 3; }
+  tr.bad td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+  td.qpcell { font-weight: 700; color: var(--brass-ink); }
+  #quest-goal { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--surface-2); position: sticky; left: 0; }
+  #quest-goal b { color: var(--brass-ink); font-size: 15px; }
   #quest-goal .bad b { color: var(--bad); }
   #quest-goal .spark { display: inline-flex; align-items: flex-end; gap: 2px; height: 22px; vertical-align: middle; }
   #quest-goal .spark i { display: block; width: 6px; background: var(--brass); border-radius: 1px 1px 0 0; }
-  #quests th.q { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; font-weight: 500; padding: 6px 2px; }
+  #quest-goal .note { margin: 0; flex-basis: 100%; font-size: 12px; }
+  #quests th.q { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; font-weight: 500; padding: 6px 2px; text-transform: none; letter-spacing: 0; font-size: 11.5px; color: var(--text); }
   #quests th.q small { color: var(--muted); }
+  #quests th.q.mini { font-style: italic; color: var(--muted); }
+  #quests th.q.free { color: var(--brass-ink); }
   #quests td.qc { text-align: center; padding: 3px 2px; min-width: 22px; }
+  #quests th.qp-head, #quests td.qpcell { text-align: right; }
   .qc.done { color: var(--good); }
-  .qc.running { color: var(--focus); }
-  .qc.queued { color: #6d675e; }
+  .qc.running { color: var(--brass-ink); font-weight: 700; }
+  .qc.queued { color: var(--faint); }
   .qc.retrying { color: var(--warn); }
   .qc.failed { color: var(--bad); font-weight: 700; }
   .qc.stock { color: var(--paused); }
+  .legend { display: inline-flex; gap: 10px; font-size: 12px; color: var(--muted); }
   #toast {
     position: fixed;
     right: 16px;
@@ -226,11 +451,11 @@
     z-index: 20;
   }
   .toast {
-    background: var(--panel);
+    background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 10px;
     padding: 8px 10px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    box-shadow: var(--pop-shadow);
   }
   .toast pre {
     margin: 6px 0 0;
@@ -238,7 +463,7 @@
     overflow: auto;
     white-space: pre-wrap;
     color: var(--muted);
-    font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 11px/1.35 var(--mono);
   }
   #panel {
     position: fixed;
@@ -246,8 +471,9 @@
     right: 0;
     height: 100vh;
     width: min(480px, 100vw);
-    background: var(--panel);
+    background: var(--surface);
     border-left: 1px solid var(--line);
+    box-shadow: var(--pop-shadow);
     z-index: 15;
     display: flex;
     flex-direction: column;
@@ -266,7 +492,7 @@
   #panel-body pre {
     margin: 0;
     white-space: pre;
-    font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+    font: 12px/1.35 var(--mono);
   }
   .bank-table { width: 100%; }
   .bank-table td:last-child, .bank-table th:last-child { text-align: right; }
@@ -295,8 +521,11 @@
     font-weight: 650;
     color: inherit;
     cursor: pointer;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .name-btn:hover, .pos a:hover { color: var(--focus); }
+  .name-btn:hover { color: var(--brass-ink); }
   #map-modal {
     position: fixed;
     inset: 0;
@@ -312,7 +541,7 @@
     width: min(400px, calc(100vw - 24px));
     max-height: calc(100vh - 24px);
     overflow: auto;
-    background: rgba(18, 17, 14, 0.94);
+    background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 10px;
     z-index: 1;
@@ -324,7 +553,7 @@
     gap: 8px;
     align-items: center;
     padding: 8px 10px;
-    background: rgba(18, 17, 14, 0.98);
+    background: var(--surface);
     border-bottom: 1px solid var(--line);
   }
   #map-search { position: relative; flex: 1; min-width: 0; }
@@ -337,7 +566,7 @@
     right: 0;
     max-height: 240px;
     overflow: auto;
-    background: rgba(18, 17, 14, 0.98);
+    background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 8px;
   }
@@ -350,10 +579,17 @@
     border: 0;
     border-radius: 0;
   }
-  #map-hits button.on, #map-hits button:hover { background: var(--panel-2); }
+  #map-hits button.on, #map-hits button:hover { background: var(--surface-3); }
   #map-hits .note { margin: 6px 8px; }
-  #map-card header a { color: var(--focus); }
+  #map-card header a { color: var(--brass-ink); }
   #map-body { padding: 10px 12px 16px; }
+  @media (max-width: 640px) {
+    header.top { padding: 8px 12px; position: static; }
+    .tools { margin-left: 0; }
+    #summary, #fleet { padding-left: 12px; padding-right: 12px; }
+    .grid { grid-template-columns: minmax(0, 1fr); }
+    .table-wrap { margin: 12px 12px 0; }
+  }
 </style>
 </head>
 <body>
@@ -384,35 +620,25 @@
       <span class="spin" aria-hidden="true"></span>
       <span class="lbl">Refresh</span>
     </button>
+    <button type="button" id="theme" title="Colour theme: follow the system, light or dark">Auto</button>
   </div>
 </header>
 <div id="gateway-banner" hidden></div>
 <main>
-  <div class="wrap">
-    <table id="fleet">
-      <thead>
-        <tr>
-          <th class="account">Account</th>
-          <th>Where</th>
-          <th>Skills</th>
-          <th>Script</th>
-          <th></th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-    <table id="stats" hidden>
+  <section id="summary" aria-label="Fleet summary"></section>
+  <div id="fleet"></div>
+  <div class="table-wrap" id="stats-wrap" hidden>
+    <table id="stats">
       <thead><tr id="stats-head"></tr></thead>
       <tbody></tbody>
     </table>
-    <div id="quests-wrap" hidden>
-      <div id="quest-goal" class="muted">Loading quests…</div>
-      <table id="quests">
-        <thead><tr id="quests-head"></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
+  </div>
+  <div class="table-wrap" id="quests-wrap" hidden>
+    <div id="quest-goal" class="muted">Loading quests…</div>
+    <table id="quests">
+      <thead><tr id="quests-head"></tr></thead>
+      <tbody></tbody>
+    </table>
   </div>
 </main>
 <div id="toast"></div>
@@ -481,7 +707,7 @@ const SCRIPT_SKILLS = {
   'smith-knives.ts': ['Smithing'],
   'smelt-falador.ts': ['Smithing'],
 };
-const state = { fleet: null, tab: 'fleet', edits: new Map(), jobs: new Map() };
+const state = { fleet: null, tab: 'fleet', edits: new Map(), jobs: new Map(), openJobs: new Set(), closedGroups: new Set() };
 
 const $ = (id) => document.getElementById(id);
 
@@ -622,7 +848,7 @@ function rates(bot) {
     .filter(([, value]) => value > 0)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 2)
-    .map(([name, value]) => `${name.slice(0, 4)} ${Math.round(value).toLocaleString()}/h`);
+    .map(([name, value]) => `${(SKILLS.find(([full]) => full === canonSkill(name)) || [name, name.slice(0, 4)])[1]} ${shortNum(value)} xp/h`);
   if (bot.gpPerHour) xp.push(`${Math.round(bot.gpPerHour).toLocaleString()} gp/h`);
   return xp.join(' · ');
 }
@@ -705,7 +931,14 @@ function openSkillPop(bot, anchor) {
       el('b', { class: level === 99 ? 'lvl99' : level === 1 ? 'lvl1' : '', text: level == null ? '—' : String(level) }),
     ]);
   });
-  pop.replaceChildren(el('h3', { text: bot.levels ? `${bot.name} skills` : `${bot.name} — no client levels yet` }), ...items);
+  const foot = bot.levels
+    ? `Combat ${combatLevel(bot.levels)} · total ${totalLevel(bot.levels)} · ${bot.qp == null ? 'no quest records' : `${bot.qp} QP from ${bot.questsDone} fleet quests`}`
+    : bot.qp == null ? '' : `${bot.qp} QP from ${bot.questsDone} fleet quests`;
+  pop.replaceChildren(
+    el('h3', { text: bot.levels ? `${bot.name} skills` : `${bot.name} — no client levels yet` }),
+    ...items,
+    ...(foot ? [el('div', { class: 'pop-foot', text: foot })] : []),
+  );
   pop.hidden = false;
   const rect = anchor.getBoundingClientRect();
   pop.style.left = '0px';
@@ -766,7 +999,7 @@ function scriptSelect(bot) {
 }
 
 function rememberEdit(bot) {
-  const row = document.querySelector(`tr[data-name="${CSS.escape(bot.name)}"]`);
+  const row = document.querySelector(`#fleet [data-name="${CSS.escape(bot.name)}"]`);
   if (!row) return;
   state.edits.set(bot.name, {
     script: row.querySelector('select').value,
@@ -802,100 +1035,295 @@ function iconButton(icon, title, className, onClick) {
   return button;
 }
 
+const FRESH_MS = 8000;
+
+/** 2004 combat formula from base levels. */
+function combatLevel(levels) {
+  if (!levels) return null;
+  const lv = (name) => skillLevel(levels, name) ?? 1;
+  const base = 0.25 * (lv('Defence') + lv('Hitpoints') + Math.floor(lv('Prayer') / 2));
+  const melee = 0.325 * (lv('Attack') + lv('Strength'));
+  const range = 0.325 * Math.floor(lv('Ranged') * 1.5);
+  const mage = 0.325 * Math.floor(lv('Magic') * 1.5);
+  return Math.floor(base + Math.max(melee, range, mage));
+}
+
+function totalLevel(levels) {
+  if (!levels) return null;
+  return SKILLS.reduce((sum, [name]) => sum + (skillLevel(levels, name) || 0), 0);
+}
+
+const KIND_LABEL = {
+  producing: 'Producing',
+  swarm: 'In swarm',
+  paused: 'Paused',
+  'needs-client': 'Needs client',
+  capped: 'Restart capped',
+  churning: 'Churning',
+  'needs-supplies': 'Needs supplies',
+  'foreign-owner': 'Foreign owner',
+  'alive-not-producing': 'Not producing',
+  finished: 'Finished',
+  restartable: 'Restartable',
+};
+
+function kindLabel(kind) {
+  return KIND_LABEL[kind] || String(kind || 'unknown').replace(/-/g, ' ');
+}
+
+function groupOf(bot) {
+  if (bot.kind === 'producing') return 'producing';
+  if (bot.kind === 'swarm') return 'swarm';
+  if (bot.kind === 'paused') return 'paused';
+  return 'attention';
+}
+
+/** Minutes → a health class against good/warn thresholds. */
+function ageClass(ms, goodMs, warnMs) {
+  if (ms == null) return 'dim';
+  if (ms <= goodMs) return 'good';
+  if (ms <= warnMs) return 'warn';
+  return 'bad';
+}
+
+function metric(label, value, cls, title) {
+  return el('div', { class: `metric ${cls || ''}`, title: title || '' }, [el('span', { text: label }), el('b', { text: value })]);
+}
+
+function healthStrip(bot) {
+  const now = Date.now();
+  const hb = bot.heartbeat;
+  const hbMs = hb?.at != null ? now - hb.at : bot.minutesSinceSnapshot != null ? bot.minutesSinceSnapshot * 60000 : null;
+  const progMs = hb?.lastProgressAt != null ? now - hb.lastProgressAt : null;
+  const effMs = bot.minutesSinceEffect != null ? bot.minutesSinceEffect * 60000 : null;
+  const maxR = state.fleet.maxRestarts ?? 4;
+  const client = bot.stateAge == null
+    ? metric('Client', bot.kind === 'swarm' ? 'swarm' : 'offline', bot.kind === 'swarm' ? 'dim' : 'bad', 'No live game state from the gateway')
+    : metric('Client', bot.stateAge > FRESH_MS ? `stale ${age(bot.stateAge)}` : 'live', bot.stateAge > FRESH_MS ? 'warn' : 'good', `Game state ${age(bot.stateAge)} old`);
+  const restarts = bot.relaunches1h ?? 0;
+  return el('div', { class: 'health' }, [
+    metric('Heartbeat', hbMs == null ? '—' : age(hbMs), ageClass(hbMs, 3 * 60000, 10 * 60000), hb?.at ? `Last heartbeat ${new Date(hb.at).toLocaleTimeString()}` : 'No heartbeat.log record'),
+    metric('Progress', progMs == null ? '—' : age(progMs), ageClass(progMs, 5 * 60000, 20 * 60000), 'Since the job last reported progress (heartbeat lastProgressAt)'),
+    metric('Effect', effMs == null ? 'none yet' : age(effMs), ageClass(effMs, 10 * 60000, 30 * 60000), `Since the last XP/item effect${bot.lastExit ? ` · last exit ${bot.lastExit}` : ''}${restarts ? ` · ${restarts}/${maxR} restarts this hour` : ''}`),
+    client,
+  ]);
+}
+
+/** What the account is doing: swarm job, quest or grind, with the job's phase. */
+function nowBlock(bot) {
+  const hb = bot.heartbeat;
+  const job = el('div', { class: 'job' });
+  let kindText = '';
+  let mainText = '';
+  if (bot.paused) {
+    kindText = 'Paused';
+    mainText = scriptName(bot.script) + (bot.extra ? ` ${bot.extra}` : '');
+  } else if (bot.swarmJob) {
+    kindText = 'Swarm';
+    mainText = bot.swarmJob;
+  } else if (hb?.quest) {
+    kindText = 'Quest';
+    mainText = hb.quest;
+  } else if (hb?.job) {
+    kindText = /todo-runner/.test(bot.script) ? 'After quests' : 'Grind';
+    mainText = hb.job;
+  } else {
+    kindText = 'Job';
+    mainText = scriptName(bot.script) || 'no roster script';
+  }
+  job.append(el('span', { class: 'kind-label', text: `${kindText} · ` }), mainText);
+  if (hb?.phase && !bot.paused) job.append(el('span', { class: 'phase', text: hb.phase, title: 'Job phase from the heartbeat' }));
+  job.title = `${kindText}: ${mainText}${hb?.phase ? ` (${hb.phase})` : ''}`;
+  const logText = bot.lastLine?.text ? `${bot.lastLine.tag ? `[${bot.lastLine.tag}] ` : ''}${bot.lastLine.text}` : bot.activity ? lastLogText(bot.activity) : '';
+  const line = logText ? el('div', { class: `line${/^(ERROR|WARN)\b/.test(logText) ? ' hot' : ''}`, text: logText, title: `Last grind.log line: ${logText}\n${bot.activity || ''}` }) : el('span');
+  return el('div', { class: 'now' }, [job, line]);
+}
+
+function scriptName(script) {
+  return (script || '').replace('bots/quests/', '').replace(/\.ts$/, '');
+}
+
+/** Activity labels read "<script> <args>: <last log line>"; the card shows the log line. */
+function lastLogText(activity) {
+  const i = activity.indexOf(': ');
+  return i > 0 && !/^swarm /.test(activity) ? activity.slice(i + 2) : activity;
+}
+
+function qpBadge(bot) {
+  const qp = bot.qp;
+  const title = qp == null
+    ? 'No todo-runner quest records for this account'
+    : `${qp} quest points from ${bot.questsDone ?? 0} quests the fleet completed. Quests done by hand outside the fleet are not counted.`;
+  return el('span', { class: qp == null ? 'qp none' : 'qp', title }, [qp == null ? '—' : String(qp), el('small', { text: 'QP' })]);
+}
+
+function botCard(bot) {
+  const edit = state.edits.get(bot.name);
+  const stale = bot.stateAge == null || bot.stateAge > FRESH_MS;
+  const where = bot.stateAge == null
+    ? 'no live position'
+    : stale
+      ? `stale ${age(bot.stateAge)}`
+      : (bot.area || (bot.x == null ? 'Map' : `${bot.x}, ${bot.z}`));
+  const coordNote = bot.x == null ? '' : `${bot.x}, ${bot.z}`;
+  const maxR = state.fleet.maxRestarts ?? 4;
+  const capped = bot.shepherdCapped || (bot.relaunches1h != null && bot.relaunches1h >= maxR);
+  const pos = mapAnchor(bot.name, where);
+  pos.title = [coordNote, bot.stateAge == null ? 'no state yet' : `state ${age(bot.stateAge)}`, 'Open the map'].filter(Boolean).join(' · ');
+
+  const head = el('div', { class: 'card-head' }, [
+    el('span', { class: `dot ${kindClass(bot.kind)}` }),
+    el('button', { type: 'button', class: 'name-btn', text: bot.name, title: `Open map · ${bot.kind}: ${bot.reason}`, onclick: () => openMap(bot.name) }),
+    bot.view ? el('span', { class: 'tag', text: bot.view }) : el('span'),
+  ]);
+  if (bot.pauseSource === 'food-hub') head.append(el('span', { class: 'badge hub', text: 'hub', title: 'Paused by the food-hub lock. skip-bots will not release it.' }));
+  const cb = combatLevel(bot.levels);
+  const total = totalLevel(bot.levels);
+  head.append(qpBadge(bot));
+  if (cb != null) head.append(el('span', { class: 'cb', title: `Combat ${cb} · total level ${total}` }, ['Cb ', el('b', { text: String(cb) })]));
+
+  const status = el('div', { class: 'status', title: `${bot.kind}: ${bot.reason}` }, [
+    el('span', { class: `pill ${kindClass(bot.kind)}`, text: kindLabel(bot.kind) }),
+    el('span', { class: 'reason', text: bot.reason || '' }),
+  ]);
+
+  const rate = rates(bot);
+  const meta = el('div', { class: 'meta' }, [
+    el('span', { class: stale ? 'pos stale' : 'pos' }, [pos]),
+  ]);
+  if (rate) meta.append(el('span', { class: 'rate', text: rate }));
+  if (total != null) meta.append(el('span', { text: `Total ${total}` }));
+  if (bot.relaunches1h != null && bot.relaunches1h >= Math.max(1, maxR - 1)) {
+    meta.append(el('span', { class: 'pill warn', text: `↻ ${bot.relaunches1h}/${maxR}`, title: 'Restarts in the last hour' }));
+  }
+
+  const select = scriptSelect(bot);
+  const extra = el('input', {
+    class: 'extra',
+    type: 'text',
+    value: edit?.extra ?? bot.extra,
+    placeholder: 'args',
+    'aria-label': `${bot.name} args`,
+  });
+  extra.addEventListener('input', () => rememberEdit(bot));
+  const apply = actionButton('Set', 'primary', () => applyScript(bot.name));
+  apply.title = 'Save this script and switch the launch agent (drains to a bank first)';
+  const jobEdit = el('details', { class: 'job-edit' }, [
+    el('summary', { title: bot.command || '' }, ['Roster job ', el('code', { text: `${scriptName(bot.script) || 'none'}${bot.extra ? ' ' + bot.extra.replace(/bots\/quests\//g, '').replace(/\.ts\b/g, '') : ''}` })]),
+    el('div', { class: 'script-cell' }, [select, extra, apply]),
+  ]);
+  if (state.openJobs.has(bot.name) || edit) jobEdit.open = true;
+  jobEdit.addEventListener('toggle', () => {
+    if (jobEdit.open) state.openJobs.add(bot.name);
+    else state.openJobs.delete(bot.name);
+  });
+
+  const resetBtn = iconButton(ICONS.reset, capped ? `Restart budget spent (${bot.relaunches1h ?? maxR}/${maxR}) — wait for the hour to roll` : 'Restart the roster script', '', () => run(bot.name, 'restart', `Restart ${bot.name} on its roster script?`));
+  if (capped) resetBtn.disabled = true;
+  const actions = el('div', { class: 'actions' }, [
+    iconButton(ICONS.live, 'Inventory, worn gear, nearby, and chat', '', () => openState(bot.name)),
+    iconButton(ICONS.log, 'Log tail', '', () => openLog(bot.name)),
+    iconButton(ICONS.bank, 'Bank', '', () => openBank(bot.name)),
+    el('span', { class: 'sep' }),
+    resetBtn,
+    iconButton(bot.paused ? ICONS.play : ICONS.pause, bot.paused ? 'Unpause' : 'Pause', '', () => togglePause(bot)),
+    iconButton(ICONS.stop, 'Stop the script (drains to a bank first)', 'danger', () => run(bot.name, 'stop', `Stop ${bot.name}? It banks first, then launchd leaves it stopped.`)),
+    el('span', { class: 'sep' }),
+    iconButton(ICONS.chrome, 'Open Chrome', '', () => run(bot.name, 'chrome', `Open Chrome for ${bot.name}? Lite stops, then the grind restarts once the window is in game.`)),
+    iconButton(ICONS.lite, 'Back to lite', '', () => run(bot.name, 'lite', `Move ${bot.name} back to the headless client?`)),
+  ]);
+
+  return el('article', { class: `card ${kindClass(bot.kind)}`, 'data-name': bot.name }, [
+    head,
+    status,
+    nowBlock(bot),
+    healthStrip(bot),
+    meta,
+    skillStrip(bot),
+    el('div', { class: 'card-foot' }, [actions, jobEdit]),
+  ]);
+}
+
+const GROUPS = [
+  ['attention', 'Needs attention', 'bad', 'Not producing: logged out, capped, churning, short of supplies or finished'],
+  ['producing', 'Producing', 'good', 'Running their roster job and showing effects'],
+  ['swarm', 'In the swarm', 'swarm', 'Played by the shared swarm process'],
+  ['paused', 'Paused', 'paused', 'On skip-bots or held by the food-hub lock'],
+];
+
 function renderFleet(opts) {
-  const typing = !opts?.force && document.activeElement && document.activeElement.closest('#fleet');
+  const active = document.activeElement;
+  const typing = !opts?.force && active && active.closest('#fleet') && active.matches('input, select');
   if (typing) return;
   $('skill-pop').hidden = true;
-  const body = document.querySelector('#fleet tbody');
-  body.replaceChildren();
-  for (const bot of visibleBots()) {
-    const edit = state.edits.get(bot.name);
-    // Stale rule matches the classifier: stateAge > 8s means the coords may be
-    // a frozen gateway snapshot (the Catherby-while-at-Yanille case), so the
-    // cell says STALE instead of posing as a position.
-    const FRESH_MS = 8000;
-    const stale = bot.stateAge == null || bot.stateAge > FRESH_MS;
-    const where = bot.stateAge == null
-      ? 'no state'
-      : stale
-        ? `STALE ${age(bot.stateAge)}`
-        : (bot.area || (bot.x == null ? 'Map' : `${bot.x}, ${bot.z}`));
-    const ageNote = bot.stateAge == null ? 'no state yet' : age(bot.stateAge);
-    const coordNote = bot.x == null ? '' : `${bot.x}, ${bot.z}`;
-    const rowClass = bot.kind === 'producing' ? 'producing' : bot.kind === 'paused' ? 'paused' : bot.kind === 'swarm' ? 'swarm' : 'bad';
-    const select = scriptSelect(bot);
-    const extra = el('input', {
-      class: 'extra',
-      type: 'text',
-      value: edit?.extra ?? bot.extra,
-      placeholder: 'args',
-      'aria-label': `${bot.name} args`,
+  const root = $('fleet');
+  const bots = visibleBots();
+  const sections = [];
+  for (const [id, title, tone, hint] of GROUPS) {
+    const members = bots.filter((bot) => groupOf(bot) === id);
+    if (!members.length) continue;
+    const section = el('details', { class: `section ${tone}`, 'data-group': id }, [
+      el('summary', {}, [
+        el('h2', { text: title }),
+        el('span', { class: 'count', text: String(members.length) }),
+        el('span', { class: 'hint', text: hint }),
+      ]),
+      el('div', { class: 'grid' }, members.map(botCard)),
+    ]);
+    section.open = !state.closedGroups.has(id);
+    section.addEventListener('toggle', () => {
+      if (section.open) state.closedGroups.delete(id);
+      else state.closedGroups.add(id);
     });
-    extra.addEventListener('input', () => rememberEdit(bot));
-    const apply = actionButton('Set', 'primary', () => applyScript(bot.name));
-    apply.title = 'Save this script and switch the launch agent (drains to a bank first)';
-    const maxR = state.fleet.maxRestarts ?? 4;
-    const capped = bot.shepherdCapped || (bot.relaunches1h != null && bot.relaunches1h >= maxR);
-    const pos = mapAnchor(bot.name, where);
-    pos.title = [coordNote, ageNote ? `state ${ageNote}` : '', `${bot.kind}: ${bot.reason}`, 'Open the map'].filter(Boolean).join(' · ');
-    const resetBtn = iconButton(ICONS.reset, capped ? `Restart budget spent (${bot.relaunches1h ?? maxR}/${maxR}) — wait for the hour to roll` : 'Restart the roster script', '', () => run(bot.name, 'restart', `Restart ${bot.name} on its roster script?`));
-    if (capped) resetBtn.disabled = true;
-    const actions = el('div', { class: 'actions' }, [
-      iconButton(ICONS.chrome, 'Open Chrome', '', () => run(bot.name, 'chrome', `Open Chrome for ${bot.name}? Lite stops, then the grind restarts once the window is in game.`)),
-      iconButton(ICONS.lite, 'Back to lite', '', () => run(bot.name, 'lite', `Move ${bot.name} back to the headless client?`)),
-      iconButton(ICONS.stop, 'Stop the script (drains to a bank first)', 'danger', () => run(bot.name, 'stop', `Stop ${bot.name}? It banks first, then launchd leaves it stopped.`)),
-      resetBtn,
-      iconButton(bot.paused ? ICONS.play : ICONS.pause, bot.paused ? 'Unpause' : 'Pause', '', () => togglePause(bot)),
-      iconButton(ICONS.bank, 'Bank', '', () => openBank(bot.name)),
-      iconButton(ICONS.live, 'Inventory, worn gear, nearby, and chat', '', () => openState(bot.name)),
-      iconButton(ICONS.log, 'Log tail', '', () => openLog(bot.name)),
-    ]);
-    const nameBits = [
-      el('span', { class: `dot ${kindClass(bot.kind)}` }),
-      el('button', {
-        type: 'button',
-        class: 'name-btn',
-        text: bot.name,
-        title: `Open map · ${bot.kind}: ${bot.reason}`,
-        onclick: () => openMap(bot.name),
-      }),
-    ];
-    if (bot.pauseSource === 'food-hub') {
-      nameBits.push(el('span', { class: 'badge hub', text: 'hub', title: 'Paused by the food-hub lock. skip-bots will not release it.' }));
-    }
-    const account = el('td', { class: 'account' }, [
-      el('div', { class: 'name', title: `${bot.kind}: ${bot.reason}` }, nameBits),
-      bot.activity ? el('div', { class: 'sub-line', text: bot.activity, title: bot.activity }) : el('span'),
-    ]);
-    const rate = rates(bot);
-    const effectNote = bot.minutesSinceEffect == null ? 'no effect yet' : `effect ${bot.minutesSinceEffect}m ago`;
-    const rateTitle = [rate, effectNote, bot.lastExit ? `last exit ${bot.lastExit}` : '', `${bot.kind}: ${bot.reason}`].filter(Boolean).join(' · ');
-    const rateCell = el('td', { title: rateTitle });
-    rateCell.append(el('div', { text: rateLabel(bot) }));
-    const subBits = [];
-    if (bot.minutesSinceEffect != null || bot.kind !== 'producing') subBits.push(bot.minutesSinceEffect == null ? 'no effect yet' : `effect ${bot.minutesSinceEffect}m ago`);
-    if (bot.relaunches1h != null && bot.relaunches1h >= Math.max(1, maxR - 1)) subBits.push(`↻ ${bot.relaunches1h}/${maxR}`);
-    if (subBits.length) {
-      const hot = bot.kind !== 'producing' || (bot.relaunches1h != null && bot.relaunches1h >= maxR - 1);
-      rateCell.append(el('div', { class: hot ? 'sub-line hot' : 'sub-line', text: subBits.join(' · ') }));
-    }
-    const posCell = el('td', { class: stale ? 'pos stale' : 'pos' }, [pos]);
-    const tr = el('tr', { class: rowClass, 'data-name': bot.name }, [
-      account,
-      posCell,
-      el('td', {}, [skillStrip(bot)]),
-      el('td', {}, [el('div', { class: 'script-cell' }, [select, extra, apply])]),
-      rateCell,
-      el('td', {}, [actions]),
-    ]);
-    body.append(tr);
+    sections.push(section);
   }
+  if (!sections.length) sections.push(el('p', { class: 'empty', text: state.fleet.bots.length ? 'No account matches the filters.' : 'No accounts in the fleet payload.' }));
+  root.replaceChildren(...sections);
+}
+
+function tile(label, value, caption, tone, opts) {
+  const node = el(opts?.onclick ? 'button' : 'div', { class: `tile ${tone || ''}`, title: opts?.title || '' }, [
+    el('span', { class: 'k', text: label }),
+    el('span', { class: 'v', text: value }),
+    el('span', { class: 'c', text: caption || '' }),
+  ]);
+  if (opts?.onclick) {
+    node.type = 'button';
+    node.addEventListener('click', opts.onclick);
+    node.setAttribute('aria-pressed', String(!!opts.pressed));
+  }
+  return node;
+}
+
+function renderSummary() {
+  const fleet = state.fleet;
+  const bots = fleet.bots || [];
+  const kindFilter = $('kind').value;
+  const filterTo = (value) => () => {
+    $('kind').value = $('kind').value === value ? 'all' : value;
+    if (state.tab !== 'fleet') setTab('fleet');
+    else render();
+  };
+  const attention = bots.filter((bot) => groupOf(bot) === 'attention');
+  const qp = fleet.questPoints || {};
+  const withQp = bots.filter((bot) => bot.qp != null);
+  const avg = withQp.length ? Math.round(withQp.reduce((sum, bot) => sum + bot.qp, 0) / withQp.length) : 0;
+  const top = withQp.slice().sort((a, b) => b.qp - a.qp)[0];
+  $('summary').replaceChildren(
+    tile('Producing', String(fleet.producing ?? 0), `of ${bots.length} accounts`, 'good', { onclick: filterTo('producing'), pressed: kindFilter === 'producing', title: 'Show only producing accounts' }),
+    tile('In swarm', String(fleet.swarmed ?? 0), 'shared swarm process', 'swarm', { onclick: filterTo('swarm'), pressed: kindFilter === 'swarm', title: 'Show only swarm accounts' }),
+    tile('Need attention', String(attention.length), attention.slice(0, 4).map((bot) => bot.name).join(', ') + (attention.length > 4 ? ` +${attention.length - 4}` : ''), attention.length ? 'bad' : 'good', { onclick: filterTo('not'), pressed: kindFilter === 'not', title: attention.map((bot) => `${bot.name}: ${bot.reason}`).join('\n') }),
+    tile('Paused', String(fleet.paused ?? 0), 'skip-bots / food hub', 'paused', { onclick: filterTo('paused'), pressed: kindFilter === 'paused', title: 'Show only paused accounts' }),
+    tile('Quest points', (qp.total ?? 0).toLocaleString(), withQp.length ? `fleet-run quests · avg ${avg} · top ${top.qp}` : 'no quest records', 'qptile', { title: qp.source || 'From completed quests the fleet ran' }),
+  );
 }
 
 function renderStats() {
   const head = $('stats-head');
   head.replaceChildren(
     el('th', { class: 'account', text: 'Account' }),
+    el('th', { class: 'num', text: 'QP', title: 'Quest points from completed quests the fleet ran' }),
+    el('th', { class: 'num', text: 'Cb' }),
     el('th', { class: 'num', text: 'Tot' }),
     ...SKILLS.map(([name]) => {
       const th = el('th', { class: 'num', title: name });
@@ -911,9 +1339,8 @@ function renderStats() {
       const cls = value === 99 ? 'num lvl99' : value === 1 ? 'num lvl1' : 'num';
       return el('td', { class: cls, text: value == null ? '' : String(value) });
     });
-    const total = bot.levels
-      ? SKILLS.reduce((sum, [name]) => sum + (skillLevel(bot.levels, name) || 0), 0)
-      : null;
+    const total = totalLevel(bot.levels);
+    const cb = combatLevel(bot.levels);
     body.append(el('tr', {}, [
       el('td', { class: 'account' }, [
         el('button', {
@@ -925,6 +1352,8 @@ function renderStats() {
         }),
         el('div', { class: 'muted', text: bot.levels ? bot.view : 'no client levels on the latest heartbeat' }),
       ]),
+      el('td', { class: 'num qpcell', text: bot.qp == null ? '—' : String(bot.qp), title: bot.qp == null ? 'No quest records' : `${bot.questsDone} quests completed by the fleet` }),
+      el('td', { class: 'num', text: cb == null ? '—' : String(cb) }),
       el('td', { class: 'num', text: total == null ? '—' : String(total) }),
       ...cells,
     ]));
@@ -970,6 +1399,7 @@ function renderQuests() {
   const spark = el('span', { class: 'spark', title: g.perHour.map((h) => `${new Date(h.hour).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ${h.count}`).join('\n') },
     g.perHour.map((h) => el('i', { style: `height:${Math.max(2, Math.round((h.count / peak) * 22))}px` })));
   const stat = (n, label, bad) => el('span', { class: bad && n ? 'bad' : '' }, [el('b', { text: String(n) }), ` ${label}`]);
+  const qp = data.questPoints;
   goal.className = '';
   goal.replaceChildren(
     stat(g.completedSince, `quests completed since ${since}`),
@@ -979,13 +1409,21 @@ function renderQuests() {
     stat(g.queued, 'queued'),
     stat(g.failedLastHour, 'failed in the last hour', true),
     stat(g.stock, 'waiting on mule stock', true),
+    qp ? stat(qp.total.toLocaleString(), `fleet quest points`) : el('span'),
+    el('span', { class: 'legend' }, Object.entries(QUEST_MARK).map(([key, mark]) => el('span', { class: `qc ${key}`, text: `${mark} ${QUEST_WORD[key]}` }))),
     el('span', { class: 'muted', text: `· ${new Date(data.generatedAt).toLocaleTimeString()}` }),
+    el('p', { class: 'note', text: `${data.columns.filter((c) => !c.miniquest).length} of the game's ${qp?.quests ?? '?'} quests are on the fleet's lists${data.columns.some((c) => c.miniquest) ? ', plus the Barcrawl miniquest' : ''}. Top-ups, handovers, musters and grinds are left out; re-queued variants (waterfall-rel, grail-pre2…) are merged into their quest. ${qp?.source ?? ''}` }),
   );
   $('quests-head').replaceChildren(
     el('th', { class: 'account', text: 'Account' }),
-    ...data.columns.map((c) => el('th', { class: 'q', title: `${c.label}: ${c.done} done of ${c.listed} queued` }, [
-      `${c.label} `, el('small', { text: `${c.done}/${c.listed}` }),
-    ])),
+    el('th', { class: 'qp-head', text: 'QP', title: qp?.source ?? '' }),
+    ...data.columns.map((c) => {
+      const label = c.miniquest ? `${c.label} (miniquest)` : c.label;
+      const kind = c.miniquest ? 'miniquest, no quest points' : `${c.qp} QP · ${c.members ? 'members' : 'free'}`;
+      return el('th', { class: `q${c.miniquest ? ' mini' : c.members ? '' : ' free'}`, title: `${label} · ${kind}: ${c.done} done of ${c.listed} accounts` }, [
+        `${label} `, el('small', { text: `${c.done}/${c.listed}` }),
+      ]);
+    }),
   );
   const q = $('q').value.trim().toLowerCase();
   const body = document.querySelector('#quests tbody');
@@ -996,15 +1434,17 @@ function renderQuests() {
     body.append(el('tr', { class: failed ? 'bad' : '' }, [
       el('td', { class: 'account' }, [
         el('button', { type: 'button', class: 'name-btn', text: row.name, title: 'Open map', onclick: () => openMap(row.name) }),
-        el('div', { class: 'muted', text: row.running ? `▶ ${data.columns.find((c) => c.id === row.running)?.label ?? row.running}` : '' }),
+        el('div', { class: 'muted', text: row.running ? `▶ ${data.columns.find((c) => c.id === row.running)?.label ?? row.running}` : `${row.done} done` }),
       ]),
+      el('td', { class: 'qpcell', text: String(row.qp), title: `${row.qp} quest points from ${row.done} completed quests` }),
       ...data.columns.map((c) => {
         const cell = row.cells[c.id];
         if (!cell) return el('td', { class: 'qc' });
+        const merged = cell.ids ? ` · todo ids ${cell.ids.join(', ')}` : '';
         return el('td', {
           class: `qc ${cell.state}`,
           text: QUEST_MARK[cell.state],
-          title: `${row.name} · ${c.label}: ${QUEST_WORD[cell.state]}${cell.note ? ` (${cell.note})` : ''}`,
+          title: `${row.name} · ${c.label}: ${QUEST_WORD[cell.state]}${cell.note ? ` (${cell.note})` : ''}${merged}`,
         });
       }),
     ]));
@@ -1014,9 +1454,9 @@ function renderQuests() {
 function render(opts) {
   const fleet = state.fleet;
   if (!fleet) return;
-  const wrap = document.querySelector('.wrap');
-  const scrollTop = wrap.scrollTop;
-  const scrollLeft = wrap.scrollLeft;
+  const tableWrap = state.tab === 'stats' ? $('stats-wrap') : state.tab === 'quests' ? $('quests-wrap') : null;
+  const scrollTop = tableWrap ? tableWrap.scrollTop : 0;
+  const scrollLeft = tableWrap ? tableWrap.scrollLeft : 0;
   const headline = $('headline');
   headline.textContent = fleet.headline;
   headline.className = fleet.notProducing.length || fleet.gatewayDown ? 'headline bad' : 'headline';
@@ -1031,27 +1471,25 @@ function render(opts) {
   const when = new Date(fleet.generatedAt).toLocaleTimeString();
   const dataAgeMs = Date.now() - new Date(fleet.generatedAt).getTime();
   const dataAge = dataAgeMs > 10000 ? ` · data ${age(dataAgeMs)} old` : '';
-  const skipped = `${fleet.paused ? `${fleet.paused} paused` : 'none paused'}${fleet.swarmed ? ` · ${fleet.swarmed} in swarm` : ''}`;
-  const listed = fleet.notProducing.slice(0, 8);
-  const extra = fleet.notProducing.length - listed.length;
-  const names = fleet.notProducing.length
-    ? `${listed.join(', ')}${extra > 0 ? ` +${extra}` : ''}`
-    : 'the rest are producing, in the swarm or paused';
-  $('sub').textContent = `${skipped} · snapshot ${when}${dataAge} · ${names}`;
+  $('sub').textContent = `snapshot ${when}${dataAge}`;
   const view = $('view');
   const current = view.value || 'all';
   view.replaceChildren(el('option', { value: 'all', text: 'All views' }));
   for (const name of fleet.views) view.append(el('option', { value: name, text: name }));
   view.value = [...view.options].some((option) => option.value === current) ? current : 'all';
+  renderSummary();
   $('fleet').hidden = state.tab !== 'fleet';
-  $('stats').hidden = state.tab !== 'stats';
+  $('stats-wrap').hidden = state.tab !== 'stats';
   $('quests-wrap').hidden = state.tab !== 'quests';
   if (state.tab === 'fleet') renderFleet(opts);
   else if (state.tab === 'quests') renderQuests();
   else renderStats();
-  wrap.scrollTop = scrollTop;
-  wrap.scrollLeft = scrollLeft;
+  if (tableWrap) {
+    tableWrap.scrollTop = scrollTop;
+    tableWrap.scrollLeft = scrollLeft;
+  }
 }
+
 
 let loadSeq = 0;
 let refreshing = false;
@@ -1159,7 +1597,7 @@ async function run(name, action, confirmText) {
 }
 
 async function applyScript(name) {
-  const row = document.querySelector(`tr[data-name="${CSS.escape(name)}"]`);
+  const row = document.querySelector(`#fleet [data-name="${CSS.escape(name)}"]`);
   const script = row.querySelector('select').value;
   const extra = row.querySelector('input.extra').value.trim();
   const label = script.replace('bots/quests/', '');
@@ -1475,6 +1913,22 @@ function setTab(tab) {
   if (tab === 'quests') loadQuests();
   render();
 }
+
+// Theme: follow the system unless a choice was saved. Storage can be blocked; the page works without it.
+const THEMES = ['auto', 'light', 'dark'];
+function applyTheme(theme) {
+  if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  else delete document.documentElement.dataset.theme;
+  $('theme').textContent = theme === 'light' ? 'Light' : theme === 'dark' ? 'Dark' : 'Auto';
+}
+let theme = 'auto';
+try { theme = localStorage.getItem('fleet-desk-theme') || 'auto'; } catch { theme = 'auto'; }
+applyTheme(theme);
+$('theme').onclick = () => {
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+  try { localStorage.setItem('fleet-desk-theme', theme); } catch { /* not saved */ }
+  applyTheme(theme);
+};
 
 $('tab-fleet').onclick = () => setTab('fleet');
 $('tab-stats').onclick = () => setTab('stats');

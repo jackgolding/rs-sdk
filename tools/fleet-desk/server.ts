@@ -20,12 +20,13 @@ import { MAX_RESTARTS_PER_HOUR } from '../../.cursor/skills/wake-fleet/scripts/f
 import { findBot, invalidateRosterCache, ROOT, rosterBots } from '../../.cursor/skills/wake-fleet/scripts/roster';
 import { supervisorKind } from '../../.cursor/skills/wake-fleet/scripts/supervisor';
 import { areaName } from './areas';
-import { activityLabel } from './activity';
+import { activityLabel, splitLogLine } from './activity';
 import { buildLiteScene } from './scene';
 import { assignRosterScript, scriptError, setSkipList } from './roster-edit';
 import { tailFile } from './tail';
 import { boxHealth } from './box';
 import { questsPayload, type QuestsPayload } from './quests';
+import { questForId } from './quest-catalog';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.FLEET_DESK_PORT || 8791);
@@ -381,6 +382,55 @@ function swarmJobs(): Map<string, string> {
     }
 }
 
+/** The newest heartbeat.log record: what the job says it is doing and when it last moved. */
+interface HeartbeatInfo {
+    at: number | null;
+    job: string | null;
+    /** The quest's display name when the job is a quest. */
+    quest: string | null;
+    phase: string | null;
+    lastProgressAt: number | null;
+    coins: number | null;
+}
+function lastHeartbeat(name: string): HeartbeatInfo | null {
+    const line = tailFile(join(liveBotsDir(), name, 'heartbeat.log'), 1, 16 * 1024).at(-1);
+    if (!line) return null;
+    try {
+        const hb = JSON.parse(line) as { t?: number; job?: string; phase?: string; lastProgressAt?: number; coins?: number };
+        const num = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+        return {
+            at: num(hb.t),
+            job: typeof hb.job === 'string' ? hb.job : null,
+            quest: typeof hb.job === 'string' ? (questForId(hb.job)?.label ?? null) : null,
+            phase: typeof hb.phase === 'string' ? hb.phase : null,
+            lastProgressAt: num(hb.lastProgressAt),
+            coins: num(hb.coins),
+        };
+    } catch {
+        return null;
+    }
+}
+
+function liveBotsDir(): string {
+    return process.env.FLEET_BOTS_DIR ? resolve(process.env.FLEET_BOTS_DIR) : join(ROOT, 'bots');
+}
+
+/** Quest points per lowercase account name, from the quests tab's pass (cached 30s). */
+function questPointsByName(): { total: number; max: number; quests: number; source: string; byName: Map<string, { qp: number; done: number }> } {
+    try {
+        const qp = questsCached(12).questPoints;
+        return {
+            total: qp.total,
+            max: qp.max,
+            quests: qp.quests,
+            source: qp.source,
+            byName: new Map(Object.entries(qp.accounts).map(([name, a]) => [name.toLowerCase(), { qp: a.qp, done: a.done.length }])),
+        };
+    } catch {
+        return { total: 0, max: 0, quests: 0, source: '', byName: new Map() };
+    }
+}
+
 async function fleetPayload(fresh = false): Promise<unknown> {
     const requestedAt = Date.now();
     if (!fresh && fleetCache && requestedAt - fleetCache.at < 5000) return fleetCache.body;
@@ -418,6 +468,7 @@ async function buildFleet(): Promise<unknown> {
     }
     const byName = new Map(roster.map((bot) => [bot.name, bot]));
     const swarm = swarmJobs();
+    const questPoints = questPointsByName();
     const bots = rows.map((row) => {
         // A swarm account's own container is stopped, so the roster reads it as paused; it is working.
         const swarmJob = swarm.get(row.name.toLowerCase());
@@ -431,6 +482,8 @@ async function buildFleet(): Promise<unknown> {
             script: bot?.script ?? '',
             extra,
             activity: swarmJob ? `swarm ${swarmJob}` : activityLabel({ script: bot?.script ?? '', extra, paused: row.paused, lastLogLine }),
+            /** The newest grind.log line without its timestamp, for the card's "now" line. */
+            lastLine: lastLogLine ? splitLogLine(lastLogLine) : null,
             command: bot?.command ?? row.restartCommand,
             paused: row.paused,
             pauseSource: bot?.pauseSource ?? null,
@@ -452,6 +505,10 @@ async function buildFleet(): Promise<unknown> {
             xpPerHour: row.xpPerHour,
             gpPerHour: row.gpPerHour,
             levels: row.levels,
+            heartbeat: lastHeartbeat(row.name),
+            swarmJob: swarmJob ?? null,
+            qp: questPoints.byName.get(row.name.toLowerCase())?.qp ?? null,
+            questsDone: questPoints.byName.get(row.name.toLowerCase())?.done ?? null,
         };
     });
     const producing = bots.filter((bot) => bot.kind === 'producing').length;
@@ -477,6 +534,12 @@ async function buildFleet(): Promise<unknown> {
         unowned: unownedProcesses.map((proc) => ({ pid: proc.pid, cmd: proc.cmd })),
         gatewayDown,
         maxRestarts: MAX_RESTARTS_PER_HOUR,
+        questPoints: {
+            total: bots.reduce((sum, bot) => sum + (bot.qp ?? 0), 0),
+            max: questPoints.max,
+            quests: questPoints.quests,
+            source: questPoints.source,
+        },
     };
 }
 

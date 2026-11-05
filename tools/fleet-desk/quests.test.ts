@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { accountRow, questColumns, questsPayload } from './quests';
+import { accountRow, questColumns, questsPayload, type QuestRow } from './quests';
 
 const NOW = Date.parse('2026-10-29T06:00:00.000Z');
 const at = (iso: string) => `2026-10-29T${iso}.000Z`;
@@ -47,14 +47,73 @@ describe('accountRow', () => {
 
 describe('questColumns', () => {
     test('most-listed first, with done counts', () => {
-        const rows = [
-            { name: 'a', running: null, cells: { doric: { state: 'done' as const }, imp: { state: 'queued' as const } } },
-            { name: 'b', running: null, cells: { doric: { state: 'queued' as const } } },
+        const rows: QuestRow[] = [
+            { name: 'a', running: null, qp: 1, done: 1, cells: { doric: { state: 'done' as const }, imp: { state: 'queued' as const } } },
+            { name: 'b', running: null, qp: 0, done: 0, cells: { doric: { state: 'queued' as const }, barcrawl: { state: 'done' as const } } },
         ];
         expect(questColumns(rows)).toEqual([
-            { id: 'doric', label: "Doric's Quest", done: 1, listed: 2 },
-            { id: 'imp', label: 'Imp Catcher', done: 0, listed: 1 },
+            { id: 'doric', label: "Doric's Quest", done: 1, listed: 2, qp: 1, members: false },
+            { id: 'barcrawl', label: "Alfred Grimhand's Barcrawl", done: 1, listed: 1, qp: 0, members: true, miniquest: true },
+            { id: 'imp', label: 'Imp Catcher', done: 0, listed: 1, qp: 1, members: false },
         ]);
+    });
+});
+
+describe('quest-only cells and quest points', () => {
+    const items = [
+        { questId: 'waterfall', script: 'bots/quests/waterfall.ts' },
+        { questId: 'waterfall-rel', script: 'bots/quests/waterfall.ts' },
+        { questId: 'grail', script: 'bots/quests/holy-grail.ts' },
+        { questId: 'grail-pre2', script: 'bots/quests/holy-grail.ts' },
+        { questId: 'topup-alch', script: 'bots/quests/top-up.ts' },
+        { questId: 'muster-ardougne-2', script: 'bots/quests/go-to-hub.ts' },
+        { questId: 'arena-toadflax', script: 'bots/quests/arena-tickets.ts' },
+        { questId: 'shield', script: 'bots/quests/shield-of-arrav.ts' },
+    ];
+    const state = {
+        waterfall: { failures: 2, lastError: 'exited 1' },
+        'waterfall-rel': { done: { at: at('02:00:00') } },
+        grail: { failures: 2, lastError: 'exited 1' },
+        'topup-alch': { done: { at: at('01:00:00') } },
+        // Done before it left the list; a null entry is ignored.
+        'romeojuliet-2': { done: { at: at('00:30:00') } },
+        thieving: null,
+    };
+    const log = [`${at('03:00:00')} [desertrescue] QUEST COMPLETE (journal-verified)`];
+
+    test('tasks drop out, variants merge, done wins', () => {
+        const { row, completions } = accountRow('jacklove2', items, state, log, NOW);
+        expect(Object.keys(row.cells).sort()).toEqual(['arrav', 'grail', 'romeojuliet', 'touristtrap', 'waterfall']);
+        expect(row.cells.waterfall).toEqual({ state: 'done', ids: ['waterfall', 'waterfall-rel'] });
+        expect(row.cells.grail!.state).toBe('queued');
+        expect(row.cells.grail!.ids).toEqual(['grail', 'grail-pre2']);
+        expect(row.cells.arrav!.state).toBe('queued');
+        expect(row.cells.romeojuliet!.state).toBe('done');
+        expect(row.cells.touristtrap!.state).toBe('done');
+        // Waterfall 1 + Romeo & Juliet 5 + Tourist Trap 2.
+        expect(row.qp).toBe(8);
+        expect(row.done).toBe(3);
+        expect(completions[0]!.questId).toBe('touristtrap');
+    });
+
+    test('payload totals quest points and skips accounts with no quest on the list', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'desk-quests-'));
+        writeFileSync(
+            join(dir, 'todo.json'),
+            JSON.stringify({ accounts: { jacklove2: items, jackthief: [{ questId: 'mule-handover', script: 'bots/quests/mule-produce.ts' }] } })
+        );
+        mkdirSync(join(dir, 'jacklove2'));
+        writeFileSync(join(dir, 'jacklove2', 'todo-state.json'), JSON.stringify(state));
+        // Not on todo.json but has done markers: still counted.
+        mkdirSync(join(dir, 'ABGARMY01'));
+        writeFileSync(join(dir, 'ABGARMY01', 'todo-state.json'), JSON.stringify({ cook: { done: { at: at('01:00:00') } } }));
+        const p = questsPayload(dir, 0, NOW);
+        expect(p.rows.map((r) => r.name)).toEqual(['ABGARMY01', 'jacklove2']);
+        expect(p.questPoints.accounts.jacklove2!.qp).toBe(6);
+        expect(p.questPoints.accounts.ABGARMY01).toEqual({ qp: 1, done: ['cook'] });
+        expect(p.questPoints.accounts.jackthief).toEqual({ qp: 0, done: [] });
+        expect(p.questPoints.total).toBe(7);
+        expect(p.columns.every((c) => !c.id.includes('-'))).toBe(true);
     });
 });
 
