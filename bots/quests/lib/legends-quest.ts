@@ -437,6 +437,23 @@ const TRIALS = (q: Quest, toWinch: boolean): Want[] => {
  * neither wanted nor a quest item, withdraw what is short. A non-optional line the bank lacks stops
  * the run with NEEDS STOCK.
  */
+/** Ardougne church altar (brimhaven-dragons.ts): full prayer at every restock, so blessing the bowl (42 points) does not
+ * hang on potion stock (jacklove13 failed at prayer 39 with jackthief out of potions, 2026-11-05). */
+const ARDOUGNE_ALTAR = { x: 2617, z: 3309 };
+async function prayAtArdougneAltar(q: Quest): Promise<void> {
+    const st = q.sdk.getPrayerState();
+    if (!st || st.prayerPoints >= st.prayerLevel) return;
+    await q.goTo({ x: ARDOUGNE_ALTAR.x - 1, z: ARDOUGNE_ALTAR.z }, 2);
+    await q.sdk.scanNearbyLocs(6).catch(() => undefined);
+    const altar = q.sdk.findNearbyLoc(/^altar$/i, { withOption: /pray/i });
+    const op = altar?.optionsWithIndex.find((o) => /pray/i.test(o.text));
+    if (altar && op) {
+        await q.sdk.sendInteractLoc(altar.x, altar.z, altar.id, op.opIndex);
+        await untilTicks(q.sdk, () => (q.sdk.getPrayerState()?.prayerPoints ?? 0) >= st.prayerLevel, 15);
+    }
+    q.log(`legends: Ardougne altar: prayer ${q.sdk.getPrayerState()?.prayerPoints}/${st.prayerLevel}`);
+}
+
 export async function restock(q: Quest, wants: Want[], why: string): Promise<void> {
     // Optional lines (prayer potions, armour) are taken when we are at a bank anyway, never a trip of their own.
     const short = () => wants.filter((w) => !w.optional && heldOf(q, w) < (w.min ?? w.count) && !(w.unless && heldOf(q, w.unless) > 0));
@@ -445,6 +462,7 @@ export async function restock(q: Quest, wants: Want[], why: string): Promise<voi
     if (onIsland(pos(q)) || inLegendsArea(pos(q))) {
         await leaveLegends(q, ARDOUGNE_BANK);
     }
+    await prayAtArdougneAltar(q);
     await q.goTo(ARDOUGNE_BANK, 4);
     let opened = false;
     for (let i = 0; i < 3 && !opened; i++) {
@@ -891,7 +909,13 @@ async function blessBowl(q: Quest): Promise<void> {
     if (blessed(q)) return;
     const t0 = tickNow(q.sdk);
     for (let round = 1; round <= 6 && !blessed(q); round++) {
-        if (prayerPts(q) < 42 && !(await drinkPrayer(q, 42))) throw new Error(`legends: prayer ${prayerPts(q)} < 42 and no prayer potion to bless the bowl`);
+        if (prayerPts(q) < 42 && !(await drinkPrayer(q, 42))) {
+            // No potion: full points at the Ardougne altar, and the step's next attempt walks back to Gujuo.
+            const was = prayerPts(q);
+            if (onIsland(pos(q)) || inLegendsArea(pos(q))) await leaveLegends(q, ARDOUGNE_BANK);
+            await prayAtArdougneAltar(q);
+            throw new Error(`legends: prayer ${was} < 42 and no prayer potion to bless the bowl — prayed at Ardougne (now ${prayerPts(q)}), retrying`);
+        }
         await withGujuo(q, [/yes, i'd like (you )?to bless my gold bowl/i], /too inexperienced/i, () => blessed(q), 'the blessing').catch((e) =>
             q.log(`legends: blessing round ${round}: ${(e as Error).message}`)
         );
