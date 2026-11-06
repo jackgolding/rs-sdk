@@ -951,8 +951,12 @@ async function blessBowl(q: Quest): Promise<void> {
             // jungle) and burns down. Not a thrown failure: it ate the transition's tries (2026-11-06).
             const was = prayerPts(q);
             if (onIsland(pos(q)) || inLegendsArea(pos(q))) await leaveLegends(q, ARDOUGNE_BANK);
-            await prayAtArdougneAltar(q);
-            q.log(`legends: prayer ${was} < ${BLESS_MIN}, no potion — prayed at Ardougne (now ${prayerPts(q)}); back to Gujuo`);
+            // jackthief banks brewed potions (97 on 2026-11-06): ask for four at the Ardougne bank (q.ensure asks the
+            // mule first), so each refill is a drink, not a walk to the altar. The altar only when none come.
+            await q.goTo(ARDOUGNE_BANK, 4);
+            await q.ensure('prayer potion(3)', 4).catch((e) => q.log(`legends: prayer potions: ${(e as Error).message}`));
+            if (!held(q, POTION)) await prayAtArdougneAltar(q);
+            q.log(`legends: prayer ${was} < ${BLESS_MIN}, no potion — now ${prayerPts(q)} with ${q.sdk.getInventory().filter((i) => POTION.test(i.name)).length} potions; back to Gujuo`);
             continue;
         }
         await burnPrayerTo(q, BLESS_MAX);
