@@ -1024,9 +1024,14 @@ async function blessBowl(q: Quest): Promise<void> {
             continue;
         }
         q.log(`legends: blessing round ${round} at prayer ${prayerPts(q)}`);
-        await withGujuo(q, [/yes, i'd like (you )?to bless my gold bowl/i], /too inexperienced/i, () => blessed(q), 'the blessing').catch((e) =>
-            q.log(`legends: blessing round ${round}: ${(e as Error).message}`)
+        const err = await withGujuo(q, [/yes, i'd like (you )?to bless my gold bowl/i], /too inexperienced/i, () => blessed(q), 'the blessing').then(
+            () => null,
+            (e: Error) => e
         );
+        if (err) q.log(`legends: blessing round ${round}: ${err.message}`);
+        // Out of food in a fight: the next rounds would throw at once and burn the cap (ABGARMY07 rounds 3-20 in 1t,
+        // 2026-11-06). Restock food first.
+        if (err && /out of food/i.test(err.message)) await restock(q, [...BASE(q), FOOD_KIT(4)], 'food for the blessing');
         if (dialogOpen(q)) await driveDialog(q.sdk, [/no thanks, i'll wait/i, /^ok, thanks\.\.\. goodbye/i], { ticks: 30 });
     }
     if (!blessed(q)) throw new Error(`legends: the bowl is still unblessed after ${tickNow(q.sdk) - t0}t (prayer ${prayerPts(q)})`);
