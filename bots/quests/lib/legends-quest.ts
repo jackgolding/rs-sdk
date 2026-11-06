@@ -912,7 +912,8 @@ async function makeBowl(q: Quest): Promise<void> {
  * prayer down with protection prayers first (jacklove13 failed every try at full prayer after the altar, 2026-11-06).
  */
 const BLESS_MIN = 42;
-const BLESS_MAX = 47;
+// 52 → tries at 52, 47, 42 (each failure -5) before a refill; 47 gave only two per potion or altar trip.
+const BLESS_MAX = 52;
 const BURNERS = ['protect_from_melee', 'protect_from_missiles', 'protect_from_magic', 'steel_skin', 'ultimate_strength', 'incredible_reflexes'] as const;
 async function burnPrayerTo(q: Quest, target: number): Promise<void> {
     if (prayerPts(q) <= target) return;
