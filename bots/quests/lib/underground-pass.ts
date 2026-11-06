@@ -512,13 +512,14 @@ const ENTRANCE_ROCKS: Tile[] = [
 
 /** Over every rockslide in `rocks` that is still between us and `goal`. */
 async function rockslides(q: Quest, rocks: Tile[], goal: Tile): Promise<void> {
-    for (let pass = 0; pass < 2 && !reachable(q, goal); pass++) {
+    // One pass per slide, each slide tried in list order: leaving, (2467,9723) only opens after (2460,9720), and
+    // skipping the 'unreachable' ones first went 2460 → 2467 → back over 2460 forever (jacklove2/jacklove4 in the
+    // pocket at 2460,9719, 2026-11-05; fix found on the gate by the other session). The server owns reach.
+    for (let pass = 0; pass < Math.max(2, rocks.length) && !reachable(q, goal); pass++) {
         for (const r of rocks) {
             if (reachable(q, goal)) return;
             const loc = await scanLoc(q, r.x, r.z, 15);
-            // From the west side the client can mark the rockslide unreachable (jacklove4 at 2460,9719 skipped it
-            // on every pass, 2026-11-04): the second pass tries it anyway; the server owns reach.
-            if (!loc || (loc.reachable === false && pass === 0)) continue;
+            if (!loc) continue;
             for (let attempt = 1; attempt <= 4; attempt++) {
                 const before = pos(q);
                 await opAt(q, r.x, r.z, LOC.rockslide, 1, () => Math.hypot(pos(q).x - before.x, pos(q).z - before.z) >= 2, `rockslide (${r.x},${r.z})`, 25);
@@ -1270,6 +1271,11 @@ export async function leaveUpass(q: Quest): Promise<void> {
         const here = region(q);
         switch (here) {
             case 'ENTRANCE':
+                // The box between the rockslides counts as ENTRANCE: cross them west to east before the exit.
+                if (!reachable(q, REGIONS[0]!.at)) {
+                    if (await teleportOut(q)) break;
+                    await rockslides(q, [...ENTRANCE_ROCKS].reverse(), REGIONS[0]!.at);
+                }
                 await walk(q, { x: PASS_EXIT.x - 2, z: PASS_EXIT.z + 2 }, 2).catch(() => undefined);
                 await opAt(q, PASS_EXIT.x, PASS_EXIT.z, PASS_EXIT.id, 1, () => !inUpassArea(pos(q)), 'leave by the pass exit', 15);
                 break;
