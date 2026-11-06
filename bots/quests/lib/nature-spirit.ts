@@ -624,7 +624,15 @@ export async function ghasts(q: Quest, killed: () => Promise<number>): Promise<v
             await untilTicks(q.sdk, () => !(q.sdk.getNearbyNpcs() ?? []).some((n) => n.index === vis.index && n.id === NPC.ghastVis), 25);
         } else {
             const inv = npcs.filter((n) => n.id === NPC.ghastInvis).sort((a, b) => a.distance - b.distance)[0];
-            const pouch = q.sdk.getInventory().find((i) => i.id === OBJ.pouch);
+            let pouch = q.sdk.getInventory().find((i) => i.id === OBJ.pouch);
+            // Spent (it reverts to the empty pouch): fill it again — bloom, pick — and come back for the rest, rather
+            // than failing the step (ABGARMY07 1/3 ghasts, twice, 2026-11-06).
+            if (!pouch && holds(q, OBJ.pouchEmpty)) {
+                q.log(`ns: the druid pouch is spent at ${kills}/3 ghasts — filling it again`);
+                await fillPouch(q);
+                await intoSwamp(q);
+                pouch = q.sdk.getInventory().find((i) => i.id === OBJ.pouch);
+            }
             if (!pouch) throw new Error(`ns: the druid pouch is empty with ${kills}/3 ghasts`);
             if (inv && tickNow(q.sdk) - lastPouch >= 6) {
                 await q.sdk.sendUseItemOnNpc(pouch.slot, inv.index);
