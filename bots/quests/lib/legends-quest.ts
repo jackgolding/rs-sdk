@@ -819,8 +819,10 @@ export async function meetGujuo(q: Quest): Promise<void> {
     await toJungleTile(q, { x: 2830, z: 2925 }, 4);
     await withGujuo(
         q,
-        [/hoping to attract the attention/i, /develop friendly relations/i, /can you get your people together/i, /what can we do instead/i, /how do we make the totem pole/i, /i will release ungadulu/i],
-        /> I will release Ungadulu/i,
+        [/hoping to attract the attention/i, /develop friendly relations/i, /can you get your people together/i, /what can we do instead/i, /how do we make the totem pole/i, /i will release ungadulu/i, /^ok thanks for your help/i],
+        // Already accepted (a retry after the journal lagged the first success): Gujuo opens gujuo_how_goes_ungadulu
+        // ("I can't find the caves..." / "Ok thanks for your help.") — that is this step done (jacklove2, jacklove13).
+        /> I will release Ungadulu|I can't find the caves/i,
         () => false,
         'the totem pole'
     );
