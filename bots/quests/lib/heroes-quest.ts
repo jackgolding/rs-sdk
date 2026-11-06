@@ -517,7 +517,7 @@ const keysOnGround = (q: Quest) => (q.sdk.getState()?.groundItems ?? []).find((g
  * Phoenix at 4: the Miscellaneous key from the partner, the staff on, at the slit; Fire Bolt
  * whenever the partner's lure brings Grip in line, until his keyring is on the floor.
  */
-export async function killGrip(q: Quest, pair: Pair): Promise<void> {
+export async function killGrip(q: Quest, pair: Pair, credited: () => Promise<boolean> = async () => false): Promise<void> {
     publish(q, pair);
     if (!holds(q, OBJ.miscKey) && !inSideRoom(pos(q))) await receive(q, pair, 'misckey', /^miscellaneous key$/i, () => holds(q, OBJ.miscKey));
     const staff = q.sdk.getInventory().find((i) => /^(staff of fire|fire battlestaff)$/i.test(i.name));
@@ -530,6 +530,7 @@ export async function killGrip(q: Quest, pair: Pair): Promise<void> {
     let casts = 0;
     let lastNote = -Infinity;
     let sawKeys = false;
+    let lastCreditRead = -Infinity;
     while (!sawKeys) {
         const waited = tickNow(q.sdk) - t0;
         if (waited > PARTNER_WAIT_TICKS || quiet() > PARTNER_SILENT_TICKS) {
@@ -542,11 +543,18 @@ export async function killGrip(q: Quest, pair: Pair): Promise<void> {
         }
         publish(q, pair, null, 'slit');
         if (q.count('air rune') < 3 || q.count('chaos rune') < 1) throw new Error(`heroes: out of Fire Bolt runes after ${casts} casts`);
-        // The partner can pick the keyring up before we see it on the floor.
+        // The partner can pick the keyring up before we see it on the floor. But grip.rs2 gives the stage only to the
+        // player Grip is aggressive towards (often the luring partner), while the keyring drops for anyone: ABGARMY05
+        // saw "Grip is down" twice with no credit while jacklove4 went on to the chest (2026-11-06). Done only when
+        // our own journal moves; otherwise keep the slit and cast at the next lure.
         const partner = readPartner(pair);
-        if (keysOnGround(q) || (partner && (partner.has.keys > 0 || BLACKARM_PAST_KILL.has(partner.stage)))) {
-            sawKeys = true;
-            break;
+        if ((keysOnGround(q) || (partner && (partner.has.keys > 0 || BLACKARM_PAST_KILL.has(partner.stage)))) && tickNow(q.sdk) - lastCreditRead >= 50) {
+            lastCreditRead = tickNow(q.sdk);
+            if (await credited()) {
+                sawKeys = true;
+                break;
+            }
+            if (waited - lastNote >= 100) q.log(`heroes: a Grip kill without our credit (partner ${describePartner(partner)}) — staying at the slit`);
         }
         const g = grip(q);
         if (gripAtSlit(g)) {
@@ -679,14 +687,14 @@ export async function lootTreasure(q: Quest, pair: Pair): Promise<void> {
 }
 
 /** Open Grip's cupboard (a guard objects, we insist: Grip walks over) until his keyring drops; pick it up. */
-async function lureGrip(q: Quest, pair: Pair): Promise<void> {
+async function lureGrip(q: Quest, pair: Pair, done: () => boolean = () => holds(q, OBJ.gripKeys)): Promise<void> {
     const t0 = tickNow(q.sdk);
     const quiet = silence(q, pair);
     let lures = 0;
     let lastNote = -Infinity;
     await enterMansion(q);
     await q.bot.walkTo(CUPBOARD_STAND.x, CUPBOARD_STAND.z, 0).catch(() => undefined);
-    while (!holds(q, OBJ.gripKeys)) {
+    while (!done()) {
         const waited = tickNow(q.sdk) - t0;
         const partner = readPartner(pair);
         if (waited > PARTNER_WAIT_TICKS || quiet() > PARTNER_SILENT_TICKS) throw new Error(`heroes: no keyring after ${lures} lures in ${waited}t (${describePartner(partner)})`);
@@ -696,7 +704,7 @@ async function lureGrip(q: Quest, pair: Pair): Promise<void> {
         }
         publish(q, pair);
         const keys = keysOnGround(q);
-        if (keys) {
+        if (keys && !holds(q, OBJ.gripKeys)) {
             const res = await q.bot.pickupItem(keys).catch((e) => ({ success: false, message: (e as Error).message }));
             if (!res.success) q.log(`heroes: pick up Grips' keyring: ${res.message}`);
             await untilTicks(q.sdk, () => holds(q, OBJ.gripKeys), 8);
@@ -733,8 +741,21 @@ const PHOENIX_BEFORE_ARMBAND = new Set(['unstarted', 'p_unstarted', 'p_started',
 /** The partner has its candlestick, or is past needing one. */
 const phoenixHasCandle = (p: PairState) => p.has.candle > 0 || !PHOENIX_BEFORE_ARMBAND.has(p.stage);
 
+/** The Phoenix partner killed Grip without the credit (still p_charlie, at the slit): lure him to it again. */
+async function relureForPartner(q: Quest, pair: Pair): Promise<void> {
+    const owed = () => {
+        const p = readPartner(pair);
+        return !!p && p.stage === 'p_charlie' && p.ready === 'slit';
+    };
+    if (!owed()) return;
+    q.log(`heroes: ${pair.partner} is at the slit without Grip's kill credit — luring him again`);
+    await lureGrip(q, pair, () => !owed());
+    await leaveBrimhavenRooms(q);
+}
+
 export async function candleToKatrine(q: Quest, pair: Pair): Promise<void> {
     publish(q, pair);
+    await relureForPartner(q, pair);
     const partner = readPartner(pair);
     if (held(q, OBJ.candlestick) >= 2 || !partner || !phoenixHasCandle(partner)) {
         await hand(q, pair, 'candle', { item: /^pete's candlestick$/i, amount: 1 }, phoenixHasCandle);
@@ -751,6 +772,7 @@ export async function settleCandle(q: Quest, pair: Pair): Promise<void> {
     if (pair.gang !== 'blackarm' || !holds(q, OBJ.candlestick)) return;
     const partner = readPartner(pair);
     if (!partner || phoenixHasCandle(partner)) return;
+    await relureForPartner(q, pair);
     q.log(`heroes: ${pair.partner} is still owed a candlestick`);
     await hand(q, pair, 'candle', { item: /^pete's candlestick$/i, amount: 1 }, phoenixHasCandle);
 }

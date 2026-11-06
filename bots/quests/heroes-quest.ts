@@ -22,6 +22,7 @@
  */
 import { runQuest, type Need, type Quest, type StageDef, type Transition } from './lib/run-quest';
 import { arravGang } from './lib/quest-tags';
+import { readJournalCheckpoint } from '../../quest-lab/journal-reader';
 import {
     askAlfonse,
     askCharlie,
@@ -163,7 +164,13 @@ const PHOENIX: { stages: StageDef[]; transitions: Transition[] } = {
             from: 'p_charlie',
             to: 'p_grip',
             needs: (q) => [fares(q), { item: 'fire staff', count: 1 }, { item: 'air rune', count: 90 }, { item: 'chaos rune', count: 30 }],
-            run: (q) => killGrip(q, pair),
+            // Done only on OUR credit (grip.rs2 gives it to whoever Grip was fighting, the keyring drops for anyone).
+            run: (q) => killGrip(q, pair, async () => {
+                const rule = PHOENIX.stages.find((st) => st.id === 'p_grip')!.rule;
+                const read = await readJournalCheckpoint(q.sdk, { label: "Hero's Quest", title: "Heroes' Quest" }, rule);
+                await q.sdk.sendCloseModal().catch(() => undefined);
+                return read.verdict?.verdict === 'PASS';
+            }),
         },
         { from: 'p_grip', to: 'p_armband', needs: (q) => [fares(q)], run: (q) => candleToStraven(q, pair) },
         ...ITEM_TRANSITIONS,
