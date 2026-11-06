@@ -17,7 +17,8 @@
  *   --deliver   walk to that mule's bank (supply.ts muleBank: Jackpoo2 at Draynor), withdraw the
  *               --give lines as notes (capped at what this bank holds), DM `quest-restock`, and
  *               trade them over; the mule (quest-mule.ts receiveRestock) banks them. Only
- *               supply.ts MULE_RESTOCKERS may restock a mule.
+ *               supply.ts MULE_RESTOCKERS may restock a mule. `label#id:n` takes that obj id only,
+ *               for names shared by many items (every grimy herb is "Herb"; herb#2485 is lantadyme).
  *
  * Starts and ends naked at the Ardougne bank (the runner's prologue/epilogue). SIGTERM stops at
  * the next bank (q.stopRequested), and the epilogue banks the pack. Ticks, not milliseconds.
@@ -97,8 +98,8 @@ async function depositExcept(q: Quest, keep: RegExp[]): Promise<void> {
 }
 
 /** Withdraw up to `n` of a bank line (bank open); returns how many arrived. */
-async function take(q: Quest, re: RegExp, n: number, asNote = false): Promise<number> {
-    const line = bankItem(q, re);
+async function take(q: Quest, re: RegExp, n: number, asNote = false, id?: number): Promise<number> {
+    const line = id === undefined ? bankItem(q, re) : q.sdk.getBankItems().find((b) => b.id === id && b.count > 0);
     if (!line || n <= 0) return 0;
     const before = count(q, re);
     await q.bot.withdrawItem(line, Math.min(n, line.count), { asNote });
@@ -264,10 +265,11 @@ async function deliver(q: Quest, mule: string): Promise<void> {
     await depositExcept(q, []);
     const give: Array<{ item: RegExp; amount: number }> = [];
     for (const line of GIVE) {
-        const re = new RegExp(`^${esc(line.label)}$`, 'i');
+        const [name, id] = line.label.split('#');
+        const re = new RegExp(`^${esc(name!)}$`, 'i');
         // Notes: 40 bread or 10 longswords in one slot each. Runes and nails stack anyway
         // (the engine withdraws an un-notable item unnoted).
-        const got = await take(q, re, line.count, true);
+        const got = await take(q, re, line.count, true, id ? Number(id) : undefined);
         if (got > 0) give.push({ item: re, amount: got });
         q.log(`deliver: ${line.label} ${got}/${line.count}${got < line.count ? ' (all this bank holds)' : ''}`);
     }

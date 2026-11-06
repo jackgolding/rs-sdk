@@ -491,9 +491,17 @@ async function bankTrip(): Promise<boolean> {
     // prayer potions, and any missing piece of the study's loadout (rune legs + berserker helm +
     // glory + dragon longsword + dragonfire shield, 2026-11-02).
     const has = (p: RegExp) => !!sdk.findEquipmentItem(p) || !!sdk.findInventoryItem(p);
-    // Rune chainbody is the one body every account may wear: Defence 40, no quest, no Ranged.
-    const askBody = !hasBodyOn() && (sdk.getSkill('Defence')?.baseLevel ?? 1) >= 40 && !bodyRefused.has(1113);
-    const gearMissing = [askBody, !has(SHIELD), !WEAPONS.some(has), !has(/^(rune|dragon) (platelegs|plateskirt)$/i), !has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i), !has(/^amulet of (glory|power|strength)/i)].filter(Boolean).length;
+    // jackthief holds 42 green dragonhide bodies (its bank lists them before the 3 better ones; Ranged 40,
+    // Dragon Slayer). Refused for want of the quest: rune chainbody, which only needs Defence 40.
+    const bodyAsk =
+        hasBodyOn() || (sdk.getSkill('Defence')?.baseLevel ?? 1) < 40
+            ? null
+            : (sdk.getSkill('Ranged')?.baseLevel ?? 1) >= 40 && !bodyRefused.has(1135)
+              ? { label: 'dragonhide body', pattern: /^dragonhide body$/i, count: 1 }
+              : !bodyRefused.has(1113)
+                ? { label: 'rune chainbody', pattern: /^rune chainbody$/i, count: 1 }
+                : null;
+    const gearMissing = [!!bodyAsk, !has(SHIELD), !WEAPONS.some(has), !has(/^(rune|dragon) (platelegs|plateskirt)$/i), !has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i), !has(/^amulet of (glory|power|strength)/i)].filter(Boolean).length;
     // The trade lands in the pack: ask only for what fits (Jackpoo4's trade failed "no_space").
     const potRoom = Math.max(0, 28 - occupied() - gearMissing);
     const potAsk = !potted && potRoom > 0 ? Math.min(9, potRoom) : 0;
@@ -515,14 +523,14 @@ async function bankTrip(): Promise<boolean> {
         ...(!count(SUPER_ATTACK) && potRoom > 4 ? [{ label: 'super attack(3)', pattern: /^super attack\(3\)$/i, count: 1 }] : []),
         ...(!count(SUPER_STRENGTH) && potRoom > 5 ? [{ label: 'super strength(3)', pattern: /^super strength\(3\)$/i, count: 1 }] : []),
         ...(!WEAPONS.some(has) ? [{ label: 'dragon longsword', pattern: /^dragon longsword$/i, count: 1 }] : []),
-        ...(askBody ? [{ label: 'rune chainbody', pattern: /^rune chainbody$/i, count: 1 }] : []),
+        ...(bodyAsk ? [bodyAsk] : []),
         ...(!has(/^(rune|dragon) (platelegs|plateskirt)$/i) ? [{ label: 'rune platelegs', pattern: /^rune platelegs$/i, count: 1 }] : []),
         ...(!has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i) ? [{ label: 'berserker helm', pattern: /^berserker helm$/i, count: 1 }] : []),
         ...(!has(/^amulet of (glory|power|strength)/i) ? [{ label: 'amulet of glory', pattern: /^amulet of glory/i, count: 1 }] : [])
     ];
     // A kit otherwise ready asked for nothing, so body and antifire never reached those accounts:
     // they ask too, less often, since they can fight without either.
-    const upgrade = kitAsk.some((k) => /chainbody|antifire/.test(k.label)) && Date.now() - lastUpgradeAsk > UPGRADE_ASK_MS;
+    const upgrade = kitAsk.some((k) => k === bodyAsk || /antifire/.test(k.label)) && Date.now() - lastUpgradeAsk > UPGRADE_ASK_MS;
     if ((!potted || !ready || upgrade) && kitAsk.length && Date.now() - lastPotAsk > 20 * 60_000) {
         lastPotAsk = Date.now();
         if (upgrade) lastUpgradeAsk = Date.now();
@@ -533,7 +541,9 @@ async function bankTrip(): Promise<boolean> {
             const item = sdk.findInventoryItem(pattern);
             if (item) await bot.equipItem(item).catch(() => undefined);
         }
-        await equipBody(1113, 'rune chainbody');
+        for (const body of BODIES) {
+            if (!hasBodyOn() && (await equipBody(body.id, body.label))) break;
+        }
         log(`mule jackthief: ${ok ? 'served' : 'not all served'}; pots ${count(PRAYER_POT)} antifire ${count(ANTIFIRE)} body ${hasBodyOn()}`);
         return false;
     }
