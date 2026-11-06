@@ -395,7 +395,19 @@ abstract class JobBot {
     walk(to: Tile, reason: string, everyTicks = 4): void {
         if (this.tick - this.lastWalkTick < everyTicks) return;
         this.lastWalkTick = this.tick;
-        const r = this.exec({ type: 'walkTo', x: to.x, z: to.z, running: true, reason });
+        let r = this.exec({ type: 'walkTo', x: to.x, z: to.z, running: true, reason });
+        // A target past the client's walk range (jackquests joined the guild job from Catherby and logged
+        // "out_of_range" ×1000, 2026-11-06): step 14 tiles toward it and let the client route each leg.
+        if (!r.ok && r.reason === 'out_of_range' && this.lastState?.player) {
+            const me = { x: this.lastState.player.worldX, z: this.lastState.player.worldZ };
+            const dx = to.x - me.x;
+            const dz = to.z - me.z;
+            const d = Math.max(Math.abs(dx), Math.abs(dz));
+            if (d > 14) {
+                const step = { x: Math.round(me.x + (dx * 14) / d), z: Math.round(me.z + (dz * 14) / d) };
+                r = this.exec({ type: 'walkTo', x: step.x, z: step.z, running: true, reason: `${reason} (leg)` });
+            }
+        }
         if (!r.ok) this.log.log('WARN', `walk ${reason} to ${to.x},${to.z} failed: ${r.reason}`);
     }
 
