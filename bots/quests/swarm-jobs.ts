@@ -1000,7 +1000,8 @@ class GuildBot extends JobBot {
 
     protected kit(s: BotWorldState): BankPlan {
         const lvl = skill(s, 'Ranged')?.baseLevel ?? 1;
-        if (this.finish !== 'no') return { hub: SEERS_BANK, keep: null, withdraw: [] };
+        // Already at the target on login (a swarm restart): no coins out, or each restart spends them again.
+        if (this.finish !== 'no' || (lvl >= this.until && this.stats.rounds === 0)) return { hub: SEERS_BANK, keep: null, withdraw: [] };
         const withdraw: BankPlan['withdraw'] = [
             { match: n => /^coins$/i.test(n), label: 'coins', count: GUILD_COINS_TAKE, required: true, exact: true }
         ];
@@ -1183,6 +1184,11 @@ class GuildBot extends JobBot {
         }
         if (lvl < GUILD_MIN_RANGED) {
             this.fail('level', `Ranged ${lvl} < ${GUILD_MIN_RANGED}: the guild door stays shut`);
+            return;
+        }
+        if (lvl >= this.until && this.stats.rounds === 0) {
+            this.log.log('LOG', `Ranged ${lvl} is already at the target ${this.until}: nothing to do, parking`);
+            this.stopping = true;
             return;
         }
         const xp = skill(s, 'Ranged')?.experience ?? 0;
