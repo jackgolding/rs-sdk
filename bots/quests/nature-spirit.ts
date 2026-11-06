@@ -98,12 +98,13 @@ await runQuest({
         {
             from: 'pouch',
             to: 'ghast3',
-            needs: [amulet, ...fight],
+            // Prayer for a refill at the grotto if the pouch is spent before three (lib/nature-spirit.ts ghasts).
+            needs: [amulet, ...fight, { item: 'prayer potion(3)', count: 2 }],
             run: (q) =>
                 ns.ghasts(q, async () => ((await passes(q.sdk, 'ghast3')) ? 3 : (await passes(q.sdk, 'ghast2')) ? 2 : (await passes(q.sdk, 'ghast1')) ? 1 : 0)),
         },
-        { from: 'ghast1', to: 'ghast3', needs: [amulet, ...fight], run: (q) => ns.ghasts(q, async () => 1) },
-        { from: 'ghast2', to: 'ghast3', needs: [amulet, ...fight], run: (q) => ns.ghasts(q, async () => 2) },
+        { from: 'ghast1', to: 'ghast3', needs: [amulet, ...fight, { item: 'prayer potion(3)', count: 2 }], run: (q) => ns.ghasts(q, async () => 1) },
+        { from: 'ghast2', to: 'ghast3', needs: [amulet, ...fight, { item: 'prayer potion(3)', count: 2 }], run: (q) => ns.ghasts(q, async () => 2) },
         { from: 'ghast3', to: 'complete', needs: [amulet], run: (q) => ns.finish(q, () => passes(q.sdk, 'complete')) },
     ],
 });
