@@ -508,8 +508,9 @@ async function bankTrip(): Promise<boolean> {
     const gearMissing = [!!bodyAsk, !has(SHIELD), !WEAPONS.some(has), !has(/^(rune|dragon) (platelegs|plateskirt)$/i), !has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i), !has(/^amulet of (glory|power|strength)/i)].filter(Boolean).length;
     // Food fills the pack before this point, so a due body or antifire had no slot and no ask went out
     // (jacklove2, 0 free, 2026-11-06). Bank just enough food; the re-run after the trade refills it.
-    const upgradeDue = (!!bodyAsk || !count(ANTIFIRE)) && Date.now() - lastUpgradeAsk > UPGRADE_ASK_MS && Date.now() - lastPotAsk > 20 * 60_000;
-    const roomShort = gearMissing + (count(ANTIFIRE) ? 0 : 2) - (28 - occupied());
+    // No antifire is no trip, so that does not wait for the 2 h throttle.
+    const upgradeDue = (!count(ANTIFIRE) || ((!!bodyAsk || count(ANTIFIRE) < 2) && Date.now() - lastUpgradeAsk > UPGRADE_ASK_MS)) && Date.now() - lastPotAsk > 20 * 60_000;
+    const roomShort = gearMissing + Math.max(0, 2 - count(ANTIFIRE)) - (28 - occupied());
     if (upgradeDue && roomShort > 0 && (await bot.openBank()).success) {
         for (const food of sdk.getInventory().filter((i) => foodHeal(i.name) > 0).slice(0, roomShort)) await bot.depositItem(food, 1).catch(() => undefined);
         await bot.closeBank();
