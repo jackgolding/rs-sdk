@@ -510,6 +510,9 @@ async function bankTrip(): Promise<boolean> {
     const foodRoom = Math.max(0, potRoom - potAsk - 3);
     const foodAsk = foodCount() <= LEAVE_FOOD ? Math.min(FOOD_WANT, foodRoom) : 0;
     const kitAsk = [
+        // First: lines are dropped in order when the pack is short (jacklove2 got 2 pots, 2 antifire and
+        // no body with 4 free, 2026-11-06), and a body is worn at once, giving its slot back.
+        ...(bodyAsk ? [bodyAsk] : []),
         ...(potAsk > 0 ? [{ label: 'prayer potion(3)', pattern: /^prayer potion\(3\)$/i, count: potAsk }] : []),
         ...(foodAsk >= 5 ? [{ label: 'shark', pattern: /^shark$/i, count: foodAsk }] : []),
         ...(!has(SHIELD) ? [{ label: 'dragonfire shield', pattern: SHIELD, count: 1 }] : []),
@@ -523,7 +526,6 @@ async function bankTrip(): Promise<boolean> {
         ...(!count(SUPER_ATTACK) && potRoom > 4 ? [{ label: 'super attack(3)', pattern: /^super attack\(3\)$/i, count: 1 }] : []),
         ...(!count(SUPER_STRENGTH) && potRoom > 5 ? [{ label: 'super strength(3)', pattern: /^super strength\(3\)$/i, count: 1 }] : []),
         ...(!WEAPONS.some(has) ? [{ label: 'dragon longsword', pattern: /^dragon longsword$/i, count: 1 }] : []),
-        ...(bodyAsk ? [bodyAsk] : []),
         ...(!has(/^(rune|dragon) (platelegs|plateskirt)$/i) ? [{ label: 'rune platelegs', pattern: /^rune platelegs$/i, count: 1 }] : []),
         ...(!has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i) ? [{ label: 'berserker helm', pattern: /^berserker helm$/i, count: 1 }] : []),
         ...(!has(/^amulet of (glory|power|strength)/i) ? [{ label: 'amulet of glory', pattern: /^amulet of glory/i, count: 1 }] : [])
