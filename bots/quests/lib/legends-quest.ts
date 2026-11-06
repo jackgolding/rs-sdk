@@ -408,7 +408,9 @@ function spentQuestItem(q: Quest, id: number): boolean {
 const FOOD_KIT = (n: number): Want => ({ label: 'shark', pattern: FOOD, count: n, min: Math.ceil(n / 2) });
 const POTS = (n: number): Want => ({ label: 'prayer potion', pattern: POTION, count: n, optional: true });
 const AXE = want('rune axe');
-const MAP = (q: Quest): Want => (stageNum(q) >= 2 ? quest('radimus notes (complete)', ID.notesDone) : quest('radimus notes', ID.notes));
+// The complete notes count even at stage 1: radimus_notes.rs2 swaps them without setting the stage when the last section's script was cut short.
+const MAP = (q: Quest): Want =>
+    stageNum(q) >= 2 || heldId(q, ID.notesDone) || q.sdk.getBankItems().some((b) => b.id === ID.notesDone) ? quest('radimus notes (complete)', ID.notesDone) : quest('radimus notes', ID.notes);
 /** Coins: on the mainland both boats; on Karamja (or below it) the boat home. */
 const BASE = (q: Quest): Want[] => [
     want('coins', onIsland(pos(q)) || inLegendsArea(pos(q)) ? 30 : 100),
@@ -719,14 +721,25 @@ async function getMachete(q: Quest): Promise<void> {
  */
 const MAP_KIT = (q: Quest): Want[] => [...BASE(q), want('papyrus', 5, { min: 1 }), want('charcoal', 3, { min: 1 }), FOOD_KIT(4)];
 export async function mapJungle(q: Quest): Promise<void> {
+    // Complete notes at stage 1 (see MAP): mapping again cannot set the stage, the forester's copy can (jungle_forester.rs2, straight to 3).
+    if (heldId(q, ID.notesDone)) {
+        q.log('legends: complete notes but the journal still says started: straight to the forester');
+        await restock(q, [...BASE(q), FOOD_KIT(4)], 'the forester');
+        await getBullroarer(q);
+        return;
+    }
     await restock(q, MAP_KIT(q), 'mapping');
     if (!heldId(q, ID.machete)) await getMachete(q);
+    await mapSections(q, () => MAP_KIT(q));
+}
+
+async function mapSections(q: Quest, kit: () => Want[]): Promise<void> {
     const done = new Set<string>();
     for (let pass = 1; pass <= 3 && !heldId(q, ID.notesDone); pass++) {
         for (const section of ['middle', 'west', 'east'] as const) {
             if (heldId(q, ID.notesDone) || done.has(section)) continue;
             for (let attempt = 1; attempt <= 6 && !heldId(q, ID.notesDone) && !done.has(section); attempt++) {
-                if (!held(q, /^papyrus$/i) || !held(q, /^charcoal$/i)) await restock(q, MAP_KIT(q), 'more papyrus and charcoal');
+                if (!held(q, /^papyrus$/i) || !held(q, /^charcoal$/i)) await restock(q, kit(), 'more papyrus and charcoal');
                 await toJungleTile(q, MAP_SPOTS[section], 3);
                 const mark = lastMsgId(q);
                 await defend(q);
@@ -755,6 +768,47 @@ export async function getBullroarer(q: Quest): Promise<void> {
         await useOnNpc(q, ID.notesDone, forester, () => !!heldId(q, ID.bullroarer), [/yes, go ahead make a copy/i], 30);
     }
     if (!heldId(q, ID.bullroarer)) throw new Error('legends: the forester gave no bullroarer');
+}
+
+/**
+ * A death in the jungle costs the notes, machete and bullroarer, and every later step needs them
+ * (jacklove2, stage 7, 2026-11-06). Radimus sells a blank copy for 30 coins, the jungle is mapped
+ * again (the stage stays put), the cupboard gives a machete and the forester a new bullroarer.
+ */
+export async function recoverLostKit(q: Quest): Promise<void> {
+    const n = stageNum(q);
+    if (n < STAGE_VALUE.mapped! || n >= STAGE_VALUE.returned!) return;
+    const needRoarer = n >= STAGE_VALUE.bullroarer! && !spentQuestItem(q, ID.bullroarer);
+    if (heldId(q, ID.notesDone) && (!needRoarer || heldId(q, ID.bullroarer))) return;
+    if (onIsland(pos(q)) || inLegendsArea(pos(q))) await leaveLegends(q, ARDOUGNE_BANK);
+    await q.goTo(ARDOUGNE_BANK, 4);
+    if (!(await q.bot.openBank().catch(() => ({ success: false }))).success) throw new Error(`legends: could not open a bank at ${where(q)}`);
+    const has = (id: number) => !!heldId(q, id) || q.sdk.getBankItems().some((b) => b.id === id);
+    const haveDone = has(ID.notesDone);
+    const haveBlank = has(ID.notes);
+    const haveRoarer = !needRoarer || has(ID.bullroarer);
+    await q.bot.closeBank().catch(() => undefined);
+    if (haveDone && haveRoarer) return;
+    q.log(`legends: lost kit at stage ${q.stage}: complete notes ${haveDone}, blank notes ${haveBlank}, bullroarer ${haveRoarer}`);
+    const mapKit = () => [want('coins', 130), AXE, quest('machete', ID.machete), quest('radimus notes', ID.notes), want('papyrus', 5, { min: 1 }), want('charcoal', 3, { min: 1 }), FOOD_KIT(4)];
+    if (!haveDone) {
+        await restock(q, [want('coins', 130), AXE, want('papyrus', 5, { min: 1 }), want('charcoal', 3, { min: 1 }), FOOD_KIT(4)], 'the lost map');
+        await throughGuildGate(q);
+        if (!haveBlank) {
+            await walk(q, RADIMUS_STUDY, 2);
+            const seen = await driveTalkToRadimus(q);
+            q.log(`legends: Radimus, the lost map — ${seen.slice(0, 160)}`);
+            if (!heldId(q, ID.notes)) throw new Error('legends: Radimus gave no copy of the notes');
+        }
+        await getMachete(q);
+        await restock(q, mapKit(), 'mapping again');
+        await mapSections(q, mapKit);
+    }
+    if (!haveRoarer) await getBullroarer(q);
+}
+
+async function driveTalkToRadimus(q: Quest): Promise<string> {
+    return q.talk(/^radimus erkle$/i, [/i lost my map/i, /yes, i'll pay for it/i]);
 }
 
 // ── Gujuo

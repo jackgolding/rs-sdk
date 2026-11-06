@@ -41,6 +41,7 @@ import {
     JOURNAL,
     leaveLegends,
     mapJungle,
+    recoverLostKit,
     meetGujuo,
     meetSpirit,
     replaceTotem,
@@ -71,6 +72,7 @@ const step = (fn: (q: Quest) => Promise<void>) => async (q: Quest) => {
     }
     try {
         await gearUp(q);
+        await recoverLostKit(q);
         await fn(q);
     } catch (err) {
         // A failed step must not leave the account standing among the jungle's savages or the caves'
