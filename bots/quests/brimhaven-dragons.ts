@@ -121,10 +121,32 @@ const SHIELD = /dragonfire shield|anti-?dragon/i;
 /** Any axe gets through the vines (karam_dungeon.rs2 cross_vines); the best one chops fastest. */
 const AXES = [/^rune axe$/i, /^adamant axe$/i, /^mithril axe$/i, /^black axe$/i, /^steel axe$/i, /^iron axe$/i, /^bronze axe$/i];
 const WEAPONS = [/^dragon longsword$/i, /^dragon scimitar$/i, /^rune scimitar$/i, /^rune longsword$/i];
-/** Best first in each slot. The user's tested kit: black d'hide, glory, dragon longsword. */
+/**
+ * Body armour, the user's order (2026-11-06): rune platebody, dragonhide, rune chainbody; adamant
+ * only until one of those arrives. By obj id: all four dragonhide bodies are named "Dragonhide
+ * body", so the old /^black d'hide body$/ never matched and such a body stayed in the bank.
+ * levelrequire: rune plate and green hide also need Dragon Slayer, which only the equip reveals.
+ */
+const BODIES: Array<{ id: number; label: string; defence: number; ranged?: number; stopgap?: boolean }> = [
+    { id: 1127, label: 'rune platebody', defence: 40 },
+    { id: 2503, label: 'black dragonhide body', defence: 40, ranged: 70 },
+    { id: 2501, label: 'red dragonhide body', defence: 40, ranged: 60 },
+    { id: 2499, label: 'blue dragonhide body', defence: 40, ranged: 50 },
+    { id: 1135, label: 'green dragonhide body', defence: 40, ranged: 40 },
+    { id: 1113, label: 'rune chainbody', defence: 40 },
+    { id: 1123, label: 'adamant platebody', defence: 30, stopgap: true },
+    { id: 1111, label: 'adamant chainbody', defence: 30, stopgap: true }
+];
+/** Worn already and no need to change: the list above, trimmed rune and god plate, dragon chain. */
+const FINE_BODY = /^(rune platebody( \([gt]\))?|(zamorak|saradomin|guthix) platebody|dragon chainbody)$/i;
+/** Bodies this account's equip refused (no Dragon Slayer): not retried this run. */
+const bodyRefused = new Set<number>();
+/** A mule with no body or antifire costs the full trade timeout: not asked again for 2 h. */
+const UPGRADE_ASK_MS = 2 * 60 * 60_000;
+let lastUpgradeAsk = 0;
+/** Best first in each slot; bodies are BODIES. The user's tested kit: glory, dragon longsword. */
 const ARMOUR = [
     /^(dragon|rune|adamant) (full helm|med helm)$/i,
-    /^black d'?hide body$|^(rune|adamant) (platebody|chainbody)$/i,
     /^black d'?hide chaps$|^(dragon|rune|adamant) (platelegs|plateskirt)$/i,
     /^black d'?hide vamb(race)?s?$/i,
     /^amulet of glory\([1-4]\)$|^amulet of (power|strength)$/i
@@ -330,6 +352,46 @@ async function withdrawFirst(patterns: RegExp[]): Promise<void> {
     }
 }
 
+function hasBodyOn(): boolean {
+    return sdk.getEquipment().some((e) => e && (FINE_BODY.test(e.name) || BODIES.some((b) => b.id === e.id && !b.stopgap)));
+}
+
+/** Puts on a body from the pack; true when worn. A refused one stays in the pack for the next bank trip. */
+async function equipBody(id: number, label: string): Promise<boolean> {
+    const item = sdk.getInventory().find((i) => i.id === id);
+    if (!item) return false;
+    const r = await bot.equipItem(item).catch((e) => ({ success: false, message: (e as Error).message }));
+    if (sdk.getEquipment().some((e) => e?.id === id)) {
+        log(`Wearing ${label}`);
+        return true;
+    }
+    bodyRefused.add(id);
+    log(`Could not wear ${label}: ${r.message}`);
+    return false;
+}
+
+/** With the bank open: wear the best body the bank holds and this account may wear. Bank open on return. */
+async function wearBestBody(): Promise<void> {
+    if (hasBodyOn()) return;
+    const worn = BODIES.findIndex((b) => sdk.getEquipment().some((e) => e?.id === b.id));
+    const defence = sdk.getSkill('Defence')?.baseLevel ?? 1;
+    const ranged = sdk.getSkill('Ranged')?.baseLevel ?? 1;
+    for (const [rank, body] of BODIES.entries()) {
+        if (worn >= 0 && rank >= worn) return;
+        if (bodyRefused.has(body.id) || defence < body.defence || ranged < (body.ranged ?? 1)) continue;
+        const banked = (sdk.getBankItems() ?? []).find((b) => b.id === body.id && b.count > 0);
+        if (!banked) continue;
+        await bot.withdrawItem(banked, 1, { asNote: false });
+        await sdk.waitForCondition(() => sdk.getInventory().some((i) => i.id === body.id), 3_000).catch(() => undefined);
+        await bot.closeBank();
+        const on = await equipBody(body.id, body.label);
+        await bot.openBank();
+        // What came off, or a body refused, goes back rather than riding along in a pack slot.
+        for (const it of sdk.getInventory().filter((i) => BODIES.some((b) => b.id === i.id))) await bot.depositItem(it, -1).catch(() => undefined);
+        if (on) return;
+    }
+}
+
 async function leaveStronghold(): Promise<void> {
     const q = {
         bot,
@@ -389,6 +451,7 @@ async function bankTrip(): Promise<boolean> {
     await withdrawFirst(WEAPONS);
     await withdrawFirst([SHIELD]);
     for (const piece of ARMOUR) await withdrawFirst([piece]);
+    await wearBestBody();
     await withdrawUpTo(PRAYER_POT, PRAYER_POTS_WANT);
     // Antifire: with the shield, iron/steel breath does nothing (lib/antifire.ts).
     await withdrawUpTo(ANTIFIRE, 2);
@@ -422,13 +485,15 @@ async function bankTrip(): Promise<boolean> {
     const canTeleport = (sdk.getSkill('Magic')?.level ?? 1) >= 45 && count(LAW) >= 1 && count(AIR) >= 5;
     const potted = count(PRAYER_POT) >= MIN_PRAYER_POTS;
     const ready = potted && canTeleport && count(COINS) >= ENTRY_FEE + BOAT_GP * 2 && foodCount() > LEAVE_FOOD && AXES.some((p) => sdk.findInventoryItem(p) || sdk.findEquipmentItem(p)) && !!sdk.findEquipmentItem(SHIELD);
-    log(`Kit coins=${count(COINS)} food=${foodCount()} pots=${count(PRAYER_POT)} shield=${!!sdk.findEquipmentItem(SHIELD)} worn=${sdk.getEquipment().filter(Boolean).map((e) => e!.name).join(',')} ready=${ready}`);
+    log(`Kit coins=${count(COINS)} food=${foodCount()} pots=${count(PRAYER_POT)} antifire=${count(ANTIFIRE)} body=${hasBodyOn()} shield=${!!sdk.findEquipmentItem(SHIELD)} worn=${sdk.getEquipment().filter(Boolean).map((e) => e!.name).join(',')} ready=${ready}`);
     session.noteProgress('bank', `food ${foodCount()}`);
     // jackthief, the max-stat mule, serves from this same Ardougne bank (supply.ts MULE_BANKS):
     // prayer potions, and any missing piece of the study's loadout (rune legs + berserker helm +
     // glory + dragon longsword + dragonfire shield, 2026-11-02).
     const has = (p: RegExp) => !!sdk.findEquipmentItem(p) || !!sdk.findInventoryItem(p);
-    const gearMissing = [!has(SHIELD), !WEAPONS.some(has), !has(/^(rune|dragon) (platelegs|plateskirt)$/i), !has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i), !has(/^amulet of (glory|power|strength)/i)].filter(Boolean).length;
+    // Rune chainbody is the one body every account may wear: Defence 40, no quest, no Ranged.
+    const askBody = !hasBodyOn() && (sdk.getSkill('Defence')?.baseLevel ?? 1) >= 40 && !bodyRefused.has(1113);
+    const gearMissing = [askBody, !has(SHIELD), !WEAPONS.some(has), !has(/^(rune|dragon) (platelegs|plateskirt)$/i), !has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i), !has(/^amulet of (glory|power|strength)/i)].filter(Boolean).length;
     // The trade lands in the pack: ask only for what fits (Jackpoo4's trade failed "no_space").
     const potRoom = Math.max(0, 28 - occupied() - gearMissing);
     const potAsk = !potted && potRoom > 0 ? Math.min(9, potRoom) : 0;
@@ -445,17 +510,22 @@ async function bankTrip(): Promise<boolean> {
         ...(!canTeleport && count(LAW) < 2 ? [{ label: 'law rune', pattern: LAW, count: 20 }] : []),
         ...(!hasDuelingRing(sdk) ? [{ label: 'ring of dueling(8)', pattern: /^ring of dueling\(8\)$/i, count: 1 }] : []),
         // jacklove16's antifire (2026-11-02): with the shield, iron/steel breath does nothing.
-        ...(!count(ANTIFIRE) && potRoom > 2 ? [{ label: 'antifire potion(3)', pattern: /^antifire potion\(3\)$/i, count: 2 }] : []),
+        ...(!count(ANTIFIRE) && potRoom >= 2 ? [{ label: 'antifire potion(3)', pattern: /^antifire potion\(3\)$/i, count: 2 }] : []),
         // Boosts for the trip (user, 2026-11-06): jackthief brews these from the fleet's herbs.
         ...(!count(SUPER_ATTACK) && potRoom > 4 ? [{ label: 'super attack(3)', pattern: /^super attack\(3\)$/i, count: 1 }] : []),
         ...(!count(SUPER_STRENGTH) && potRoom > 5 ? [{ label: 'super strength(3)', pattern: /^super strength\(3\)$/i, count: 1 }] : []),
         ...(!WEAPONS.some(has) ? [{ label: 'dragon longsword', pattern: /^dragon longsword$/i, count: 1 }] : []),
+        ...(askBody ? [{ label: 'rune chainbody', pattern: /^rune chainbody$/i, count: 1 }] : []),
         ...(!has(/^(rune|dragon) (platelegs|plateskirt)$/i) ? [{ label: 'rune platelegs', pattern: /^rune platelegs$/i, count: 1 }] : []),
         ...(!has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i) ? [{ label: 'berserker helm', pattern: /^berserker helm$/i, count: 1 }] : []),
         ...(!has(/^amulet of (glory|power|strength)/i) ? [{ label: 'amulet of glory', pattern: /^amulet of glory/i, count: 1 }] : [])
     ];
-    if ((!potted || !ready) && kitAsk.length && Date.now() - lastPotAsk > 20 * 60_000) {
+    // A kit otherwise ready asked for nothing, so body and antifire never reached those accounts:
+    // they ask too, less often, since they can fight without either.
+    const upgrade = kitAsk.some((k) => /chainbody|antifire/.test(k.label)) && Date.now() - lastUpgradeAsk > UPGRADE_ASK_MS;
+    if ((!potted || !ready || upgrade) && kitAsk.length && Date.now() - lastPotAsk > 20 * 60_000) {
         lastPotAsk = Date.now();
+        if (upgrade) lastUpgradeAsk = Date.now();
         log(`kit short (${kitAsk.map((k) => k.label).join(', ')}): asking jackthief at the Ardougne bank`);
         const ok = await requestFromMule({ sdk, bot, session: null, log } as never, kitAsk, { mule: 'jackthief', timeoutMs: 5 * 60_000 });
         for (const pattern of [...WEAPONS, SHIELD, ...ARMOUR]) {
@@ -463,7 +533,8 @@ async function bankTrip(): Promise<boolean> {
             const item = sdk.findInventoryItem(pattern);
             if (item) await bot.equipItem(item).catch(() => undefined);
         }
-        log(`mule jackthief: ${ok ? 'served' : 'not all served'}; pots ${count(PRAYER_POT)}`);
+        await equipBody(1113, 'rune chainbody');
+        log(`mule jackthief: ${ok ? 'served' : 'not all served'}; pots ${count(PRAYER_POT)} antifire ${count(ANTIFIRE)} body ${hasBodyOn()}`);
         return false;
     }
     if (!potted) {
