@@ -398,14 +398,19 @@ abstract class JobBot {
         let r = this.exec({ type: 'walkTo', x: to.x, z: to.z, running: true, reason });
         // A target past the client's walk range (jackquests joined the guild job from Catherby and logged
         // "out_of_range" ×1000, 2026-11-06): step 14 tiles toward it and let the client route each leg.
-        if (!r.ok && r.reason === 'out_of_range' && this.lastState?.player) {
+        // A leg tile can be blocked (walls by Camelot: "client_rejected"): fan out by angle and length until one takes.
+        if (!r.ok && (r.reason === 'out_of_range' || r.reason === 'client_rejected') && this.lastState?.player) {
             const me = { x: this.lastState.player.worldX, z: this.lastState.player.worldZ };
-            const dx = to.x - me.x;
-            const dz = to.z - me.z;
-            const d = Math.max(Math.abs(dx), Math.abs(dz));
-            if (d > 14) {
-                const step = { x: Math.round(me.x + (dx * 14) / d), z: Math.round(me.z + (dz * 14) / d) };
-                r = this.exec({ type: 'walkTo', x: step.x, z: step.z, running: true, reason: `${reason} (leg)` });
+            const ang = Math.atan2(to.z - me.z, to.x - me.x);
+            const d = Math.max(Math.abs(to.x - me.x), Math.abs(to.z - me.z));
+            if (d > 6) {
+                outer: for (const len of [14, 10, 7]) {
+                    for (const da of [0, 0.5, -0.5, 1, -1]) {
+                        const step = { x: Math.round(me.x + Math.cos(ang + da) * Math.min(len, d)), z: Math.round(me.z + Math.sin(ang + da) * Math.min(len, d)) };
+                        r = this.exec({ type: 'walkTo', x: step.x, z: step.z, running: true, reason: `${reason} (leg)` });
+                        if (r.ok) break outer;
+                    }
+                }
             }
         }
         if (!r.ok) this.log.log('WARN', `walk ${reason} to ${to.x},${to.z} failed: ${r.reason}`);
