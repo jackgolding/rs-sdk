@@ -686,6 +686,9 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // A long trip out of the stronghold: its spirit tree first, the gate if that is not on (lib/spirit-trees.ts).
                 if (inStronghold(pos()) && !inStronghold(tile) && tile.z < UNDERGROUND_Z) await spiritTreeShortcut(q, tile);
                 if (inStronghold(pos()) && !inStronghold(tile) && tile.z < UNDERGROUND_Z) await crossGnomeGate(q, false);
+                // Out of Brimhaven's Heroes rooms before the boat: from Grip's side room the walk to the customs has no
+                // path, and ABGARMY05 looped there 118× fetching Fire Bolt runes (2026-11-06).
+                if (inHeroesArea(pos()) && !inHeroesArea({ ...tile, level: tile.level ?? 0 })) await leaveHeroesAreas(q);
                 // Left on Karamja by a failed Pirate's Treasure run (jacklove13, 2026-10-29).
                 if (pos().level === 0 && onKaramja(pos()) && !onKaramja(tile)) await sailFromKaramja();
                 // Left on Entrana (jacklove6 after a Lost City run, 2026-10-29): the monks' boat back.
