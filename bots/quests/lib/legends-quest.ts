@@ -462,7 +462,8 @@ export async function restock(q: Quest, wants: Want[], why: string): Promise<voi
     if (onIsland(pos(q)) || inLegendsArea(pos(q))) {
         await leaveLegends(q, ARDOUGNE_BANK);
     }
-    await prayAtArdougneAltar(q);
+    // Full prayer only once the bowl is blessed: the blessing wants 42-47 (blessBowl), the fights after it want points.
+    if (q.sdk.getInventory().some((i) => i.id === ID.bowlBlessed || i.id === ID.bowlBlessedPure) || q.sdk.getBankItems().some((b) => b.id === ID.bowlBlessed || b.id === ID.bowlBlessedPure)) await prayAtArdougneAltar(q);
     await q.goTo(ARDOUGNE_BANK, 4);
     let opened = false;
     for (let i = 0; i < 3 && !opened; i++) {
@@ -905,17 +906,41 @@ async function makeBowl(q: Quest): Promise<void> {
 }
 
 /** Gujuo blesses the bowl; his Prayer roll fails often and drains 5 points a try. */
+/**
+ * gujuo.rs2: `stat_random(prayer, 80, 250)` is the FAILURE roll (-5 prayer, "not able to go into a deep enough trance")
+ * on CURRENT prayer, and below 42 he refuses: ~41% success at 42, ~7% at 91. So try at 42-47, never topped up — burn
+ * prayer down with protection prayers first (jacklove13 failed every try at full prayer after the altar, 2026-11-06).
+ */
+const BLESS_MIN = 42;
+const BLESS_MAX = 47;
+const BURNERS = ['protect_from_melee', 'protect_from_missiles', 'protect_from_magic', 'steel_skin', 'ultimate_strength', 'incredible_reflexes'] as const;
+async function burnPrayerTo(q: Quest, target: number): Promise<void> {
+    if (prayerPts(q) <= target) return;
+    const t0 = tickNow(q.sdk);
+    const lvl = q.sdk.getPrayerState()?.prayerLevel ?? 1;
+    const ok = BURNERS.filter((p) => lvl >= ({ protect_from_melee: 43, protect_from_missiles: 40, protect_from_magic: 37, steel_skin: 28, ultimate_strength: 31, incredible_reflexes: 34 } as const)[p]);
+    for (const p of ok) await q.bot.activatePrayer(p as never).catch(() => undefined);
+    while (prayerPts(q) > target && tickNow(q.sdk) - t0 < 1500) {
+        await eatIfLow(q);
+        await q.sdk.waitForTicks(3);
+    }
+    for (const p of ok) await q.bot.deactivatePrayer(p as never).catch(() => undefined);
+    q.log(`legends: prayer burnt to ${prayerPts(q)} for the blessing in ${tickNow(q.sdk) - t0}t`);
+}
+
 async function blessBowl(q: Quest): Promise<void> {
     if (blessed(q)) return;
     const t0 = tickNow(q.sdk);
-    for (let round = 1; round <= 6 && !blessed(q); round++) {
-        if (prayerPts(q) < 42 && !(await drinkPrayer(q, 42))) {
-            // No potion: full points at the Ardougne altar, and the step's next attempt walks back to Gujuo.
+    for (let round = 1; round <= 20 && !blessed(q); round++) {
+        if (prayerPts(q) < BLESS_MIN && !(await drinkPrayer(q, BLESS_MIN))) {
+            // No potion: full points at the Ardougne altar; the step's next attempt walks back, burning down first.
             const was = prayerPts(q);
             if (onIsland(pos(q)) || inLegendsArea(pos(q))) await leaveLegends(q, ARDOUGNE_BANK);
             await prayAtArdougneAltar(q);
-            throw new Error(`legends: prayer ${was} < 42 and no prayer potion to bless the bowl — prayed at Ardougne (now ${prayerPts(q)}), retrying`);
+            throw new Error(`legends: prayer ${was} < ${BLESS_MIN} and no prayer potion to bless the bowl — prayed at Ardougne (now ${prayerPts(q)}), retrying`);
         }
+        await burnPrayerTo(q, BLESS_MAX);
+        q.log(`legends: blessing round ${round} at prayer ${prayerPts(q)}`);
         await withGujuo(q, [/yes, i'd like (you )?to bless my gold bowl/i], /too inexperienced/i, () => blessed(q), 'the blessing').catch((e) =>
             q.log(`legends: blessing round ${round}: ${(e as Error).message}`)
         );
