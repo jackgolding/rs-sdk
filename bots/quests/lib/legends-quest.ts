@@ -864,7 +864,9 @@ export async function speakUngadulu(q: Quest): Promise<void> {
         const seen = await (async () => {
             await q.sdk.sendInteractLoc(wall.x, wall.z, wall.id, wall.optionsWithIndex.find((o) => /investigate/i.test(o.text))!.opIndex);
             await untilTicks(q.sdk, () => dialogOpen(q), 20);
-            return driveDialog(q.sdk, [/^who are you/i, /where do i get pure water from/i, /how can i extinguish the flames/i], { ticks: 150, log: q.log });
+            // Standing inside the octagram the flames ask "Leap out / Attract the shaman's attention": the second falls through
+            // to Ungadulu's talk (quest_legends.rs2) — ABGARMY07 looped "no choice" there 3 attempts (2026-11-06).
+            return driveDialog(q.sdk, [/^who are you/i, /where do i get pure water from/i, /how can i extinguish the flames/i, /attract the shaman's attention/i], { ticks: 150, log: q.log });
         })();
         q.log(`legends: the flames — ${seen.slice(0, 240)}`);
         if (/come no closer/i.test(seen)) return;
