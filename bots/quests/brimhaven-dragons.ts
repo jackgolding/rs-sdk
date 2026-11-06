@@ -49,14 +49,17 @@ const SEERS_ALTAR = { x: 2694, z: 3462 };
  * No prayer potions, no trip (user, 2026-11-01): without them the bar is gone after one kill and
  * every kill cost a walk back out through the vines to an altar.
  */
-const MIN_PRAYER_POTS = 2;
+// Prayer potions are saved for Kalphite Queen (user, 2026-11-06): none taken, brewed or asked for here. The dragonfire
+// shield + antifire stop the breath; Protect from Melee runs on the altar's free points, then food carries the fight.
+const USE_PRAYER_POTS = false;
+const MIN_PRAYER_POTS = USE_PRAYER_POTS ? 2 : 0;
 const DUNGEON_ENTRY = { x: 2713, z: 9564 };
 const PIT = { x: 2708, z: 9442 };
 const ENTRY_FEE = 875;
 const BOAT_GP = 30;
 const COINS_WANT = 1_000;
 const FOOD_WANT = 18;
-const PRAYER_POTS_WANT = 4;
+const PRAYER_POTS_WANT = USE_PRAYER_POTS ? 4 : 0;
 const LEAVE_FOOD = 4;
 
 /** One obstacle on the way in, crossed both ways. `inSide` is true on the dungeon-entry side. */
@@ -399,7 +402,7 @@ async function bankTrip(): Promise<boolean> {
     await withdrawUpTo(EARTH, 1);
     if (!hasDuelingRing(sdk)) await withdrawUpTo(DUELING_RING, 1);
     await withdrawUpTo(SUPER_STRENGTH, 1);
-    if (count(PRAYER_POT) < PRAYER_POTS_WANT) await brewPrayerPotions(bot, sdk, log, PRAYER_POTS_WANT - count(PRAYER_POT));
+    if (USE_PRAYER_POTS && count(PRAYER_POT) < PRAYER_POTS_WANT) await brewPrayerPotions(bot, sdk, log, PRAYER_POTS_WANT - count(PRAYER_POT));
     const sharks = sdk.findBankItem(/^shark$/i) ? /^shark$/i : /^(swordfish|lobster)$/i;
     // Food fills what the kit leaves, keeping 3 slots for loot: 18 sharks on top of pots, runes,
     // a ring and boosts filled the pack and the full-pack rule banked again at once (×80, 2026-11-02).
@@ -420,7 +423,8 @@ async function bankTrip(): Promise<boolean> {
     // No teleport, no trip (an emergency exit must exist before entering).
     // Camelot Teleport runes only: a ring's rub is interrupted by any hit, so it is no exit from a fight.
     const canTeleport = (sdk.getSkill('Magic')?.level ?? 1) >= 45 && count(LAW) >= 1 && count(AIR) >= 5;
-    const potted = count(PRAYER_POT) >= MIN_PRAYER_POTS;
+    // Antifire instead of prayer potions: no trip without one (the shield alone still lets some breath through).
+    const potted = USE_PRAYER_POTS ? count(PRAYER_POT) >= MIN_PRAYER_POTS : count(ANTIFIRE) >= 1;
     const ready = potted && canTeleport && count(COINS) >= ENTRY_FEE + BOAT_GP * 2 && foodCount() > LEAVE_FOOD && AXES.some((p) => sdk.findInventoryItem(p) || sdk.findEquipmentItem(p)) && !!sdk.findEquipmentItem(SHIELD);
     log(`Kit coins=${count(COINS)} food=${foodCount()} pots=${count(PRAYER_POT)} shield=${!!sdk.findEquipmentItem(SHIELD)} worn=${sdk.getEquipment().filter(Boolean).map((e) => e!.name).join(',')} ready=${ready}`);
     session.noteProgress('bank', `food ${foodCount()}`);
@@ -431,7 +435,7 @@ async function bankTrip(): Promise<boolean> {
     const gearMissing = [!has(SHIELD), !WEAPONS.some(has), !has(/^(rune|dragon) (platelegs|plateskirt)$/i), !has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i), !has(/^amulet of (glory|power|strength)/i)].filter(Boolean).length;
     // The trade lands in the pack: ask only for what fits (Jackpoo4's trade failed "no_space").
     const potRoom = Math.max(0, 28 - occupied() - gearMissing);
-    const potAsk = !potted && potRoom > 0 ? Math.min(9, potRoom) : 0;
+    const potAsk = USE_PRAYER_POTS && !potted && potRoom > 0 ? Math.min(9, potRoom) : 0;
     // Bank out of food: sharks from jackthief too, keeping 3 slots for loot (Jackpoo1/pigfat sat
     // at food=1-2 for 10h asking only for pots, 2026-11-04).
     const foodRoom = Math.max(0, potRoom - potAsk - 3);
@@ -445,7 +449,7 @@ async function bankTrip(): Promise<boolean> {
         ...(!canTeleport && count(LAW) < 2 ? [{ label: 'law rune', pattern: LAW, count: 20 }] : []),
         ...(!hasDuelingRing(sdk) ? [{ label: 'ring of dueling(8)', pattern: /^ring of dueling\(8\)$/i, count: 1 }] : []),
         // jacklove16's antifire (2026-11-02): with the shield, iron/steel breath does nothing.
-        ...(!count(ANTIFIRE) && potRoom > 2 ? [{ label: 'antifire potion(3)', pattern: /^antifire potion\(3\)$/i, count: 2 }] : []),
+        ...(count(ANTIFIRE) < 2 && potRoom > 1 ? [{ label: 'antifire potion(3)', pattern: /^antifire potion\(3\)$/i, count: 2 - count(ANTIFIRE) }] : []),
         // Boosts for the trip (user, 2026-11-06): jackthief brews these from the fleet's herbs.
         ...(!count(SUPER_ATTACK) && potRoom > 4 ? [{ label: 'super attack(3)', pattern: /^super attack\(3\)$/i, count: 1 }] : []),
         ...(!count(SUPER_STRENGTH) && potRoom > 5 ? [{ label: 'super strength(3)', pattern: /^super strength\(3\)$/i, count: 1 }] : []),
@@ -467,7 +471,7 @@ async function bankTrip(): Promise<boolean> {
         return false;
     }
     if (!potted) {
-        session.log('warn', `no prayer potions (${count(PRAYER_POT)} < ${MIN_PRAYER_POTS}, none to brew) — no trip; rechecking in 30 min`);
+        session.log('warn', USE_PRAYER_POTS ? `no prayer potions (${count(PRAYER_POT)} < ${MIN_PRAYER_POTS}, none to brew) — no trip; rechecking in 30 min` : `no antifire potion — no trip; rechecking in 30 min`);
         const until = Date.now() + 30 * 60_000;
         while (Date.now() < until && !session.isStopped()) {
             session.maybeHeartbeat();
@@ -856,12 +860,13 @@ async function fightOne(): Promise<void> {
         const prayerOut = (sdk.getPrayerState()?.prayerPoints ?? 99) < 10 && !sdk.findInventoryItem(PRAYER_POT);
         // Teleport out (Camelot runes are required for the trip) at 2 food left, or low hp with no
         // prayer left — never walk out under dragons (user, 2026-11-02, after Jackpoo1's death).
-        if (foodCount() <= 2 || (pos().hp < pos().maxHp * 0.5 && prayerOut)) {
+        // Without prayer potions the bar runs out mid-fight by design: leave on food, or low hp with nothing left to eat.
+        if (foodCount() <= 2 || (pos().hp < pos().maxHp * 0.5 && prayerOut && (USE_PRAYER_POTS || foodCount() === 0))) {
             session.log('warn', `Leaving by teleport: food ${foodCount()} at ${pos().hp}/${pos().maxHp}`);
             await emergencyTeleport();
             return;
         }
-        if ((sdk.getPrayerState()?.prayerPoints ?? 0) === 0 && !sdk.findInventoryItem(PRAYER_POT)) {
+        if (USE_PRAYER_POTS && (sdk.getPrayerState()?.prayerPoints ?? 0) === 0 && !sdk.findInventoryItem(PRAYER_POT)) {
             session.log('warn', `Out of prayer at ${pos().hp}/${pos().maxHp} — leaving`);
             return;
         }
@@ -894,7 +899,7 @@ function shouldBank(): boolean {
     const st = sdk.getPrayerState();
     // On prod a dragon-longsword iron kill takes 120-180s, past a 79-point bar (ABGARMY18 died
     // with prayer 0 after kill #2): without a potion, only a near-full bar starts a fight.
-    if (inPit() && st && st.prayerPoints < st.prayerLevel * 0.9 && !sdk.findInventoryItem(PRAYER_POT)) return true;
+    if (USE_PRAYER_POTS && inPit() && st && st.prayerPoints < st.prayerLevel * 0.9 && !sdk.findInventoryItem(PRAYER_POT)) return true;
     // Full of LOOT, not of kit: only after something was picked up this trip.
     if (occupied() >= 27 && lootedThisTrip) return true;
     return false;
