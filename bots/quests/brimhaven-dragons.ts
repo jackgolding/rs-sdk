@@ -506,6 +506,14 @@ async function bankTrip(): Promise<boolean> {
                 ? { label: 'rune chainbody', pattern: /^rune chainbody$/i, count: 1 }
                 : null;
     const gearMissing = [!!bodyAsk, !has(SHIELD), !WEAPONS.some(has), !has(/^(rune|dragon) (platelegs|plateskirt)$/i), !has(/^(berserker|warrior|rune|dragon) (helm|full helm|med helm)$/i), !has(/^amulet of (glory|power|strength)/i)].filter(Boolean).length;
+    // Food fills the pack before this point, so a due body or antifire had no slot and no ask went out
+    // (jacklove2, 0 free, 2026-11-06). Bank just enough food; the re-run after the trade refills it.
+    const upgradeDue = (!!bodyAsk || !count(ANTIFIRE)) && Date.now() - lastUpgradeAsk > UPGRADE_ASK_MS && Date.now() - lastPotAsk > 20 * 60_000;
+    const roomShort = gearMissing + (count(ANTIFIRE) ? 0 : 2) - (28 - occupied());
+    if (upgradeDue && roomShort > 0 && (await bot.openBank()).success) {
+        for (const food of sdk.getInventory().filter((i) => foodHeal(i.name) > 0).slice(0, roomShort)) await bot.depositItem(food, 1).catch(() => undefined);
+        await bot.closeBank();
+    }
     // The trade lands in the pack: ask only for what fits (Jackpoo4's trade failed "no_space").
     const potRoom = Math.max(0, 28 - occupied() - gearMissing);
     const potAsk = USE_PRAYER_POTS && !potted && potRoom > 0 ? Math.min(9, potRoom) : 0;
