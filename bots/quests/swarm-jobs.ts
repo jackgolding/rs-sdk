@@ -34,6 +34,10 @@
 //            out the 8-tick stun, banks coins at BANK_COINS_AT or when food runs out.
 //   bignet   Catherby Net/Harpoon spots with a big fishing net (Fishing 16).
 //            Drops the fleet's big-net junk, banks the rest at Catherby when full.
+//   guild    Ranging Guild archery from Seers' bank (a strung shortbow, 200 coins a round).
+//            At { until: N } (default 99): all tickets into rune arrows, the coins it carries
+//            into rune arrows and arrowheads, everything banked at Seers including worn gear, park.
+//   essence  Rune essence via Aubury (Rune Mysteries, a pickaxe), banking at Varrock east.
 
 import { fileURLToPath } from 'node:url';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -94,6 +98,56 @@ const BIG_NET_DROP =
     /^(seaweed|edible seaweed|raw mackerel|mackerel|leather boots|leather gloves|boots|raw cod|cod|burnt cod|oyster|oysters|clam|clams)$/i;
 const BIG_NET_JUNK_ONLY = /^(seaweed|edible seaweed|leather boots|leather gloves|boots|oyster|oysters|clam|clams)$/i;
 const FISH_IDLE_TICKS = 4; // re-cast once the player has stood idle this long
+
+// --- guild (Ranging Guild archery: game_ranging/scripts/competition_judge.rs2, target.rs2)
+const SEERS_BANK: Tile = { x: 2726, z: 3491 };
+/** The guild door (2658,3438) is the compound's only way in: outside to the north-west, inside to the south-east. */
+const GUILD_OUTSIDE: Tile = { x: 2657, z: 3439 };
+const GUILD_INSIDE: Tile = { x: 2659, z: 3437 };
+const GUILD_MIN_RANGED = 40; // ranging_guild_door.rs2
+const inGuild = (t: Tile) => t.x >= 2659 && t.x <= 2695 && t.z >= 3400 && t.z <= 3437;
+/** sdk findLongPath Seers' bank -> the door passes here; both legs are in one build area. */
+const GUILD_MIDWAY: Tile = { x: 2674, z: 3460 };
+const GUILD_STAND: Tile = { x: 2670, z: 3417 };
+const JUDGE_RE = /^competition judge$/i;
+const GUILD_ENTRY_FEE = 200;
+const GUILD_SHOTS = 10;
+const GUILD_COINS_TAKE = 20_000; // 100 rounds
+const GUILD_SHOT_GAP = 4; // target.rs2 p_delay(2) plus the op landing
+const GUILD_SHOT_TIMEOUT = 8;
+/** Strung shortbows by obj id, best first, with the Ranged level each needs. */
+const GUILD_BOWS: Array<[number, number]> = [[861, 50], [857, 40], [853, 30], [849, 20], [843, 5], [841, 1]];
+const BOW_WORN_RE = /(short|long)bow$/i;
+const ARROW_RE = /^bronze arrow$/i;
+const TICKET_RE = /^archery ticket$/i;
+// End of the job: tickets, then what coins are left, into rune arrows (ticket_merchant.rs2).
+const TICKET_MERCHANT: Tile = { x: 2659, z: 3431 };
+const TICKET_MERCHANT_RE = /^ticket merchant$/i;
+const TICKET_SHOP_IF = 4461;
+const TICKET_RUNE_ARROWS_BUTTON = 4552; // tickets_shop:com_90, 50 rune arrows
+const TICKET_RUNE_ARROWS_COST = 2000;
+const BOW_SHOP: Tile = { x: 2672, z: 3433 };
+const BOW_SALESMAN_RE = /^bow and arrow salesman$/i;
+const SHOP_BUYS = [/^rune arrow$/i, /^rune arrowheads?$/i];
+
+// --- essence (essence.ts routes; the swarm walks them leg by leg)
+const VARROCK_EAST_BANK: Tile = { x: 3253, z: 3420 };
+const ESSENCE_LEGS: Tile[] = [
+    { x: 3260, z: 3428 }, // street outside the bank
+    { x: 3260, z: 3405 }, // north end of the run, outside the shop
+    { x: 3259, z: 3402 }, // bend to the shop door at 3260,3400
+    { x: 3253, z: 3403 } // beside Aubury, inside the shop
+];
+const AUBURY_RE = /^aubury$/i;
+const ESSENCE_RE = /^(rune|pure) essence$/i;
+const ESSENCE_ROCK_RE = /rune essence/i;
+const PICK_RE = /^(rune|adamant|mithril|steel|iron|bronze|dragon) pickaxe$/i;
+const PICKS: Array<[RegExp, number]> = [
+    [/^rune pickaxe$/i, 41], [/^adamant pickaxe$/i, 31], [/^mithril pickaxe$/i, 21],
+    [/^steel pickaxe$/i, 6], [/^iron pickaxe$/i, 1], [/^bronze pickaxe$/i, 1]
+];
+const MINE_IDLE_TICKS = 4;
+const inEssenceMine = (t: Tile) => t.x >= 2860 && t.x <= 3040 && t.z >= 4760 && t.z <= 4940;
 
 // ------------------------------------------------------------------ fleet log files
 
@@ -159,7 +213,16 @@ interface BankPlan {
     /** Items left in the pack on deposit. Everything else goes in the bank. */
     keep: RegExp | null;
     /** What to have in the pack when the visit ends. */
-    withdraw: Array<{ match: (name: string) => boolean; label: string; count: number; required: boolean }>;
+    withdraw: Array<{
+        match: (name: string) => boolean;
+        label: string;
+        count: number;
+        required: boolean;
+        /** Match this obj id instead of the name (unstrung bows share the strung bow's name). */
+        id?: number;
+        /** Withdraw exactly what is short through the count dialog, not in 1/5/10 steps (coins). */
+        exact?: boolean;
+    }>;
 }
 
 type BankResult = { status: 'busy' } | { status: 'done'; missing: string[]; deposited: number } | { status: 'failed'; reason: string };
@@ -198,6 +261,11 @@ abstract class JobBot {
     /** Items whose bank move never landed this visit (bank full, stock gone): skipped, not fatal. */
     private bankSkip = new Set<string>();
     private lastWalkTick = -99;
+    private doorTick = -99;
+    private routeKey = '';
+    private routeAt = 0;
+    private routePos: Tile = { x: 0, z: 0 };
+    private routeStuck = 0;
 
     constructor(
         readonly name: string,
@@ -217,6 +285,65 @@ abstract class JobBot {
     protected abstract summary(): string;
     /** Called when a hub visit finishes, before returning to work. */
     protected afterBank(_r: { missing: string[]; deposited: number }, _s: BotWorldState): void {}
+    /** A job whose work is somewhere else entirely (the essence mine) is not stranded there. */
+    protected farFromHubOk(_s: BotWorldState): boolean {
+        return false;
+    }
+    /** Level-ups and NPC chatter block every op server-side: answer whatever is open. */
+    protected handleDialog(_s: BotWorldState): void {
+        this.exec({ type: 'clickDialogOption', optionIndex: 0, reason: 'continue dialog' });
+        this.wait(1);
+    }
+    /** A job that means to use a modal (a shop) answers true; anything else open gets closed. */
+    protected handleModal(_s: BotWorldState): boolean {
+        return false;
+    }
+    /** How the bank visit gets back to the hub; a job behind a door or a portal overrides this. */
+    protected travelToHub(_s: BotWorldState, hub: Tile): void {
+        this.walk(hub, 'to bank');
+    }
+    /**
+     * Walk a fixed list of legs, remembering the leg between ticks: picking the nearest leg each
+     * tick turns back whenever the previous leg is still the closest one. A new route starts from
+     * its nearest leg, so a run can resume mid-way. Opens a door in the way once stuck.
+     */
+    protected walkRoute(s: BotWorldState, key: string, legs: Tile[], reason: string): void {
+        const me = here(s);
+        if (this.routeKey !== key) {
+            this.routeKey = key;
+            this.routeAt = 0;
+            let best = Infinity;
+            legs.forEach((l, i) => {
+                const d = dist(me, l);
+                if (d < best) {
+                    best = d;
+                    this.routeAt = i;
+                }
+            });
+        }
+        while (this.routeAt < legs.length - 1 && dist(me, legs[this.routeAt]!) <= 2) this.routeAt++;
+        if (me.x === this.routePos.x && me.z === this.routePos.z) this.routeStuck++;
+        else this.routeStuck = 0;
+        this.routePos = me;
+        if (this.routeStuck >= 6 && this.openDoorNear(s, 4)) {
+            this.routeStuck = 0;
+            return;
+        }
+        this.walk(legs[this.routeAt]!, reason);
+    }
+    /** Click a closed door/gate within `radius`, when a walk has stopped making progress. */
+    protected openDoorNear(s: BotWorldState, radius: number, name: RegExp = /^(door|large door|gate)$/i): boolean {
+        if (this.tick - this.doorTick < 6) return false;
+        const door = s.nearbyLocs
+            .filter(l => name.test(l.name) && l.distance <= radius)
+            .filter(l => l.optionsWithIndex.some(o => /^open$/i.test(o.text)))
+            .sort((a, b) => a.distance - b.distance)[0];
+        if (!door) return false;
+        const op = door.optionsWithIndex.find(o => /^open$/i.test(o.text))!;
+        this.exec({ type: 'interactLoc', x: door.x, z: door.z, locId: door.id, optionIndex: op.opIndex, reason: 'open door' });
+        this.doorTick = this.tick;
+        return true;
+    }
 
     get online(): boolean {
         return this.client !== null && this.client.isInGame();
@@ -291,14 +418,12 @@ abstract class JobBot {
 
         if (this.phase === 'parked' || this.phase === 'stopped') return;
 
-        // Level-ups and NPC chatter block every op server-side.
         if (s.dialog.isOpen) {
-            this.exec({ type: 'clickDialogOption', optionIndex: 0, reason: 'continue dialog' });
-            this.wait(1);
+            this.handleDialog(s);
             return;
         }
 
-        if (dist(here(s), this.hub) > STRANDED_DIST) {
+        if (dist(here(s), this.hub) > STRANDED_DIST && !this.farFromHubOk(s)) {
             this.fail('stranded', `stranded ${dist(here(s), this.hub)} tiles from hub @ ${s.player.worldX},${s.player.worldZ} (death or random event teleport)`);
             return;
         }
@@ -336,6 +461,7 @@ abstract class JobBot {
         // Anything modal left open (bank after a relog, a random-event window)
         // hides the inventory and swallows ops.
         if (s.modalOpen) {
+            if (this.handleModal(s)) return;
             this.exec({ type: 'closeModal', reason: 'unblock' });
             this.wait(1);
             return;
@@ -380,7 +506,7 @@ abstract class JobBot {
         if (this.bankClosing) {
             if (!bankOpen && !s.modalOpen) {
                 const missing = plan.withdraw
-                    .filter(w => s.inventory.filter(i => w.match(i.name)).reduce((a, i) => a + i.count, 0) < w.count)
+                    .filter(w => s.inventory.filter(i => (w.id ? i.id === w.id : w.match(i.name))).reduce((a, i) => a + i.count, 0) < w.count)
                     .map(w => w.label);
                 const deposited = this.bankDeposited;
                 this.resetBank();
@@ -400,7 +526,7 @@ abstract class JobBot {
                 .filter(l => /^bank booth$/i.test(l.name) && l.reachable !== false && l.optionsWithIndex.length > 0)
                 .sort((a, b) => a.distance - b.distance)[0];
             if (!booth || dist(here(s), plan.hub) > 8) {
-                this.walk(plan.hub, 'to bank');
+                this.travelToHub(s, plan.hub);
                 return { status: 'busy' };
             }
             if (this.tick - this.bankOpenTick < 10) return { status: 'busy' }; // routing to the booth
@@ -454,9 +580,9 @@ abstract class JobBot {
 
         const free = 28 - s.inventory.length;
         for (const w of plan.withdraw) {
-            const have = s.inventory.filter(i => w.match(i.name)).reduce((a, i) => a + i.count, 0);
+            const have = s.inventory.filter(i => (w.id ? i.id === w.id : w.match(i.name))).reduce((a, i) => a + i.count, 0);
             if (have >= w.count || this.bankSkip.has(w.label.toLowerCase())) continue;
-            const item = s.bank.items.find(i => w.match(i.name) && i.count > 0);
+            const item = s.bank.items.find(i => (w.id ? i.id === w.id : w.match(i.name)) && i.count > 0);
             if (!item) {
                 if (w.required) return { status: 'failed', reason: `NEEDS STOCK: ${w.label} ×${w.count - have}` };
                 continue;
@@ -469,7 +595,7 @@ abstract class JobBot {
                 continue;
             }
             const need = Math.min(w.count - have, free);
-            const amount = need >= 10 ? 10 : need >= 5 ? 5 : 1;
+            const amount = w.exact ? Math.min(w.count - have, item.count) : need >= 10 ? 10 : need >= 5 ? 5 : 1;
             this.exec({ type: 'bankWithdraw', slot: item.slot, amount, reason: `withdraw ${item.name}` });
             this.bankLastMoveTick = this.tick;
             return { status: 'busy' };
@@ -829,17 +955,504 @@ class BigNetBot extends JobBot {
     }
 }
 
+// ------------------------------------------------------------------ ranging guild
+
+/**
+ * Pay the Competition Judge, fire 10 arrows from behind the hay, collect the tickets, repeat.
+ * XP is points / 2 per shot before the world's XP rate; a round costs 200 coins. Ops are fired
+ * from range, so nobody walks once at the stand. Stops at `until` (default 99) and parks.
+ */
+class GuildBot extends JobBot {
+    readonly hub = SEERS_BANK;
+    private readonly until: number;
+    private round: 'talk' | 'shoot' = 'talk';
+    private fired = 0;
+    private refused = 0;
+    private shotPendingSince = -1;
+    private wornAtShot = 0;
+    private lastShotTick = -99;
+    private talkTick = -99;
+    private lastXp = -1;
+    private lastTickets = -1;
+    /** After the target level: spend the tickets, spend the coins, bank everything, park. */
+    private finish: 'no' | 'tickets' | 'shop' | 'bank' | 'strip' = 'no';
+    private finishClickTick = -99;
+    private readonly wornTries = new Map<number, number>();
+    private readonly stuckWorn = new Set<number>();
+    private doorClickTick = -99;
+    private shopPick = 0;
+    private shopCoins = -1;
+    private shopStall = 0;
+    readonly stats = { rounds: 0, shots: 0, xp: 0, tickets: 0 };
+    private window = { rounds: 0, xp: 0, tickets: 0 };
+
+    constructor(name: string, botsDir: string, heartbeatMs: number, opts: JobOptions = {}) {
+        super(name, 'swarm-guild', botsDir, heartbeatMs);
+        this.until = opts.until ?? 99;
+    }
+
+    override attach(session: LiteSession): void {
+        super.attach(session);
+        this.round = 'talk';
+        this.shotPendingSince = -1;
+        this.lastXp = this.lastTickets = -1;
+    }
+
+    protected kit(s: BotWorldState): BankPlan {
+        const lvl = skill(s, 'Ranged')?.baseLevel ?? 1;
+        if (this.finish !== 'no') return { hub: SEERS_BANK, keep: null, withdraw: [] };
+        const withdraw: BankPlan['withdraw'] = [
+            { match: n => /^coins$/i.test(n), label: 'coins', count: GUILD_COINS_TAKE, required: true, exact: true }
+        ];
+        if (!s.equipment.some(i => BOW_WORN_RE.test(i.name))) {
+            const usable = GUILD_BOWS.filter(([, need]) => need <= lvl);
+            const best = usable.find(([id]) => s.bank.items.some(i => i.id === id) || s.inventory.some(i => i.id === id)) ?? usable[0]!;
+            withdraw.push({ match: () => false, label: 'strung shortbow', count: 1, required: true, id: best[0] });
+        }
+        // Tickets stay in the pack between coin trips: the end of the job spends them all.
+        return { hub: SEERS_BANK, keep: /^coins$|bow$|^archery ticket$/i, withdraw };
+    }
+
+    protected override afterBank(r: { missing: string[]; deposited: number }): void {
+        if (r.missing.length) this.log.log('WARN', `kit short: ${r.missing.join(', ')}`);
+        this.log.event({ type: 'progress', kind: 'inventory', message: `trip ${this.trips}` });
+    }
+
+    protected summary(): string {
+        const w = this.window;
+        this.window = { rounds: 0, xp: 0, tickets: 0 };
+        return `guild 60s: ${w.rounds} rounds +${w.xp}xp +${w.tickets} tickets | total ${this.stats.rounds} rounds ${this.stats.shots} shots ${this.stats.tickets} tickets`;
+    }
+
+    /** The judge's menus: enter, buy arrows if short, and skip the rules when mid-round. */
+    protected override handleDialog(s: BotWorldState): void {
+        const pick = (re: RegExp) => s.dialog.options.find(o => re.test(o.text));
+        const enter = pick(/^sure, i'?ll give it a go/i);
+        const arrows = pick(/^sure, i'?ll take some/i);
+        const midRound = pick(/^no thanks, i'?ve got it/i);
+        const wares = this.finish === 'shop' ? pick(/^yes please/i) : undefined;
+        const choice = enter ?? arrows ?? midRound ?? wares;
+        if (choice) {
+            if (enter || midRound) {
+                this.round = 'shoot';
+                this.fired = 0;
+                this.refused = 0;
+                this.shotPendingSince = -1;
+            }
+            this.exec({ type: 'clickDialogOption', optionIndex: choice.index, reason: 'judge' });
+            this.wait(1);
+            return;
+        }
+        super.handleDialog(s);
+    }
+
+    private judge(s: BotWorldState): NearbyNpc | undefined {
+        return s.nearbyNpcs.find(n => JUDGE_RE.test(n.name) && n.reachable !== false);
+    }
+
+    private clickGuildDoor(s: BotWorldState): void {
+        if (this.tick - this.doorClickTick < 6) return;
+        const door = s.nearbyLocs.find(l => /^guild door$/i.test(l.name) && l.optionsWithIndex.length > 0);
+        if (!door) return;
+        const op = door.optionsWithIndex.find(o => /^open$/i.test(o.text)) ?? door.optionsWithIndex[0]!;
+        this.exec({ type: 'interactLoc', x: door.x, z: door.z, locId: door.id, optionIndex: op.opIndex, reason: 'guild door' });
+        this.doorClickTick = this.tick;
+    }
+
+    protected override travelToHub(s: BotWorldState, hub: Tile): void {
+        if (inGuild(here(s))) {
+            if (dist(here(s), GUILD_INSIDE) > 1) this.walkRoute(s, 'guild-exit', [GUILD_INSIDE], 'guild door, inside');
+            else this.clickGuildDoor(s);
+            return;
+        }
+        this.walkRoute(s, 'guild-out', [GUILD_OUTSIDE, GUILD_MIDWAY, hub], 'to Seers');
+    }
+
+    /** The ticket shop and the bow salesman's shop are modals: buy, then let the base close them. */
+    protected override handleModal(s: BotWorldState): boolean {
+        if (this.finish === 'tickets' && s.modalInterface === TICKET_SHOP_IF) {
+            if (countIn(s, TICKET_RE) < TICKET_RUNE_ARROWS_COST) return false;
+            if (this.tick - this.finishClickTick < 2) return true;
+            this.finishClickTick = this.tick;
+            this.exec({ type: 'clickComponent', componentId: TICKET_RUNE_ARROWS_BUTTON, reason: '50 rune arrows' });
+            return true;
+        }
+        if (this.finish === 'shop' && s.shop.isOpen) {
+            const coins = coinsIn(s);
+            if (coins === this.shopCoins) this.shopStall++;
+            else this.shopStall = 0;
+            this.shopCoins = coins;
+            if (this.shopStall >= 5) {
+                this.shopStall = 0;
+                this.shopPick++;
+            }
+            const re = SHOP_BUYS[this.shopPick];
+            const item = re ? s.shop.shopItems.find(i => re.test(i.name) && i.count > 0) : undefined;
+            if (!re) {
+                this.log.log('LOG', `Shop done, ${coins} coins left`);
+                this.finish = 'bank';
+                return false;
+            }
+            if (!item || coins < (item.buyPrice || 1)) {
+                this.shopPick++;
+                return true;
+            }
+            const can = Math.min(item.count, Math.floor(coins / (item.buyPrice || 1)));
+            const amount = can >= 10 ? 10 : can >= 5 ? 5 : 1;
+            this.exec({ type: 'shopBuy', slot: item.slot, amount, reason: `buy ${item.name}` });
+            this.effect();
+            return true;
+        }
+        return false;
+    }
+
+    /** At the target level: spend everything, bank everything including what is worn, then park. */
+    private finishStep(s: BotWorldState): void {
+        const talkTo = (npc: NearbyNpc | undefined, at: Tile, why: string) => {
+            if (!npc || npc.distance > 8) {
+                this.walkRoute(s, `finish-${why}`, [at], why);
+                return;
+            }
+            if (this.tick - this.finishClickTick < 8) return;
+            this.finishClickTick = this.tick;
+            this.exec({ type: 'talkToNpc', npcIndex: npc.index, reason: why });
+        };
+        if (this.finish === 'tickets') {
+            if (countIn(s, TICKET_RE) < TICKET_RUNE_ARROWS_COST) {
+                this.log.log('LOG', `Tickets spent: ${countIn(s, TICKET_RE)} left, ${countIn(s, /^rune arrow$/i)} rune arrows`);
+                this.finish = 'shop';
+                this.shopPick = 0;
+                return;
+            }
+            talkTo(s.nearbyNpcs.find(n => TICKET_MERCHANT_RE.test(n.name)), TICKET_MERCHANT, 'ticket merchant');
+            return;
+        }
+        if (this.finish === 'shop') {
+            if (coinsIn(s) <= 0) {
+                this.finish = 'bank';
+                return;
+            }
+            talkTo(s.nearbyNpcs.find(n => BOW_SALESMAN_RE.test(n.name)), BOW_SHOP, 'bow salesman');
+            return;
+        }
+        if (this.finish === 'bank') {
+            this.log.log('LOG', `Walking back to Seers with ${countIn(s, /^rune arrow$/i)} rune arrows, ${countIn(s, /^rune arrowheads?$/i)} arrowheads`);
+            this.finish = 'strip';
+            this.phase = 'hub';
+            return;
+        }
+        // Back from the hub with an empty pack: take off what is worn, one piece a tick.
+        const worn = s.equipment.find(i => !this.stuckWorn.has(i.id));
+        if (worn) {
+            if (s.inventory.length >= 28) {
+                this.phase = 'hub'; // the pack filled with what came off: bank it and carry on
+                return;
+            }
+            if (this.wornTries.get(worn.id) === undefined) this.wornTries.set(worn.id, 0);
+            const tries = this.wornTries.get(worn.id)! + 1;
+            this.wornTries.set(worn.id, tries);
+            if (tries > 10) {
+                this.log.log('WARN', `${worn.name} would not come off: leaving it worn`);
+                this.stuckWorn.add(worn.id);
+                return;
+            }
+            // Slot op 1 is Remove (inv_button1); the option list on worn items does not apply here.
+            this.exec({ type: 'useEquipmentItem', slot: worn.slot, optionIndex: 1, reason: `remove ${worn.name}` });
+            this.wait(1);
+            return;
+        }
+        if (s.inventory.length > 0) {
+            this.phase = 'hub'; // bank what came off
+            return;
+        }
+        this.log.log('LOG', `Job finished, all banked (Ranged ${skill(s, 'Ranged')?.baseLevel}): parking`);
+        this.stopping = true;
+    }
+
+    private wield(s: BotWorldState, item: InventoryItem): void {
+        const op = item.optionsWithIndex.find(o => /^(wield|wear|equip)$/i.test(o.text));
+        if (op) this.exec({ type: 'useInventoryItem', slot: item.slot, optionIndex: op.opIndex, reason: `wield ${item.name}` });
+        this.wait(1);
+    }
+
+    protected work(s: BotWorldState): void {
+        const lvl = skill(s, 'Ranged')?.baseLevel ?? 1;
+        if (this.finish !== 'no') {
+            this.finishStep(s);
+            return;
+        }
+        if (lvl < GUILD_MIN_RANGED) {
+            this.fail('level', `Ranged ${lvl} < ${GUILD_MIN_RANGED}: the guild door stays shut`);
+            return;
+        }
+        const xp = skill(s, 'Ranged')?.experience ?? 0;
+        if (this.lastXp >= 0 && xp > this.lastXp) {
+            this.stats.xp += xp - this.lastXp;
+            this.window.xp += xp - this.lastXp;
+            this.effect();
+        }
+        this.lastXp = xp;
+        const tickets = countIn(s, TICKET_RE);
+        if (this.lastTickets >= 0 && tickets > this.lastTickets) {
+            const got = tickets - this.lastTickets;
+            this.stats.tickets += got;
+            this.window.tickets += got;
+            this.stats.rounds++;
+            this.window.rounds++;
+            this.effect();
+        }
+        this.lastTickets = tickets;
+
+        const packBow = s.inventory.find(i => BOW_WORN_RE.test(i.name));
+        if (!s.equipment.some(i => BOW_WORN_RE.test(i.name))) {
+            if (packBow) this.wield(s, packBow);
+            else {
+                this.log.log('WARN', 'No bow: back to the bank');
+                this.phase = 'hub';
+            }
+            return;
+        }
+        const packArrows = s.inventory.find(i => ARROW_RE.test(i.name));
+        if (packArrows) {
+            this.wield(s, packArrows);
+            return;
+        }
+
+        if (!inGuild(here(s))) {
+            if (dist(here(s), GUILD_OUTSIDE) > 1) this.walkRoute(s, 'guild-in', [GUILD_MIDWAY, GUILD_OUTSIDE], 'to the guild');
+            else this.clickGuildDoor(s);
+            return;
+        }
+        if (dist(here(s), GUILD_STAND) > 3) {
+            this.walkRoute(s, 'guild-stand', [GUILD_STAND], 'to the stand');
+            return;
+        }
+        const judge = this.judge(s);
+        if (!judge) {
+            this.log.log('WARN', `No judge in view @ ${s.player!.worldX},${s.player!.worldZ}`);
+            this.wait(4);
+            return;
+        }
+
+        if (this.round === 'talk') {
+            // Only between rounds, so the last round's tickets are in the pack first.
+            if (lvl >= this.until) {
+                this.log.log('LOG', `Ranged ${lvl} reached the target ${this.until}: spending ${countIn(s, TICKET_RE)} tickets and ${coinsIn(s)} coins`);
+                this.finish = 'tickets';
+                return;
+            }
+            if (coinsIn(s) < GUILD_ENTRY_FEE) {
+                this.log.log('LOG', `Out of entry coins (${coinsIn(s)}): banking`);
+                this.phase = 'hub';
+                return;
+            }
+            if (this.tick - this.talkTick < 8) return;
+            this.exec({ type: 'talkToNpc', npcIndex: judge.index, reason: 'judge' });
+            this.talkTick = this.tick;
+            return;
+        }
+
+        const worn = s.equipment.find(i => ARROW_RE.test(i.name))?.count ?? 0;
+        if (this.shotPendingSince >= 0) {
+            if (worn < this.wornAtShot) {
+                this.fired++;
+                this.stats.shots++;
+                this.refused = 0;
+                this.shotPendingSince = -1;
+            } else if (this.tick - this.shotPendingSince >= GUILD_SHOT_TIMEOUT) {
+                this.shotPendingSince = -1;
+                if (++this.refused >= 3) {
+                    this.log.log('WARN', `Targets refused ${this.refused} shots after ${this.fired}: back to the judge`);
+                    this.round = 'talk';
+                }
+            }
+            return;
+        }
+        if (this.fired >= GUILD_SHOTS || worn === 0) {
+            this.round = 'talk';
+            return;
+        }
+        if (this.tick - this.lastShotTick < GUILD_SHOT_GAP) return;
+        const target = s.nearbyLocs
+            .filter(l => /^target$/i.test(l.name) && l.distance >= 5)
+            .filter(l => l.optionsWithIndex.some(o => /^fire/i.test(o.text)))
+            .sort((a, b) => a.distance - b.distance)[0];
+        if (!target) {
+            this.log.log('WARN', `No target in view @ ${s.player!.worldX},${s.player!.worldZ}`);
+            this.wait(4);
+            return;
+        }
+        const op = target.optionsWithIndex.find(o => /^fire/i.test(o.text))!;
+        const r = this.exec({ type: 'interactLoc', x: target.x, z: target.z, locId: target.id, optionIndex: op.opIndex, reason: 'fire' });
+        if (!r.ok) this.log.log('WARN', `fire failed: ${r.reason}`);
+        this.wornAtShot = worn;
+        this.shotPendingSince = this.tick;
+        this.lastShotTick = this.tick;
+    }
+}
+
+// ------------------------------------------------------------------ rune essence
+
+/** Aubury's teleport to the mine, a full pack through the portal, Varrock east bank, repeat. */
+class EssenceBot extends JobBot {
+    readonly hub = VARROCK_EAST_BANK;
+    private lastActiveTick = 0;
+    private lastSlots = -1;
+    private lastXp = -1;
+    private clickTick = -99;
+    private refusedTeleports = 0;
+    readonly stats = { essence: 0, xp: 0, trips: 0 };
+    private window = { essence: 0, xp: 0 };
+
+    constructor(name: string, botsDir: string, heartbeatMs: number, _opts: JobOptions = {}) {
+        super(name, 'swarm-essence', botsDir, heartbeatMs);
+    }
+
+    override attach(session: LiteSession): void {
+        super.attach(session);
+        this.lastSlots = this.lastXp = -1;
+    }
+
+    protected override farFromHubOk(s: BotWorldState): boolean {
+        return inEssenceMine(here(s));
+    }
+
+    protected kit(s: BotWorldState): BankPlan {
+        const withdraw: BankPlan['withdraw'] = [];
+        if (!s.equipment.some(i => PICK_RE.test(i.name))) {
+            const lvl = skill(s, 'Mining')?.baseLevel ?? 1;
+            const usable = PICKS.filter(([, need]) => need <= lvl);
+            const best = usable.find(([re]) => s.bank.items.some(i => re.test(i.name)) || s.inventory.some(i => re.test(i.name))) ?? usable[0]!;
+            withdraw.push({ match: n => best[0].test(n), label: 'pickaxe', count: 1, required: true });
+        }
+        return { hub: VARROCK_EAST_BANK, keep: PICK_RE, withdraw };
+    }
+
+    protected override afterBank(r: { missing: string[]; deposited: number }): void {
+        this.stats.essence += r.deposited;
+        this.window.essence += r.deposited;
+        this.stats.trips++;
+        this.log.log('LOG', `Banked ${r.deposited} | trip ${this.trips} total ${this.stats.essence}`);
+        this.log.event({ type: 'progress', kind: 'inventory', message: `trip ${this.trips}` });
+    }
+
+    protected summary(): string {
+        const w = this.window;
+        this.window = { essence: 0, xp: 0 };
+        return `essence 60s: +${w.essence} banked +${w.xp}xp | total ${this.stats.essence} over ${this.stats.trips} trips`;
+    }
+
+    protected override travelToHub(s: BotWorldState, hub: Tile): void {
+        const me = here(s);
+        if (inEssenceMine(me)) {
+            this.takePortal(s);
+            return;
+        }
+        this.walkRoute(s, 'essence-out', [...ESSENCE_LEGS].reverse().concat(hub), 'to bank');
+    }
+
+    private takePortal(s: BotWorldState): void {
+        const portal = s.nearbyLocs
+            .filter(l => /portal/i.test(l.name) && l.optionsWithIndex.length > 0)
+            .sort((a, b) => a.distance - b.distance)[0];
+        if (!portal) {
+            this.walk({ x: 2911, z: 4832 }, 'find portal', 8);
+            return;
+        }
+        if (this.tick - this.clickTick < 8) return;
+        this.clickTick = this.tick;
+        const op = portal.optionsWithIndex.find(o => /use|enter|exit|climb/i.test(o.text)) ?? portal.optionsWithIndex[0]!;
+        const r = this.exec({ type: 'interactLoc', x: portal.x, z: portal.z, locId: portal.id, optionIndex: op.opIndex, reason: 'portal' });
+        if (!r.ok) this.log.log('WARN', `portal click failed: ${r.reason}`);
+    }
+
+    protected override handleDialog(s: BotWorldState): void {
+        const tele = s.dialog.options.find(o => /teleport me to the rune essence/i.test(o.text));
+        if (tele) {
+            this.exec({ type: 'clickDialogOption', optionIndex: tele.index, reason: 'teleport' });
+            this.wait(1);
+            return;
+        }
+        super.handleDialog(s);
+    }
+
+    protected work(s: BotWorldState): void {
+        const xp = skill(s, 'Mining')?.experience ?? 0;
+        if (this.lastXp >= 0 && xp > this.lastXp) {
+            this.stats.xp += xp - this.lastXp;
+            this.window.xp += xp - this.lastXp;
+            this.effect();
+            this.lastActiveTick = this.tick;
+        }
+        this.lastXp = xp;
+        if (this.lastSlots >= 0 && s.inventory.length > this.lastSlots) this.lastActiveTick = this.tick;
+        this.lastSlots = s.inventory.length;
+
+        if (!s.equipment.some(i => PICK_RE.test(i.name)) && !s.inventory.some(i => PICK_RE.test(i.name))) {
+            this.log.log('WARN', 'No pickaxe: back to the bank');
+            this.phase = 'hub';
+            return;
+        }
+        if (s.inventory.length >= 28) {
+            this.phase = 'hub';
+            return;
+        }
+
+        if (!inEssenceMine(here(s))) {
+            const aubury = s.nearbyNpcs.find(n => AUBURY_RE.test(n.name) && n.reachable !== false && n.distance <= 6);
+            if (!aubury) {
+                this.walkRoute(s, 'essence-in', ESSENCE_LEGS, 'to Aubury');
+                return;
+            }
+            if (this.tick - this.clickTick < 10) return;
+            this.clickTick = this.tick;
+            if (++this.refusedTeleports > 12) {
+                this.fail('teleport', `Aubury never teleported us from ${s.player!.worldX},${s.player!.worldZ}: is Rune Mysteries done?`);
+                return;
+            }
+            const op = aubury.optionsWithIndex.find(o => /^teleport$/i.test(o.text));
+            const r = op
+                ? this.exec({ type: 'interactNpc', npcIndex: aubury.index, optionIndex: op.opIndex, reason: 'teleport' })
+                : this.exec({ type: 'talkToNpc', npcIndex: aubury.index, reason: 'teleport' });
+            if (!r.ok) this.log.log('WARN', `Aubury click failed: ${r.reason}`);
+            return;
+        }
+        this.refusedTeleports = 0;
+
+        if (s.player!.animId !== -1) {
+            this.lastActiveTick = this.tick;
+            return;
+        }
+        if (this.tick - Math.max(this.lastActiveTick, this.clickTick) < MINE_IDLE_TICKS) return;
+        const rock = s.nearbyLocs
+            .filter(l => ESSENCE_ROCK_RE.test(l.name) && l.optionsWithIndex.some(o => /^mine$/i.test(o.text)))
+            .sort((a, b) => a.distance - b.distance)[0];
+        if (!rock) {
+            this.walk({ x: 2911, z: 4832 }, 'find a rock', 8);
+            return;
+        }
+        const op = rock.optionsWithIndex.find(o => /^mine$/i.test(o.text))!;
+        const r = this.exec({ type: 'interactLoc', x: rock.x, z: rock.z, locId: rock.id, optionIndex: op.opIndex, reason: 'mine' });
+        if (!r.ok) this.log.log('WARN', `mine failed: ${r.reason}`);
+        this.clickTick = this.tick;
+    }
+}
+
 function has(n: NearbyNpc, re: RegExp): boolean {
     return n.optionsWithIndex.some(o => re.test(o.text));
 }
 
 interface JobOptions {
     bankFish?: boolean;
+    /** guild: park once Ranged reaches this level (default 99). */
+    until?: number;
 }
 
 const JOBS: Record<string, new (name: string, botsDir: string, heartbeatMs: number, opts?: JobOptions) => JobBot> = {
     knights: KnightsBot,
-    bignet: BigNetBot
+    bignet: BigNetBot,
+    guild: GuildBot,
+    essence: EssenceBot
 };
 
 // ------------------------------------------------------------------ CLI + supervision
