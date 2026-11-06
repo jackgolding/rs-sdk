@@ -918,13 +918,26 @@ async function burnPrayerTo(q: Quest, target: number): Promise<void> {
     if (prayerPts(q) <= target) return;
     const t0 = tickNow(q.sdk);
     const lvl = q.sdk.getPrayerState()?.prayerLevel ?? 1;
-    const ok = BURNERS.filter((p) => lvl >= ({ protect_from_melee: 43, protect_from_missiles: 40, protect_from_magic: 37, steel_skin: 28, ultimate_strength: 31, incredible_reflexes: 34 } as const)[p]);
-    for (const p of ok) await q.bot.activatePrayer(p as never).catch(() => undefined);
-    while (prayerPts(q) > target && tickNow(q.sdk) - t0 < 1500) {
-        await eatIfLow(q);
-        await q.sdk.waitForTicks(3);
+    const need = { protect_from_melee: 43, protect_from_missiles: 40, protect_from_magic: 37, steel_skin: 28, ultimate_strength: 31, incredible_reflexes: 34 } as const;
+    const ok = BURNERS.filter((p) => lvl >= need[p]);
+    const off = async (ps: readonly string[]) => { for (const p of ps) await q.bot.deactivatePrayer(p as never).catch(() => undefined); };
+    // All of them only well above the target: six at once drain several points between checks and overshot to
+    // 39-40 (jacklove13, 2026-11-06). The last stretch on one prayer, checked every tick.
+    if (prayerPts(q) > target + 13) {
+        for (const p of ok) await q.bot.activatePrayer(p as never).catch(() => undefined);
+        while (prayerPts(q) > target + 13 && tickNow(q.sdk) - t0 < 1500) {
+            await eatIfLow(q);
+            await q.sdk.waitForTicks(1);
+        }
+        await off(ok);
     }
-    for (const p of ok) await q.bot.deactivatePrayer(p as never).catch(() => undefined);
+    const one = ok.find((p) => p === 'steel_skin') ?? ok[0];
+    if (one && prayerPts(q) > target) {
+        await q.bot.activatePrayer(one as never).catch(() => undefined);
+        while (prayerPts(q) > target && tickNow(q.sdk) - t0 < 2500) await q.sdk.waitForTicks(1);
+        await off([one]);
+    }
+    await off(ok);
     q.log(`legends: prayer burnt to ${prayerPts(q)} for the blessing in ${tickNow(q.sdk) - t0}t`);
 }
 
@@ -933,13 +946,20 @@ async function blessBowl(q: Quest): Promise<void> {
     const t0 = tickNow(q.sdk);
     for (let round = 1; round <= 20 && !blessed(q); round++) {
         if (prayerPts(q) < BLESS_MIN && !(await drinkPrayer(q, BLESS_MIN))) {
-            // No potion: full points at the Ardougne altar; the step's next attempt walks back, burning down first.
+            // No potion: full points at the Ardougne altar, then the next round walks back (withGujuo re-enters the
+            // jungle) and burns down. Not a thrown failure: it ate the transition's tries (2026-11-06).
             const was = prayerPts(q);
             if (onIsland(pos(q)) || inLegendsArea(pos(q))) await leaveLegends(q, ARDOUGNE_BANK);
             await prayAtArdougneAltar(q);
-            throw new Error(`legends: prayer ${was} < ${BLESS_MIN} and no prayer potion to bless the bowl — prayed at Ardougne (now ${prayerPts(q)}), retrying`);
+            q.log(`legends: prayer ${was} < ${BLESS_MIN}, no potion — prayed at Ardougne (now ${prayerPts(q)}); back to Gujuo`);
+            continue;
         }
         await burnPrayerTo(q, BLESS_MAX);
+        // The walk to Gujuo and fights on the way cost points too: never open his dialog below 42.
+        if (prayerPts(q) < BLESS_MIN) {
+            q.log(`legends: prayer ${prayerPts(q)} < ${BLESS_MIN} before the blessing — restoring first`);
+            continue;
+        }
         q.log(`legends: blessing round ${round} at prayer ${prayerPts(q)}`);
         await withGujuo(q, [/yes, i'd like (you )?to bless my gold bowl/i], /too inexperienced/i, () => blessed(q), 'the blessing').catch((e) =>
             q.log(`legends: blessing round ${round}: ${(e as Error).message}`)
