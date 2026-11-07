@@ -196,6 +196,8 @@ await runTask({
         if (COUNTS.length === 0) throw new Error("usage: legends-stock.ts <bot> [--deliver=<mule>] [--counts='opal:3,lockpick:3,…']");
         const unmade = COUNTS.filter((c) => !SOURCES[c.item]?.get || SOURCES[c.item]?.mule);
         if (unmade.length) throw new Error(`no source recipe for ${unmade.map((c) => c.item).join(', ')}`);
+        // Made here for the mule, so never asked of it.
+        q.noMuleFor = new Set(COUNTS.map((c) => c.item));
         const t0 = tickNow(q.sdk);
         await q.goTo(HUB, 4);
         await openBank(q);

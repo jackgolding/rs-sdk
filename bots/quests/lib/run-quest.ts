@@ -141,6 +141,8 @@ export interface Quest {
     talk: (npc: RegExp, choices?: Array<RegExp | string>, at?: Tile) => Promise<string>;
     /** Hold `count` of `item`: inventory, then its source procedure (assisted: spawn). Throws when it cannot. */
     ensure: (item: string, count: number) => Promise<void>;
+    /** Items a mid-run ensure() must not ask a mule for: a stock run is making them for that mule. */
+    noMuleFor?: Set<string>;
     /** Context for quest-supplies helpers (buyAtShop, depositAllInventory, ...). */
     supply: SupplyCtx;
 }
@@ -268,6 +270,8 @@ const OUTAGE_WAIT_MS = 60_000;
 const ASSISTED_EXIT = 3;
 /** Exit code for a run stopped because mule-supplied stock is missing: stock the account, not a script failure. */
 export const NEEDS_STOCK_EXIT = 4;
+/** Exit code for a run stopped because the journal says a required quest is not done: wait for it, not a script failure. */
+export const PREREQ_EXIT = 5;
 
 /** Thrown when a mule-supplied need (Source.mule) is short; runQuest exits NEEDS_STOCK_EXIT. */
 export class NeedsStock extends Error {
@@ -306,6 +310,15 @@ export async function runQuest(def: QuestDef): Promise<void> {
             }
         };
         const session = new ActivitySession(sdk, bot, { name: def.id, grindLogPath: grindLog, maxRecoveryTactics: 8 });
+        // One line per death for infra/pilot/fleet-watch.py: nothing else records one (ABGARMY17's only showed as a lost pack).
+        let lastDeathLog = 0;
+        const deathWatch = setInterval(() => {
+            const p = sdk.getState()?.player;
+            if (!p || sdk.getSkill('hitpoints')?.level !== 0 || Date.now() - lastDeathLog < 60_000) return;
+            lastDeathLog = Date.now();
+            log(`DEATH at (${p.worldX},${p.worldZ},L${p.level ?? 0})`);
+        }, 500);
+        deathWatch.unref?.();
         const pos = () => {
             const p = sdk.getState()?.player;
             return { x: p?.worldX ?? 0, z: p?.worldZ ?? 0, level: p?.level ?? 0 };
@@ -928,7 +941,9 @@ export async function runQuest(def: QuestDef): Promise<void> {
                 // A mid-run shortfall asks the item's mule first (the prepare phase is not the only place stock is
                 // needed): Legends' mapping restocked papyrus from a bought-out Aemad while jackthief banked 15
                 // (jacklove13, 2026-11-05). Not coins: small coin ensures are everywhere and the shops cover them.
-                const by = item !== 'coins' ? mulesFor(item)[0] : undefined;
+                // A stock run makes these for the mule: asking it would take back what it just delivered, which is
+                // how jacklove13's retry emptied jackthief's 2 opals and failed ABGARMY17's Legends (2026-11-07).
+                const by = item !== 'coins' && !q.noMuleFor?.has(item) ? mulesFor(item)[0] : undefined;
                 const self = (sdk.getState()?.player?.name ?? '').toLowerCase();
                 if (by && by.toLowerCase() !== self && sdk.getInventory().length < 28) {
                     const shortBy = count - have;
@@ -1252,6 +1267,10 @@ export async function runQuest(def: QuestDef): Promise<void> {
     if (result.error instanceof NeedsStock) {
         console.log(result.error.message);
         process.exit(NEEDS_STOCK_EXIT);
+    }
+    if (/^prerequisite gate: /.test(result.error?.message ?? '')) {
+        console.log(result.error!.message);
+        process.exit(PREREQ_EXIT);
     }
     if (result.success && result.result === 'assisted') process.exit(ASSISTED_EXIT);
     const ok = result.success && (result.result === true || result.result === 'prepared');

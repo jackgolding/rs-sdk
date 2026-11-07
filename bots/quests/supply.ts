@@ -14,7 +14,7 @@
  * coordinates + stock table). Unsourced items fail loudly as UNSOURCED so
  * the next author adds a verified source or a craft path — never a guess.
  */
-import { readFileSync } from 'fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import type { BotActions } from '../../sdk/actions';
 import type { BotSDK } from '../../sdk/index';
@@ -198,6 +198,63 @@ export function isRestockRequest(from: string, text: string): boolean {
     return [...MULE_RESTOCKERS, ...rosterNames()].some((r) => muleAccount(r).toLowerCase() === who);
 }
 
+/**
+ * A mule's bank and its refusals, as files on the shared bots/ mount. A requester used to wait out its
+ * whole timeout for lines the mule had none of: ABGARMY17 lost 8 minutes to papyrus alone (2026-11-07).
+ * DMs are no use for the answer: the word filter mangles them (see requestFromMule).
+ */
+const muleFile = (mule: string, name: string) => join(process.cwd(), 'bots', '.mule-stock', mule.toLowerCase(), name);
+const writeJsonAtomic = (path: string, data: unknown) => {
+    mkdirSync(join(path, '..'), { recursive: true });
+    const tmp = `${path}.tmp-${process.pid}`;
+    writeFileSync(tmp, JSON.stringify(data));
+    renameSync(tmp, path);
+};
+/** The mule's side: its bank, lower-cased names to counts. Best effort: stock files never stop a trade. */
+export function publishMuleStock(mule: string, bank: Array<{ name: string; count?: number }>): void {
+    const items: Record<string, number> = {};
+    for (const b of bank) items[b.name.toLowerCase()] = (items[b.name.toLowerCase()] ?? 0) + (b.count ?? 0);
+    try {
+        const at = Date.now();
+        writeJsonAtomic(join(process.cwd(), 'bots', '.mule-stock', `${mule.toLowerCase()}.json`), { at, items });
+    } catch {
+        /* ignored */
+    }
+}
+/** The mule's side: it holds none of what `from` asked for. */
+export function publishMuleRefusal(mule: string, from: string, labels: string[]): void {
+    try {
+        writeJsonAtomic(muleFile(mule, `refused-${from.toLowerCase()}.json`), { at: Date.now(), labels });
+    } catch {
+        /* ignored */
+    }
+}
+/** A stock file this new describes the mule's bank; an older one says nothing. */
+const MULE_STOCK_FRESH_MS = 30 * 60_000;
+export function muleStockOf(mule: string, now = Date.now()): Record<string, number> | null {
+    try {
+        const s = JSON.parse(readFileSync(join(process.cwd(), 'bots', '.mule-stock', `${mule.toLowerCase()}.json`), 'utf-8')) as { at: number; items: Record<string, number> };
+        return now - s.at <= MULE_STOCK_FRESH_MS ? s.items : null;
+    } catch {
+        return null;
+    }
+}
+function muleRefused(mule: string, self: string, since: number): boolean {
+    try {
+        const r = JSON.parse(readFileSync(muleFile(mule, `refused-${self.toLowerCase()}.json`), 'utf-8')) as { at: number };
+        return r.at >= since;
+    } catch {
+        return false;
+    }
+}
+function clearMuleRefusal(mule: string, self: string): void {
+    try {
+        rmSync(muleFile(mule, `refused-${self.toLowerCase()}.json`), { force: true });
+    } catch {
+        /* ignored */
+    }
+}
+
 export interface MuleOptions {
     /** Mule account name (DM target + trade partner). Omit to skip the mule. */
     mule: string;
@@ -270,6 +327,15 @@ export async function requestFromMule(
         ctx.log(`supply: pack has room for only part of the ask (${28 - sdk.getInventory().length} free)`);
     }
     if (pending.length === 0) return needs.every((n) => countItems(sdk, n.pattern) >= n.count);
+    // The mule's published bank: a line it holds none of is not worth asking for.
+    const account = muleAccount(opts.mule);
+    const stock = muleStockOf(account);
+    if (stock) {
+        const none = pending.filter((n) => !Object.entries(stock).some(([name, count]) => count > 0 && n.pattern.test(name)));
+        for (const n of none) pending.splice(pending.indexOf(n), 1);
+        if (none.length) ctx.log(`supply: ${opts.mule} holds no ${none.map((n) => n.label).join(', ')}: not asking`);
+        if (pending.length === 0) return false;
+    }
     try {
         const at = muleBank(opts.mule);
         // Far walks need the pathfinder: hops only work within a short leg.
@@ -284,7 +350,9 @@ export async function requestFromMule(
         // red topaz or soul rune to jacklove13's Legends kit (2026-11-05). WordEnc.filter passes it last, with nothing after.
         const ordered = [...pending].sort((a, b) => Number(/topaz/i.test(a.label)) - Number(/topaz/i.test(b.label)));
         const detail = ordered.map((n) => `${n.label}=${n.count - countItems(sdk, n.pattern)}`).join('; ');
-        const account = muleAccount(opts.mule);
+        const self = sdk.getState()?.player?.name ?? '';
+        clearMuleRefusal(account, self);
+        const askedAt = Date.now();
         await dmMule(sdk, account, `quest-supply ${opts.noted ? 'noted ' : ''}${detail}`);
         ctx.log(`supply: requested from ${opts.mule}${account !== opts.mule ? ` (${account})` : ''}: ${detail}`);
         const want = pending.map((n) => ({ item: n.pattern, amount: n.count - countItems(sdk, n.pattern) }));
@@ -297,6 +365,8 @@ export async function requestFromMule(
                     (offer ?? []).some((i: TradeItem) => n.pattern.test(i.name ?? '') && (i.count ?? 0) > 0)
                 ),
             maxTrades: 1,
+            // The mule's refusal ends the wait: serveTrades checks between its 15 s listens.
+            until: () => muleRefused(account, self, askedAt),
             timeout: opts.timeoutMs ?? 5 * 60_000,
             // A multi-stack noted offer (every grimy "Herb" stack) takes the mule ~2 min to lay
             // out: at 90 s ABGARMY09 declined jackthief's 163 herbs mid-offer (2026-11-03).
@@ -308,7 +378,8 @@ export async function requestFromMule(
         const sessions = ((served as { trades?: Array<{ success?: boolean; reason?: string; message?: string }> }).trades ?? []);
         const ok = sessions.find((t) => t.success);
         const last = sessions.at(-1);
-        ctx.log(`supply: mule trade ${ok ? 'received' : last ? `failed (${last.reason ?? last.message ?? '?'})` : 'timed out'} (${opts.mule})`);
+        const refused = muleRefused(account, self, askedAt);
+        ctx.log(`supply: mule trade ${ok ? 'received' : last ? `failed (${last.reason ?? last.message ?? '?'})` : refused ? 'refused: nothing in stock' : 'timed out'} (${opts.mule})`);
         return pending.every((n) => countItems(sdk, n.pattern) >= n.count);
     } catch {
         return false;

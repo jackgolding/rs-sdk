@@ -223,6 +223,8 @@ const transitions = side.transitions.map((t) => ({
 await runQuest({
     id: 'heroes-quest',
     hub: 'falador-west',
+    // quest_hero.rs2's guard. ABGARMY06 walked into this after its Dragon Slayer failed (2026-11-07).
+    requires: ['Shield of Arrav', 'Lost City', "Merlin's Crystal", 'Dragon Slayer'],
     // Mining 50 is the Ice Queen's rockslide; mining has a trainer (lib/training.ts), the rest gate the run.
     skills: { mining: 50, herblore: 25, fishing: 53, cooking: 53, ...(gang === 'phoenix' ? { magic: 35 } : {}) },
     // Quest items a resumed run banked (one of each; the journal reads the bank anyway).

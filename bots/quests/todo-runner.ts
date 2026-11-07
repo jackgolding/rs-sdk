@@ -19,7 +19,11 @@
  * strictly one-at-a-time.
  *
  * A failed quest no longer stops the list: it is recorded, retried once on a
- * second pass, and then skipped, so one bad quest cannot idle an account. When
+ * second pass (at once for a Legends prerequisite), and then skipped, so one bad
+ * quest cannot idle an account. NEEDS STOCK and a missing prerequisite are not
+ * failures: the quest waits, and comes back when the mule's stock file shows the
+ * lines or after a back-off (todo-logic.ts). `bots/<Bot>/todo-rearm.json`, a list
+ * of quest ids, clears their failures without freezing the runner. When
  * nothing is left the runner hands over to `--then` (the bot's normal grind,
  * run as a child so the container never exits), or parks in a sleep loop. It
  * never exits 0 on its own — the box relaunches any exit-0 script every ~16s.
@@ -35,11 +39,12 @@
  *
  * Exit codes: 2 bad usage · 143 stopped by signal · otherwise the --then script's code.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 // Self-contained on purpose: a container mounts only /srv/fleet/bots, so
 // ../../quest-lab/* is unreachable at runtime. run-grade.ts keeps the verdict rules.
 import { gradeRun } from './run-grade';
+import { blockedBy, classifyExit, onLegendsPath, readMuleStocks, stockArrived, waitMinutes } from './todo-logic';
 
 interface TodoItem {
   questId: string;
@@ -66,6 +71,16 @@ interface ItemState {
   slotMax?: number;
   lastError?: string;
   lastAt?: string;
+  /** Paused by NEEDS STOCK or a prerequisite gate: no failure counted. Not before `waitUntil` unless the stock arrives. */
+  wait?: {
+    kind: 'stock' | 'prereq';
+    why: string;
+    since: string;
+    lastAt: string;
+    until: string;
+    attempts: number;
+    short?: Array<{ item: string; count: number }>;
+  };
 }
 type StateFile = Record<string, ItemState>;
 
@@ -146,34 +161,57 @@ function mirrorDone(questId: string, done: NonNullable<ItemState['done']>): void
 
 const isDone = (i: TodoItem) => Boolean(i.done || state[i.questId]?.done);
 const exhausted = (i: TodoItem) => (state[i.questId]?.failures ?? 0) >= MAX_FAILURES;
-/**
- * Quests that cannot start before another on the same list is done: a deferred Plague City let
- * Biohazard run first and fail at Elena's shut door (ABGARMY07, 2026-11-02). An item may also
- * list its own `after`. A prerequisite not on the list at all does not block.
- */
-const QUEST_AFTER: Record<string, string[]> = {
-  biohazard: ['elena'],
-  upass: ['biohazard'],
-  dragon: ['lostcity'],
+/** The prerequisite holding an item back, re-read before every quest (ABGARMY06 started Heroes right after Dragon Slayer failed). */
+const blocker = (i: TodoItem) => blockedBy(i, queue, isDone);
+const blocked = (i: TodoItem) => blocker(i) !== undefined;
+
+/** Don't re-run a stock wait sooner than this even if the mule shows the lines: its trade may be what failed. */
+const STOCK_RETRY_FLOOR_MS = 15 * 60_000;
+const waiting = (i: TodoItem) => {
+  const w = state[i.questId]?.wait;
+  if (!w) return false;
+  const now = Date.now();
+  if (now >= Date.parse(w.until)) return false;
+  if (w.kind !== 'stock' || now - Date.parse(w.lastAt) < STOCK_RETRY_FLOOR_MS) return true;
+  return !stockArrived(w.short ?? [], readMuleStocks(botsDir));
 };
-const blocked = (i: TodoItem) =>
-  (i.after ?? QUEST_AFTER[i.questId] ?? []).some((q) => {
-    const pre = queue.find((x) => x.questId === q);
-    return !!pre && !isDone(pre);
-  });
+
+/** Hand re-arms: a list of quest ids in todo-rearm.json. A running runner rewrites todo-state.json, so editing that gets clobbered. */
+function applyRearms(): void {
+  const path = join(botDir, 'todo-rearm.json');
+  if (!existsSync(path)) return;
+  const ids = readJson<string[]>(path, []);
+  try {
+    rmSync(path);
+  } catch {
+    return;
+  }
+  for (const id of ids) {
+    const st = state[id];
+    if (!st) continue;
+    delete st.failures;
+    delete st.lastError;
+    delete st.wait;
+    log(`${id} re-armed by todo-rearm.json`);
+  }
+  saveState();
+}
 
 const runsRoot = join(process.cwd(), 'quest-lab', 'runs');
 
-/** The newest run record this attempt produced, matched by quest id + account. */
-function newestRunFor(questId: string, since: number): string | null {
+/**
+ * The newest run record this attempt produced. Matched by account and time, not by id: a todo id is
+ * often not the script's own (`heroes` / `heroes-quest`, `arrav` / `shield-of-arrav`, `upass-r2`), so
+ * finished quests were logged "exited 0 but wrote no run record". One quest runs per account at a time.
+ */
+function newestRunFor(since: number): string | null {
   if (!existsSync(runsRoot)) return null;
   let best: { dir: string; at: number } | null = null;
   for (const dir of readdirSync(runsRoot) as string[]) {
     const runPath = join(runsRoot, dir, 'run.json');
     if (!existsSync(runPath)) continue;
-    const run = readJson<{ questId?: string; createdAt?: string; account?: string } | null>(runPath, null);
-    if (!run || run.questId !== questId) continue;
-    if (run.account && run.account.toLowerCase() !== account!.toLowerCase()) continue;
+    const run = readJson<{ createdAt?: string; account?: string } | null>(runPath, null);
+    if (!run || run.account?.toLowerCase() !== account!.toLowerCase()) continue;
     const at = Date.parse(run.createdAt ?? '') || 0;
     if (at < since) continue;
     if (!best || at > best.at) best = { dir: join(runsRoot, dir), at };
@@ -220,7 +258,8 @@ async function runChild(cmd: string[], capMs = 0): Promise<{ code: number; tail:
   return { code, tail };
 }
 
-async function runItem(item: TodoItem): Promise<void> {
+/** Returns true when this attempt counted as a failure. */
+async function runItem(item: TodoItem): Promise<boolean> {
   const scriptPath = join(process.cwd(), item.script);
   const st = (state[item.questId] ??= {});
   const fail = (why: string) => {
@@ -229,53 +268,76 @@ async function runItem(item: TodoItem): Promise<void> {
     st.lastAt = stamp();
     saveState();
     log(`${item.questId} FAILED (${st.failures}/${MAX_FAILURES}): ${why}`);
+    return true;
+  };
+  const finish = (how: string, runId: string, already = false) => {
+    st.done = { at: stamp(), runId, ...(already ? { alreadyComplete: true } : {}) };
+    delete st.lastError;
+    delete st.deferredAt;
+    delete st.wait;
+    saveState();
+    mirrorDone(item.questId, st.done);
+    log(`${item.questId} PASS — ${how}`);
+    return false;
+  };
+  const pause = (kind: 'stock' | 'prereq', why: string, short?: Array<{ item: string; count: number }>) => {
+    const attempts = (st.wait?.attempts ?? 0) + 1;
+    const now = Date.now();
+    const minutes = waitMinutes(attempts);
+    st.wait = {
+      kind,
+      why,
+      since: st.wait?.since ?? new Date(now).toISOString(),
+      lastAt: new Date(now).toISOString(),
+      until: new Date(now + minutes * 60_000).toISOString(),
+      attempts,
+      ...(short?.length ? { short } : {}),
+    };
+    saveState();
+    log(`${item.questId} waiting on ${kind}: ${why} (no failure counted; stop ${attempts}, back in ${minutes}m or when it arrives)`);
+    return false;
   };
   if (!existsSync(scriptPath)) return fail(`script missing at ${item.script}`);
 
   log(`=== ${item.questId} on ${account} (${item.script}) ===`);
   const startedAt = Date.now();
   const { code, tail } = await runChild([item.script, account!, ...(item.args ?? [])], item.capMin ? item.capMin * 60_000 : QUEST_CAP_MS);
-  if (stopping) return;
-  if (code === SLOTS_FULL_EXIT) {
-    st.deferredAt = stamp();
-    const slots = /deferring \[slots ([\w.-]+)\/(\d+)\]/.exec(tail);
-    if (slots) {
-      st.slotId = slots[1];
-      st.slotMax = Number(slots[2]);
-    }
-    saveState();
-    log(`${item.questId} deferred: its quest slots are full — on to the next item`);
-    return;
-  }
-  if (code !== 0) return fail(`exited ${code}`);
-
-  const dir = newestRunFor(item.questId, startedAt - 60_000);
-  if (!dir) {
-    // Scripts that probe the journal first answer an already-finished account
-    // with this line and leave nothing to grade — that IS done for this account.
-    if (/already (been )?complete|already completed/i.test(tail)) {
-      st.done = { at: stamp(), runId: 'already-complete', alreadyComplete: true };
+  if (stopping) return false;
+  const out = classifyExit(code, tail, SLOTS_FULL_EXIT);
+  switch (out.kind) {
+    case 'deferred': {
+      st.deferredAt = stamp();
+      const slots = /deferring \[slots ([\w.-]+)\/(\d+)\]/.exec(tail);
+      if (slots) {
+        st.slotId = slots[1];
+        st.slotMax = Number(slots[2]);
+      }
       saveState();
-      mirrorDone(item.questId, st.done);
-      log(`${item.questId} already complete on ${account} — marked done`);
-      return;
+      log(`${item.questId} deferred: its quest slots are full — on to the next item`);
+      return false;
     }
-    return fail('exited 0 but wrote no run record');
+    case 'stock':
+      return pause('stock', out.short.map((l) => `${l.item} ×${l.count}`).join(', ') || 'NEEDS STOCK', out.short);
+    case 'prereq':
+      return pause('prereq', out.missing);
+    case 'fail':
+      return fail(out.why);
+    case 'done':
+      if (out.how === 'journal') return finish('journal says complete', newestRunFor(startedAt - 60_000) ?? 'journal');
+      return finish(out.how, out.how, out.how === 'already-complete');
+    case 'grade': {
+      const dir = newestRunFor(startedAt - 60_000);
+      if (!dir) return fail('exited 0 but wrote no run record');
+      const grade = gradeRun(dir);
+      if (grade.verdict !== 'PASS') return fail(`evidence gate: ${grade.reason} (record ${dir})`);
+      return finish(grade.reason, grade.runId ?? dir);
+    }
   }
-  const grade = gradeRun(dir);
-  if (grade.verdict !== 'PASS') return fail(`evidence gate: ${grade.reason} (record ${dir})`);
-
-  st.done = { at: stamp(), runId: grade.runId ?? dir };
-  delete st.lastError;
-  delete st.deferredAt;
-  saveState();
-  mirrorDone(item.questId, st.done);
-  log(`${item.questId} PASS — ${grade.reason}`);
 }
 
 const RECHECK_MS = Number(process.env.TODO_RECHECK_MIN ?? 20) * 60_000;
 let queue = loadQueue();
-const pending = () => queue.filter(i => !isDone(i) && !exhausted(i) && !blocked(i));
+const pending = () => queue.filter(i => !isDone(i) && !exhausted(i) && !blocked(i) && !waiting(i));
 log(`${account} — ${pending().length} pending of ${queue.length}${thenCmd.length ? ` · then ${thenCmd.join(' ')}` : ''}`);
 for (const item of pending()) {
   const f = state[item.questId]?.failures ?? 0;
@@ -284,19 +346,42 @@ for (const item of pending()) {
 if (dry) process.exit(0);
 
 async function drain(): Promise<void> {
-  // Two passes so a quest that failed once (contention, a dropped link) gets a
-  // second go after the others; then the list is finished either way.
-  for (let pass = 1; pass <= MAX_FAILURES && !stopping; pass++) {
+  // Two passes so a quest that failed once (contention, a dropped link) gets a second go after the
+  // others. A Legends prerequisite gets it straight away: jacklove8's Underground Pass retry sat
+  // behind its whole remaining list. The list and prerequisites are re-read before every quest.
+  const tried = new Set<string>();
+  let retryNow: string | null = null;
+  let pass = 1;
+  while (!stopping) {
+    applyRearms();
+    queue = loadQueue();
     const todo = pending();
-    if (todo.length === 0) break;
-    if (pass > 1) log(`retry pass ${pass}: ${todo.map(i => i.questId).join(', ')}`);
-    for (const item of todo) {
-      if (stopping) break;
-      await runItem(item);
+    const next =
+      todo.find((i) => i.questId === retryNow) ??
+      todo.find((i) => !tried.has(i.questId) && onLegendsPath(i) && (state[i.questId]?.failures ?? 0) > 0) ??
+      todo.find((i) => !tried.has(i.questId));
+    if (!next) {
+      if (todo.length === 0 || pass >= MAX_FAILURES) break;
+      pass += 1;
+      tried.clear();
+      log(`retry pass ${pass}: ${todo.map((i) => i.questId).join(', ')}`);
+      continue;
     }
+    tried.add(next.questId);
+    const failed = await runItem(next);
+    retryNow = failed && onLegendsPath(next) ? next.questId : null;
+    if (retryNow && !exhausted(next)) log(`${next.questId} is on the Legends path: retrying now`);
   }
   const doneN = queue.filter(isDone).length;
-  const gaveUp = queue.filter(i => !isDone(i)).map(i => `${i.questId}(${state[i.questId]?.lastError ?? (state[i.questId]?.deferredAt ? 'deferred: slots full' : 'skipped')})`);
+  const why = (i: TodoItem) => {
+    const st = state[i.questId];
+    if (st?.wait) return `waiting: ${st.wait.why}`;
+    if (st?.lastError) return st.lastError;
+    if (st?.deferredAt) return 'deferred: slots full';
+    const b = blocker(i);
+    return b ? `blocked by ${b}` : 'skipped';
+  };
+  const gaveUp = queue.filter((i) => !isDone(i)).map((i) => `${i.questId}(${why(i)})`);
   log(`list finished: ${doneN}/${queue.length} done${gaveUp.length ? ` · not done: ${gaveUp.join('; ')}` : ''}`);
 }
 
@@ -328,6 +413,7 @@ function stillFull(item: TodoItem): boolean {
 
 /** True when the shared list has work this account can start now (new, retryable, or a freed slot). */
 function listGrew(): boolean {
+  applyRearms();
   queue = loadQueue();
   return pending().some((i) => !stillFull(i));
 }

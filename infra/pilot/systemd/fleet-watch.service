@@ -1,0 +1,10 @@
+[Unit]
+Description=rs-sdk fleet watch (deaths, given-up Legends quests, stalled accounts)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/srv/fleet/repo
+ExecStart=/usr/bin/python3 infra/pilot/fleet-watch.py

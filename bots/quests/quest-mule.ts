@@ -22,7 +22,7 @@ import { initPathfinding } from '../../sdk/pathfinding';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { walkSendHops } from './movement';
-import { QUEST_STOCK, ensureSupplied, isRestockRequest, muleBank, parseSupplyRequest } from './supply';
+import { QUEST_STOCK, ensureSupplied, isRestockRequest, muleBank, parseSupplyRequest, publishMuleRefusal, publishMuleStock } from './supply';
 import type { TradeItem } from '../../sdk/types';
 import { countItems } from './quest-lib';
 import { TREES, fletchFor } from './lib/training';
@@ -194,6 +194,7 @@ async function serveOnce(from: string, needs: Array<{ label: string; count: numb
     // Bank the pack first, always: a restock received as the mule was stopping (150 prayer
     // potions, 2026-11-03) stayed in the pack, and the stock count reads only the bank (have=0).
     await depositPack();
+    publishMuleStock(username, sdk.getBankItems?.() ?? []);
     // Serve what is in stock: one line out (nails, 2026-11-01) used to send nothing at all,
     // and the requester then went without the lines this mule did hold. The requester takes a
     // partial trade (supply.ts accepts any offered line) and asks its next mule for the rest.
@@ -243,6 +244,7 @@ async function serveOnce(from: string, needs: Array<{ label: string; count: numb
     await bot.closeBank().catch(() => undefined);
     if (give.length === 0) {
         session.log('warn', `mule: nothing in stock for ${from}`);
+        publishMuleRefusal(username, from, needs.map((n) => n.label));
         return false;
     }
     log(`mule: serving ${from}: ${served.join(', ')}`);
@@ -258,6 +260,10 @@ async function serveOnce(from: string, needs: Array<{ label: string; count: numb
             retryOnBusy: true,
         });
         log(`mule: trade with ${from} ${res.success ? 'ok' : `failed (${res.reason ?? res.message})`}`);
+        if (res.success && (await openBank().catch(() => false))) {
+            publishMuleStock(username, sdk.getBankItems?.() ?? []);
+            await bot.closeBank().catch(() => undefined);
+        }
         session.noteProgress(res.success ? 'trade' : 'location', `mule serve ${from} ${res.success ? 'ok' : 'failed'}`);
         if (!res.success && (await openBank().catch(() => false))) {
             // Back in the bank, so a failed hand-off does not pile beads up in the inventory.
@@ -305,6 +311,8 @@ async function receiveRestock(from: string): Promise<void> {
     session.noteProgress(got.length ? 'trade' : 'location', `mule restock ${from}`);
     if (await openBank().catch(() => false)) {
         await depositPack();
+        await sdk.waitForTicks(2).catch(() => undefined);
+        publishMuleStock(username, sdk.getBankItems?.() ?? []);
         await bot.closeBank().catch(() => undefined);
     }
 }
@@ -416,6 +424,7 @@ async function trainStep(): Promise<void> {
     if (res.success) session.noteProgress('xp', `chop ${tree.name}`);
 }
 
+let lastPublish = 0;
 try {
     while (!session.isStoppedOrRequested()) {
         if (session.stopRequested) {
@@ -430,7 +439,15 @@ try {
         // Training walks off to the trees; serveOnce's bank open brings the mule back.
         if (!TRAIN || trainOff) await parkAtDraynor().catch(() => undefined);
         // Stock audit each round; low lines warn for operator top-up.
+        // The stock file must stay fresh while nobody asks: a bank visit every 10 minutes.
+        if (SERVE_ONLY && Date.now() - lastPublish > 10 * 60_000 && (await openBank().catch(() => false))) {
+            publishMuleStock(username, sdk.getBankItems?.() ?? []);
+            lastPublish = Date.now();
+            await bot.closeBank().catch(() => undefined);
+        }
         if (!SERVE_ONLY && (await openBank().catch(() => false))) {
+            publishMuleStock(username, sdk.getBankItems?.() ?? []);
+            lastPublish = Date.now();
             for (const [label, target] of Object.entries(QUEST_STOCK)) {
                 const have = bankCount(new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'));
                 if (have < target) session.log('warn', `mule stock low: ${label} ${have}/${target}`);

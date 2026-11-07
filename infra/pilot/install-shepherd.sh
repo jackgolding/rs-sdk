@@ -14,7 +14,7 @@ set -euo pipefail
 
 SRC=/srv/fleet/repo/infra/pilot/systemd
 mkdir -p /srv/fleet/state
-cp "$SRC/fleet-shepherd.service" "$SRC/fleet-shepherd.timer" /etc/systemd/system/
+cp "$SRC/fleet-shepherd.service" "$SRC/fleet-shepherd.timer" "$SRC/fleet-watch.service" "$SRC/fleet-watch.timer" /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now fleet-shepherd.timer
-systemctl list-timers fleet-shepherd.timer --no-pager
+systemctl enable --now fleet-shepherd.timer fleet-watch.timer
+systemctl list-timers fleet-shepherd.timer fleet-watch.timer --no-pager
