@@ -72,6 +72,10 @@ def main():
         for c in changed
         if c.startswith("bots/quests/")
     } | set(extra)
+    # Every account's roster script is the runner, so a runner change would force-recreate
+    # the whole fleet with accounts mid-quest. The new runner comes in on each account's next
+    # restart; an urgent one is a hand roll between quests.
+    code_files.discard("todo-runner.ts")
 
     try:
         old_git = load_roster(before, from_git=True)
