@@ -229,7 +229,9 @@ async function clearAttackers(q: Quest, radius = 1): Promise<void> {
                 const combat = q.sdk.getState()?.player?.combat;
                 const swinging = combat?.targetType === 'npc' && combat.targetIndex === index;
                 if ((!swinging || (guard && guard.toggledAt > sent)) && tickNow(q.sdk) - sent > 2) {
-                    const n = alive()!;
+                    // eatIfLow above takes ticks, and the undead can die in them (ABGARMY03's crash, 2026-11-07).
+                    const n = alive();
+                    if (!n) break;
                     await q.sdk.sendInteractNpc(n.index, n.optionsWithIndex.find((o) => /^attack$/i.test(o.text))?.opIndex ?? 2);
                     sent = tickNow(q.sdk);
                 }
