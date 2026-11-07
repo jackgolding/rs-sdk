@@ -258,8 +258,8 @@ async function runChild(cmd: string[], capMs = 0): Promise<{ code: number; tail:
   return { code, tail };
 }
 
-/** Returns true when this attempt counted as a failure. */
-async function runItem(item: TodoItem): Promise<boolean> {
+/** Returns 'failed' when this attempt counted as a failure, 'outage' when the game client was gone throughout. */
+async function runItem(item: TodoItem): Promise<'failed' | 'outage' | 'ok'> {
   const scriptPath = join(process.cwd(), item.script);
   const st = (state[item.questId] ??= {});
   const fail = (why: string) => {
@@ -268,7 +268,7 @@ async function runItem(item: TodoItem): Promise<boolean> {
     st.lastAt = stamp();
     saveState();
     log(`${item.questId} FAILED (${st.failures}/${MAX_FAILURES}): ${why}`);
-    return true;
+    return 'failed' as const;
   };
   const finish = (how: string, runId: string, already = false) => {
     st.done = { at: stamp(), runId, ...(already ? { alreadyComplete: true } : {}) };
@@ -278,7 +278,7 @@ async function runItem(item: TodoItem): Promise<boolean> {
     saveState();
     mirrorDone(item.questId, st.done);
     log(`${item.questId} PASS — ${how}`);
-    return false;
+    return 'ok' as const;
   };
   const pause = (kind: 'stock' | 'prereq', why: string, short?: Array<{ item: string; count: number }>) => {
     const attempts = (st.wait?.attempts ?? 0) + 1;
@@ -295,14 +295,14 @@ async function runItem(item: TodoItem): Promise<boolean> {
     };
     saveState();
     log(`${item.questId} waiting on ${kind}: ${why} (no failure counted; stop ${attempts}, back in ${minutes}m or when it arrives)`);
-    return false;
+    return 'ok' as const;
   };
   if (!existsSync(scriptPath)) return fail(`script missing at ${item.script}`);
 
   log(`=== ${item.questId} on ${account} (${item.script}) ===`);
   const startedAt = Date.now();
   const { code, tail } = await runChild([item.script, account!, ...(item.args ?? [])], item.capMin ? item.capMin * 60_000 : QUEST_CAP_MS);
-  if (stopping) return false;
+  if (stopping) return 'ok';
   const out = classifyExit(code, tail, SLOTS_FULL_EXIT);
   switch (out.kind) {
     case 'deferred': {
@@ -314,12 +314,14 @@ async function runItem(item: TodoItem): Promise<boolean> {
       }
       saveState();
       log(`${item.questId} deferred: its quest slots are full — on to the next item`);
-      return false;
+      return 'ok';
     }
     case 'stock':
       return pause('stock', out.short.map((l) => `${l.item} ×${l.count}`).join(', ') || 'NEEDS STOCK', out.short);
     case 'prereq':
       return pause('prereq', out.missing);
+    case 'outage':
+      return 'outage';
     case 'fail':
       return fail(out.why);
     case 'done':
@@ -345,6 +347,8 @@ for (const item of pending()) {
 }
 if (dry) process.exit(0);
 
+const OUTAGE_HOLD_MS = Number(process.env.TODO_OUTAGE_HOLD_MS ?? 300_000);
+
 async function drain(): Promise<void> {
   // Two passes so a quest that failed once (contention, a dropped link) gets a second go after the
   // others. A Legends prerequisite gets it straight away: jacklove8's Underground Pass retry sat
@@ -368,8 +372,17 @@ async function drain(): Promise<void> {
       continue;
     }
     tried.add(next.questId);
-    const failed = await runItem(next);
-    retryNow = failed && onLegendsPath(next) ? next.questId : null;
+    const result = await runItem(next);
+    if (result === 'outage') {
+      // The game server or client is gone: every quest would "fail" the same way. Hold this one (2026-11-07:
+      // a server outage used up jacklove8's Legends and the stock runs' tries in 35 minutes).
+      log(`${next.questId}: game client outage, no failure counted; trying it again in ${OUTAGE_HOLD_MS / 60_000}m`);
+      tried.delete(next.questId);
+      retryNow = next.questId;
+      await Bun.sleep(OUTAGE_HOLD_MS);
+      continue;
+    }
+    retryNow = result === 'failed' && onLegendsPath(next) ? next.questId : null;
     if (retryNow && !exhausted(next)) log(`${next.questId} is on the Legends path: retrying now`);
   }
   const doneN = queue.filter(isDone).length;

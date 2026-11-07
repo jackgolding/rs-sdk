@@ -272,6 +272,8 @@ const ASSISTED_EXIT = 3;
 export const NEEDS_STOCK_EXIT = 4;
 /** Exit code for a run stopped because the journal says a required quest is not done: wait for it, not a script failure. */
 export const PREREQ_EXIT = 5;
+/** Exit code for a run that outlasted its outage retries: the game client is gone, so nothing about the quest is known. */
+export const OUTAGE_EXIT = 6;
 
 /** Thrown when a mule-supplied need (Source.mule) is short; runQuest exits NEEDS_STOCK_EXIT. */
 export class NeedsStock extends Error {
@@ -1267,6 +1269,10 @@ export async function runQuest(def: QuestDef): Promise<void> {
     if (result.error instanceof NeedsStock) {
         console.log(result.error.message);
         process.exit(NEEDS_STOCK_EXIT);
+    }
+    if (!result.success && OUTAGE.test(result.error?.message ?? '')) {
+        console.log(`game client outage outlasted the retries: ${result.error?.message}`);
+        process.exit(OUTAGE_EXIT);
     }
     if (/^prerequisite gate: /.test(result.error?.message ?? '')) {
         console.log(result.error!.message);

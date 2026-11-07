@@ -40,7 +40,7 @@ process.exit(r.code ?? 0);
 }
 /** Runs until the list is finished and the runner parks, then stops it. */
 async function run(): Promise<{ calls: string[]; state: Record<string, any>; out: string }> {
-    const proc = Bun.spawn(['bun', RUNNER, 'acct'], { cwd: dir, stdout: 'pipe', stderr: 'inherit' });
+    const proc = Bun.spawn(['bun', RUNNER, 'acct'], { cwd: dir, stdout: 'pipe', stderr: 'inherit', env: { ...process.env, TODO_OUTAGE_HOLD_MS: '50' } });
     let out = '';
     const reader = proc.stdout.getReader();
     const dec = new TextDecoder();
@@ -126,6 +126,17 @@ describe('todo-runner', () => {
         const { calls, state } = await run();
         expect(calls).toEqual(['legends']);
         expect(state.legends.wait).toBeUndefined();
+    });
+
+    test('an outage holds the quest with no failure and retries it', async () => {
+        setUp([
+            { id: 'legends', script: 'legends-quest', runs: [{ code: 6 }, { code: 6 }, JOURNAL] },
+            { id: 'cook', runs: [JOURNAL] },
+        ]);
+        const { calls, state } = await run();
+        expect(calls).toEqual(['legends', 'legends', 'legends', 'cook']);
+        expect(state.legends.failures).toBeUndefined();
+        expect(state.legends.done).toBeTruthy();
     });
 
     test('todo-rearm.json clears failures and is consumed', async () => {

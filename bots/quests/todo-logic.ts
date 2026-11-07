@@ -9,6 +9,8 @@ import { basename, join } from 'node:path';
 export const NEEDS_STOCK_EXIT = 4;
 /** lib/run-quest.ts PREREQ_EXIT: the journal says a required quest is not complete. */
 export const PREREQ_EXIT = 5;
+/** lib/run-quest.ts OUTAGE_EXIT: the game client went away; says nothing about the quest. */
+export const OUTAGE_EXIT = 6;
 
 export interface PrereqItem {
     questId: string;
@@ -74,6 +76,7 @@ export type Outcome =
     | { kind: 'deferred' }
     | { kind: 'stock'; short: Array<{ item: string; count: number }> }
     | { kind: 'prereq'; missing: string }
+    | { kind: 'outage' }
     | { kind: 'grade' }
     | { kind: 'fail'; why: string };
 
@@ -82,6 +85,7 @@ export function classifyExit(code: number, tail: string, slotsFullExit = 75): Ou
     if (code === slotsFullExit) return { kind: 'deferred' };
     if (code === NEEDS_STOCK_EXIT) return { kind: 'stock', short: parseShort(tail) };
     if (code === PREREQ_EXIT) return { kind: 'prereq', missing: /prerequisite gate: ([^\n]+)/.exec(tail)?.[1] ?? 'unknown' };
+    if (code === OUTAGE_EXIT) return { kind: 'outage' };
     if (code !== 0) return { kind: 'fail', why: `exited ${code}` };
     // The child read the journal itself; a resumed run can miss checkpoints the journal has already passed.
     if (/QUEST COMPLETE \(journal-verified\)/.test(tail)) return { kind: 'done', how: 'journal' };

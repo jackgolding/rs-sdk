@@ -21,6 +21,9 @@ describe('classifyExit', () => {
         });
         expect(classifyExit(5, 'prerequisite gate: Dragon Slayer not complete')).toEqual({ kind: 'prereq', missing: 'Dragon Slayer not complete' });
     });
+    test('a lost game client is an outage, not a failure', () => {
+        expect(classifyExit(6, 'game client outage outlasted the retries')).toEqual({ kind: 'outage' });
+    });
     test('slots full defers; a crash fails', () => {
         expect(classifyExit(75, '').kind).toBe('deferred');
         expect(classifyExit(1, 'QUEST COMPLETE (journal-verified)')).toEqual({ kind: 'fail', why: 'exited 1' });
