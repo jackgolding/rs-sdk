@@ -177,14 +177,14 @@ const waiting = (i: TodoItem) => {
 };
 
 /** Hand re-arms: a list of quest ids in todo-rearm.json. A running runner rewrites todo-state.json, so editing that gets clobbered. */
-function applyRearms(): void {
+function applyRearms(): string[] {
   const path = join(botDir, 'todo-rearm.json');
-  if (!existsSync(path)) return;
+  if (!existsSync(path)) return [];
   const ids = readJson<string[]>(path, []);
   try {
     rmSync(path);
   } catch {
-    return;
+    return [];
   }
   for (const id of ids) {
     const st = state[id];
@@ -195,6 +195,7 @@ function applyRearms(): void {
     log(`${id} re-armed by todo-rearm.json`);
   }
   saveState();
+  return ids;
 }
 
 const runsRoot = join(process.cwd(), 'quest-lab', 'runs');
@@ -357,7 +358,8 @@ async function drain(): Promise<void> {
   let retryNow: string | null = null;
   let pass = 1;
   while (!stopping) {
-    applyRearms();
+    // A re-armed quest runs this pass, not behind the rest of the list (jacklove8's Legends, 2026-11-07).
+    for (const id of applyRearms()) tried.delete(id);
     queue = loadQueue();
     const todo = pending();
     const next =

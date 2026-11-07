@@ -147,6 +147,20 @@ describe('todo-runner', () => {
         expect(existsSync(join(dir, 'bots', 'acct', 'todo-rearm.json'))).toBe(false);
     });
 
+    test('a re-arm during a pass puts the quest back in that pass, ahead of the rest of the list', async () => {
+        setUp([
+            { id: 'first', runs: [{ code: 1 }, JOURNAL] },
+            { id: 'second', runs: [{ out: 'x' }] },
+            { id: 'third', runs: [JOURNAL] },
+        ]);
+        // `second` asks for `first` to be re-armed while it runs.
+        const script = join(dir, 'bots/quests/second.ts');
+        const body = readFileSync(script, 'utf-8');
+        writeFileSync(script, `import { writeFileSync as w } from 'node:fs';\nw(${JSON.stringify(join(dir, 'bots/acct/todo-rearm.json'))}, '["first"]');\n${body}`);
+        const { calls } = await run();
+        expect(calls.slice(0, 3)).toEqual(['first', 'second', 'first']);
+    });
+
     test('exit 0 with no evidence still fails', async () => {
         setUp([{ id: 'cook', runs: [{ out: 'bye' }] }]);
         const { state } = await run();
