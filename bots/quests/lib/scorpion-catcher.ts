@@ -317,7 +317,29 @@ export async function scorpionB(q: Quest): Promise<void> {
     await throughGate(q, false);
 }
 
+/** The agility course's pipe, the way between the outpost's yard and the course's walled-off pocket south of it. */
+const COURSE_PIPE = { x: 2552, z: 3559 };
+
+/**
+ * Out of the agility course's pocket, which has no walking route to the gate: every later quest failed
+ * here "not through the outpost gate" after a failed Horror run left ABGARMY06 inside (2026-11-07).
+ */
+async function outOfCoursePocket(q: Quest): Promise<void> {
+    // The pipe's own row is still the pocket side.
+    if (!inOutpost(pos(q)) || pos(q).z > COURSE_PIPE.z) return;
+    for (let attempt = 1; attempt <= 4 && pos(q).z <= COURSE_PIPE.z; attempt++) {
+        const pipe = await locNear(q, COURSE_PIPE, /^obstacle pipe$/i, /squeeze/i, 2);
+        if (!pipe) throw new Error(`scorp: no obstacle pipe near ${where(q)}`);
+        const op = pipe.optionsWithIndex.find((o) => /squeeze/i.test(o.text))!;
+        await q.sdk.sendInteractLoc(pipe.x, pipe.z, pipe.id, op.opIndex);
+        await untilTicks(q.sdk, () => pos(q).z > COURSE_PIPE.z, 12);
+    }
+    if (pos(q).z <= COURSE_PIPE.z) throw new Error(`scorp: the obstacle pipe did not take us out (at ${where(q)})`);
+    q.log(`scorp: out of the agility course's pocket at ${where(q)}`);
+}
+
 export async function leaveOutpost(q: Quest): Promise<void> {
+    await outOfCoursePocket(q);
     if (inOutpost(pos(q))) await throughGate(q, false);
 }
 
