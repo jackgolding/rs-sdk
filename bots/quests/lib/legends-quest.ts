@@ -78,6 +78,9 @@ const REEDS = { x: 2836, z: 2916 };
 const TAI_BWO_ANVIL = { x: 2790, z: 3101 };
 /** The fertile soil nearest the cave mouth (get_yommi_planter's first spot). */
 const SOIL = { x: 2778, z: 2916 };
+/** True while growing a replacement totem: the seeds are not spent then, so a restock must not bank them. */
+let regrowing = false;
+
 /** The corrupted totem pole nearest the soil. */
 const TOTEM = { x: 2793, z: 2908 };
 
@@ -401,7 +404,7 @@ function spentQuestItem(q: Quest, id: number): boolean {
     if (id === ID.snakeWeed || id === ID.ardrigal || id === ID.snakeMix || id === ID.ardrigalMix || id === ID.bravery) return n >= STAGE_VALUE.viyeldi!;
     if (id === ID.crystalA || id === ID.crystalB || id === ID.crystalC || id === ID.heart || id === ID.heartGlow) return n >= STAGE_VALUE.recess!;
     if (id === ID.dagger || id === ID.daggerDone || id === ID.holyForce) return n >= STAGE_VALUE.source!;
-    if (id === ID.seeds || id === ID.seedsGerm) return n >= STAGE_VALUE.totem!;
+    if (id === ID.seeds || id === ID.seedsGerm) return !regrowing && n >= STAGE_VALUE.totem!;
     return false;
 }
 
@@ -525,7 +528,8 @@ export async function restock(q: Quest, wants: Want[], why: string): Promise<voi
     // What a shop or a gather can produce (lib/sources.ts: papyrus at Aemad, charcoal at Jiminua, rope, vials): fetched, not a stop.
     for (const w of [...missing]) {
         const src = SOURCES[w.label];
-        if (!src?.get || src.mule) continue;
+        // Mule-only lines too: a re-descent spends cosmic runes that stockCheck does not cover past stage viyeldi.
+        if (!src?.get && !src?.muleSupply) continue;
         await q.ensure(w.label, w.min ?? w.count).catch((e) => q.log(`legends: sourcing ${w.label}: ${(e as Error).message}`));
         if (heldOf(q, w) >= (w.min ?? w.count)) missing.splice(missing.indexOf(w), 1);
     }
@@ -1042,6 +1046,7 @@ async function blessBowl(q: Quest): Promise<void> {
 async function cutReed(q: Quest): Promise<void> {
     if (heldId(q, ID.reed)) return;
     await toJungleTile(q, REEDS, 2);
+    await freeSlot(q); // jungle logs fill the pack, and a full pack cannot take the reed (ABGARMY07, 2026-11-06)
     for (let attempt = 1; attempt <= 3 && !heldId(q, ID.reed); attempt++) {
         const reeds = await findLoc(q, /^tall reeds$/i, undefined, REEDS, 4);
         if (!reeds) throw new Error(`legends: no tall reeds near ${where(q)}`);
@@ -1121,6 +1126,16 @@ async function caveRegion(q: Quest): Promise<Region> {
     return 'east';
 }
 
+/** Other players force these doors too: while theirs swing, no Open option shows. Wait it out. */
+async function strengthGate(q: Quest): Promise<NearbyLoc | undefined> {
+    for (let i = 0; i < 15; i++) {
+        const gate = await findLoc(q, /^ancient gate$/i, /^open$/i, CAVE.strengthGate, 4);
+        if (gate) return gate;
+        await q.sdk.waitForTicks(2);
+    }
+    return undefined;
+}
+
 /** One east-column step south (gate, boulder, boulder, boulder, gate) or north. */
 async function eastStep(q: Quest, south: boolean): Promise<void> {
     const z = pos(q).z;
@@ -1148,7 +1163,7 @@ async function eastStep(q: Quest, south: boolean): Promise<void> {
                 }
             }
             // Below boulder three: the strength gate.
-            const gate = await findLoc(q, /^ancient gate$/i, /^open$/i, CAVE.strengthGate, 4);
+            const gate = await strengthGate(q);
             if (!gate) throw new Error(`legends: no strength gate near ${where(q)}`);
             await opLoc(q, gate, /^open$/i, [/yes, i'm very strong/i], () => pos(q).z < 9314, 30);
             if (pos(q).z >= 9314) await q.sdk.sendWalk(x0, 9312);
@@ -1158,7 +1173,7 @@ async function eastStep(q: Quest, south: boolean): Promise<void> {
     } else {
         if (z <= 9313) {
             await walk(q, { x: x0, z: 9312 }, 1);
-            const gate = await findLoc(q, /^ancient gate$/i, /^open$/i, CAVE.strengthGate, 4);
+            const gate = await strengthGate(q);
             if (!gate) throw new Error(`legends: no strength gate near ${where(q)}`);
             await opLoc(q, gate, /^open$/i, [/yes, i'm very strong/i], () => pos(q).z > 9314, 30);
             if (pos(q).z <= 9314) await q.sdk.sendWalk(x0, 9316);
@@ -1322,10 +1337,22 @@ async function toCaveRegion(q: Quest, target: 'A' | 'D' | 'E' | 'F' | 'G'): Prom
 /** Out of the shaman caves (and the Viyeldi caves below them) to the jungle by the cave mouth. */
 export async function leaveCaves(q: Quest): Promise<void> {
     if (inViyeldi(pos(q))) await viyeldiUp(q);
-    for (let step = 0; step < 24 && inShamanCaves(pos(q)); step++) {
-        await eatIfLow(q);
-        const r = await caveRegion(q);
-        await shallower(q, r);
+    // Death wings' hits close the strength gate's dialog, and its force roll fails often: kill them first and allow more tries.
+    // Protection on the way out: two accounts died at the strength gate worn down without food (2026-11-06).
+    const guard = q.level('prayer') >= PROTECT_MELEE_LEVEL ? new PrayerFlicker(q.sdk, q.log, { flick: false }) : null;
+    try {
+        for (let step = 0; step < 80 && inShamanCaves(pos(q)); step++) {
+            await eatIfLow(q);
+            if (guard) {
+                if (prayerPts(q) < 15) await drinkPrayer(q, 15);
+                guard.set(prayerPts(q) > 0 ? 'protect_from_melee' : null);
+            }
+            await defend(q);
+            const r = await caveRegion(q);
+            await shallower(q, r);
+        }
+    } finally {
+        guard?.set(null);
     }
     if (inShamanCaves(pos(q))) throw new Error(`legends: still in the shaman caves at ${where(q)}`);
 }
@@ -1436,17 +1463,22 @@ async function magicGate(q: Quest): Promise<void> {
 // ── Nezikchened and the heroes
 
 /** Our Nezikchened (or hero): targeting us, or targeting nobody with no other player near. */
-function ours(q: Quest, name: RegExp): NearbyNpc | undefined {
+function ours(q: Quest, name: RegExp, shared = false): NearbyNpc | undefined {
     const others = new Set((q.sdk.getNearbyPlayers?.() ?? []).map((p) => p.index));
     const all = q.sdk.getNearbyNpcs().filter((n) => name.test(n.name));
-    return all.find((n) => n.targetIndex >= 32768 && !others.has(n.targetIndex - 32768)) ?? (others.size === 0 ? all.sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0] : undefined);
+    const mine = all.find((n) => n.targetIndex >= 32768 && !others.has(n.targetIndex - 32768));
+    if (mine) return mine;
+    const nearest = [...all].sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99));
+    if (others.size === 0) return nearest[0];
+    // The Viyeldi heroes are shared world NPCs: strangers nearby must not stop us engaging an idle one.
+    return shared ? nearest.find((n) => !(n.targetIndex >= 32768)) : undefined;
 }
 
 /**
  * Melee `name` to death under Protect from Melee, eating and drinking. Returns when `done` holds or
  * no such npc has been seen for `quietTicks`. Throws out of food at 30% hp.
  */
-async function fight(q: Quest, name: RegExp, done: () => boolean, label: string, opts: { maxTicks?: number; quietTicks?: number; pray?: boolean } = {}): Promise<void> {
+async function fight(q: Quest, name: RegExp, done: () => boolean, label: string, opts: { maxTicks?: number; quietTicks?: number; pray?: boolean; shared?: boolean } = {}): Promise<void> {
     const flicker = opts.pray !== false && q.level('prayer') >= PROTECT_MELEE_LEVEL ? new PrayerFlicker(q.sdk, q.log, { flick: false }) : null;
     const t0 = tickNow(q.sdk);
     let lastSeen = tickNow(q.sdk);
@@ -1460,7 +1492,7 @@ async function fight(q: Quest, name: RegExp, done: () => boolean, label: string,
                 await driveDialog(q.sdk, [], { ticks: 10 });
                 continue;
             }
-            const npc = ours(q, name);
+            const npc = ours(q, name, opts.shared);
             if (!npc) {
                 flicker?.set(null);
                 if (tickNow(q.sdk) - lastSeen > (opts.quietTicks ?? 20)) break;
@@ -1492,7 +1524,7 @@ async function fight(q: Quest, name: RegExp, done: () => boolean, label: string,
 }
 
 /** The jungle's and the caves' aggressive locals: a hit closes any open dialog (the map, Gujuo's blessing). */
-const LOCALS = /^(jungle savage|jungle wolf|oomlie bird|jungle spider|snake|deathwing|lesser demon)$/i;
+const LOCALS = /^(jungle savage|jungle wolf|oomlie bird|jungle spider|snake|death ?wing|lesser demon)$/i;
 /** Kill whatever local is on us (targeting a player from beside us) before a dialog step. */
 async function defend(q: Quest): Promise<void> {
     const onUs = () =>
@@ -1624,7 +1656,9 @@ export async function descend(q: Quest): Promise<void> {
         [
             ...BASE(q),
             ...TRIALS(q, true),
-            quest('yommi seeds', ID.seedsGerm),
+            // Optional: a death costs both; collectWater and growTotem replace them.
+            { ...quest('yommi seeds', ID.seedsGerm), optional: true },
+            ...(stageNum(q) >= STAGE_VALUE.dagger! ? [{ ...BOWL, optional: true }] : []),
             ...(mixed ? [] : [want('vial of water')]),
             WEAPON,
             POTS(3),
@@ -1763,7 +1797,7 @@ export async function forgeHeart(q: Quest): Promise<void> {
     await viyeldiDown(q);
     for (const h of HEROES) {
         if (heldId(q, h.crystal) || heldId(q, ID.heart)) continue;
-        for (let round = 1; round <= 3 && !heldId(q, h.crystal); round++) {
+        for (let round = 1; round <= 8 && !heldId(q, h.crystal); round++) {
             let npc = q.sdk.getNearbyNpcs().filter((n) => h.name.test(n.name)).sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
             if (!npc) {
                 await walk(q, VIY.main, 3);
@@ -1774,7 +1808,7 @@ export async function forgeHeart(q: Quest): Promise<void> {
                 await q.sdk.waitForTicks(5);
                 continue;
             }
-            await fight(q, h.name, () => !!heldId(q, h.crystal), String(h.name), { quietTicks: 12, maxTicks: 600 });
+            await fight(q, h.name, () => !!heldId(q, h.crystal), String(h.name), { quietTicks: 12, maxTicks: 600, shared: true });
             await driveDialog(q.sdk, [], { ticks: 15 });
         }
         if (!heldId(q, h.crystal)) throw new Error(`legends: no crystal from ${h.name}`);
@@ -1869,6 +1903,8 @@ export async function slaySecond(q: Quest): Promise<void> {
                 }
                 await q.sdk.sendPickup(hat.x, hat.z, hat.id);
                 await untilTicks(q.sdk, () => dialogOpen(q) || !!viyeldi(), 15);
+                // He shows two ticks before his speech opens. A dagger used in that gap is lost, and the speech runs on and removes him.
+                await untilTicks(q.sdk, () => dialogOpen(q), 6);
             }
             if (dialogOpen(q)) {
                 await q.sdk.sendCloseModal().catch(() => undefined);
@@ -1900,15 +1936,55 @@ export async function slaySecond(q: Quest): Promise<void> {
     await driveDialog(q.sdk, [], { ticks: 20 });
 }
 
+/** A death past the pool costs the blessed bowl: forge and bless another (Gujuo needs a bullroarer to come). */
+async function recoverBowl(q: Quest): Promise<void> {
+    if (blessed(q)) return;
+    if (onIsland(pos(q)) || inLegendsArea(pos(q))) await leaveLegends(q, ARDOUGNE_BANK);
+    await q.goTo(ARDOUGNE_BANK, 4);
+    if (!(await q.bot.openBank().catch(() => ({ success: false }))).success) throw new Error(`legends: could not open a bank at ${where(q)}`);
+    const banked = (id: number) => q.sdk.getBankItems().some((b) => b.id === id);
+    const hasBowl = [ID.bowlBlessed, ID.bowlBlessedWater, ID.bowlBlessedPure].some(banked);
+    const hasRoarer = !!heldId(q, ID.bullroarer) || banked(ID.bullroarer);
+    await q.bot.closeBank().catch(() => undefined);
+    if (hasBowl) return;
+    q.log('legends: no blessed bowl anywhere: making another');
+    await restock(q, [...BASE(q), quest('bullroarer', ID.bullroarer), want('gold bar', 2, { unless: BOWL }), want('hammer', 1, { unless: BOWL }), POTS(2), FOOD_KIT(4)].filter((w) => hasRoarer || w.label !== 'bullroarer'), 'a new bowl');
+    if (!heldId(q, ID.bullroarer)) await getBullroarer(q);
+    await makeBowl(q);
+    const hammer = held(q, /^hammer$/i);
+    if (hammer) await q.sdk.sendDropItem(hammer.slot).catch(() => undefined);
+    await blessBowl(q);
+}
+
+/** A death costs the germinated seeds too: Ungadulu gives three more; the pure water germinates them. */
+async function recoverSeeds(q: Quest): Promise<void> {
+    if (countId(q, ID.seedsGerm)) return;
+    if (inViyeldi(pos(q))) await viyeldiUp(q);
+    if (!countId(q, ID.seeds)) {
+        await enterOctagram(q);
+        await q.talk(/^ungadulu$/i, [/i need more yommi tree seeds/i, /^ok, thanks/i]);
+        await driveDialog(q.sdk, [], { ticks: 15 });
+    }
+    if (!countId(q, ID.seeds)) throw new Error('legends: Ungadulu gave no more Yommi seeds');
+    await combine(q, ID.seeds, ID.bowlBlessedPure, ID.seedsGerm);
+    await driveDialog(q.sdk, [], { ticks: 15 });
+    if (!countId(q, ID.seedsGerm)) throw new Error('legends: the new seeds did not germinate');
+}
+
 /** Push the boulder from its east side: the source flows; the blessed bowl fills (22 → 25). */
 export async function collectWater(q: Quest): Promise<void> {
+    await recoverBowl(q);
     if (!inViyeldi(pos(q))) await descend(q);
     await toSource(q);
     for (let attempt = 1; attempt <= 4 && !heldId(q, ID.bowlBlessedPure); attempt++) {
         let pool = await findLoc(q, /^sacred water$/i, undefined, pos(q), 15);
         if (!pool) {
             const b = boulderNpc(q);
-            if (!b) throw new Error(`legends: no boulder near ${where(q)}`);
+            // A later visit stops just past the barrier, out of the boulders' sight (ABGARMY07, 2026-11-06).
+            if (!b) {
+                await walk(q, VIY.source, 3);
+                continue;
+            }
             await walk(q, { x: b.x + 2, z: b.z }, 0).catch(() => undefined);
             const opt = b.optionsWithIndex.find((o) => /push/i.test(o.text)) ?? b.optionsWithIndex[0];
             await q.sdk.sendInteractNpc(b.index, opt?.opIndex ?? 1);
@@ -1924,9 +2000,26 @@ export async function collectWater(q: Quest): Promise<void> {
 
 // ── the Yommi tree and the totem
 
+/** Room for the totem pole: drop junk first, else eat a food item. */
+async function freeSlot(q: Quest): Promise<void> {
+    if (q.sdk.getInventory().length < 28) return;
+    const junk = q.sdk.getInventory().find((i) => /^(logs|rock|vial|jug|bronze pickaxe)$/i.test(i.name));
+    if (junk) await q.sdk.sendDropItem(junk.slot).catch(() => undefined);
+    else {
+        const food = q.sdk.getInventory().find((i) => FOOD.test(i.name));
+        if (food) await q.bot.eatFood(food).catch(() => undefined);
+    }
+    await untilTicks(q.sdk, () => q.sdk.getInventory().length < 28, 4);
+}
+
 /** Plant, water, fell, trim, carve and lift — each stage rots in ~50 ticks, so no detours (25 → 30). */
 export async function growTotem(q: Quest): Promise<void> {
+    // A rotted tree spends the water; the pool at the source refills the bowl at any later stage.
+    if (!heldId(q, ID.bowlBlessedPure)) await collectWater(q);
+    await recoverSeeds(q);
+    if (!heldId(q, ID.bowlBlessedPure)) await collectWater(q);
     if (!heldId(q, ID.bowlBlessedPure)) throw new Error('legends: no sacred water for the Yommi tree (the source must be revisited)');
+    await freeSlot(q);
     // Out by the caves only: chopping jungle would boil the water away.
     await leaveCaves(q);
     if (!inKharazi(pos(q))) throw new Error(`legends: not in the jungle after the caves (at ${where(q)})`);
@@ -1943,10 +2036,13 @@ export async function growTotem(q: Quest): Promise<void> {
         same = n === lastName ? same + 1 : 0;
         lastName = n;
         const mark = lastMsgId(q);
-        if (n === 'fertile soil' || n === 'totem pole') await defend(q);
+        // Never fight at the pole: it rots ~50 ticks after carving, and a wolf took 34 of them (ABGARMY07, 2026-11-06). Lifting first.
+        if (n === 'fertile soil') await defend(q);
         const changed = async () => ((await at())?.name.toLowerCase() ?? '') !== n;
         if (n === 'fertile soil') {
             if (!countId(q, ID.seedsGerm)) throw new Error('legends: no germinated seeds to plant');
+            // quest_legends.rs2 refuses to plant without pure water: fail now, the retry refills at the source.
+            if (!heldId(q, ID.bowlBlessedPure)) throw new Error('legends: the bowl is empty at the soil; the next attempt refills it at the source');
             await useOnLoc(q, ID.seedsGerm, loc, () => false, [], 4).catch(() => undefined);
             await driveDialog(q.sdk, [], { ticks: 8 });
         } else if (n === 'yommi tree sapling') {
@@ -1956,6 +2052,7 @@ export async function growTotem(q: Quest): Promise<void> {
             await useOnLoc(q, /^rune axe$/i, loc, () => false, [], 3).catch(() => undefined);
             await driveDialog(q.sdk, [], { ticks: 6 });
         } else if (n === 'totem pole') {
+            await freeSlot(q); // a full pack refuses the pole, and it rots (jacklove16, 2026-11-06)
             await opLoc(q, loc, /^lift$/i, [], () => !!heldId(q, ID.totem), 8);
         } else if (n === 'yommi tree baby') {
             // Growing: it turns sapling within a few ticks.
@@ -1971,10 +2068,53 @@ export async function growTotem(q: Quest): Promise<void> {
     if (!heldId(q, ID.totem)) throw new Error(`legends: no totem pole after ${tickNow(q.sdk) - t0}t`);
 }
 
+/**
+ * A death in the last fight loses the totem, and the stage stays past 30 (ABGARMY17, 2026-11-07). ungadulu.rs2 only hands out
+ * more seeds when none are held or banked, so banked seeds come out first. Returns with the totem held.
+ */
+async function regrowTotem(q: Quest): Promise<void> {
+    regrowing = true;
+    try {
+        q.log('legends: no totem held or banked: growing another');
+        for (const id of [ID.seedsGerm, ID.seeds]) {
+            const b = q.sdk.getBankItems().find((i) => i.id === id);
+            if (b) {
+                await q.bot.withdrawItem(b, b.count ?? 1);
+                await untilTicks(q.sdk, () => countId(q, id) > 0, 4);
+            }
+        }
+        await q.bot.closeBank().catch(() => undefined);
+        await restock(q, [...BASE(q), AXE, FOOD_KIT(8)], 'another totem');
+        await growTotem(q);
+    } finally {
+        regrowing = false;
+    }
+}
+
+/** Sharks for the last fight: ten swordfish ran out at 28 hp with three heroes still to come (ABGARMY17, 2026-11-07). */
+const FINAL_FOOD: Want = { label: 'shark', pattern: /^shark$/i, count: 16, min: 10 };
+
 /** The totem on the corrupted pole: Nezikchened again, this time behind the three heroes (30 → 35). */
 export async function slayFinal(q: Quest): Promise<void> {
     await gearUp(q);
-    await restock(q, [...BASE(q), quest('totem', ID.totem), ...FIGHT_KIT(q)], 'the last fight');
+    if (!heldId(q, ID.totem)) {
+        if (onIsland(pos(q)) || inLegendsArea(pos(q))) await leaveLegends(q, ARDOUGNE_BANK);
+        await q.goTo(ARDOUGNE_BANK, 4);
+        if (!(await q.bot.openBank().catch(() => ({ success: false }))).success) throw new Error(`legends: could not open a bank at ${where(q)}`);
+        if (q.sdk.getBankItems().some((b) => b.id === ID.totem)) await q.bot.closeBank().catch(() => undefined);
+        else await regrowTotem(q);
+    }
+    const kit = (): Want[] => [...BASE(q), quest('totem', ID.totem), WEAPON, FINAL_FOOD, POTS(3)];
+    await restock(q, kit(), 'the last fight');
+    // A retry arrives at whatever hp the last attempt left: walking in at 35 of 99 is how the totem was lost.
+    for (let i = 0; i < FINAL_FOOD.count && hp(q) < maxHp(q) * 0.85; i++) {
+        const food = held(q, FOOD);
+        if (!food) break;
+        await q.bot.eatFood(food).catch(() => undefined);
+        await q.sdk.waitForTicks(3);
+    }
+    await restock(q, kit(), 'the last fight, after eating');
+    q.log(`legends: last fight kit: hp ${hp(q)}/${maxHp(q)}, prayer ${prayerPts(q)}, ${inv(q).filter((i) => FOOD.test(i.name)).length} food`);
     await toJungleTile(q, { x: TOTEM.x + 1, z: TOTEM.z + 1 }, 1);
     const pole = await findLoc(q, /^totem pole$/i, undefined, TOTEM, 2);
     if (!pole) throw new Error(`legends: no totem pole near ${where(q)}`);

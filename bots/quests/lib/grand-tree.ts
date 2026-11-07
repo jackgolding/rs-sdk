@@ -326,7 +326,7 @@ export async function toShipyardForeman(q: Quest): Promise<void> {
     const walk = await q.bot.walkTo(FOREMAN.x - 2, FOREMAN.z, 4);
     if (!walk.success) q.log(`grandtree: walk to the foreman: ${walk.message}`);
     await q.talk(/^foreman$/i, [/sadly his wife is no longer with us/i, /he loves worm holes/i, /^anita\.?$/i]);
-    await settle(q, [/sadly his wife is no longer with us/i, /he loves worm holes/i, /^anita\.?$/i], 80);
+    await settle(q, [/sadly his wife is no longer with us/i, /he loves worm holes/i, /^anita\.?$/i], 200);
     if (!held(q, OBJ.order)) throw new Error('grandtree: no lumber order from the foreman');
     q.log('grandtree: holding the lumber order');
 }
@@ -404,8 +404,35 @@ async function downTrapdoor(q: Quest): Promise<void> {
     q.log(`grandtree: down the trapdoor to ${where(q)}`);
 }
 
+/**
+ * Full prayer before the demon, unless the run resumed underground. Protect from Melee blocks its hits outright, and without
+ * it 18 sharks barely last the fight. Chompy Bird's wolves can leave prayer empty just before this quest, and nothing restores
+ * it between quests (ABGARMY17 lost the fight with 18 sharks, 2026-11-07).
+ */
+const ARDOUGNE_ALTAR = { x: 2617, z: 3309 };
+export async function fullPrayerBeforeDemon(q: Quest): Promise<void> {
+    const st = q.sdk.getPrayerState();
+    if (!st || st.prayerLevel < 43 || st.prayerPoints >= st.prayerLevel || inTreeRoots(pos(q))) return;
+    await q.goTo({ x: ARDOUGNE_ALTAR.x - 1, z: ARDOUGNE_ALTAR.z }, 2);
+    await q.sdk.scanNearbyLocs(6).catch(() => undefined);
+    const altar = q.sdk.findNearbyLoc(/^altar$/i, { withOption: /pray/i });
+    const opt = altar?.optionsWithIndex.find((o) => /pray/i.test(o.text));
+    if (altar && opt) {
+        await q.sdk.sendInteractLoc(altar.x, altar.z, altar.id, opt.opIndex);
+        await untilTicks(q.sdk, () => (q.sdk.getPrayerState()?.prayerPoints ?? 0) >= st.prayerLevel, 15);
+    }
+    q.log(`grandtree: Ardougne altar: prayer ${q.sdk.getPrayerState()?.prayerPoints}/${st.prayerLevel}`);
+}
+
+/** Out of food: up the ladder from the roots rather than die beside the demon. */
+async function fleeDemon(q: Quest): Promise<void> {
+    await q.bot.walkTo(LADDER_FROM_CELLAR.x + 1, LADDER_FROM_CELLAR.z, 2).catch(() => undefined);
+    await op(q, LADDER_FROM_CELLAR, /ladder/i, /climb-up/i, () => !inTreeRoots(pos(q)), 'up the ladder from the roots', [], 15).catch((e: Error) => q.log(e.message));
+}
+
 /** Glough's speech, then his black demon: fight until it has been seen and is gone (130 -> 140). */
 export async function fightDemon(q: Quest): Promise<void> {
+    await fullPrayerBeforeDemon(q);
     await downTrapdoor(q);
     const weapon = q.sdk.getInventory().find((i) => /(scimitar|longsword)$/i.test(i.name));
     if (weapon) await q.bot.equipItem(weapon).catch(() => undefined);
@@ -419,8 +446,10 @@ export async function fightDemon(q: Quest): Promise<void> {
         }
         await eatIfLow(q);
         const hp = q.sdk.getSkill('hitpoints');
-        if (hp && hp.level < 25 && !q.sdk.getInventory().some((i) => i.optionsWithIndex?.some((o) => /^eat$/i.test(o.text)))) {
-            throw new Error(`grandtree: out of food against the black demon (hp ${hp.level})`);
+        if (hp && hp.level < 35 && !q.sdk.getInventory().some((i) => i.optionsWithIndex?.some((o) => /^eat$/i.test(o.text)))) {
+            // Throwing here left the account standing beside the demon to die (ABGARMY17, 2026-11-07): up the ladder first.
+            await fleeDemon(q);
+            throw new Error(`grandtree: out of food against the black demon (hp ${q.sdk.getSkill('hitpoints')?.level}, fled to ${where(q)})`);
         }
         const demon = q.sdk.findNearbyNpc(/^black demon$/i);
         if (!demon) {
