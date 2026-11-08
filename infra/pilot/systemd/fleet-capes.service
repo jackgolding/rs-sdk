@@ -1,0 +1,8 @@
+[Unit]
+Description=rs-sdk fleet capes of legends stockpile (queues a buy-out run)
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/srv/fleet/repo
+ExecStart=/usr/bin/python3 infra/pilot/fleet-capes.py

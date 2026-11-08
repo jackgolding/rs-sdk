@@ -1,0 +1,10 @@
+[Unit]
+Description=Queue a capes of legends buy-out every 4 hours
+
+[Timer]
+OnBootSec=30min
+OnUnitActiveSec=4h
+Unit=fleet-capes.service
+
+[Install]
+WantedBy=timers.target
