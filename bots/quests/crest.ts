@@ -80,7 +80,9 @@ const legAntipoison = (_q: Quest): Need[] => [];
  * Coins for the Al Kharid toll (four crossings), claimed only while the bank is open
  * (the prologue): a mid-run claim would pickpocket for coins the toll fetches itself.
  */
-const coins = (q: Quest): Need[] => (q.sdk.getState()?.bank?.isOpen ? [{ item: 'coins', count: 100 }] : []);
+// Enough for Chronozon's runes too: 120 fire runes alone are ~480 at Aubury, and 100 coins sent ABGARMY06 to
+// pickpocket men and fail at the shop with 22 (2026-11-07/08) while its bank held 8M.
+const coins = (q: Quest): Need[] => (q.sdk.getState()?.bank?.isOpen ? [{ item: 'coins', count: 1500 }] : []);
 
 await runQuest({
     id: 'crest',
