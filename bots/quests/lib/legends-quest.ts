@@ -1087,8 +1087,10 @@ export async function fillBowl(q: Quest): Promise<void> {
             want('gold bar', 2, { unless: BOWL }),
             want('hammer', 1, { unless: BOWL }),
             ...(book ? [] : TRIALS(q, false)),
-            POTS(2),
-            FOOD_KIT(4),
+            // The octagram's Nezikchened comes on this same trip (the water boils at a jungle chop, so no bank between):
+            // ABGARMY03 walked in with 4 sharks and prayer worn from 93 to 30, and died (2026-11-08).
+            POTS(4),
+            FOOD_KIT(14),
         ],
         'the bowl and the book'
     );
