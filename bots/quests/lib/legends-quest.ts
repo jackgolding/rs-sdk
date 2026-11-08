@@ -1010,7 +1010,10 @@ async function burnPrayerTo(q: Quest, target: number): Promise<void> {
 async function blessBowl(q: Quest): Promise<void> {
     if (blessed(q)) return;
     const t0 = tickNow(q.sdk);
-    for (let round = 1; round <= 20 && !blessed(q); round++) {
+    // Twenty rolls, not twenty passes: altar refills and boat-fare stops counted as rounds, and ABGARMY09 hit the cap after
+    // about eight real rolls at ~35-40% each (2026-11-08). The pass cap only guards against a loop.
+    let rolls = 0;
+    for (let round = 1; round <= 60 && rolls < 20 && !blessed(q); round++) {
         if (prayerPts(q) < BLESS_MIN && !(await drinkPrayer(q, BLESS_MIN))) {
             // No potion: full points at the Ardougne altar, then the next round walks back (withGujuo re-enters the
             // jungle) and burns down. Not a thrown failure: it ate the transition's tries (2026-11-06).
@@ -1036,6 +1039,7 @@ async function blessBowl(q: Quest): Promise<void> {
             (e: Error) => e
         );
         if (err) q.log(`legends: blessing round ${round}: ${err.message}`);
+        if (!err || !/barnaby's fare|out of food|could not reach|walk|route/i.test(err.message)) rolls++;
         // Out of food in a fight: the next rounds would throw at once and burn the cap (ABGARMY07 rounds 3-20 in 1t,
         // 2026-11-06). Restock food first.
         if (err && /out of food/i.test(err.message)) await restock(q, [...BASE(q), FOOD_KIT(4)], 'food for the blessing');
@@ -1044,7 +1048,7 @@ async function blessBowl(q: Quest): Promise<void> {
         else if (err && /barnaby's fare/i.test(err.message)) await restock(q, [...BASE(q), FOOD_KIT(4)], 'coins for the boat');
         if (dialogOpen(q)) await driveDialog(q.sdk, [/no thanks, i'll wait/i, /^ok, thanks\.\.\. goodbye/i], { ticks: 30 });
     }
-    if (!blessed(q)) throw new Error(`legends: the bowl is still unblessed after ${tickNow(q.sdk) - t0}t (prayer ${prayerPts(q)})`);
+    if (!blessed(q)) throw new Error(`legends: the bowl is still unblessed after ${rolls} rolls in ${tickNow(q.sdk) - t0}t (prayer ${prayerPts(q)})`);
     q.log(`legends: the bowl is blessed (prayer now ${prayerPts(q)})`);
 }
 
@@ -1604,7 +1608,9 @@ async function summonFirst(q: Quest): Promise<void> {
 
 export async function slayFirst(q: Quest): Promise<void> {
     await armUp(q);
-    if (!heldId(q, ID.bowlBlessedPure) && !inOctagram(pos(q))) {
+    // With the book lost the fight's food waits: fillBowl packs it after the book trip, and ten sharks taken here left no
+    // room for the gems (ABGARMY03, 2026-11-08).
+    if (!heldId(q, ID.bowlBlessedPure) && !inOctagram(pos(q)) && (heldId(q, ID.book) || q.sdk.getBankItems().some((b) => b.id === ID.book))) {
         await gearUp(q);
         // Optional: a death loses the book, and no bank or mule has one. fillBowl below gets it again (getBook: a search of a
         // carved rock re-runs the puzzle's finish once every gem's bit is set). As a required line it stopped ABGARMY03 on
