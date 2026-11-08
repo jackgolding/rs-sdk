@@ -1600,7 +1600,10 @@ export async function slayFirst(q: Quest): Promise<void> {
     await armUp(q);
     if (!heldId(q, ID.bowlBlessedPure) && !inOctagram(pos(q))) {
         await gearUp(q);
-        await restock(q, [...BASE(q), ...FIGHT_KIT(q), quest('book of binding', ID.book)], 'Nezikchened');
+        // Optional: a death loses the book, and no bank or mule has one. fillBowl below gets it again (getBook: a search of a
+        // carved rock re-runs the puzzle's finish once every gem's bit is set). As a required line it stopped ABGARMY03 on
+        // NEEDS STOCK for good (2026-11-08).
+        await restock(q, [...BASE(q), ...FIGHT_KIT(q), { ...quest('book of binding', ID.book), optional: true }], 'Nezikchened');
     }
     if (!ours(q, /^nezikchened$/i)) {
         if (!inOctagram(pos(q)) && !heldId(q, ID.bowlBlessedPure)) await fillBowl(q);
