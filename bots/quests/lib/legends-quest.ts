@@ -426,12 +426,15 @@ const BASE = (q: Quest): Want[] => [
 /** The trials' kit to the gem room (gems and runes only until the Book of Binding is held or used). */
 const TRIALS = (q: Quest, toWinch: boolean): Want[] => {
     const needBook = stageNum(q) < STAGE_VALUE.freed! && !countId(q, ID.book);
+    // Picking the book up clears every gem bit (book_of_binding.rs2 opobj3), so a book lost after the bowl was filled
+    // needs all seven gems again: ABGARMY03 placed the four it carried and no book appeared (2026-11-08).
+    const lostBook = needBook && stageNum(q) >= STAGE_VALUE.filled!;
     return [
         want('lockpick'),
         { label: 'pickaxe', pattern: /^(rune|adamant|mithril|steel|iron|bronze|dragon) pickaxe$/i, count: 1 },
-        // Optional: a resumed run may have set them already (each rock and the wall keep their bit);
-        // stockCheck stopped an unstocked account at the start.
-        ...(needBook ? GEM_ROCKS.map((g) => want(g.gem, 1, { optional: true })) : []),
+        // Optional before the first book: a resumed run may have set them already (each rock and the wall keep
+        // their bit); stockCheck stopped an unstocked account at the start.
+        ...(needBook ? GEM_ROCKS.map((g) => want(g.gem, 1, { optional: !lostBook })) : []),
         ...(needBook ? [want('soul rune', 1, { optional: true }), want('mind rune', 1, { optional: true }), want('earth rune', 1, { optional: true }), want('law rune', 2, { optional: true })] : []),
         ...(toWinch ? [want('unpowered orb'), want('cosmic rune', 3), want('water rune', 30), want('rope')] : []),
     ];
