@@ -122,8 +122,11 @@ export const RUNE_NEEDS = [
     { item: 'death rune', count: 32 },
     { item: 'air rune', count: 120 },
     { item: 'water rune', count: 6 },
-    { item: 'earth rune', count: 8 },
-    { item: 'fire rune', count: 120 },
+    // The damage casts are Earth Blasts (15 max against Fire Blast's 16): 120 fire runes cost ABGARMY09 2,350 coins at
+    // Aubury, whose price climbs as his stock falls, and still came up short; jackthief banks earth runes, not fire
+    // (2026-11-08). Two Fire Blasts' worth stays for the fire weakness; the blast picker falls back to Earth when fire runs out.
+    { item: 'earth rune', count: 104 },
+    { item: 'fire rune', count: 10 },
 ];
 export const FOOD = { item: 'shark', count: 8 };
 export const FISH = ['shrimps', 'salmon', 'tuna', 'bass', 'swordfish'];
