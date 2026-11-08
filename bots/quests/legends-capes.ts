@@ -5,7 +5,7 @@
  *
  *   bun bots/quests/legends-capes.ts {botname} [--rounds=6] [--also='dusty key']
  *
- * Banked in this account; a mule-produce --deliver item after it carries them to jackthief.
+ * Banked in this account: a cape of legends is tradeable=no, so it cannot go to a mule.
  */
 import { runTask, type Quest } from './lib/run-quest';
 import { itemPattern } from './lib/sources';

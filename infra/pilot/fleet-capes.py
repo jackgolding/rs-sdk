@@ -2,7 +2,8 @@
 """
 Stockpile capes of legends (user, 2026-11-08): fleet-capes.timer runs this every 4 hours. It queues, at the front of
 one finished account's todo list (accounts that have completed Legends, in rotation, least recently used first),
-a legends-capes.ts buy-out over several restocks and then a mule-produce delivery of the capes to jackthief.
+a legends-capes.ts buy-out over several restocks. The capes stay in that account's bank: a cape of legends is
+tradeable=no (the first delivery to jackthief failed offer_failed ten times, 2026-11-08).
 Skips a turn while the last queued run has not finished. --dry prints the choice and writes nothing.
 """
 import datetime, json, os, sys
@@ -44,11 +45,10 @@ def main():
     acct = sorted(finished, key=lambda a: mem["last"].get(a, ""))[0]
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M")
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    buy, give = f"capes-{stamp}", f"capes-deliver-{stamp}"
+    buy = f"capes-{stamp}"
     meta = {"addedAt": now, "canaryRunId": "fleet-capes", "note": "user: stockpile capes of legends"}
     items = [
         {"questId": buy, "script": "bots/quests/legends-capes.ts", "args": ["--rounds=8"], "capMin": 90, **meta},
-        {"questId": give, "script": "bots/quests/mule-produce.ts", "args": [f"--deliver={MULE}", "--give=cape of legends:200"], "capMin": 30, "after": [buy], **meta},
     ]
     print(f"queue {buy} on {acct}")
     if DRY:
@@ -61,7 +61,7 @@ def main():
         json.dump(full, f, indent=2)
     os.replace(tmp, path)
     mem["last"][acct] = now
-    mem["pending"] = [acct, give]
+    mem["pending"] = [acct, buy]
     with open(MEMORY + ".tmp", "w") as f:
         json.dump(mem, f, indent=1)
     os.replace(MEMORY + ".tmp", MEMORY)
