@@ -834,6 +834,11 @@ async function withGujuo(q: Quest, choices: Array<RegExp | string>, goal: RegExp
     const talk = async () => {
         const seen = await driveDialog(q.sdk, choices, { done, ticks: 150, log: q.log });
         all += ` || ${seen}`;
+        // Stand still while a script runs on with the dialog shut: Gujuo's blessing closes it for the meditation, and a
+        // success swaps the bowl only after its objbox is clicked (gujuo.rs2). A walk or bullroarer swing in that gap
+        // cancels the script, so failures (prayer taken first) counted and successes never landed: ABGARMY09 failed
+        // 40+ rolls in two runs (2026-11-08).
+        if (!done() && !dialogOpen(q)) await untilTicks(q.sdk, () => done() || dialogOpen(q), 20);
     };
     for (let attempt = 1; attempt <= 10 && !reached() && tickNow(q.sdk) - t0 < 900; attempt++) {
         if (!dialogOpen(q)) {
