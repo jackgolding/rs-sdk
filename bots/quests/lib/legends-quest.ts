@@ -1090,12 +1090,14 @@ export async function fillBowl(q: Quest): Promise<void> {
             want('gold bar', 2, { unless: BOWL }),
             want('hammer', 1, { unless: BOWL }),
             ...(book ? [] : TRIALS(q, false)),
-            // The octagram's Nezikchened comes on this same trip (the water boils at a jungle chop, so no bank between):
-            // ABGARMY03 walked in with 4 sharks and prayer worn from 93 to 30, and died (2026-11-08).
-            POTS(4),
-            FOOD_KIT(14),
+            // With the book held, the octagram's Nezikchened comes on this same trip (the water boils at a jungle chop, so
+            // no bank between): ABGARMY03 walked in with 4 sharks and prayer worn from 93 to 30, and died (2026-11-08).
+            // Without it, the gems and the fight's food do not fit in one pack (ABGARMY03's 14 sharks left no room for
+            // jackthief's gems, 2026-11-08): the book trip goes light and the fight's kit comes after it.
+            POTS(book ? 4 : 1),
+            FOOD_KIT(book ? 14 : 4),
         ],
-        'the bowl and the book'
+        book ? 'the bowl and the fight' : 'the bowl and the book'
     );
     await makeBowl(q);
     const hammer = held(q, /^hammer$/i);
@@ -1104,6 +1106,7 @@ export async function fillBowl(q: Quest): Promise<void> {
         await enterCaves(q);
         await getBook(q);
         await leaveCaves(q);
+        await restock(q, [...BASE(q), quest('book of binding', ID.book), POTS(4), FOOD_KIT(14)], 'the octagram fight');
     }
     await blessBowl(q);
     await reedInPool(q, () => !!heldId(q, ID.bowlBlessedPure));
