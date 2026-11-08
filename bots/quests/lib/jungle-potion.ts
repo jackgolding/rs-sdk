@@ -104,9 +104,25 @@ async function opLoc(q: Quest, id: number, opt: RegExp, done: () => boolean, lab
 
 // ── the boats
 
+const ARDOUGNE_BANK_TILE = { x: 2655, z: 3283 };
+/** Coins from the Ardougne bank (the pack banked as it is, nothing else touched). Best effort. */
+async function coinsFromArdougneBank(q: Quest, want: number): Promise<void> {
+    await q.goTo(ARDOUGNE_BANK_TILE, 4).catch(() => undefined);
+    const opened = await q.bot.openBank().catch(() => ({ success: false }));
+    if (!opened.success && !q.sdk.getState()?.bank?.isOpen) return;
+    const c = q.sdk.getBankItems().find((b) => /^coins$/i.test(b.name) && b.count > 0);
+    if (c) await q.bot.withdrawItem(c, Math.min(c.count, Math.max(0, want - q.count('coins')))).catch(() => undefined);
+    await untilTicks(q.sdk, () => q.count('coins') >= FARE, 4);
+    await q.bot.closeBank().catch(() => undefined);
+    q.log(`jungle: ${q.count('coins')} coins from the Ardougne bank for the boat`);
+}
+
 /** Ardougne docks → Brimhaven (Captain Barnaby, 30gp), down the gangplank. */
 async function sailToBrimhaven(q: Quest): Promise<void> {
     const t0 = tickNow(q.sdk);
+    // Short of the fare at the Ardougne docks: the Ardougne bank is a short walk (jacklove7 failed Legends at 28 coins,
+    // ABGARMY06 and ABGARMY09 burnt blessing rounds at 1 coin, 2026-11-08).
+    if (q.count('coins') < FARE) await coinsFromArdougneBank(q, 300);
     if (q.count('coins') < FARE) throw new Error(`jungle: ${q.count('coins')} coins, Barnaby's fare is ${FARE}`);
     for (let i = 0; i < 3 && !onIsland(pos(q)); i++) {
         await q.talk(/^captain barnaby$/i, [/^yes please/i], BARNABY);
