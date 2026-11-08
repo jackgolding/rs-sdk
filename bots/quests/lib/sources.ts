@@ -754,6 +754,8 @@ export const SOURCES: Record<string, Source> = {
      */
     'bronze wire': {
         obj: 'bronzecraftwire',
+        // jackthief first: Smithing 1 accounts (jacklove7, ABGARMY09) have no trainer for the 4 this needs (2026-11-08).
+        muleSupply: 'jackthief',
         levels: { smithing: 4 },
         inputs: () => [
             { item: 'bronze bar', count: 1 },
