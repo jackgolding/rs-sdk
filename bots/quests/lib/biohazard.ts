@@ -37,6 +37,7 @@
  *     complete.
  */
 import type { Quest } from './run-quest';
+import { SOURCES } from './sources';
 import { driveDialog } from './dialog';
 import { tickNow, untilTicks } from './ticks';
 import { dialogText, findLoc, holds, inWestArdougne, leavePlagueCity, op, pickUp, pos, useOn, wearing, where } from './plague-city';
@@ -463,6 +464,13 @@ export async function smuggleVials(q: Quest, round = 1): Promise<void> {
 
 export async function seeGuidor(q: Quest): Promise<void> {
     await crossMembersGate(q, true);
+    // Prepare counts 'priest gown' by name, so a second top passes for the pair: jacklove3 reached Guidor with two
+    // tops and no bottom (2026-11-09). The source buys the missing id at Thessalia, a short walk in Varrock.
+    const gown = (id: number) => [...q.sdk.getInventory(), ...q.sdk.getEquipment()].some((i) => i.id === id);
+    if (!gown(OBJ.priestGown) || !gown(OBJ.priestRobe)) {
+        q.log(`biohazard: priest gown ${gown(OBJ.priestGown) ? '' : 'top '}${gown(OBJ.priestRobe) ? '' : 'bottom '}missing — Thessalia's`);
+        await SOURCES['priest gown']!.get!(q, 2);
+    }
     await wear(q, OBJ.priestGown, 'priest gown');
     await wear(q, OBJ.priestRobe, 'priest gown (bottom)');
     const guidorHere = () => !!q.sdk.findNearbyNpc(/^guidor$/i, { reachable: true });
