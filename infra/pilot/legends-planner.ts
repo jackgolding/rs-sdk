@@ -136,7 +136,8 @@ const SKILLS: Record<string, Record<string, number>> = {
     legends: { magic: 56, mining: 52, agility: 50, crafting: 50, smithing: 50, strength: 50, thieving: 50, woodcutting: 50, herblore: 45, prayer: 42 },
     heroes: { mining: 50, herblore: 25, fishing: 53, cooking: 53 },
     crest: { mining: 40, crafting: 40, smithing: 40, magic: 59 },
-    zombiequeen: { agility: 32, crafting: 20 },
+    // Smithing 4: the bronze wire when jackthief has none (lib/sources.ts).
+    zombiequeen: { agility: 32, crafting: 20, smithing: 4 },
     upass: { ranged: 25 },
     waterfall: { magic: 25 },
     lostcity: { crafting: 31, woodcutting: 36, magic: 31 },
@@ -426,8 +427,9 @@ for (const a of chosen) {
 // Pairs: Arrav for any two that need it; Heroes for two of opposite gangs whose Heroes prerequisites are done.
 const pairable = (a: Acct, quest: string) =>
     !a.done.has(quest) && !live(a, quest) && (!exhausted(a, quest) || NOW - Math.max(0, ...a.items.filter((i) => questForItem(i)?.id === quest).map((i) => Date.parse(a.st[i.questId]?.lastAt ?? '') || 0)) >= READD_AFTER_MS) && a.running !== 'legends';
+// Hero's Quest also wants 55 QP (heroes_guard): short of it the pair would spend both runs on the gate.
 const heroesReady = (a: Acct) =>
-    a.done.has('arrav') && a.gang && ['lostcity', 'arthur', 'dragon'].every((q) => a.done.has(q)) &&
+    a.done.has('arrav') && a.gang && ['lostcity', 'arthur', 'dragon'].every((q) => a.done.has(q)) && qpDone(a) >= 55 &&
     Object.entries({ ...SKILLS.heroes, ...(a.gang === 'phoenix' ? { magic: 35 } : {}) }).every(([s, l]) => PROLOGUE_TRAINED.has(s) || (a.levels[s] ?? 0) >= l);
 function queuePair(quest: 'arrav' | 'heroes', phx: Acct, blk: Acct) {
     for (const [a, gang, partner] of [[phx, 'phoenix', blk], [blk, 'blackarm', phx]] as const) {
