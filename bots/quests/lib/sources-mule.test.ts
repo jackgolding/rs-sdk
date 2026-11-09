@@ -7,7 +7,7 @@ describe('prepareMulesFor', () => {
     test('asks jackthief for an unnamed source it holds, not mid-run, not itself, not on a stale snapshot', async () => {
         const root = mkdtempSync(join(tmpdir(), 'mule-'));
         mkdirSync(join(root, 'bots', '.mule-stock'), { recursive: true });
-        const write = (at: number) => writeFileSync(join(root, 'bots', '.mule-stock', 'jackthief.json'), JSON.stringify({ at, items: { 'snape grass': 1055 } }));
+        const write = (at: number) => writeFileSync(join(root, 'bots', '.mule-stock', 'jackthief.json'), JSON.stringify({ at, items: { 'snape grass': 1055, 'staff of fire': 45 } }));
         write(Date.now());
         const cwd = process.cwd();
         process.chdir(root);
@@ -17,6 +17,8 @@ describe('prepareMulesFor', () => {
             expect(mulesFor('snape grass')).toEqual([]); // mid-run lookups unchanged
             expect(prepareMulesFor('dwellberries')).toEqual([]); // not held
             expect(prepareMulesFor('knife')).toEqual(['jackthief']); // a named mule still wins
+            expect(prepareMulesFor('fire staff')).toEqual(['jackthief']);
+            expect(prepareMulesFor('pickaxe')).toEqual([]); // a group none of whose members it holds
         } finally {
             process.chdir(cwd);
         }

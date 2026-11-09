@@ -106,7 +106,8 @@ function fallbackMuleHolds(item: string): boolean {
         }
     }
     if (!fallbackStock || Date.now() - fallbackStock.at > 30 * 60_000) return false;
-    return (fallbackStock.items?.[item.toLowerCase()] ?? 0) > 0;
+    // A group ('fire staff') is held by any of its members ('staff of fire', 'fire battlestaff').
+    return [item, ...(GROUPS[item]?.map((m) => m.item) ?? [])].some((name) => (fallbackStock!.items?.[name.toLowerCase()] ?? 0) > 0);
 }
 
 /**
@@ -646,6 +647,9 @@ export const SOURCES: Record<string, Source> = {
     'fire staff': {
         obj: 'staff_of_fire',
         tool: true,
+        // jackthief banks staffs (45 of fire, 6 fire battlestaves): Zaff's shelf was empty for ABGARMY04's Heroes'
+        // twice, 13 minutes each (2026-11-09).
+        muleSupply: 'jackthief',
         inputs: () => [{ item: 'coins', count: 1500 }],
         get: async (q) => {
             await q.ensure('coins', 1500);
