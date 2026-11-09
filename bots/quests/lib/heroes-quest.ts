@@ -127,6 +127,8 @@ const GRIP_CUPBOARD = { x: 2775, z: 3196 };
 const CUPBOARD_STAND = { x: 2776, z: 3197 };
 const TREASURE_DOOR = { x: 2764, z: 3197 };
 const TREASURE_OUTSIDE = { x: 2763, z: 3197 };
+/** Just inside Garv's door. */
+const MANSION_HALL = { x: 2774, z: 3189 };
 const CANDLE_CHEST = { x: 2766, z: 3199 };
 const GRUBOR_DOOR = { x: 2811, z: 3170 };
 /** West of the door: the hideout is east and north of it (Grubor stands on the door's tile). */
@@ -662,9 +664,16 @@ export async function lootTreasure(q: Quest, pair: Pair): Promise<void> {
     }
     if (!holds(q, OBJ.gripKeys)) await lureGrip(q, pair);
     // The keyring on the treasure door from the corridor west of it; the room is entered there.
-    const inTreasure = () => inBox(pos(q), 2764, 2775, 3197, 3200);
+    // The room is x 2764-2769, z 3196-3199 (every tile there reaches the chest, none at x 2770+ or z 3200 does; probed
+    // on the local gate, 2026-11-09). The old box ran to x 2775 and took in Grip's room, where the keyring is picked
+    // up: jacklove4 and ABGARMY20 skipped the door at (2774,3197) and searched a chest they could not reach.
+    const inTreasure = () => inBox(pos(q), 2764, 2769, 3196, 3199);
     if (!inTreasure()) {
         await enterMansion(q);
+        // From Grip's room (where his keyring drops) walkTo routes through the locked treasure doors, (2770,3197) and the
+        // one this key opens, and gives up beside the room; from the hall inside Garv's door it finds the corridor (the
+        // fleet's retries that worked all started there; probed on the local gate, 2026-11-09).
+        if (inBox(pos(q), 2771, 2779, 3196, 3200)) await q.bot.walkTo(MANSION_HALL.x, MANSION_HALL.z, 1).catch(() => undefined);
         await q.bot.walkTo(TREASURE_OUTSIDE.x, TREASURE_OUTSIDE.z, 0).catch(() => undefined);
         await useOn(q, OBJ.gripKeys, TREASURE_DOOR, /^door$/i, inTreasure, "Grips' keyring on the treasure room door", 15);
     }
