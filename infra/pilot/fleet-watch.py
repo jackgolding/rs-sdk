@@ -7,18 +7,22 @@ Flags to /srv/fleet/state/fleet-alerts.log (and stdout, so the journal has it):
   GAVE_UP      a Legends-path quest used its last try
   REARMED      ...and its failures were only stock or a missing record, so it was re-armed
   STALLED      a running account has logged nothing for STALL_MIN minutes
+  RESTARTED    ...and nothing for RESTART_MIN, so its quest container was restarted (the roster job resumes;
+               a quest resumes from its journal stage). At most RESTART_MAX a day, RESTART_MIN apart.
+  STUCK        ...still silent after RESTART_MAX restarts today: needs a person
   DOWN         a rostered account's container isn't running
   STOCK_WAIT   a quest has been waiting on stock for STOCK_WAIT_MIN minutes
 
 Re-arming writes bots/<Bot>/todo-rearm.json, which todo-runner consumes; it never touches
 todo-state.json (a running runner would clobber that) and restarts nothing. It's allowed only for
 recent failures that spent no game progress. The same (account, quest) is re-armed at most REARM_MAX times
-a day, so a real fault still ends in GAVE_UP. Anything else is only recorded.
+a day, so a real fault still ends in GAVE_UP. A stall is the one thing it acts on: jacklove2 sat hung for
+20 hours and ABGARMY03 for 7 behind STALLED alerts nobody read (2026-11-09, user: "they shouldn't stay this stuck").
 
   --dry   report, write nothing (no offsets, no alerts, no re-arms)
 
 Environment for tests: FLEET_BOTS_DIR, FLEET_STATE_DIR, FLEET_WATCH_RUNNING (comma-separated
-lower-case account names instead of asking docker).
+lower-case account names instead of asking docker; with it set, restarts are only recorded).
 """
 import calendar
 import json
@@ -38,6 +42,9 @@ STALL_MIN = 45
 # A serve-only mule logs only when asked.
 MULE_STALL_MIN = 360
 STOCK_WAIT_MIN = 120
+RESTART_MIN = 90
+MULE_RESTART_MIN = 720
+RESTART_MAX = 3
 REPEAT_S = 6 * 3600
 # A failure older than this was settled by hand or doesn't matter: never re-armed or flagged.
 RECENT_S = 6 * 3600
@@ -84,6 +91,17 @@ def running_accounts():
     return {m.group(1) for m in map(re.compile(r"^fleet-quest-(.+)-1$").match, out.split()) if m}
 
 
+def restart_container(low):
+    """Restart an account's quest container; True on success. Recorded only under tests."""
+    if os.environ.get("FLEET_WATCH_RUNNING") is not None:
+        return True
+    try:
+        r = subprocess.run(["docker", "restart", "-t", "150", f"fleet-quest-{low}-1"], capture_output=True, text=True, timeout=240)
+        return r.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def script_key(script):
     return os.path.basename(script).removesuffix(".ts")
 
@@ -113,6 +131,7 @@ def iso_seconds(stamp):
 
 def main():
     mem = read_json(MEMORY, {"offsets": {}, "said": {}, "rearmed": {}})
+    mem.setdefault("restarted", {})
     now = time.time()
     alerts = []
 
@@ -181,9 +200,22 @@ def main():
             continue
         mem["said"].pop(f"down:{name}", None)
         latest = max((os.path.getmtime(p) for p in (grind, os.path.join(d, "events.log")) if os.path.exists(p)), default=0)
-        limit = MULE_STALL_MIN if "quest-mule" in " ".join(map(str, bot.get("args", []))) else STALL_MIN
+        mule = "quest-mule" in " ".join(map(str, bot.get("args", [])))
+        limit = MULE_STALL_MIN if mule else STALL_MIN
         if latest and now - latest >= limit * 60:
-            say(f"stall:{name}", "STALLED", name, f"no log line for {int((now - latest) / 60)}m", REPEAT_S)
+            quiet = int((now - latest) / 60)
+            say(f"stall:{name}", "STALLED", name, f"no log line for {quiet}m", REPEAT_S)
+            restart_after = (MULE_RESTART_MIN if mule else RESTART_MIN) * 60
+            today = [t for t in mem["restarted"].get(name, []) if now - t < DAY_S]
+            # A restart's own first log line may take a while (the drain, the prologue): never two back to back.
+            if now - latest >= restart_after and (not today or now - today[-1] >= restart_after):
+                if len(today) < RESTART_MAX:
+                    ok = DRY or restart_container(low)
+                    if not DRY:
+                        mem["restarted"][name] = today + [now]
+                    say(f"restarted:{name}:{now}", "RESTARTED", name, f"no log line for {quiet}m; quest container restarted ({len(today) + 1}/{RESTART_MAX} today)" + ("" if ok else " — docker restart FAILED"))
+                else:
+                    say(f"stuck:{name}", "STUCK", name, f"no log line for {quiet}m after {RESTART_MAX} restarts today: needs a person", REPEAT_S)
         elif latest:
             mem["said"].pop(f"stall:{name}", None)
 
@@ -195,6 +227,7 @@ def main():
         with open(ALERTS, "a") as f:
             f.write("\n".join(alerts) + "\n")
     mem["said"] = {k: v for k, v in mem["said"].items() if now - v < 14 * DAY_S}
+    mem["restarted"] = {k: [t for t in v if now - t < DAY_S] for k, v in mem["restarted"].items() if any(now - t < DAY_S for t in v)}
     write_json(MEMORY, mem)
 
 
