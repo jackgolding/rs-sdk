@@ -60,7 +60,8 @@ describe('legends planner', () => {
     });
 
     test('Heroes pairs opposite gangs once the prerequisites are done', () => {
-        const pre = ['arrav', ...DONE_HEROES_PREREQS];
+        // 55 QP: Hero's Quest's own gate (arthur 6 + dragon 2 + lostcity 3 + arrav 1 + these).
+        const pre = ['arrav', ...DONE_HEROES_PREREQS, 'gobdip', 'romeojuliet', 'haunted', 'demon', 'fortress', 'vampire', 'prince', 'hunt', 'murder', 'sheepherder', 'grandtree', 'priestperil', 'tree', 'itexam', 'druidspirit', 'touristtrap'];
         const f = fleet([
             { name: 'P1', done: pre, gang: 'phoenix' },
             { name: 'B1', done: pre, gang: 'blackarm' },
@@ -69,7 +70,14 @@ describe('legends planner', () => {
         const out = f.run();
         expect(out).toContain('PAIR heroes: P1 (phoenix) + B1 (blackarm)');
         expect(out).toContain('P2: Heroes ready, waits for a Black Arm partner');
+        expect(out).not.toContain('Heroes ready, waits for a Phoenix');
         expect(f.list('B1')[0]).toMatchObject({ questId: 'heroes', capMin: 300, args: ['--gang=blackarm', '--partner=P1'] });
+    });
+
+    test('Heroes waits below 55 QP', () => {
+        const pre = ['arrav', ...DONE_HEROES_PREREQS];
+        const f = fleet([{ name: 'P1', done: pre, gang: 'phoenix' }, { name: 'B1', done: pre, gang: 'blackarm' }]);
+        expect(f.run()).not.toContain('PAIR heroes');
     });
 
     test('training: Magic by alchemy and Smithing by Knight\'s Sword go first; untrainable skills are reported', () => {
