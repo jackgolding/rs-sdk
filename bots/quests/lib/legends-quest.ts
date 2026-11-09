@@ -1389,12 +1389,18 @@ async function leaveOctagram(q: Quest): Promise<void> {
     await untilTicks(q.sdk, () => !inOctagram(pos(q)), 6);
 }
 
+/** How long to wait for another player to leave the octagram: one Nezikchened fight plus a margin. */
+const OCTAGRAM_BUSY_TICKS = 1500;
 /** Into the octagram: sacred water on the flames until the demon is slain; after, the flames part. */
-async function enterOctagram(q: Quest): Promise<void> {
+export async function enterOctagram(q: Quest): Promise<void> {
     if (inOctagram(pos(q))) return;
     await toCaveRegion(q, 'A');
     await walk(q, CAVE.nearOctagram, 1);
+    // quest_legends.rs2 player_in_fire_octagram: with another player inside, every fire wall op only says "The shaman
+    // looks busy" and costs nothing (no bowl use). ABGARMY03 spent its four tries on that (2026-11-08); wait it out.
+    const busySince = tickNow(q.sdk);
     for (let attempt = 1; attempt <= 4 && !inOctagram(pos(q)); attempt++) {
+        const mark = lastMsgId(q);
         const wall = await findLoc(q, /^fire wall$/i, undefined, CAVE.ungadulu, 8).then(async () =>
             (await locs(q, 6)).filter((l) => /^fire wall$/i.test(l.name)).sort((a, b) => dist(a, pos(q)) - dist(b, pos(q)))[0]
         );
@@ -1405,8 +1411,13 @@ async function enterOctagram(q: Quest): Promise<void> {
             await useOnLoc(q, ID.bowlBlessedPure, wall, () => inOctagram(pos(q)), [], 12);
         }
         await untilTicks(q.sdk, () => inOctagram(pos(q)), 4);
+        if (!inOctagram(pos(q)) && /shaman looks busy/i.test(msgsSince(q, mark)) && tickNow(q.sdk) - busySince < OCTAGRAM_BUSY_TICKS) {
+            if (attempt === 1 || attempt % 10 === 0) q.log(`legends: another player is in the octagram; waiting (${tickNow(q.sdk) - busySince}t)`);
+            await q.sdk.waitForTicks(20);
+            attempt--; // a busy shaman is not a try
+        }
     }
-    if (!inOctagram(pos(q))) throw new Error(`legends: could not get into the octagram (at ${where(q)})`);
+    if (!inOctagram(pos(q))) throw new Error(`legends: could not get into the octagram (at ${where(q)}${tickNow(q.sdk) - busySince >= OCTAGRAM_BUSY_TICKS ? ', busy the whole wait' : ''})`);
 }
 
 /** The gem room's seven rocks, then the book. */
@@ -2053,10 +2064,11 @@ export async function growTotem(q: Quest): Promise<void> {
     if (!inKharazi(pos(q))) throw new Error(`legends: not in the jungle after the caves (at ${where(q)})`);
     await walk(q, { x: SOIL.x + 1, z: SOIL.z }, 1);
     const at = () => findLoc(q, /yommi|totem pole|fertile soil/i, undefined, SOIL, 6).then((l) => (l && l.x === SOIL.x && l.z === SOIL.z ? l : undefined));
-    const t0 = tickNow(q.sdk);
+    let t0 = tickNow(q.sdk);
     // Each op changes the loc; a step that leaves it unchanged for 3 tries (or 600 ticks) stops.
     let lastName = '';
     let same = 0;
+    let seedRounds = 0;
     while (!heldId(q, ID.totem) && tickNow(q.sdk) - t0 < 600 && same < 3) {
         const loc = await at();
         if (!loc) throw new Error(`legends: nothing at the fertile soil (${SOIL.x},${SOIL.z})`);
@@ -2068,7 +2080,22 @@ export async function growTotem(q: Quest): Promise<void> {
         if (n === 'fertile soil') await defend(q);
         const changed = async () => ((await at())?.name.toLowerCase() ?? '') !== n;
         if (n === 'fertile soil') {
-            if (!countId(q, ID.seedsGerm)) throw new Error('legends: no germinated seeds to plant');
+            if (!countId(q, ID.seedsGerm)) {
+                // Planting is a Herblore roll (stat_random(herblore, 40, 243): about even at 45) and a miss withers the
+                // seed: jacklove7 lost all three and failed the run (2026-11-08). Ungadulu gives three more once none are held.
+                if (++seedRounds > 3) throw new Error('legends: no germinated seeds to plant after three rounds of seeds');
+                q.log(`legends: every seed withered at the soil; three more from Ungadulu (round ${seedRounds})`);
+                await recoverSeeds(q);
+                if (!heldId(q, ID.bowlBlessedPure)) await collectWater(q);
+                if (!heldId(q, ID.bowlBlessedPure)) throw new Error('legends: no sacred water for the new seeds');
+                await freeSlot(q);
+                await leaveCaves(q);
+                await walk(q, { x: SOIL.x + 1, z: SOIL.z }, 1);
+                t0 = tickNow(q.sdk);
+                same = 0;
+                lastName = '';
+                continue;
+            }
             // quest_legends.rs2 refuses to plant without pure water: fail now, the retry refills at the source.
             if (!heldId(q, ID.bowlBlessedPure)) throw new Error('legends: the bowl is empty at the soil; the next attempt refills it at the source');
             await useOnLoc(q, ID.seedsGerm, loc, () => false, [], 4).catch(() => undefined);
