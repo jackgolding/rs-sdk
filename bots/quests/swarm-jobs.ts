@@ -38,6 +38,9 @@
 //            At { until: N } (default 99): all tickets into rune arrows, the coins it carries
 //            into rune arrows and arrowheads, everything banked at Seers including worn gear, park.
 //   essence  Rune essence via Aubury (Rune Mysteries, a pickaxe), banking at Varrock east.
+//   cannonballs  Steel bars into cannonballs at the Al Kharid furnace (Dwarf Cannon's ammo mould,
+//            Smithing 35). Starts and ends at Al Kharid bank with an empty pack: 1 mould + 27 bars
+//            a trip, banks the cannonballs, and parks once the bank has no steel bars left.
 
 import { fileURLToPath } from 'node:url';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -148,6 +151,24 @@ const PICKS: Array<[RegExp, number]> = [
 ];
 const MINE_IDLE_TICKS = 4;
 const inEssenceMine = (t: Tile) => t.x >= 2860 && t.x <= 3040 && t.z >= 4760 && t.z <= 4940;
+
+// --- cannonballs (skill_smithing/scripts/smelting/cannonballs.rs2: steel bar used on a furnace,
+// one bar per use, 4 cannonballs and 37.5 XP, ~7 ticks; no interface, so nothing for a level-up to cancel)
+const AL_KHARID_BANK: Tile = { x: 3269, z: 3167 };
+/** Beside the real furnace (2781 at 3272,3185; 2785 at 3273,3184 is an option-less decoy). */
+const AL_KHARID_FURNACE_STAND: Tile = { x: 3275, z: 3185 };
+const AMMO_MOULD_RE = /^ammo mould$/i;
+const STEEL_BAR_RE = /^steel bar$/i;
+const CANNONBALL_RE = /^cannonball$/i;
+const CANNONBALL_SMITHING = 35;
+const CANNONBALLS_PER_BAR = 4;
+const STEEL_BARS_TAKE = 27; // 28 slots less the mould; cannonballs stack
+/** A use that has not eaten a bar by now is sent again (a bar is ~7 ticks, more under lag). */
+const SMELT_REFIRE_TICKS = 12;
+/** Uses in a row that eat no bar before the account stops (wrong furnace, no members world). */
+const SMELT_MAX_DRY = 5;
+/** Trips in a row that came back with no bars while the bank still showed some. */
+const SMELT_MAX_EMPTY_TRIPS = 3;
 
 // ------------------------------------------------------------------ fleet log files
 
@@ -1461,6 +1482,157 @@ class EssenceBot extends JobBot {
     }
 }
 
+// ------------------------------------------------------------------ cannonballs
+
+/**
+ * Al Kharid bank -> furnace -> bank until the bank runs out of steel bars. Expects to start at
+ * Al Kharid bank (no toll gate on either leg); the first hub visit banks whatever is held.
+ * Dwarf Cannon is checked through its reward: no ammo mould in the bank or pack stops the
+ * account (Nulodion at the Black Guard camp sells a replacement after the quest).
+ */
+class CannonballBot extends JobBot {
+    readonly hub = AL_KHARID_BANK;
+    private lastBars = -1;
+    private lastXp = -1;
+    private fireTick = -99;
+    private progressTick = -99;
+    private dry = 0;
+    /** Steel bars the bank showed on the last visit (-1 before the item list arrived). */
+    private bankBars = -1;
+    private emptyTrips = 0;
+    private outOfBars = false;
+    readonly stats = { bars: 0, cannonballs: 0, xp: 0 };
+    private window = { bars: 0, xp: 0 };
+
+    constructor(name: string, botsDir: string, heartbeatMs: number, _opts: JobOptions = {}) {
+        super(name, 'swarm-cannonballs', botsDir, heartbeatMs);
+    }
+
+    override attach(session: LiteSession): void {
+        super.attach(session);
+        this.lastBars = this.lastXp = -1;
+        this.fireTick = this.progressTick = -99;
+        this.dry = 0;
+    }
+
+    protected kit(s: BotWorldState): BankPlan {
+        if (s.bank.isOpen && s.bank.items.length > 0) {
+            this.bankBars = s.bank.items.filter(i => STEEL_BAR_RE.test(i.name)).reduce((a, i) => a + i.count, 0);
+        }
+        return {
+            hub: AL_KHARID_BANK,
+            keep: AMMO_MOULD_RE,
+            withdraw: this.outOfBars
+                ? []
+                : [
+                      // Not `required`: afterBank names the quest when the mould is missing, and an empty
+                      // bar stock is the end of the job, not a NEEDS STOCK failure.
+                      { match: n => AMMO_MOULD_RE.test(n), label: 'ammo mould', count: 1, required: false },
+                      { match: n => STEEL_BAR_RE.test(n), label: 'steel bar', count: STEEL_BARS_TAKE, required: false }
+                  ]
+        };
+    }
+
+    protected override travelToHub(s: BotWorldState, hub: Tile): void {
+        this.walkRoute(s, 'cannonballs-bank', [hub], 'to bank');
+    }
+
+    protected override afterBank(r: { missing: string[]; deposited: number }, s: BotWorldState): void {
+        const lvl = skill(s, 'Smithing')?.baseLevel ?? 1;
+        if (lvl < CANNONBALL_SMITHING) {
+            this.fail('level', `Smithing ${lvl} < ${CANNONBALL_SMITHING}: cannot make cannonballs`);
+            return;
+        }
+        if (!s.inventory.some(i => AMMO_MOULD_RE.test(i.name))) {
+            this.fail('quest', 'NEEDS STOCK: ammo mould (no mould in bank or pack: is Dwarf Cannon complete? Nulodion sells a replacement)');
+            return;
+        }
+        const bars = countIn(s, STEEL_BAR_RE);
+        if (bars === 0) {
+            if (this.bankBars > 0 && ++this.emptyTrips < SMELT_MAX_EMPTY_TRIPS) {
+                this.log.log('WARN', `bank shows ${this.bankBars} steel bars but none came out: trying the bank again`);
+                return; // work() sees no bars and sends us straight back
+            }
+            this.outOfBars = true;
+            this.stopping = true;
+            const msg = `No steel bars left: ${this.stats.bars} bars into ${this.stats.cannonballs} cannonballs this run; banking the mould and parking`;
+            this.log.log('LOG', msg);
+            this.log.event({ type: 'progress', kind: 'done', message: msg });
+            return;
+        }
+        this.emptyTrips = 0;
+        this.log.log('LOG', `Banked ${r.deposited} | trip ${this.trips} | ${bars} bars out, ${this.bankBars} left in bank | total ${this.stats.cannonballs} cannonballs`);
+        this.log.event({ type: 'progress', kind: 'inventory', message: `trip ${this.trips}` });
+    }
+
+    protected summary(): string {
+        const w = this.window;
+        this.window = { bars: 0, xp: 0 };
+        return `cannonballs 60s: ${w.bars} bars +${w.xp}xp | total ${this.stats.bars} bars ${this.stats.cannonballs} cannonballs`;
+    }
+
+    protected work(s: BotWorldState): void {
+        const lvl = skill(s, 'Smithing')?.baseLevel ?? 1;
+        if (lvl < CANNONBALL_SMITHING) {
+            this.fail('level', `Smithing ${lvl} < ${CANNONBALL_SMITHING}: cannot make cannonballs`);
+            return;
+        }
+        const xp = skill(s, 'Smithing')?.experience ?? 0;
+        const bars = countIn(s, STEEL_BAR_RE);
+        // Score from deltas: a bar gone (the script's last step deletes it) is one finished smelt.
+        if (this.lastBars >= 0 && bars < this.lastBars) {
+            const used = this.lastBars - bars;
+            this.stats.bars += used;
+            this.stats.cannonballs += used * CANNONBALLS_PER_BAR;
+            this.window.bars += used;
+            this.progressTick = this.tick;
+            this.dry = 0;
+            this.effect();
+        }
+        if (this.lastXp >= 0 && xp > this.lastXp) {
+            this.stats.xp += xp - this.lastXp;
+            this.window.xp += xp - this.lastXp;
+        }
+        this.lastBars = bars;
+        this.lastXp = xp;
+
+        if (!s.inventory.some(i => AMMO_MOULD_RE.test(i.name))) {
+            this.log.log('WARN', 'No ammo mould in pack: back to the bank');
+            this.phase = 'hub';
+            return;
+        }
+        if (bars === 0) {
+            this.log.log('LOG', `Pack done: ${countIn(s, CANNONBALL_RE)} cannonballs held, banking`);
+            this.phase = 'hub';
+            return;
+        }
+
+        const furnace = s.nearbyLocs
+            .filter(l => /furnace/i.test(l.name) && l.optionsWithIndex.some(o => /^smelt$/i.test(o.text)))
+            .sort((a, b) => a.distance - b.distance)[0];
+        if (!furnace || dist(here(s), AL_KHARID_FURNACE_STAND) > 3) {
+            this.walkRoute(s, 'cannonballs-furnace', [AL_KHARID_FURNACE_STAND], 'to furnace');
+            return;
+        }
+
+        // The next bar goes on one tick after the last one was used up (the same tick it shows
+        // often gets "Nothing interesting happens"); a use that ate nothing is re-sent after a pause.
+        if (this.progressTick >= this.fireTick) {
+            if (this.tick - this.progressTick < 1) return;
+        } else {
+            if (this.tick - this.fireTick < SMELT_REFIRE_TICKS) return;
+            if (++this.dry > SMELT_MAX_DRY) {
+                this.fail('smelt', `${SMELT_MAX_DRY} steel bars on furnace ${furnace.id} at ${furnace.x},${furnace.z} made no cannonballs @ ${s.player!.worldX},${s.player!.worldZ}`);
+                return;
+            }
+        }
+        const bar = s.inventory.find(i => STEEL_BAR_RE.test(i.name))!;
+        const r = this.exec({ type: 'useItemOnLoc', itemSlot: bar.slot, x: furnace.x, z: furnace.z, locId: furnace.id, reason: 'steel bar on furnace' });
+        if (!r.ok) this.log.log('WARN', `steel bar on furnace failed: ${r.reason}`);
+        this.fireTick = this.tick;
+    }
+}
+
 function has(n: NearbyNpc, re: RegExp): boolean {
     return n.optionsWithIndex.some(o => re.test(o.text));
 }
@@ -1475,7 +1647,8 @@ const JOBS: Record<string, new (name: string, botsDir: string, heartbeatMs: numb
     knights: KnightsBot,
     bignet: BigNetBot,
     guild: GuildBot,
-    essence: EssenceBot
+    essence: EssenceBot,
+    cannonballs: CannonballBot
 };
 
 // ------------------------------------------------------------------ CLI + supervision
