@@ -205,7 +205,15 @@ export async function talkGuildmaster(q: Quest): Promise<void> {
     const inside = () => pos(q).level === 0 && pos(q).z < GUILD_DOOR.z && Math.abs(pos(q).x - GUILD_DOOR.x) <= 8 && pos(q).z >= GUILD_DOOR.z - 12;
     if (!inside()) {
         await q.goTo({ x: GUILD_DOOR.x, z: GUILD_DOOR.z + 1 }, 1);
-        await op(q, GUILD_DOOR, /door/i, /open/i, inside, "Champions' Guild door");
+        const t0 = tickNow(q.sdk);
+        // champions_guild.rs2: under 32 QP the door only says so. That is a prerequisite, not a failure: 21 runs
+        // burned their tries on it (jacklove5, jacklove12, jacklove16, ABGARMY11, ABGARMY16, 2026-11-01..03).
+        const refused = () =>
+            (q.sdk.getState()?.gameMessages ?? []).some((m) => m.tick >= t0 && /need at least 32 quest points/i.test(m.text ?? ''));
+        await op(q, GUILD_DOOR, /door/i, /open/i, () => inside() || refused(), "Champions' Guild door").catch((e) => {
+            if (!refused()) throw e;
+        });
+        if (refused() && !inside()) throw new Error("prerequisite gate: 32 Quest Points for the Champions' Guild door");
     }
     await talkPicks(q, /^guild master$/i, [/rune plate mail body/i]);
 }

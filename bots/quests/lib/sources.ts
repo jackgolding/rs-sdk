@@ -636,8 +636,23 @@ export const SOURCES: Record<string, Source> = {
             await buyWaitingForRestock(q, BOBS_AXES, 'bronze axe', 1);
         },
     },
-    // The Lumbridge spawn is contested (jacklove11's Lost City failed twice on it, 2026-11-01): the mule first.
-    knife: { tool: true, muleSupply: 'jackthief', get: (q, count) => pickUpSpawn(q, LUMBRIDGE_KNIFE, 'knife', count) },
+    // The Lumbridge spawn is contested (jacklove11's Lost City failed twice on it, 2026-11-01): the mule first,
+    // then the spawn for a while, then Shantay (shantaypass.inv stock6=knife,10). jackthief held no knife
+    // (2026-11-09), so the spawn was the only source: 6 Lost City failures, jacklove11 and jacklove19.
+    knife: {
+        tool: true,
+        muleSupply: 'jackthief',
+        inputs: () => [{ item: 'coins', count: 30 + SHANTAY_TOLLS }],
+        get: async (q, count) => {
+            try {
+                await pickUpSpawn(q, LUMBRIDGE_KNIFE, 'knife', count, 30);
+            } catch (e) {
+                q.log(`knife: ${(e as Error).message}; buying one from Shantay`);
+                await q.ensure('coins', 1);
+                await buyWaitingForRestock(q, SHANTAY, 'knife', count);
+            }
+        },
+    },
     needle: {
         tool: true,
         inputs: () => [{ item: 'coins', count: 1 }],
@@ -958,11 +973,15 @@ export const SOURCES: Record<string, Source> = {
      */
     plank: {
         obj: 'woodplank',
+        // The Barbarian Outpost spawns are the only source no shop replaces (Razmire's is in Mort'ton): a mule
+        // that banks planks serves first. 14 Dragon Slayer runs left 0/3 when several accounts shared the
+        // spawns (2026-10-31): 3000 ticks from arrival, not 1500, outlasts a crowd.
+        muleSupply: 'jackthief',
         get: async (q, count) => {
             await q.goTo(PLANK_SPAWNS[0]!, 3);
             // Timed from arrival: the walk from Draynor alone is ~2750 ticks (Jackpoo5, 2026-10-31).
             const t0 = tickNow(q.sdk);
-            while (q.count('plank') < count && tickNow(q.sdk) - t0 < 1500) {
+            while (q.count('plank') < count && tickNow(q.sdk) - t0 < 3000) {
                 const plank = q.sdk.findGroundItem(/^plank$/i, { reachable: true });
                 if (!plank || plank.distance > 10) {
                     await q.sdk.waitForTicks(5);
@@ -2472,12 +2491,12 @@ function impBead(colour: string): Source {
 }
 
 /** Pick up a respawning ground item at `tile` until holding `count`. */
-async function pickUpSpawn(q: Quest, tile: { x: number; z: number }, item: string, count: number): Promise<void> {
+async function pickUpSpawn(q: Quest, tile: { x: number; z: number }, item: string, count: number, polls = 90): Promise<void> {
     await q.goTo(tile, 2);
     const pattern = itemPattern(item);
     // ~450 ticks: shared spawns (Catherby's insect repellent) are taken by other accounts; 150 was not
     // enough to see one respawn (ABGARMY06 failed twice, 2026-11-04).
-    for (let i = 0; i < 90 && q.count(item) < count; i++) {
+    for (let i = 0; i < polls && q.count(item) < count; i++) {
         await q.sdk.scanGroundItems(8).catch(() => undefined);
         const ground = q.sdk.findGroundItem(pattern);
         if (!ground) {
