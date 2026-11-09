@@ -1301,7 +1301,9 @@ export async function runQuest(def: QuestDef): Promise<void> {
         console.log(`game client outage outlasted the retries: ${result.error?.message}`);
         process.exit(OUTAGE_EXIT);
     }
-    if (/^prerequisite gate: /.test(result.error?.message ?? '')) {
+    // A skill short is a prerequisite too: the runner waits and re-checks instead of spending a try on it
+    // (Crest's Magic 59 / Smithing 40 burned ABGARMY09's and jacklove7's tries for days, 2026-11-05..08).
+    if (/^(prerequisite|skill) gate: /.test(result.error?.message ?? '')) {
         console.log(result.error!.message);
         process.exit(PREREQ_EXIT);
     }

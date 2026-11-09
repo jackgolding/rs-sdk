@@ -84,7 +84,7 @@ export type Outcome =
 export function classifyExit(code: number, tail: string, slotsFullExit = 75): Outcome {
     if (code === slotsFullExit) return { kind: 'deferred' };
     if (code === NEEDS_STOCK_EXIT) return { kind: 'stock', short: parseShort(tail) };
-    if (code === PREREQ_EXIT) return { kind: 'prereq', missing: /prerequisite gate: ([^\n]+)/.exec(tail)?.[1] ?? 'unknown' };
+    if (code === PREREQ_EXIT) return { kind: 'prereq', missing: /(?:prerequisite|skill) gate: ([^\n]+)/.exec(tail)?.[1] ?? 'unknown' };
     if (code === OUTAGE_EXIT) return { kind: 'outage' };
     if (code !== 0) return { kind: 'fail', why: `exited ${code}` };
     // The child read the journal itself; a resumed run can miss checkpoints the journal has already passed.

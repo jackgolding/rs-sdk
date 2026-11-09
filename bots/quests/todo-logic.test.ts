@@ -20,6 +20,7 @@ describe('classifyExit', () => {
             short: [{ item: 'opal', count: 1 }, { item: 'rune axe', count: 2 }],
         });
         expect(classifyExit(5, 'prerequisite gate: Dragon Slayer not complete')).toEqual({ kind: 'prereq', missing: 'Dragon Slayer not complete' });
+        expect(classifyExit(5, 'skill gate: account cannot do this quest yet (needs magic 59)')).toEqual({ kind: 'prereq', missing: 'account cannot do this quest yet (needs magic 59)' });
     });
     test('a lost game client is an outage, not a failure', () => {
         expect(classifyExit(6, 'game client outage outlasted the retries')).toEqual({ kind: 'outage' });

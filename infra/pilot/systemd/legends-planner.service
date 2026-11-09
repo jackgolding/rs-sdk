@@ -1,0 +1,11 @@
+[Unit]
+Description=rs-sdk Legends planner (queue each account's Legends chain, pair Arrav/Heroes, promote swarm accounts)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/srv/fleet/repo
+ExecStart=/usr/local/bin/bun infra/pilot/legends-planner.ts
+TimeoutStartSec=900

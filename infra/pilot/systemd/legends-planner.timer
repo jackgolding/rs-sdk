@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the Legends planner every 30 minutes
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=30min
+Unit=legends-planner.service
+
+[Install]
+WantedBy=timers.target
