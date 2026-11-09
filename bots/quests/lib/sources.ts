@@ -356,7 +356,16 @@ export const SOURCES: Record<string, Source> = {
      */
     // jackthief first (prepare's mule round), pickpocketing only what it did not hand over:
     // jacklove20 walked ~4800 ticks to Lumbridge to pickpocket 15 coins for Plague City (2026-11-03).
-    coins: { muleSupply: 'jackthief', get: (q, count) => pickpocketCoins(q, count) },
+    // A hub bank within 60 tiles first, then men's pockets: pickpocketing makes ~46 coins in 200 ticks, and six Crest
+    // runs failed at Aubury on 16-23 coins with millions banked (ABGARMY06, ABGARMY09 and others, 2026-11-07/08).
+    coins: {
+        muleSupply: 'jackthief',
+        get: async (q, count) => {
+            const p = q.sdk.getState()?.player;
+            if (p) await coinsFromNearestBank(q, count, { x: p.worldX, z: p.worldZ });
+            if (q.count('coins') < count) await pickpocketCoins(q, count);
+        },
+    },
 
     pickaxe: {
         obj: 'bronze_pickaxe',
@@ -1850,6 +1859,12 @@ async function lureSalmon(q: Quest, count: number): Promise<void> {
         while (raw() > 0 && cooked() < count) await cookAtPalaceRange(q, RAW, COOKED);
     }
     if (cooked() < count) throw new Error(`salmon: ${cooked()}/${count} cooked after ${tickNow(q.sdk) - t0}t`);
+    // The rod, feathers and any last-cast trout or burnt fish are this source's own leftovers and nothing after it
+    // wants them: jacklove1's Crest pack hit 28/28 on them and failed buying the necklace mould (2026-11-09).
+    const spent = /^(fly fishing rod|feather|raw trout|burnt fish)$/i;
+    for (const it of q.sdk.getInventory().filter((i) => spent.test(i.name))) await q.sdk.sendDropItem(it.slot).catch(() => undefined);
+    await untilTicks(q.sdk, () => !q.sdk.getInventory().some((i) => spent.test(i.name)), 6);
+    q.log(`salmon: ${cooked()} cooked; dropped the rod, feathers and spare fish (pack ${q.sdk.getInventory().length}/28)`);
 }
 
 async function vialsOfWater(q: Quest, count: number): Promise<void> {
@@ -2269,6 +2284,31 @@ function runes(item: string, price: number, shop: { x: number; z: number; npc: R
  */
 function messageCursor(q: Quest): number {
     return Math.max(0, ...(q.sdk.getState()?.gameMessages ?? []).map((m) => m.observationId ?? m.tick));
+}
+
+/**
+ * Coins up to `want` (plus a float) from whichever hub bank is nearest `near`, if one is within 60 tiles; the shop is
+ * walked back to by the caller. Nothing is thrown: the caller's ensure('coins') still covers a bank without them.
+ */
+async function coinsFromNearestBank(q: Quest, want: number, near: { x: number; z: number }): Promise<void> {
+    if (q.count('coins') >= want) return;
+    const { SAFE_BANKS } = await import('../safe-stops');
+    const bank = Object.values(SAFE_BANKS).sort((a, b) => Math.hypot(a.x - near.x, a.z - near.z) - Math.hypot(b.x - near.x, b.z - near.z))[0];
+    if (!bank || Math.hypot(bank.x - near.x, bank.z - near.z) > 60) return;
+    try {
+        await q.goTo(bank, 4);
+        const opened = await q.bot.openBank();
+        if (!opened.success && !q.sdk.getState()?.bank?.isOpen) return;
+        const c = q.sdk.getBankItems().find((b) => /^coins$/i.test(b.name) && b.count > 0);
+        // A float over the batch: shop prices climb as stock runs down.
+        if (c) await q.bot.withdrawItem(c, Math.min(c.count, Math.max(0, want * 2 + 200 - q.count('coins'))));
+        await untilTicks(q.sdk, () => q.count('coins') >= want, 6);
+        q.log(`coins: ${q.count('coins')} after the bank at (${bank.x},${bank.z})`);
+    } catch (e) {
+        q.log(`coins from the bank at (${bank.x},${bank.z}): ${(e as Error).message}`);
+    } finally {
+        await q.bot.closeBank().catch(() => undefined);
+    }
 }
 
 /** Shops restock slowly; a bot that finds the shelf empty waits at the counter rather than failing. */
