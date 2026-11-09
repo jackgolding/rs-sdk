@@ -11,14 +11,16 @@
  * runes it walks out under Protect from Melee. The journal reads the cage in the pack, so the cage is always carried.
  * Reward: 1 QP, Strength XP.
  */
-import { runQuest } from './lib/run-quest';
-import { CAGES, leaveSorcererTower, scorpionA, scorpionB, scorpionC, talkSeer, talkThormac, toCamelot } from './lib/scorpion-catcher';
+import { runQuest, type Quest } from './lib/run-quest';
+import { CAGES, has, leaveSorcererTower, scorpionA, scorpionB, scorpionC, talkSeer, talkThormac, toCamelot } from './lib/scorpion-catcher';
 
 const stage = (id: string, kind: 'unstarted' | 'active' | 'complete', all: string[], none: string[] = []) => ({
     id,
     rule: { id: `scorp:${id}`, kind, all, none },
 });
 
+const cageHeld = (q: Quest) => q.sdk.getInventory().some((i) => (CAGES as number[]).includes(i.id));
+const KIT_A = [{ item: 'melee weapon', count: 1 }, { item: 'shark', count: 10 }, { item: 'dragonbreath shield', count: 1 }, { item: 'law rune', count: 2 }, { item: 'air rune', count: 10 }];
 const camelot = [
     { item: 'law rune', count: 1 },
     { item: 'air rune', count: 5 },
@@ -55,8 +57,13 @@ await runQuest({
             to: 'hint2',
             // Taverley's inner dungeon: the Jailer, blue dragons (the shield), poison spiders, a lesser demon.
             // Two Camelot casts: out of the dungeon after A, and back west from the monastery after C.
-            needs: [{ item: 'melee weapon', count: 1 }, { item: 'shark', count: 10 }, { item: 'dragonbreath shield', count: 1 }, { item: 'law rune', count: 2 }, { item: 'air rune', count: 10 }],
+            needs: () => KIT_A,
             run: async (q) => {
+                if (!cageHeld(q)) {
+                    q.log('scorp: no cage held at hint1 — a new one from Thormac');
+                    await talkThormac(q, [/i'?ve lost my cage/i]);
+                    await leaveSorcererTower(q);
+                }
                 await scorpionA(q);
                 await talkSeer(q);
             },
@@ -64,8 +71,18 @@ await runQuest({
         {
             from: 'hint2',
             to: 'caught',
-            needs: [{ item: 'shark', count: 3 }, ...camelot],
+            // A lost cage (none held after the prologue's carry, none banked) means all three again: Thormac's
+            // replacement is empty (thormac.rs2 thormac_lost_cage). jacklove20 failed "no scorpion cage" at hint2,
+            // 2026-11-09. Then the run carries scorpion A's kit too.
+            needs: (q) => (cageHeld(q) ? [{ item: 'shark', count: 3 }, ...camelot] : KIT_A),
             run: async (q) => {
+                if (!cageHeld(q)) {
+                    q.log("scorp: no cage held at hint2 — a new one from Thormac, and scorpion A again");
+                    await talkThormac(q, [/i'?ve lost my cage/i]);
+                    await leaveSorcererTower(q);
+                    if (!cageHeld(q)) throw new Error('scorp: Thormac gave no replacement cage');
+                }
+                if (!has(q, 'a')) await scorpionA(q);
                 await scorpionC(q);
                 await toCamelot(q);
                 await scorpionB(q);

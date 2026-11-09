@@ -826,7 +826,10 @@ export const SOURCES: Record<string, Source> = {
                 // column 1123 (smithing.inv smithing_bronze5 stock4=bronzecraftwire), Make 1.
                 await q.goTo({ x: 2713, z: 3493 }, 1);
                 await q.reach(/^anvil$/i).catch(() => undefined);
-                for (let miss = 0; miss < 4 && q.count('bronze wire') < 1; miss++) {
+                // One more wire than at the start of this bar: `< 1` stopped every call at its first wire, so a
+                // pack of bars made one (wire-stock's local run, 2026-11-09).
+                const before = q.count('bronze wire');
+                for (let miss = 0; miss < 4 && q.count('bronze wire') <= before; miss++) {
                     await closeUi(q.bot, q.sdk);
                     const anvil = q.sdk.findNearbyLoc(/^anvil$/i);
                     const bar = q.sdk.findInventoryItem(/^bronze bar$/i);
@@ -840,7 +843,7 @@ export const SOURCES: Record<string, Source> = {
                         continue;
                     }
                     await q.sdk.sendClickComponentWithOption(1123, 1, 3);
-                    await untilTicks(q.sdk, () => q.count('bronze wire') > 0, 10);
+                    await untilTicks(q.sdk, () => q.count('bronze wire') > before, 10);
                 }
             }
         },
