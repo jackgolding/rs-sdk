@@ -8,6 +8,8 @@
  * records you picking up) are not sources — leave them to the transition, or
  * mark them `spawnable: false` so assisted runs never fake them.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Quest } from './run-quest';
 import { combine, cookAtPalaceRange, fetchJugOfWater, makeDough } from './cooking';
 import { mineAtRimmington, mineBlurite, mineRuneEssence, ROCKS, type Ore } from './mining';
@@ -76,6 +78,35 @@ export interface Source {
 export function mulesFor(item: string): string[] {
     const by = SOURCES[item]?.muleSupply;
     return by ? (Array.isArray(by) ? by : [by]) : [];
+}
+
+/**
+ * For the prepare phase (at the hub, before any quest step): mulesFor, or jackthief when no mule is named but its
+ * published bank holds the item, so a gather or a contested spawn comes after the mule. jacklove3's Plague City
+ * failed picking snape grass with 1,055 at jackthief (2026-11-09). Not mid-run: requestFromMule walks to the
+ * mule's bank, which from a quest step can be across the map.
+ */
+export function prepareMulesFor(item: string): string[] {
+    const named = mulesFor(item);
+    return named.length || !SOURCES[item] || !fallbackMuleHolds(item) ? named : [FALLBACK_MULE];
+}
+
+const FALLBACK_MULE = 'jackthief';
+let fallbackStock: { at: number; items: Record<string, number> } | null = null;
+let fallbackReadAt = 0;
+/** jackthief's quest-mule.ts snapshot (bots/.mule-stock), fresh within 30 minutes; re-read once a minute. */
+function fallbackMuleHolds(item: string): boolean {
+    if ((process.env.BOT_USERNAME ?? '').toLowerCase() === FALLBACK_MULE) return false;
+    if (Date.now() - fallbackReadAt > 60_000) {
+        fallbackReadAt = Date.now();
+        try {
+            fallbackStock = JSON.parse(readFileSync(join(process.cwd(), 'bots', '.mule-stock', `${FALLBACK_MULE}.json`), 'utf8'));
+        } catch {
+            fallbackStock = null;
+        }
+    }
+    if (!fallbackStock || Date.now() - fallbackStock.at > 30 * 60_000) return false;
+    return (fallbackStock.items?.[item.toLowerCase()] ?? 0) > 0;
 }
 
 /**

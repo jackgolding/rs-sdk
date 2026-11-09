@@ -51,7 +51,7 @@ import { countItems, requireSkills } from '../quest-lib';
 import { depositAllInventory, type SupplyCtx } from '../quest-supplies';
 import { requestFromMule } from '../supply';
 import { SAFE_BANKS, type SafeBankName } from '../safe-stops';
-import { GROUPS, itemPattern, mulesFor, needMet, SOURCES, type Need } from './sources';
+import { GROUPS, itemPattern, mulesFor, prepareMulesFor, needMet, SOURCES, type Need } from './sources';
 import { TRAINERS } from './training';
 import { talkThrough } from './dialog';
 import { enterStuckArea, leaveStuckArea } from './doors';
@@ -1111,7 +1111,7 @@ export async function runQuest(def: QuestDef): Promise<void> {
             for (let round = 0; ; round++) {
                 const byMule = new Map<string, Need[]>();
                 for (const need of needs) {
-                    const by = mulesFor(need.item)[round];
+                    const by = prepareMulesFor(need.item)[round];
                     if (by && !needMet(q, need)) byMule.set(by, [...(byMule.get(by) ?? []), need]);
                 }
                 if (byMule.size === 0) return;
