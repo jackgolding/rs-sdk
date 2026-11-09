@@ -414,9 +414,12 @@ const AXE = want('rune axe');
 // The complete notes count even at stage 1: radimus_notes.rs2 swaps them without setting the stage when the last section's script was cut short.
 const MAP = (q: Quest): Want =>
     stageNum(q) >= 2 || heldId(q, ID.notesDone) || q.sdk.getBankItems().some((b) => b.id === ID.notesDone) ? quest('radimus notes (complete)', ID.notesDone) : quest('radimus notes', ID.notes);
-/** Coins: on the mainland both boats; on Karamja (or below it) the boat home. */
+/**
+ * Coins: on Karamja (or below it) the boat home; on the mainland a float for every fare, Radimus's copies and
+ * the blessing's restocks, so a short purse never costs a trip back (jacklove7's 28 coins at the dock, 2026-11-08).
+ */
 const BASE = (q: Quest): Want[] => [
-    want('coins', onIsland(pos(q)) || inLegendsArea(pos(q)) ? 30 : 100),
+    onIsland(pos(q)) || inLegendsArea(pos(q)) ? want('coins', 30) : want('coins', 500, { min: 100 }),
     AXE,
     quest('machete', ID.machete),
     MAP(q),

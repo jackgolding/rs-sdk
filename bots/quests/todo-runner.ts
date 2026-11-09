@@ -338,7 +338,9 @@ async function runItem(item: TodoItem): Promise<'failed' | 'outage' | 'ok'> {
   }
 }
 
-const RECHECK_MS = Number(process.env.TODO_RECHECK_MIN ?? 20) * 60_000;
+// Five minutes: Legends starts sat up to 20 behind a grind that had already finished its list (2026-11-08).
+// A check is two file reads; stillFull() keeps a slot-bound quest from bouncing the grind.
+const RECHECK_MS = Number(process.env.TODO_RECHECK_MIN ?? 5) * 60_000;
 let queue = loadQueue();
 const pending = () => queue.filter(i => !isDone(i) && !exhausted(i) && !blocked(i) && !waiting(i));
 log(`${account} — ${pending().length} pending of ${queue.length}${thenCmd.length ? ` · then ${thenCmd.join(' ')}` : ''}`);

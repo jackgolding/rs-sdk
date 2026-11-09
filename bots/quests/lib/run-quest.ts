@@ -1242,6 +1242,22 @@ export async function runQuest(def: QuestDef): Promise<void> {
         log('QUEST COMPLETE (journal-verified)');
         return true;
     };
+    // A step that fails because the client dropped under it reads stale state and throws a quest error
+    // ("could not get into the octagram", "no germinated seeds"), not an outage: ABGARMY03 and jacklove7
+    // each lost a Legends try that way off the Brimhaven boat (2026-11-08). With the link down at the
+    // throw, it is an outage: resume from the journal stage, no failure counted.
+    let link: { disconnect(): Promise<void> } | null = null;
+    const guarded: typeof body = async (ctx) => {
+        link = ctx.sdk;
+        try {
+            return await body(ctx);
+        } catch (err) {
+            if (err instanceof NeedsStock || OUTAGE.test((err as Error)?.message ?? '')) throw err;
+            const down = !ctx.sdk.isConnected() || ctx.sdk.getStateAge() > 15_000;
+            if (down) throw new Error(`game client disconnected under the step (${(err as Error)?.message})`);
+            throw err;
+        }
+    };
 
     // A game-server blip drops every client at once (13:34 and 14:01 on 2026-10-29): the
     // runner used to fail the quest and burn a retry on each account. Wait for the client
@@ -1252,7 +1268,16 @@ export async function runQuest(def: QuestDef): Promise<void> {
     // Quests (not tasks: those have no stages) start one fleet-wide every 5 minutes.
     if (def.stages.length > 0) await awaitQuestStartTurn(def.id, account, grindLog);
     process.once('exit', releaseSlot);
-    let result = await runScript(body);
+    // The link is closed here, not by runScript: its disconnectAfter arms a 5 s "event loop still alive" force-exit
+    // that fired inside the 60 s outage wait below and ended the run with exit 1, so no outage ever resumed
+    // (probed on the local gate, 2026-11-09). Closed before each wait too: a fresh attempt makes a new
+    // connection, and the old one's auto-reconnect must not come back as a second controller.
+    const closeLink = async () => {
+        const l = link;
+        link = null;
+        if (l) await Promise.race([l.disconnect().catch(() => undefined), new Promise((r) => setTimeout(r, 10_000))]);
+    };
+    let result = await runScript(guarded, { disconnectAfter: false });
     for (let outage = 1; outage <= OUTAGE_RETRIES && !result.success && OUTAGE.test(result.error?.message ?? ''); outage++) {
         const line = `game client lost (${result.error?.message}); resuming in ${OUTAGE_WAIT_MS / 1000}s (${outage}/${OUTAGE_RETRIES})`;
         console.error(line);
@@ -1262,9 +1287,11 @@ export async function runQuest(def: QuestDef): Promise<void> {
             /* the log must never break the retry */
         }
         // Wall-clock, not ticks: there is no game client to count ticks with.
+        await closeLink();
         await sleepWithoutClient(OUTAGE_WAIT_MS);
-        result = await runScript(body);
+        result = await runScript(guarded, { disconnectAfter: false });
     }
+    await closeLink();
 
     if (result.error instanceof NeedsStock) {
         console.log(result.error.message);

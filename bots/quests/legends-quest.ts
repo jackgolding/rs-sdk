@@ -89,8 +89,9 @@ await runQuest({
     requires: ["Hero's Quest", 'Family Crest', 'Shilo Village', 'Underground Pass', 'Waterfall Quest'],
     skills: { magic: 56, mining: 52, agility: 50, crafting: 50, smithing: 50, strength: 50, thieving: 50, woodcutting: 50, herblore: 45, prayer: 42 },
     // One jungle, one octagram, one source: Gujuo and Nezikchened spawn per player, but two accounts
-    // on the same boulder or tree would fight over it.
-    maxConcurrent: 2,
+    // on the same boulder or tree would fight over it. Three: accounts queued behind two places for
+    // hours while the runs spend most of their time on different legs (user, 2026-11-09).
+    maxConcurrent: 3,
     // Each step can take a long walk; three tries of a step are cheap next to restarting the quest.
     retries: 3,
     journal: JOURNAL,
