@@ -110,6 +110,9 @@ await runQuest({
         'dragonfire shield',
         'amulet of strength',
     ],
+    // Worn as the prologue withdraws it: banked armour sat in the pack and ABGARMY16's prepare failed at 28/28 buying a
+    // bronze bar for the wire (2026-11-09).
+    wear: ['dragonhide body', 'dragonhide chaps', 'dragon vambraces', 'berserker helm', 'dragonfire shield', 'amulet of strength'],
     journal: { label: 'Shilo Village', title: 'Shilo Village' },
     stages: [
         stage('unstarted', 'unstarted', ['I can start this quest by speaking to']),
