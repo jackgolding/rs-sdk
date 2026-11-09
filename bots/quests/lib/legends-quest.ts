@@ -536,7 +536,10 @@ export async function restock(q: Quest, wants: Want[], why: string): Promise<voi
         const src = SOURCES[w.label];
         // Mule-only lines too: a re-descent spends cosmic runes that stockCheck does not cover past stage viyeldi.
         if (!src?.get && !src?.muleSupply) continue;
-        await q.ensure(w.label, w.min ?? w.count).catch((e) => q.log(`legends: sourcing ${w.label}: ${(e as Error).message}`));
+        // The full count, not the minimum: mapping asked jackthief for one papyrus at a time and sailed home and back
+        // for each of the three sections, 12 of the stage's 18 minutes (ABGARMY09, 2026-11-08). Short of the count, the
+        // min still decides below.
+        await q.ensure(w.label, w.count).catch((e) => q.log(`legends: sourcing ${w.label}: ${(e as Error).message}`));
         if (heldOf(q, w) >= (w.min ?? w.count)) missing.splice(missing.indexOf(w), 1);
     }
     if (missing.length) throw new NeedsStock(missing.map((w) => ({ item: w.label, count: w.count - heldOf(q, w) })));
